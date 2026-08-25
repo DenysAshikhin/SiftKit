@@ -11,34 +11,51 @@ import type {
   AgentLoopInvalidResponseResult,
   AgentLoopModelData,
   AgentLoopPreparedTurn,
-  AgentLoopProgressAction,
   AgentLoopPromptAdapter,
   AgentLoopResponseContext,
   AgentLoopToolAction,
   AgentLoopToolAdapter,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-  AgentLoopTurnOutcome,
 } from '../src/agent-loop/types.js';
 import type {
   LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from '../src/llm-protocol/types.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 const SUMMARY_PARSE_OPTIONS = {
-  toolDefinitions: buildSummaryPlannerToolDefinitions(),
-  allowUnsupportedInput: false,
+  toolDefinitions: buildSummaryPlannerToolDefinitions(undefined, false),
 } as const;
+const REPO_PARSE_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions(['grep', 'read']);
+
+function parserResponse(
+  text: string,
+  toolCalls: NormalizedLlamaCppChatResponse['toolCalls'] = [],
+): NormalizedLlamaCppChatResponse {
+  return {
+    text,
+    reasoningText: '',
+    toolCalls,
+    usage: stubUsage(1),
+    raw: {},
+    stoppedEarly: false,
+    invalidFrameCount: 0,
+  };
+}
 
 test('agent loop action parser parses repo-search and summary planner actions explicitly', () => {
   const parser = new AgentLoopActionParser();
 
-  const repo = parser.parseRepoSearchAction('{"action":"finish","output":"done"}', ['grep']);
-  const summary = parser.parseSummaryPlannerAction(
-    '{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}',
+  const repo = parser.parseRepoSearchActions(parserResponse('done'), REPO_PARSE_DEFINITIONS)[0];
+  const summary = parser.parseSummaryPlannerActions(
+    parserResponse('', [{ id: 'finish-1', type: 'function', function: {
+      name: 'finish',
+      arguments: '{"classification":"summary","raw_review_required":false,"output":"done"}',
+    } }]),
     SUMMARY_PARSE_OPTIONS,
-  );
+  )[0];
 
   assert.equal(repo.kind, 'finish');
   assert.equal(repo.text, 'done');
@@ -51,8 +68,11 @@ test('agent loop action parser expands tool batches into explicit tool actions',
   const parser = new AgentLoopActionParser();
 
   const actions = parser.parseRepoSearchActions(
-    '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"AgentLoop"}},{"toolName":"read","args":{"path":"src/x.ts"}}]}',
-    ['grep', 'read'],
+    parserResponse('', [
+      { id: 'grep-1', type: 'function', function: { name: 'grep', arguments: '{"pattern":"AgentLoop"}' } },
+      { id: 'read-1', type: 'function', function: { name: 'read', arguments: '{"path":"src/x.ts"}' } },
+    ]),
+    REPO_PARSE_DEFINITIONS,
   );
 
   assert.deepEqual(actions.map((action) => action.kind), ['tool', 'tool']);
@@ -85,14 +105,10 @@ class StubPromptAdapter implements AgentLoopPromptAdapter {
 
 class StubActionAdapter implements AgentLoopActionAdapter {
   invalidResponses = 0;
-  progressTexts: string[] = [];
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
     if (response.text === 'invalid') {
       throw new Error('bad json');
-    }
-    if (response.text === 'progress') {
-      return [{ kind: 'progress', text: 'halfway' }];
     }
     return response.text === 'finish'
       ? [{ kind: 'finish', text: 'done' }]
@@ -114,10 +130,6 @@ class StubActionAdapter implements AgentLoopActionAdapter {
       : { accepted: false, outcome: 'continue' };
   }
 
-  async handleProgress(action: AgentLoopProgressAction, _context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
-    this.progressTexts.push(action.text);
-    return 'continue';
-  }
 }
 
 class StubToolAdapter implements AgentLoopToolAdapter {
@@ -247,7 +259,6 @@ test('agent loop carries model data through response contexts', async () => {
       seenData = context.modelData;
       return { accepted: true, outcome: 'stop', finishText: 'done' };
     },
-    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -279,21 +290,26 @@ test('agent loop carries model data through response contexts', async () => {
 test('agent loop action parser covers single-tool repo and summary batches', () => {
   const parser = new AgentLoopActionParser();
 
-  const repoTool = parser.parseRepoSearchAction(
-    '{"action":"tool","toolName":"read","args":{"path":"src/agent-loop/agent-loop.ts"}}',
-    ['read'],
-  );
-  const summaryTool = parser.parseSummaryPlannerAction(
-    '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
-    SUMMARY_PARSE_OPTIONS,
-  );
+  const repoTool = parser.parseRepoSearchActions(parserResponse('', [{
+    id: 'repo-read',
+    type: 'function',
+    function: { name: 'read', arguments: '{"path":"src/agent-loop/agent-loop.ts"}' },
+  }]), REPO_PARSE_DEFINITIONS)[0];
+  const summaryTool = parser.parseSummaryPlannerActions(parserResponse('', [{
+    id: 'summary-find',
+    type: 'function',
+    function: { name: 'find_text', arguments: '{"query":"needle","mode":"literal"}' },
+  }]), SUMMARY_PARSE_OPTIONS)[0];
   const summaryBatch = parser.parseSummaryPlannerActions(
-    '{"action":"tool_batch","calls":[{"toolName":"find_text","args":{"query":"needle","mode":"literal"}},{"toolName":"read_lines","args":{"startLine":1,"endLine":2}}]}',
+    parserResponse('', [
+      { id: 'summary-find-2', type: 'function', function: { name: 'find_text', arguments: '{"query":"needle","mode":"literal"}' } },
+      { id: 'summary-read-2', type: 'function', function: { name: 'read_lines', arguments: '{"startLine":1,"endLine":2}' } },
+    ]),
     SUMMARY_PARSE_OPTIONS,
   );
 
   assert.equal(repoTool.kind, 'tool');
-  assert.equal(repoTool.callId, 'call_1');
+  assert.equal(repoTool.callId, 'repo-read');
   assert.equal(repoTool.toolName, 'read');
   assert.equal(repoTool.args.path, 'src/agent-loop/agent-loop.ts');
   if (summaryTool.kind !== 'tool') {
@@ -310,7 +326,7 @@ test('agent loop action parser covers single-tool repo and summary batches', () 
   if (summaryBatch[1]?.kind !== 'tool') {
     throw new Error('expected second summary batch action to be a tool');
   }
-  assert.equal(summaryBatch[1].callId, 'call_2');
+  assert.equal(summaryBatch[1].callId, 'summary-read-2');
 });
 
 test('agent loop fails loud when required adapters are missing', async () => {
@@ -351,7 +367,6 @@ test('agent loop honors inspect continue and inspect stop without parsing action
     },
     handleInvalidResponse: async () => ({ outcome: 'stop' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
-    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -381,7 +396,6 @@ test('agent loop stops on invalid-response handler stop', async () => {
     inspectResponse: () => null,
     handleInvalidResponse: async () => ({ outcome: 'stop' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
-    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -413,7 +427,6 @@ test('agent loop wraps non-error parse failures before invalid-response handling
       return { outcome: 'stop' };
     },
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
-    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -440,7 +453,6 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     inspectResponse: () => null,
     handleInvalidResponse: async () => ({ outcome: 'continue' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
-    handleProgress: async () => 'continue',
   };
   const emptyToolAdapter = new StubToolAdapter();
   const baseResponse: NormalizedLlamaCppChatResponse = {
@@ -470,7 +482,6 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
       inspectResponse: () => null,
       handleInvalidResponse: async () => ({ outcome: 'continue' }),
       evaluateFinish: async () => ({ accepted: false, outcome: 'continue' }),
-      handleProgress: async () => 'continue',
     },
     toolAdapter: emptyToolAdapter,
     modelClient: { chat: async () => ({ outcome: 'continue', response: baseResponse, data: null }) },
@@ -502,73 +513,56 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
   assert.equal(toolStop.turns[0]?.toolResults[0]?.text, 'stopped');
 });
 
-test('agent loop action parser maps a progress action', () => {
+test('agent loop action parser keeps native narration out of the action layer', () => {
   const parser = new AgentLoopActionParser();
 
-  const actions = parser.parseRepoSearchActions('{"action":"progress","output":"RED done; starting GREEN"}', ['grep']);
+  const actions = parser.parseRepoSearchActions(parserResponse('RED done; starting GREEN', [{
+    id: 'grep-progress',
+    type: 'function',
+    function: { name: 'grep', arguments: '{"pattern":"x"}' },
+  }]), REPO_PARSE_DEFINITIONS);
 
   assert.equal(actions.length, 1);
   const action = actions[0];
-  assert.equal(action?.kind, 'progress');
-  if (action?.kind !== 'progress') {
-    throw new Error('expected progress action');
+  assert.equal(action?.kind, 'tool');
+  if (action?.kind !== 'tool') {
+    throw new Error('expected tool action');
   }
-  assert.equal(action.text, 'RED done; starting GREEN');
+  assert.equal(action.callId, 'grep-progress');
 });
 
-test('progress action validation rejects empty output and extra keys', () => {
+test('native parser rejects empty responses and invalid tool arguments', () => {
   const parser = new AgentLoopActionParser();
 
   assert.throws(
-    () => parser.parseRepoSearchActions('{"action":"progress","output":"  "}', ['grep']),
-    /invalid planner progress action/u,
+    () => parser.parseRepoSearchActions(parserResponse(''), REPO_PARSE_DEFINITIONS),
+    /neither content nor tool calls/u,
   );
   assert.throws(
-    () => parser.parseRepoSearchActions('{"action":"progress","output":"x","extra":1}', ['grep']),
-    /Unrecognized key: "extra"/u,
+    () => parser.parseRepoSearchActions(parserResponse('', [{
+      id: 'bad-grep',
+      type: 'function',
+      function: { name: 'grep', arguments: '{"extra":1}' },
+    }]), REPO_PARSE_DEFINITIONS),
+    /invalid.*pattern/iu,
   );
-});
-
-test('agent loop routes a progress action through handleProgress and continues', async () => {
-  const actionAdapter = new StubActionAdapter();
-  const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'progress', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
-    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
-  ];
-  const loop = new AgentLoop({
-    maxTurns: 3,
-    promptAdapter: new StubPromptAdapter(),
-    actionAdapter,
-    toolAdapter: new StubToolAdapter(),
-    modelClient: {
-      chat: async () => {
-        const response = responses.shift();
-        assert.ok(response);
-        return { outcome: 'continue', response, data: null };
-      },
-    },
-  });
-
-  const result = await loop.run();
-
-  assert.equal(result.reason, 'finished');
-  assert.equal(result.finishText, 'done');
-  assert.deepEqual(actionAdapter.progressTexts, ['halfway']);
 });
 
 test('agent loop action parser applies the summary unsupported-input finish policy', () => {
   const parser = new AgentLoopActionParser();
-  const unsupportedFinish = '{"action":"finish","classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}';
+  const unsupportedFinish = parserResponse('', [{ id: 'finish-unsupported', type: 'function', function: {
+    name: 'finish',
+    arguments: '{"classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}',
+  } }]);
 
   assert.throws(
-    () => parser.parseSummaryPlannerAction(unsupportedFinish, SUMMARY_PARSE_OPTIONS),
-    /invalid planner finish action/u,
+    () => parser.parseSummaryPlannerActions(unsupportedFinish, SUMMARY_PARSE_OPTIONS),
+    /classification.*expected one of.*summary.*command_failure/u,
   );
 
-  const allowed = parser.parseSummaryPlannerAction(unsupportedFinish, {
-    ...SUMMARY_PARSE_OPTIONS,
-    allowUnsupportedInput: true,
-  });
+  const allowed = parser.parseSummaryPlannerActions(unsupportedFinish, {
+    toolDefinitions: buildSummaryPlannerToolDefinitions(),
+  })[0];
   assert.equal(allowed.kind, 'finish');
   assert.equal(allowed.classification, 'unsupported_input');
   assert.equal(allowed.rawReviewRequired, true);

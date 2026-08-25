@@ -135,7 +135,7 @@ test('condense is rejected while the same session is streaming and allowed once 
     // exactly like any other turn driven through this harness.
     const otherCondense = await requestJson(
       `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/condense`,
-      { method: 'POST', body: JSON.stringify({ mockResponses: ['summary-b'] }) },
+      { method: 'POST', body: JSON.stringify({ mockResponses: [{ content: 'summary-b' }] }) },
     );
     assert.equal(otherCondense.statusCode, 200);
 
@@ -144,7 +144,7 @@ test('condense is rejected while the same session is streaming and allowed once 
 
     const settledCondense = await requestJson(
       `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/condense`,
-      { method: 'POST', body: JSON.stringify({ mockResponses: ['summary-a'] }) },
+      { method: 'POST', body: JSON.stringify({ mockResponses: [{ content: 'summary-a' }] }) },
     );
     assert.equal(settledCondense.statusCode, 200);
     const condensedMessages = asObjectArray(asObject(asObject(settledCondense.body).session).messages);

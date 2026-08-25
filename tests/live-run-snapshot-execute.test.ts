@@ -26,8 +26,8 @@ test('transcript records preflight start and command start events for every turn
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
-        '{"action":"finish","output":"Found scripts"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { content: "Found scripts" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
@@ -49,8 +49,8 @@ test('a live snapshot exists while the run is in flight and is removed once it f
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
-        '{"action":"finish","output":"Found scripts"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { content: "Found scripts" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '', delayMs: 1500 },
@@ -83,7 +83,7 @@ test('a failed run removes its live snapshot', async () => {
       prompt: 'find build scripts',
       repoRoot,
       maxTurns: 1,
-      mockResponses: ['{"action":"finish","output":"never runs"}'],
+      mockResponses: [{ content: "never runs" }],
     }));
 
     assert.equal(fs.existsSync(snapshotPath), false);
@@ -105,8 +105,8 @@ test('the live snapshot is skipped when SIFTKIT_LIVE_SNAPSHOT=0', async () => {
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
-          '{"action":"finish","output":"Found scripts"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+          { content: "Found scripts" },
         ],
         mockCommandResults: {
           "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },

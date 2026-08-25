@@ -1,31 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ActivitySummaryCollector } from '../src/repo-search/engine/activity-summary-collector.js';
-import type { RepoSearchToolAction } from '../src/planner-protocol/repo-search.js';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
 import type { TaskCommand } from '../src/repo-search/prompts.js';
 
-function makeReadAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'read', args: { path } };
+function makeReadAction(path: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_1', toolName: 'read', args: { path } };
 }
 
-function makeGitAction(operation: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'git', args: { operation } };
+function makeGitAction(operation: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_2', toolName: 'git', args: { operation } };
 }
 
-function makeRunAction(command: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'run', args: { command } };
+function makeRunAction(command: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_3', toolName: 'run', args: { command } };
 }
 
-function makeEditAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'edit', args: { path } };
+function makeEditAction(path: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_4', toolName: 'edit', args: { path } };
 }
 
-function makeWriteAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'write', args: { path } };
+function makeWriteAction(path: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_5', toolName: 'write', args: { path } };
 }
 
-function makeWebSearchAction(query: string): RepoSearchToolAction {
-  return { action: 'tool', toolName: 'web_search', args: { query } };
+function makeWebSearchAction(query: string): AgentLoopToolAction {
+  return { kind: 'tool', callId: 'test_call_6', toolName: 'web_search', args: { query } };
 }
 
 function makeCommand(command: string, turn: number, safe = true, exitCode = 0): TaskCommand {
@@ -201,9 +201,9 @@ test('labels actions whose planner args omit the expected field', () => {
   collector.recordBatch(
     10,
     [
-      { action: 'tool', toolName: 'read', args: {} },
-      { action: 'tool', toolName: 'web_search', args: {} },
-      { action: 'tool', toolName: 'run', args: {} },
+      { kind: 'tool', callId: 'test_call_7', toolName: 'read', args: {} },
+      { kind: 'tool', callId: 'test_call_8', toolName: 'web_search', args: {} },
+      { kind: 'tool', callId: 'test_call_9', toolName: 'run', args: {} },
     ],
     [makeCommand('read', 10), makeCommand('web_search', 10), makeCommand('run', 10)],
   );

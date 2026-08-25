@@ -1,4 +1,6 @@
-export function repoAgentFinishResponses(output: string): string[] {
-  const response = JSON.stringify({ action: 'finish', output });
+import type { MockPlannerResponseInput } from '../../src/planner-protocol/mock-response.js';
+
+export function repoAgentFinishResponses(output: string): MockPlannerResponseInput[] {
+  const response = { content: output };
   return [response, response];
 }

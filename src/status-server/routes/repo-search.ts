@@ -34,6 +34,7 @@ import {
   type StreamedOperationContext,
 } from './streamed-operation-endpoint.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
+import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.js';
 
 type ParsedRepoSearchRoute = {
   parsedBody: JsonObject;
@@ -111,7 +112,7 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         maxTurns: reader.number('maxTurns') ?? undefined,
         logFile: reader.optionalString('logFile'),
         availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
+        mockResponses: Array.isArray(parsedBody.mockResponses) ? MockPlannerResponsesSchema.parse(parsedBody.mockResponses) : undefined,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
         abortSignal: stream.abortSignal,

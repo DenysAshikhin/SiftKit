@@ -30,7 +30,7 @@ function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMess
   return tokens;
 }
 
-/** Progress shows the prompt the model receives, so the envelope reserve is dropped here too. */
+/** Progress shows the prompt the model receives, so the request reserve is dropped here too. */
 function toTokenizeDoneInfo(preflight: PreflightResult): TokenizeDoneInfo {
   return { ...preflight, promptTokenCount: preflight.transcriptPromptTokenCount };
 }

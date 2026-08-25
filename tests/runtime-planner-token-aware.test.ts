@@ -92,12 +92,7 @@ test('oversized llama.cpp summaries stay on planner status path without leaf chu
       assert.equal(chunkPaths.length, 0);
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner finish',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
       },
       tokenizeCharsPerToken: 1,
       metrics: {
@@ -608,12 +603,7 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
     }, {
       assistantContent(promptText, parsed) {
         if (JSON.stringify(asObject(parsed).response_format || {}).includes('tool_name')) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'planner finish',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
         }
 
         return '{"classification":"summary","raw_review_required":false,"output":"ok"}';

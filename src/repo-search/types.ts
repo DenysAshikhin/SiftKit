@@ -15,6 +15,7 @@ import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
 import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.js';
 import type { RepoSearchTaskKind } from './task-kind.js';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 
 export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.js';
 
@@ -148,7 +149,7 @@ export type RepoSearchExecutionRequest = {
   maxTurns?: number;
   logFile?: string;
   availableModels?: string[];
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
   initialUserImages?: readonly string[];

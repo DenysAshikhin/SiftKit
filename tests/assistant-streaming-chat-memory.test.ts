@@ -86,7 +86,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
           webSearchOverride: 'off',
           availableModels: ['mock'],
           model: 'mock',
-          mockResponses: ['{"action":"finish","output":"PowerShell."}'],
+          mockResponses: [{ content: "PowerShell." }],
         }),
       },
     );

@@ -103,16 +103,6 @@ export class AgentLoop {
           }
           continue;
         }
-        if (action.kind === 'progress') {
-          const progressOutcome = await this.options.actionAdapter.handleProgress(action, {
-            ...responseContext,
-            turns: this.turns,
-          });
-          if (progressOutcome === 'stop') {
-            return this.buildResult('', 'aborted');
-          }
-          continue;
-        }
         toolActions.push(action);
       }
       if (toolActions.length === 0) {

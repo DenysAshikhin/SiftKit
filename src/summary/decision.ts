@@ -8,7 +8,7 @@ import type {
   SummaryResult,
   SummarySourceKind,
 } from './types.js';
-import type { SummaryClassification } from '../planner-protocol/summary.js';
+import type { SummaryClassification } from '../planner-protocol/summary-tools.js';
 
 function getCommandOutputRawReviewRequired(options: {
   text: string;

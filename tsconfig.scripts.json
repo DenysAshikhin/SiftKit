@@ -11,6 +11,8 @@
     "scripts/sync-dist-runtime.ts",
     "scripts/purge-temp-dirs.ts",
     "scripts/purge-temp-dirs-main.ts",
+    "scripts/extract-invalid-action-corpus.ts",
+    "scripts/report-invalid-action-rate.ts",
     "scripts/approval-red-team/**/*.ts"
   ]
 }

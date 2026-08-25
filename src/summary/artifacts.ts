@@ -9,7 +9,7 @@ import type {
   SummaryProviderId,
   SummarySourceKind,
 } from './types.js';
-import type { SummaryClassification } from '../planner-protocol/summary.js';
+import type { SummaryClassification } from '../planner-protocol/summary-tools.js';
 
 // ---------- failure context ---------- //
 

@@ -27,6 +27,10 @@ test('appendToolCallExchange appends assistant tool_call and tool result message
   assert.equal(messages[0]?.role, 'assistant');
   assert.equal(messages[1]?.role, 'tool');
   assert.equal(String(messages[0]?.tool_calls?.[0]?.function?.name || ''), 'grep');
+  assert.equal(
+    messages[0]?.tool_calls?.[0]?.function?.arguments,
+    '{"command":"rg -n \\"planner\\" src"}',
+  );
   assert.equal(String(messages[1]?.tool_call_id || ''), 'call_1');
   assert.equal(String(messages[1]?.content || ''), 'Invalid action: example');
 });

@@ -6,7 +6,6 @@ import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
-import { ModelJson } from '../lib/model-json.js';
 import { toError } from '../lib/errors.js';
 import {
   buildProviderErrorMessage,
@@ -17,17 +16,15 @@ import {
   buildApprovalVerdictJsonSchema,
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
-  buildRepoSearchPlannerActionJsonSchema,
 } from '../providers/structured-output-schema.js';
+import { toProtocolTools } from '../providers/llama-cpp.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
 import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-arguments.js';
-import type {
-  RepoSearchToolAction,
-} from '../planner-protocol/repo-search.js';
 import {
   EXPOSED_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
@@ -35,6 +32,7 @@ import {
 export type PlannerActionResponse = {
   text: string;
   thinkingText: string;
+  toolCalls: LlamaCppToolCall[];
   mockExhausted: boolean;
   nextMockResponseIndex?: number;
   promptCacheTokens?: number | null;
@@ -91,7 +89,9 @@ function buildRepoToolDefinition(options: {
   const argsSchema = REPO_TOOL_ARGUMENT_SCHEMAS[options.toolName];
   const exampleArgs = JsonObjectSchema.parse(argsSchema.parse(options.exampleArgs));
   return {
+    kind: 'tool',
     type: 'function',
+    argumentSchema: argsSchema.transform((args) => JsonObjectSchema.parse(args)),
     exampleArgs,
     function: {
       name: options.toolName,
@@ -156,8 +156,6 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
 const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
-const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
-
 /**
  * Tools that can change the working tree, so an identical earlier query may now have a different
  * answer and must not be rejected as a repeat. Typed Git is deliberately absent because its fixed
@@ -175,10 +173,6 @@ export function isTreeMutatingToolName(toolName: string): boolean {
 
 export function getRepoSearchToolNames(): string[] {
   return [...EXPOSED_REPO_TOOL_NAMES];
-}
-
-export function getRepoSearchToolNamesForParsing(): string[] {
-  return EXPOSED_REPO_TOOL_NAMES.filter((toolName) => !WEB_TOOL_NAMES.has(toolName));
 }
 
 export function isRepoSearchNativeToolName(toolName: string): boolean {
@@ -251,9 +245,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
-  const defaultResponseSchema = stage === 'planner_action'
-    ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
-    : stage === 'finish_validation'
+  const defaultResponseSchema = stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
   const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
@@ -262,14 +254,14 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
     schema: responseSchema,
   });
 
-  // Derive the envelope from the real request builder so the reserve estimate
+  // Derive the request shape from the real request builder so the reserve estimate
   // cannot drift from what is actually sent; message contents are counted
   // separately, so messages stay empty and template overhead is reserved below.
   const requestShape = reserveRequestBuilder.build({
     backend,
     model: options.model,
     messages: [],
-    tools: [],
+    tools: stage === 'planner_action' ? toProtocolTools(toolDefinitions) : [],
     defaults: samplerDefaults,
     maxTokens: options.maxTokens,
     ...(responseFormat ? { responseFormat } : {}),
@@ -318,7 +310,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   maxTokens: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
@@ -411,37 +403,6 @@ function logProviderRetry(options: {
   });
 }
 
-function actionFromProtocolToolCalls(
-  toolCalls: readonly LlamaCppToolCall[],
-  toolDefinitions: readonly PlannerToolDefinition[],
-): string | null {
-  const parsedToolCalls = toolCalls
-    .map((toolCall): RepoSearchToolAction | null => {
-      const args = ModelJson.parseToolArguments(toolCall.function.arguments);
-      if (!args) return null;
-      try {
-        const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
-          action: 'tool',
-          toolName: toolCall.function.name,
-          args,
-        }), toolDefinitions);
-        return action.action === 'tool' ? action : null;
-      } catch {
-        return null;
-      }
-    })
-    .filter((toolCall): toolCall is RepoSearchToolAction => toolCall !== null);
-  if (parsedToolCalls.length === 0) return null;
-  if (parsedToolCalls.length === 1) return JSON.stringify(parsedToolCalls[0]);
-  return JSON.stringify({
-    action: 'tool_batch',
-    calls: parsedToolCalls.map((toolCall) => ({
-      toolName: toolCall.toolName,
-      args: toolCall.args,
-    })),
-  });
-}
-
 export async function requestRepoSearchPlannerProtocolAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
   if (options.abortSignal?.aborted) {
     throw options.abortSignal.reason instanceof Error
@@ -451,20 +412,24 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 
   if (Array.isArray(options.mockResponses)) {
     const index = options.mockResponseIndex || 0;
-    if (index >= options.mockResponses.length) return { text: '', thinkingText: '', mockExhausted: true };
-    const rawMock = options.mockResponses[index];
-    const { thinkingText, text } = rawMock.includes(THINK_OPEN_TAG)
-      ? extractInlineThinking(rawMock)
-      : { thinkingText: '', text: rawMock };
-    return { text, thinkingText, mockExhausted: false, nextMockResponseIndex: index + 1 };
+    if (index >= options.mockResponses.length) return { text: '', thinkingText: '', toolCalls: [], mockExhausted: true };
+    const mock = parseMockPlannerResponse(options.mockResponses[index], index);
+    const inline = !mock.thinking && mock.content.includes(THINK_OPEN_TAG)
+      ? extractInlineThinking(mock.content)
+      : null;
+    return {
+      text: inline?.text ?? mock.content,
+      thinkingText: inline?.thinkingText ?? mock.thinking,
+      toolCalls: mock.toolCalls,
+      mockExhausted: false,
+      nextMockResponseIndex: index + 1,
+    };
   }
 
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
-  const defaultResponseSchema = stage === 'planner_action'
-    ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
-    : stage === 'finish_validation'
+  const defaultResponseSchema = stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
   const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
@@ -485,7 +450,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         baseUrl: options.baseUrl,
         model: options.model,
         messages: options.messages,
-        tools: [],
+        tools: stage === 'planner_action' ? toProtocolTools(toolDefinitions) : [],
         maxTokens: options.maxTokens,
         slotId: options.slotId,
         responseFormat: responseFormat ?? undefined,
@@ -544,16 +509,14 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     : null;
   const rawChoiceText = inlineThinking ? inlineThinking.text : response.text;
   const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
-  const synthesized = actionFromProtocolToolCalls(response.toolCalls, toolDefinitions);
-  const text = response.earlyStopReason === 'planner action completed in streamed reasoning'
-    ? rawChoiceText
-    : response.stoppedEarly && response.earlyStopReason
+  const text = response.stoppedEarly && response.earlyStopReason
     ? [`SiftKit stopped the planner stream early: ${response.earlyStopReason}.`, rawChoiceText.trim()].filter(Boolean).join('\n')
-    : rawChoiceText || synthesized || '';
+    : rawChoiceText;
 
   return {
     text: text.trim(),
     thinkingText,
+    toolCalls: response.toolCalls,
     mockExhausted: false,
     promptCacheTokens: response.usage.promptCacheTokens,
     promptEvalTokens: response.usage.promptEvalTokens,
@@ -572,7 +535,7 @@ export async function requestFinishValidation(options: Partial<PlannerThinkingFl
   prompt: string;
   timeoutMs: number;
   maxTokens: number;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
@@ -662,7 +625,7 @@ export async function requestApprovalVerdict(options: {
   executing: ExecutingPlannerRequest;
   slotId?: number;
   timeoutMs: number;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
@@ -711,7 +674,7 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
   prompt: string;
   timeoutMs: number;
   maxTokens: number;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
   onContentDelta?: (accumulatedContent: string) => void;
@@ -766,7 +729,7 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
   timeoutMs: number;
   maxTokens: number;
   slotId?: number;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;

@@ -5,14 +5,11 @@ import {
 } from '../config/index.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
-import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { getErrorMessage } from '../lib/errors.js';
 import { HttpTimeoutError, LlamaHttpError } from '../lib/http-client.js';
-import type { OptionalJsonValue } from '../lib/json-types.js';
 import type {
-  JsonObject,
   LlamaCppChatMessage as ProtocolLlamaCppChatMessage,
   LlamaCppResponseFormat,
   LlamaCppToolCall,
@@ -23,7 +20,6 @@ import type {
 import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
-  buildSummaryPlannerActionJsonSchema,
 } from './structured-output-schema.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { createTracer } from '../lib/trace.js';
@@ -53,6 +49,7 @@ export type LlamaCppTokenCountResult = {
 
 export type LlamaCppGenerateResult = {
   text: string;
+  toolCalls: LlamaCppToolCall[];
   usage: LlamaCppUsage | null;
   reasoningText: string | null;
 };
@@ -66,7 +63,7 @@ export type LlamaCppChatMessage = {
     type?: string;
     function?: {
       name?: string;
-      arguments?: OptionalJsonValue;
+      arguments?: string;
     };
   }>;
   tool_call_id?: string;
@@ -74,13 +71,7 @@ export type LlamaCppChatMessage = {
 
 export type LlamaCppStructuredOutput =
   | { kind: 'none' }
-  | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean }
-  | { kind: 'siftkit-planner-action-json'; tools?: PlannerToolDefinition[]; allowUnsupportedInput?: boolean };
-
-type PlannerStructuredToolCall = {
-  toolName: string;
-  args: JsonObject;
-};
+  | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean };
 
 const traceLlamaCpp = createTracer('SIFTKIT_TRACE_SUMMARY', 'llama-cpp');
 const llamaCppClient = new LlamaCppClient();
@@ -96,19 +87,6 @@ function getStructuredOutputResponseFormat(
     return buildLlamaJsonSchemaResponseFormat({
       name: 'siftkit_decision',
       schema: buildSummaryDecisionJsonSchema({
-        allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
-      }),
-    });
-  }
-
-  if (structuredOutput.kind === 'siftkit-planner-action-json') {
-    const toolDefinitions = Array.isArray(structuredOutput.tools)
-      ? structuredOutput.tools
-      : [];
-    return buildLlamaJsonSchemaResponseFormat({
-      name: 'siftkit_summary_planner_action',
-      schema: buildSummaryPlannerActionJsonSchema({
-        toolDefinitions,
         allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
       }),
     });
@@ -168,8 +146,7 @@ function toProtocolToolCalls(
     if (!name.trim()) {
       return [];
     }
-    const rawArguments = toolCall.function?.arguments;
-    const args = typeof rawArguments === 'string' ? rawArguments : JSON.stringify(rawArguments ?? {});
+    const args = toolCall.function?.arguments ?? '{}';
     return [{
       id: typeof toolCall.id === 'string' && toolCall.id.trim() ? toolCall.id : `call_${index}`,
       type: 'function',
@@ -214,51 +191,6 @@ export function toProtocolTools(tools: readonly PlannerToolDefinition[] | undefi
         parameters: tool.function.parameters ?? { type: 'object', properties: {}, required: [] },
       },
     }];
-  });
-}
-
-function parseStructuredPlannerToolCall(toolCall: LlamaCppToolCall | null | undefined): PlannerStructuredToolCall | null {
-  const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
-  const args = ModelJson.parseToolArguments(toolCall?.function?.arguments);
-  if (!toolName || !args) {
-    return null;
-  }
-  return {
-    toolName,
-    args,
-  };
-}
-
-function getStructuredToolCallText(
-  structuredOutput: LlamaCppStructuredOutput | undefined,
-  toolCalls: readonly LlamaCppToolCall[],
-): string {
-  if (structuredOutput?.kind !== 'siftkit-planner-action-json') {
-    return '';
-  }
-
-  const parsedToolCalls = toolCalls
-    .map((toolCall) => parseStructuredPlannerToolCall(toolCall))
-    .filter((toolCall): toolCall is PlannerStructuredToolCall => toolCall !== null);
-
-  if (parsedToolCalls.length === 0) {
-    return '';
-  }
-
-  if (parsedToolCalls.length === 1) {
-    return JSON.stringify({
-      action: 'tool',
-      toolName: parsedToolCalls[0].toolName,
-      args: parsedToolCalls[0].args,
-    });
-  }
-
-  return JSON.stringify({
-    action: 'tool_batch',
-    calls: parsedToolCalls.map((toolCall) => ({
-      toolName: toolCall.toolName,
-      args: toolCall.args,
-    })),
   });
 }
 
@@ -423,6 +355,7 @@ export async function generateLlamaCppResponse(options: {
   /** Maximum gap between SSE frames, not a total duration; the client derives the total deadline from maxTokens. */
   idleTimeoutSeconds: number;
   slotId?: number;
+  tools?: PlannerToolDefinition[];
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
@@ -438,6 +371,7 @@ export async function generateLlamaCppResponse(options: {
     ],
     idleTimeoutSeconds: options.idleTimeoutSeconds,
     slotId: options.slotId,
+    tools: options.tools,
     structuredOutput: options.structuredOutput,
     reasoningOverride: options.reasoningOverride,
     promptTokenCount: options.promptTokenCount,
@@ -477,10 +411,7 @@ export async function generateLlamaCppChatResponse(options: {
     + `prompt_chars=${promptChars} base_url=${baseUrl}`
   );
   try {
-    const structuredTools = options.structuredOutput?.kind === 'siftkit-planner-action-json'
-      ? options.structuredOutput.tools
-      : undefined;
-    const protocolTools = toProtocolTools(options.tools ?? structuredTools);
+    const protocolTools = toProtocolTools(options.tools);
     const tools = structuredOutputResponseFormat === null ? protocolTools : [];
     response = await llamaCppClient.chat({
       config: options.config,
@@ -510,9 +441,8 @@ export async function generateLlamaCppChatResponse(options: {
     throw new Error(providerMessage);
   }
 
-  const toolCallText = getStructuredToolCallText(options.structuredOutput, response.toolCalls);
-  const text = (response.text || toolCallText).trim();
-  if (!text) {
+  const text = response.text.trim();
+  if (!text && response.toolCalls.length === 0) {
     const rawResponseText = JSON.stringify(response.raw);
     traceLlamaCpp(`generate empty_body elapsed_ms=${Date.now() - startedAt} raw=${JSON.stringify(rawResponseText.slice(0, 2000))}`);
     const message = `llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`;
@@ -533,7 +463,7 @@ export async function generateLlamaCppChatResponse(options: {
   // exact path, so nothing here feeds estimates into the observed budget.
   const promptText = options.messages.map((message) => getTextContent(message.content)).join('\n');
   const promptTokens = await countLocally(promptText);
-  const completionTokens = await countLocally(text);
+  const completionTokens = await countLocally(text || JSON.stringify(response.toolCalls));
   const thinkingTokens = response.reasoningText.trim() ? await countLocally(response.reasoningText) : null;
   const usage: LlamaCppUsage = {
     ...response.usage,
@@ -552,6 +482,7 @@ export async function generateLlamaCppChatResponse(options: {
 
   return {
     text,
+    toolCalls: response.toolCalls,
     usage,
     reasoningText: response.reasoningText.trim() || null,
   };

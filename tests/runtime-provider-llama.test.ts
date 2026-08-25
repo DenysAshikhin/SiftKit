@@ -352,7 +352,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
   });
 });
 
-test('llama.cpp provider omits native tools for structured planner JSON', async () => {
+test('llama.cpp provider sends native tools without planner structured output', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -362,20 +362,18 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         idleTimeoutSeconds: 5,
-        structuredOutput: {
-          kind: 'siftkit-planner-action-json',
-          tools: buildSummaryPlannerToolDefinitions(),
-        },
+        tools: buildSummaryPlannerToolDefinitions(),
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal('tools' in server.state.chatRequests[0], false);
-      assert.equal('parallel_tool_calls' in server.state.chatRequests[0], false);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools), /find_text/u);
+      assert.equal(server.state.chatRequests[0]?.parallel_tool_calls, true);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
     });
   });
 });
 
-test('EXL3 provider forwards native structured planner output', async () => {
+test('EXL3 provider forwards native planner tools without a response schema', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -387,16 +385,13 @@ test('EXL3 provider forwards native structured planner output', async () => {
         model: config.Server.ModelPresets.Presets[0].Model ?? 'exl3',
         prompt: 'test prompt body',
         idleTimeoutSeconds: 5,
-        structuredOutput: {
-          kind: 'siftkit-planner-action-json',
-          tools: buildSummaryPlannerToolDefinitions(),
-        },
+        tools: buildSummaryPlannerToolDefinitions(),
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
-      assert.equal(server.state.chatRequests[0]?.tools, undefined);
-      assert.equal(server.state.chatRequests[0]?.parallel_tool_calls, undefined);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools), /find_text/u);
+      assert.equal(server.state.chatRequests[0]?.parallel_tool_calls, true);
     });
   });
 });

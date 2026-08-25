@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { RepoSearchToolAction } from '../src/planner-protocol/repo-search.js';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
 import { TaskCommandSchema } from '../src/repo-search/prompts.js';
 import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
@@ -60,8 +60,8 @@ test('executeBatch records one command entry per tool action so results stay ali
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', toolName: 'frobnicate', args: {} },
-      { action: 'tool', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_12', toolName: 'frobnicate', args: {} },
+      { kind: 'tool', callId: 'test_call_13', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -80,7 +80,7 @@ test('executeBatch rejects malformed native-tool arguments before execution', as
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
+    [{ kind: 'tool', callId: 'test_call_14', toolName: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -101,7 +101,7 @@ test('non-image command records omit optional image fields from their JSON shape
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
+    [{ kind: 'tool', callId: 'test_call_15', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -120,7 +120,7 @@ test('an executed command entry records the turn prompt token count', async () =
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
+    [{ kind: 'tool', callId: 'test_call_16', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 4321, budgeted: 4321 },
     false,
@@ -148,7 +148,7 @@ test('a typed Git action executes through the native tool path', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
   const { processor, commands, counters, events } = makeProcessor(root, ['git']);
 
-  await processor.executeBatch(1, [{ action: 'tool', toolName: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_17', toolName: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git operation="status"');
@@ -167,7 +167,7 @@ test('native command start is observable before delayed execution completes', as
 
   const pending = processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'git', args: { operation: 'status' } }],
+    [{ kind: 'tool', callId: 'test_call_18', toolName: 'git', args: { operation: 'status' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -185,7 +185,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
+    [{ kind: 'tool', callId: 'test_call_19', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -211,7 +211,7 @@ test('a valid tool action decays the invalid-response counter', async () => {
   const { processor, counters } = makeProcessor(root);
   counters.invalidResponses = 2;
 
-  await processor.executeBatch(1, [{ action: 'tool', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_20', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 1);
 });
@@ -224,9 +224,9 @@ test('an invalid action followed by two valid ones leaves the counter at zero', 
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', toolName: 'frobnicate', args: {} },
-      { action: 'tool', toolName: 'ls', args: { path: '.' } },
-      { action: 'tool', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_21', toolName: 'frobnicate', args: {} },
+      { kind: 'tool', callId: 'test_call_22', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_23', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -243,7 +243,7 @@ test('a valid action whose command exits non-zero still decays the counter', asy
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'git', args: { operation: 'log', limit: 1 } }],
+    [{ kind: 'tool', callId: 'test_call_24', toolName: 'git', args: { operation: 'log', limit: 1 } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -262,8 +262,8 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', toolName: 'ls', args: { path: '.' } },
-      { action: 'tool', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_25', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_26', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -277,10 +277,10 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
 test('malformed actions alternating with invalid Git operations still hit the invalid-response limit', async () => {
   const root = createManagedTempDir('siftkit-decay-unsafe-');
   const { processor, counters } = makeProcessor(root, ['ls', 'git']);
-  const actions: RepoSearchToolAction[] = [];
+  const actions: AgentLoopToolAction[] = [];
   for (let index = 0; index < 3; index += 1) {
-    actions.push({ action: 'tool', toolName: 'frobnicate', args: {} });
-    actions.push({ action: 'tool', toolName: 'git', args: { operation: `push-${index}` } });
+    actions.push({ kind: 'tool', callId: 'test_call_27', toolName: 'frobnicate', args: {} });
+    actions.push({ kind: 'tool', callId: 'test_call_28', toolName: 'git', args: { operation: `push-${index}` } });
   }
 
   await processor.executeBatch(1, actions, '', { reported: 0, budgeted: 0 }, false);
@@ -306,7 +306,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
   const singleCallCapTokens = single.budget.perToolCapTokens(0, 1);
   await single.processor.executeBatch(
     1,
-    [{ action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } }],
+    [{ kind: 'tool', callId: 'test_call_29', toolName: 'grep', args: { pattern: 'alpha', path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -322,9 +322,9 @@ test('a parallel batch spends no more tool budget in total than a single call is
   await batch.processor.executeBatch(
     1,
     [
-      { action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
-      { action: 'tool', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
-      { action: 'tool', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
+      { kind: 'tool', callId: 'test_call_30', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { kind: 'tool', callId: 'test_call_31', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
+      { kind: 'tool', callId: 'test_call_32', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -357,9 +357,9 @@ test('every member of a batch is capped at the same share regardless of position
   await processor.executeBatch(
     4,
     [
-      { action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
-      { action: 'tool', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
-      { action: 'tool', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
+      { kind: 'tool', callId: 'test_call_33', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { kind: 'tool', callId: 'test_call_34', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
+      { kind: 'tool', callId: 'test_call_35', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -379,7 +379,7 @@ test('a downgraded full run may be retried once despite duplicate screening', as
   const root = createManagedTempDir('siftkit-run-full-retry-');
   writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
-  const runAction: RepoSearchToolAction = { action: 'tool', toolName: 'run', args: { command: 'npm test', outputMode: 'full' } };
+  const runAction: AgentLoopToolAction = { kind: 'tool', callId: 'test_call_36', toolName: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
   await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
@@ -409,8 +409,8 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
     null,
     { [command]: { exitCode: 1, stdout: output, stderr: '' } },
   );
-  const validation: RepoSearchToolAction = {
-    action: 'tool',
+  const validation: AgentLoopToolAction = {
+    kind: 'tool', callId: 'test_call_37',
     toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
@@ -433,13 +433,13 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const stable: RepoSearchToolAction = {
-    action: 'tool',
+  const stable: AgentLoopToolAction = {
+    kind: 'tool', callId: 'test_call_38',
     toolName: 'run',
     args: { command: 'Write-Output stable' },
   };
-  const validation: RepoSearchToolAction = {
-    action: 'tool',
+  const validation: AgentLoopToolAction = {
+    kind: 'tool', callId: 'test_call_39',
     toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
@@ -474,8 +474,8 @@ test('an approval-denied granted retry is consumed', async () => {
     approvalGate,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const validation: RepoSearchToolAction = {
-    action: 'tool',
+  const validation: AgentLoopToolAction = {
+    kind: 'tool', callId: 'test_call_40',
     toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
@@ -497,14 +497,14 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const validation: RepoSearchToolAction = {
-    action: 'tool',
+  const validation: AgentLoopToolAction = {
+    kind: 'tool', callId: 'test_call_41',
     toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
 
   await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ action: 'tool', toolName: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_42', toolName: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);

@@ -5,8 +5,8 @@ import type { ProgressWriter } from '../lib/progress-writer.js';
 import {
   SummaryClassificationSchema,
   type SummaryClassification,
-} from '../planner-protocol/summary.js';
-import type { SummaryPlannerToolName } from '../planner-protocol/summary-tools.js';
+  type SummaryPlannerToolName,
+} from '../planner-protocol/summary-tools.js';
 
 /**
  * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see

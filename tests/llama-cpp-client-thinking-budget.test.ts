@@ -278,7 +278,7 @@ test('planner loop on llama backend warns that the planner budget message cannot
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
-        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockResponses: [{ content: "done" }],
         mockCommandResults: {},
         logger: { path: 'memory', write: (event) => { events.push(event); } },
       },

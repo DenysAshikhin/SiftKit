@@ -14,9 +14,8 @@ type FakeLlamaServer = { baseUrl: string; lastBody: () => string; close: () => P
 
 // Fake llama SSE server. Mirrors real llama.cpp: a cumulative `timings` object
 // is attached to non-final chunks ONLY when the request asks for
-// timings_per_token. The final chunk always carries timings (as real llama
-// does), but the planner stops early and never consumes it. The server records
-// the last request body so the body-flag test needs no monkey-patching.
+// timings_per_token. The final chunk omits timings so this verifies that the
+// latest per-token timing survives normal stream completion.
 function startFakeLlamaServer(): Promise<FakeLlamaServer> {
   return new Promise((resolve) => {
     let lastBody = '';
@@ -47,15 +46,11 @@ function startFakeLlamaServer(): Promise<FakeLlamaServer> {
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
         });
-        // Two reasoning chunks that together form a complete finish action.
-        writeChunk({ reasoning_content: '{"action":"finish",' }, perToken);
-        writeChunk({ reasoning_content: '"output":"hi"}' }, perToken);
-        // Final chunk: real llama always includes timings here. The planner has
-        // already stopped, so this must NOT be the source of the captured value.
+        writeChunk({ reasoning_content: 'inspect evidence' }, perToken);
+        writeChunk({ content: 'final answer' }, perToken);
         res.write(`data: ${JSON.stringify({
           choices: [{ index: 0, finish_reason: 'stop', delta: {} }],
           object: 'chat.completion.chunk',
-          timings: { ...timings, predicted_ms: 999999 },
         })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
@@ -87,7 +82,7 @@ async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<
   });
 }
 
-test('early-stopped streaming planner turn records real predicted_ms from per-chunk timings', async () => {
+test('streaming planner turn records predicted_ms from per-chunk timings', async () => {
   const fake = await startFakeLlamaServer();
   try {
     const response = await runStreamingPlanner(fake.baseUrl);

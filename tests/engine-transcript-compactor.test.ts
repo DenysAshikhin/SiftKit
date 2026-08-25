@@ -19,6 +19,7 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 
 const SummaryRequestSchema = z.object({
   messages: z.array(z.object({
@@ -27,7 +28,7 @@ const SummaryRequestSchema = z.object({
   }).passthrough()),
 }).passthrough();
 
-function makeCompactor(mockResponses: string[] | undefined, totalContextTokens = 32_000): TranscriptCompactor {
+function makeCompactor(mockResponses: MockPlannerResponseInput[] | undefined, totalContextTokens = 32_000): TranscriptCompactor {
   const config = mockOfflineSiftConfig();
   return new TranscriptCompactor({
     config,
@@ -59,7 +60,7 @@ function transcript(): ChatMessage[] {
 }
 
 test('compact rebuilds the transcript as system, summary, latest user message', async () => {
-  const compactor = makeCompactor(['SUMMARY BODY']);
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }]);
 
   const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' } });
 
@@ -83,7 +84,7 @@ test('compact fails as planner_compaction_failed when the summarizer never answe
 });
 
 test('compact retries the summarizer once before failing', async () => {
-  const compactor = makeCompactor(['', 'RECOVERED SUMMARY']);
+  const compactor = makeCompactor([{ content: '' }, { content: 'RECOVERED SUMMARY' }]);
 
   const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' } });
 
@@ -101,7 +102,7 @@ test('chat compaction summarizes completed history and retains the entire in-fli
     { role: 'tool', tool_call_id: 'c1', content: 'fresh tool result' },
   ];
 
-  const outcome = await makeCompactor(['SUMMARY']).compact({
+  const outcome = await makeCompactor([{ content: 'SUMMARY' }]).compact({
     taskId: 'chat-1',
     turn: 2,
     messages,
@@ -181,7 +182,7 @@ test('chat compaction sends only completed history to the real summary request',
 });
 
 test('manual compaction retains no live message outside its summary', async () => {
-  const outcome = await makeCompactor(['SUMMARY']).compact({
+  const outcome = await makeCompactor([{ content: 'SUMMARY' }]).compact({
     taskId: 'chat-1',
     turn: null,
     messages: transcript(),
@@ -195,7 +196,7 @@ test('manual compaction retains no live message outside its summary', async () =
 
 test('an invalid chat turn boundary fails loudly', async () => {
   await assert.rejects(
-    makeCompactor(['SUMMARY']).compact({
+    makeCompactor([{ content: 'SUMMARY' }]).compact({
       taskId: 'chat-1',
       turn: 1,
       messages: transcript(),
@@ -214,7 +215,7 @@ test('the summary budget excludes the retained triggering turn', async () => {
     trigger,
   ];
 
-  const outcome = await makeCompactor(['SUMMARY'], 5_000).compact({
+  const outcome = await makeCompactor([{ content: 'SUMMARY' }], 5_000).compact({
     taskId: 'chat-1',
     turn: 1,
     messages,
@@ -227,7 +228,7 @@ test('the summary budget excludes the retained triggering turn', async () => {
 });
 
 test('compact fails hard when the summarization prompt cannot fit single-shot', async () => {
-  const compactor = makeCompactor(['SUMMARY BODY'], 5_000);
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], 5_000);
   const oversized: ChatMessage[] = [
     { role: 'system', content: 'SYSTEM PROMPT' },
     { role: 'user', content: 'Q'.repeat(40_000) },
@@ -250,7 +251,7 @@ test('a completed-history image consumes the structured summary budget', async (
     totalContextTokens: 2_500,
     thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
     useEstimatedTokensOnly: true,
-    mockResponses: ['SUMMARY BODY'],
+    mockResponses: [{ content: 'SUMMARY BODY' }],
     tokenUsage: new TokenUsageTracker(config, true),
     logger: { path: 'memory', write: (event) => { logged.push(event); } },
     abortSignal: undefined,
@@ -292,7 +293,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
     totalContextTokens: 32_000,
     thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
     useEstimatedTokensOnly: true,
-    mockResponses: ['', 'RECOVERED SUMMARY'],
+    mockResponses: [{ content: '' }, { content: 'RECOVERED SUMMARY' }],
     tokenUsage: new TokenUsageTracker(config, true),
     logger: { path: 'memory', write: (event) => { logged.push(event); } },
     abortSignal: undefined,
@@ -314,7 +315,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
 });
 
 test('an overflow reported by a turnless caller names no turn', async () => {
-  const compactor = makeCompactor(['SUMMARY BODY'], 5_000);
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], 5_000);
   const oversized: ChatMessage[] = [
     { role: 'system', content: 'SYSTEM PROMPT' },
     { role: 'user', content: 'Q'.repeat(40_000) },
@@ -327,7 +328,7 @@ test('an overflow reported by a turnless caller names no turn', async () => {
 });
 
 test('latest_user retention fails loudly when the transcript has no user message', async () => {
-  const compactor = makeCompactor(['SUMMARY BODY']);
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }]);
   const messages: ChatMessage[] = [
     { role: 'system', content: 'SYSTEM PROMPT' },
     { role: 'assistant', content: 'assistant only' },
@@ -345,7 +346,7 @@ for (const totalContextTokens of [150_000, 32_000, 9_000]) {
   test(`the worst-case transcript at a ${totalContextTokens}-token window still compacts`, async () => {
     const budget = new TurnBudget({ totalContextTokens, maxTurns: 45, config: null });
     const worstCaseTranscriptTokens = budget.usablePromptTokens + budget.responseReserveTokens;
-    const compactor = makeCompactor(['SUMMARY BODY'], totalContextTokens);
+    const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
     const messages: ChatMessage[] = [
       { role: 'system', content: 'SYSTEM PROMPT' },
       // 4 characters per token is the estimate mock mode counts with.

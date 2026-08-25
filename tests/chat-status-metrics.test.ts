@@ -12,7 +12,7 @@ import { asObject, requestJson, requestSse } from './helpers/dashboard-http.js';
 // server and pin each total to a single contribution.
 const CHAT_PROMPT = 'What is 2+2?';
 const CHAT_ANSWER = '4';
-const MOCK_FINISH_RESPONSE = `{"action":"finish","output":"${CHAT_ANSWER}"}`;
+const MOCK_FINISH_RESPONSE = CHAT_ANSWER;
 
 // Draft-token counters only exist on a provider-reported usage block, so the speculative
 // case needs a real inference call. Same shape as tests/tabby-usage-metrics.e2e.test.ts.
@@ -44,7 +44,7 @@ test('a model-backed chat turn contributes to runtime metrics exactly once', asy
       timeoutMs: 10_000,
       body: JSON.stringify({
         content: CHAT_PROMPT,
-        mockResponses: [MOCK_FINISH_RESPONSE],
+        mockResponses: [{ content: MOCK_FINISH_RESPONSE }],
       }),
     });
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
@@ -150,7 +150,7 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
         webSearchOverride: 'off',
         availableModels: ['mock'],
         model: 'mock',
-        mockResponses: [MOCK_FINISH_RESPONSE],
+        mockResponses: [{ content: MOCK_FINISH_RESPONSE }],
       }),
     });
     assert.equal(sse.statusCode, 200, JSON.stringify(sse.events));

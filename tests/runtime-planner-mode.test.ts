@@ -138,18 +138,13 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: { gte: 3200, lte: 3215 } },
                 { path: 'from.worldY', op: 'gte', value: { gte: 3210, lte: 3225 } },
-              ], select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'], limit: 100 } });
+              ], select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'], limit: 100 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'combined bounds worked',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'combined bounds worked' } }] };
       },
     });
 
@@ -198,15 +193,10 @@ test('planner iteration running=false notification is fire-and-forget', async ()
       delayNonTerminalStatusFalseMs: 1500,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }], limit: 1 } });
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }], limit: 1 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'fire and forget completed',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'fire and forget completed' } }] };
       },
     });
   });
@@ -234,29 +224,24 @@ test('planner retries malformed json_filter schema-placeholder args once and the
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
                 { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
                 { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
                 { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
-              ], limit: 100 } });
+              ], limit: 100 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3228 },
                 { path: 'from.worldX', op: 'lte', value: 3230 },
                 { path: 'from.worldY', op: 'gte', value: 3210 },
                 { path: 'from.worldY', op: 'lte', value: 3215 },
-              ], limit: 100 } });
+              ], limit: 100 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'recovered malformed planner tool args',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'recovered malformed planner tool args' } }] };
       },
     });
 
@@ -295,17 +280,12 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'groupId', op: 'eq', value: { value: 12 } },
-              ], select: ['id', 'groupId', 'childIndex', 'text'], limit: 100 } });
+              ], select: ['id', 'groupId', 'childIndex', 'text'], limit: 100 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'nested value wrapper worked',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'nested value wrapper worked' } }] };
       },
     });
 
@@ -351,12 +331,12 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
       );
     }, {
       assistantContent() {
-        return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+        return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
               { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
               { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
               { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
               { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
-            ], limit: 100 } });
+            ], limit: 100 } }] };
       },
     });
 
@@ -427,23 +407,17 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
       assert.equal(result.Summary, 'timestamp filter worked');
       const firstPrompt = getChatRequestText(server.state.chatRequests[0]);
       assert.match(firstPrompt, /collectionPath/i);
-      assert.match(firstPrompt, /"collectionPath":"states"/u);
       assert.match(firstPrompt, /object_array_paths=states/u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { collectionPath: 'states', filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { collectionPath: 'states', filters: [
                 { path: 'timestamp', op: 'gte', value: '2026-03-30T18:40:00Z' },
                 { path: 'timestamp', op: 'lte', value: '2026-03-30T18:50:00Z' },
-              ], select: ['timestamp', 'lifecycle_state', 'bridge_state', 'scenario_id', 'step_id', 'state_json'], limit: 10 } });
+              ], select: ['timestamp', 'lifecycle_state', 'bridge_state', 'scenario_id', 'step_id', 'state_json'], limit: 10 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'timestamp filter worked',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'timestamp filter worked' } }] };
       },
     });
 
@@ -494,15 +468,10 @@ test('planner returns recoverable json_filter collectionPath guidance without co
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'id', op: 'exists' }], select: ['id', 'name'], limit: 5 } });
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [{ path: 'id', op: 'exists' }], select: ['id', 'name'], limit: 5 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'recovered after collectionPath guidance',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'recovered after collectionPath guidance' } }] };
       },
     });
 
@@ -567,15 +536,10 @@ test('planner json_filter falls back to embedded JSON in command-output text and
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { collectionPath: 'testResults', filters: [{ path: 'name', op: 'exists' }], select: ['name', 'perfStats.runtime', 'status'], limit: 5 } });
+          return { toolCalls: [{ name: 'json_filter', arguments: { collectionPath: 'testResults', filters: [{ path: 'name', op: 'exists' }], select: ['name', 'perfStats.runtime', 'status'], limit: 5 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'fallback parse worked',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'fallback parse worked' } }] };
       },
     });
 
@@ -635,15 +599,10 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'name', op: 'exists' }], select: ['name'], limit: 5 } });
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [{ path: 'name', op: 'exists' }], select: ['name'], limit: 5 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'recovered after invalid json tool call',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'recovered after invalid json tool call' } }] };
       },
     });
 
@@ -752,12 +711,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'planner succeeded',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner succeeded' } }] };
         }
 
         throw new Error(`unexpected powershell shim request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -796,12 +750,7 @@ test('planner debug dumps always write to the repo-local logs directory', async 
       assert.equal(result.Classification, 'summary');
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'repo-local debug dump',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'repo-local debug dump' } }] };
       },
     });
 
@@ -835,15 +784,10 @@ test('planner read_lines tool results use a compact numbered text block', async 
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 2, endLine: 5 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'compact read_lines summary',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'compact read_lines summary' } }] };
       },
     });
 
@@ -880,17 +824,12 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 2, endLine: 5 } }] };
         }
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 6, endLine: 9 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 6, endLine: 9 } }] };
         }
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'semantic repeat handled',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'semantic repeat handled' } }] };
       },
     });
 
@@ -952,26 +891,21 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
     }, {
       assistantContent(_promptText, _parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_ALPHA', mode: 'literal' } }] };
         }
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_ALPHA', mode: 'literal' } }] };
         }
         if (requestIndex === 3) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_ALPHA', mode: 'literal' } }] };
         }
         if (requestIndex === 4) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_ALPHA', mode: 'literal' } }] };
         }
         if (requestIndex === 5) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_ALPHA', mode: 'literal' } }] };
         }
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'duplicate compaction handled',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'duplicate compaction handled' } }] };
       },
     });
   });
@@ -1006,22 +940,17 @@ test('planner find_text and json_filter results use compact text blocks in promp
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'Lumbridge Castle', mode: 'literal', maxHits: 2, contextLines: 1 } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'Lumbridge Castle', mode: 'literal', maxHits: 2, contextLines: 1 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ], select: ['id', 'label', 'from', 'to', 'bidirectional'], limit: 5 } });
+              ], select: ['id', 'label', 'from', 'to', 'bidirectional'], limit: 5 } }] };
         }
 
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'compact framing summary',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'compact framing summary' } }] };
       },
     });
 
@@ -1115,16 +1044,11 @@ test('planner keeps short read_lines output when reported token count is high', 
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 2, endLine: 5 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'tool output guard applied',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'tool output guard applied' } }] };
         }
 
         throw new Error(`unexpected guarded planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1169,16 +1093,11 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 2, endLine: 5 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'tool output kept',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'tool output kept' } }] };
         }
 
         throw new Error(`unexpected normal planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1226,16 +1145,11 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 1, endLine: 4000 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'estimated token guard applied',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'estimated token guard applied' } }] };
         }
 
         throw new Error(`unexpected estimated-token request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1284,16 +1198,11 @@ test('planner fits oversized read_lines output and reports omitted lines', async
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 1, endLine: 4000 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'fitted read_lines output',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'fitted read_lines output' } }] };
         }
 
         throw new Error(`unexpected fitted read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1337,16 +1246,11 @@ test('planner advances repeated read_lines calls to one unread span', async () =
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 5 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 1, endLine: 5 } }] };
         }
 
         if (requestIndex === 3) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'advanced read_lines output',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'advanced read_lines output' } }] };
         }
 
         throw new Error(`unexpected repeated read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1399,16 +1303,11 @@ test('planner advances repeated read_lines calls from fitted returned lines only
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 2) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 1, endLine: 4000 } }] };
         }
 
         if (requestIndex === 3) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'advanced after fitted read',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'advanced after fitted read' } }] };
         }
 
         throw new Error(`unexpected fitted repeated read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1445,20 +1344,15 @@ test('planner forced finish rejects read_lines before unread expansion', async (
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex >= 1 && requestIndex <= 5) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_BETA', mode: 'literal' } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'NO_MATCH_BETA', mode: 'literal' } }] };
         }
 
         if (requestIndex === 6) {
-          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
+          return { toolCalls: [{ name: 'read_lines', arguments: { startLine: 1, endLine: 4000 } }] };
         }
 
         if (requestIndex === 7) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'forced finish accepted',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'forced finish accepted' } }] };
         }
 
         throw new Error(`unexpected forced-finish read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1509,16 +1403,11 @@ test('planner fits oversized find_text output and reports omitted results', asyn
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'needle', mode: 'literal', maxHits: 400 } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'needle', mode: 'literal', maxHits: 400 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'fitted find_text output',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'fitted find_text output' } }] };
         }
 
         throw new Error(`unexpected fitted find_text request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1551,7 +1440,8 @@ test('planner activates once input exceeds 75 percent of context length even bef
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'planner activated before chunk threshold');
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools || []), /finish/u);
       assert.equal(
         /Planner mode:/u.test(getChatRequestText(server.state.chatRequests[0])),
         true,
@@ -1559,12 +1449,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
       assert.equal(inputText.length < chunkThreshold, true);
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner activated before chunk threshold',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner activated before chunk threshold' } }] };
       },
     });
   });
@@ -1606,20 +1491,24 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex <= 30) {
           toolCallCount += 1;
-          const toolName = toolCallCount % 2 === 0 ? 'read_lines' : 'find_text';
-          const args = toolCallCount % 2 === 0
-            ? { startLine: toolCallCount, endLine: toolCallCount + 4 }
-            : { query: 'Lumbridge Castle', mode: 'literal', maxHits: 5 };
-          return JSON.stringify({ action: 'tool', toolName, args });
+          if (toolCallCount % 2 === 0) {
+            return {
+              toolCalls: [{
+                name: 'read_lines',
+                arguments: { startLine: toolCallCount, endLine: toolCallCount + 4 },
+              }],
+            };
+          }
+          return {
+            toolCalls: [{
+              name: 'find_text',
+              arguments: { query: 'Lumbridge Castle', mode: 'literal', maxHits: 5 },
+            }],
+          };
         }
 
         if (requestIndex === 31) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: `completed after ${toolCallCount} tool calls`,
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: `completed after ${toolCallCount} tool calls` } }] };
         }
 
         throw new Error(`unexpected headroom-allowed request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1675,19 +1564,14 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
       omitUsage: true,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 3) {
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ], select: ['id', 'label', 'from', 'to'], limit: 5 } });
+              ], select: ['id', 'label', 'from', 'to'], limit: 5 } }] };
         }
 
         if (requestIndex === 2 || requestIndex === 4) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: `request ${requestIndex / 2} finished`,
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: `request ${requestIndex / 2} finished` } }] };
         }
 
         throw new Error(`unexpected slot request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1717,7 +1601,8 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
         /Planner mode failed: planner_headroom_exceeded/u,
       );
       assert.equal(servedPlannerToolCall, true);
-      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools || []), /finish/u);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
@@ -1734,10 +1619,10 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
       assistantContent(promptText, parsed, requestIndex) {
         if (!servedPlannerToolCall) {
           servedPlannerToolCall = true;
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ], select: ['id', 'label', 'from', 'to'], limit: 20 } });
+              ], select: ['id', 'label', 'from', 'to'], limit: 20 } }] };
         }
 
         throw new Error(`unexpected fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1783,10 +1668,10 @@ test('planner fails fast when the next planner turn would exceed thinking headro
       assistantContent(promptText, parsed, requestIndex) {
         if (!servedPlannerToolCall) {
           servedPlannerToolCall = true;
-          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
+          return { toolCalls: [{ name: 'json_filter', arguments: { filters: [
                 { path: 'from.worldY', op: 'gte', value: 3210 },
                 { path: 'from.worldY', op: 'lte', value: 3225 },
-              ], select: ['id', 'label', 'from', 'to'], limit: 20 } });
+              ], select: ['id', 'label', 'from', 'to'], limit: 20 } }] };
         }
 
         throw new Error(`unexpected thinking fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);

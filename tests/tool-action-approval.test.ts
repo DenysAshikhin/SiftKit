@@ -10,6 +10,7 @@ import {
 } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
@@ -40,7 +41,7 @@ function makeTask(prompt: string) {
   return { id: 'task-1', question: prompt, signals: [] };
 }
 
-function makeLoopOptions(tempRoot: string, mockResponses: string[], writer: AutoRespondingWriter, gate: ApprovalGate) {
+function makeLoopOptions(tempRoot: string, mockResponses: MockPlannerResponseInput[], writer: AutoRespondingWriter, gate: ApprovalGate) {
   return {
     repoRoot: tempRoot,
     model: 'mock-model',
@@ -65,8 +66,8 @@ test('approve lets a write execute; the file exists afterwards', async () => {
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"action":"finish","output":"wrote it"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: "wrote it" },
     ], writer, gate));
     assert.equal(result.finalOutput, 'wrote it');
     assert.equal(writer.approvalEvents.length, 1);
@@ -89,8 +90,8 @@ test('edit approval receives every complete replacement before execution', async
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('edit cleanup'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"edit\",\"args\":{\"path\":\"cleanup.ts\",\"edits\":[{\"oldText\":\"cleanCache();\",\"newText\":\"fs.rmSync(repoRoot, { recursive: true, force: true });\"}]}}",
-      '{"action":"finish","output":"edited it"}',
+      { toolCalls: [{ name: "edit", arguments: {"path":"cleanup.ts","edits":[{"oldText":"cleanCache();","newText":"fs.rmSync(repoRoot, { recursive: true, force: true });"}]} }] },
+      { content: "edited it" },
     ], writer, gate));
 
     assert.equal(result.finalOutput, 'edited it');
@@ -115,8 +116,8 @@ test('a run records the files it mutated even when the finish output denies chan
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"action":"finish","output":"No changes made. No files were edited."}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: "No changes made. No files were edited." },
     ], writer, gate));
 
     assert.equal(result.finalOutput, 'No changes made. No files were edited.');
@@ -133,8 +134,8 @@ test('a mutated path is recorded in its resolved form, not as the model spelled 
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\".\\\\nested\\\\Out.txt\",\"content\":\"hello\"}}",
-      '{"action":"finish","output":"done"}',
+      { toolCalls: [{ name: "write", arguments: {"path":".\\nested\\Out.txt","content":"hello"} }] },
+      { content: "done" },
     ], writer, gate));
 
     assert.deepEqual(result.mutatedPaths, ['nested/Out.txt']);
@@ -150,8 +151,8 @@ test('a denied mutation is not recorded as a mutated path', async () => {
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"action":"finish","output":"blocked"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: "blocked" },
     ], writer, gate));
 
     assert.deepEqual(result.mutatedPaths, []);
@@ -169,8 +170,8 @@ test('deny blocks execution, feeds the reason to the model, and the run continue
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"action":"finish","output":"gave up"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: "gave up" },
     ], writer, gate));
     assert.equal(result.finalOutput, 'gave up');
     assert.equal(fs.existsSync(path.join(tempRoot, 'out.txt')), false);
@@ -191,8 +192,8 @@ test('denied read never executes (no read output recorded)', async () => {
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('read a file'), makeLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"secret.txt\"}}",
-      '{"action":"finish","output":"done"}',
+      { toolCalls: [{ name: "read", arguments: {"path":"secret.txt"} }] },
+      { content: "done" },
     ], writer, gate));
     const deniedCommand = result.commands.find((command) => command.safe === false);
     assert.ok(deniedCommand);
@@ -213,8 +214,8 @@ test('abort throws out of the run', async () => {
     writer.gate = gate;
     await assert.rejects(
       runTaskLoop(makeTask('read'), makeLoopOptions(tempRoot, [
-        "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{}}",
-        '{"action":"finish","output":"unreachable"}',
+        { toolCalls: [{ name: "ls", arguments: {} }] },
+        { content: "unreachable" },
       ], writer, gate)),
       /Aborted by user\./u,
     );
@@ -238,8 +239,8 @@ test('without a gate, mutating tools stay invalid actions (non-interactive uncha
       maxTurns: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+        { content: "done" },
       ],
       mockCommandResults: {},
       progressWriter: writer,

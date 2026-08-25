@@ -34,11 +34,14 @@ const controller: SummaryPlannerLoopController = {
   executeTools: async () => ({ outcome: 'stop', results: [] }),
 };
 
-function buildResponse(text: string): NormalizedLlamaCppChatResponse {
+function buildResponse(
+  text: string,
+  toolCalls: NormalizedLlamaCppChatResponse['toolCalls'] = [],
+): NormalizedLlamaCppChatResponse {
   return {
     text,
     reasoningText: '',
-    toolCalls: [],
+    toolCalls,
     usage,
     raw: {},
     stoppedEarly: false,
@@ -64,24 +67,16 @@ const RESPONSE_CONTEXT: AgentLoopResponseContext = {
 
 test('summary planner action adapter parses planner tool and finish actions', () => {
   const adapter = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions());
-  const tool = adapter.parseActions({
-    text: '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
-    reasoningText: '',
-    toolCalls: [],
-    usage,
-    raw: {},
-    stoppedEarly: false,
-    invalidFrameCount: 0,
-  });
-  const finish = adapter.parseActions({
-    text: '{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}',
-    reasoningText: '',
-    toolCalls: [],
-    usage,
-    raw: {},
-    stoppedEarly: false,
-    invalidFrameCount: 0,
-  });
+  const tool = adapter.parseActions(buildResponse('', [{
+    id: 'find-1',
+    type: 'function',
+    function: { name: 'find_text', arguments: '{"query":"needle","mode":"literal"}' },
+  }]));
+  const finish = adapter.parseActions(buildResponse('', [{
+    id: 'finish-1',
+    type: 'function',
+    function: { name: 'finish', arguments: '{"classification":"summary","raw_review_required":false,"output":"done"}' },
+  }]));
 
   assert.equal(tool[0]?.kind, 'tool');
   assert.equal(finish[0]?.kind, 'finish');
@@ -109,7 +104,7 @@ test('summary planner action adapter routes decision-shaped output to the invali
     () => adapter.parseActions(
       buildResponse('{"classification":"summary","raw_review_required":false,"output":"legacy decision"}'),
     ),
-    /unknown planner action/u,
+    /content without a valid tool call/u,
   );
 
   await adapter.handleInvalidResponse({
@@ -122,14 +117,16 @@ test('summary planner action adapter routes decision-shaped output to the invali
 });
 
 test('summary planner action adapter applies the unsupported-input finish policy', () => {
-  const unsupportedFinish = buildResponse(
-    '{"action":"finish","classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}',
-  );
+  const unsupportedFinish = buildResponse('', [{
+    id: 'finish-unsupported',
+    type: 'function',
+    function: { name: 'finish', arguments: '{"classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}' },
+  }]);
 
   assert.throws(
-    () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions())
+    () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(undefined, false))
       .parseActions(unsupportedFinish),
-    /invalid planner finish action/u,
+    /classification.*expected one of.*summary.*command_failure/u,
   );
 
   const allowed = new SummaryPlannerActionAdapter(

@@ -42,6 +42,7 @@ import {
 } from './chat-turn-phase-tracker.js';
 import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   diagnoseManagedLlamaOom,
@@ -70,7 +71,7 @@ export type ChatRepoOperationRequest = {
   maxTurns?: number;
   logFile?: string;
   availableModels?: string[];
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   managedLlamaRunId: string | null;
 };

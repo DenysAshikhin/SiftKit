@@ -382,13 +382,11 @@ test('summarizeRequest keeps oversized llama.cpp requests on the planner path wi
 
       assert.equal(chunkPaths.length, 0);
     }, {
-      assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner finish',
-        });
+      assistantContent(_promptText, parsed) {
+        if (JSON.stringify(parsed).includes('"name":"finish"')) {
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
+        }
+        return '{"classification":"summary","raw_review_required":false,"output":"direct finish"}';
       },
       config: {
         LlamaCpp: {
@@ -536,12 +534,7 @@ test('summary keeps oversized llama.cpp requests on planner mode when direct pro
       );
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner finish',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
       },
       rejectPromptCharsOver: 80000,
       metrics: {
@@ -581,12 +574,7 @@ test('summary hands oversized llama.cpp requests to planner mode before tokeniza
       );
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner finish',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
       },
       tokenizeCharsPerToken: 1,
       metrics: {

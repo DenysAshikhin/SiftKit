@@ -344,7 +344,7 @@ test('caption route performs one mocked vision pass and persists its caption', a
   try {
     const response = await requestJson(`${baseUrl}/dashboard/chat/sessions/${session.id}/images/caption`, {
       method: 'POST',
-      body: JSON.stringify({ messageId: message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"  A login screen.  "}'] }),
+      body: JSON.stringify({ messageId: message.id, imageIndex: 0, mockResponses: [{ content: "  A login screen.  " }] }),
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.caption, 'A login screen.');
@@ -375,11 +375,11 @@ test('a sequential caption request returns the persisted caption without a secon
     const url = `${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`;
     const first = await requestJson(url, {
       method: 'POST',
-      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"first caption"}'] }),
+      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "first caption" }] }),
     });
     const second = await requestJson(url, {
       method: 'POST',
-      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"second caption"}'] }),
+      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "second caption" }] }),
     });
     assert.equal(first.statusCode, 200);
     assert.equal(second.statusCode, 200);
@@ -408,11 +408,11 @@ test('concurrent duplicate caption requests execute one vision pass and share it
     const [first, second] = await Promise.all([
       requestJson(url, {
         method: 'POST',
-        body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"concurrent caption"}'] }),
+        body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "concurrent caption" }] }),
       }),
       requestJson(url, {
         method: 'POST',
-        body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"other caption"}'] }),
+        body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "other caption" }] }),
       }),
     ]);
     assert.equal(first.statusCode, 200);
@@ -463,7 +463,7 @@ test('caption route uses the session snapshot when the global active preset chan
   try {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
       method: 'POST',
-      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"snapshot caption"}'] }),
+      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "snapshot caption" }] }),
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.caption, 'snapshot caption');
@@ -532,7 +532,7 @@ test('caption route returns 404 when the image disappears during inference', asy
   try {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
       method: 'POST',
-      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: ['{"action":"finish","output":"will be discarded"}'] }),
+      body: JSON.stringify({ messageId: harness.fixture.message.id, imageIndex: 0, mockResponses: [{ content: "will be discarded" }] }),
     });
     assert.equal(response.statusCode, 404);
     assert.equal(response.body.error, 'Image not found.');

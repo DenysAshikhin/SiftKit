@@ -10,6 +10,7 @@ import { buildCompactionSummaryInstruction } from '../prompts.js';
 import { countTokensWithFallback, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import {
   COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
   COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
@@ -59,7 +60,7 @@ export class TranscriptCompactor {
     totalContextTokens: number;
     thinking: PlannerThinkingFlags;
     useEstimatedTokensOnly: boolean;
-    mockResponses: string[] | undefined;
+    mockResponses: MockPlannerResponseInput[] | undefined;
     tokenUsage: TokenUsageTracker;
     slotId?: number;
     logger: JsonLogger | null;

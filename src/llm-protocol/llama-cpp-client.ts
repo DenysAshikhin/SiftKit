@@ -331,7 +331,7 @@ export class LlamaCppClient {
     assertDeadlineFitsBudget({ maxTokens: options.maxTokens, totalDeadlineMs });
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
     const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix));
-    const parser = new LlamaCppToolCallParser(options.allowedToolNames);
+    const parser = new LlamaCppToolCallParser();
     const toolChunks = new Map<number, { id: string; name: string; argumentsText: string }>();
     let contentText = '';
     let reasoningText = '';
@@ -362,7 +362,6 @@ export class LlamaCppClient {
       options.onContentDelta?.(contentText);
       return true;
     };
-    const reasoningActionScanner = new FirstJsonObjectScanner();
     const budgetPreset = getActiveModelPreset(options.config);
     const thinkingBudgetTokens = continuation === undefined
       && getActiveInferenceBackend(options.config) === 'exl3'
@@ -426,13 +425,6 @@ export class LlamaCppClient {
           }
           if (deltaReasoning) {
             reasoningText += deltaReasoning;
-            const completedAction = reasoningActionScanner.push(reasoningText);
-            if (completedAction && /"action"\s*:/u.test(completedAction)) {
-              contentText = completedAction;
-              reasoningText = '';
-              earlyStopReason = 'planner action completed in streamed reasoning';
-              break streamFrames;
-            }
             if (thinkingBudgetTokens !== null
               && estimateTokenCountFromCharacters(options.config, reasoningText.length) > thinkingBudgetTokens) {
               earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
@@ -509,11 +501,12 @@ export class LlamaCppClient {
         function: { name: toolCall.name, arguments: toolCall.argumentsText },
       }))
       .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null);
-    const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : parser.parseFromText(contentText);
+    const dialectToolCalls = protocolToolCalls.length === 0 ? parser.parseFromText(contentText) : [];
+    const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : dialectToolCalls;
     const promptEvalDuration = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
     const generationDuration = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
     return {
-      text: contentText,
+      text: dialectToolCalls.length > 0 ? '' : contentText,
       reasoningText,
       toolCalls,
       usage: {
@@ -602,78 +595,6 @@ function getRecentTokenRepetition(text: string): { reason: string; truncatedText
     }
   }
   return null;
-}
-
-/**
- * Incrementally finds the first complete JSON object in an append-only text
- * stream. State persists across push() calls so each call scans only newly
- * appended characters; a push shorter than what was already scanned
- * (early-stop truncation) resets the scan. After the first object completes,
- * it is cached and returned on every later push.
- */
-export class FirstJsonObjectScanner {
-  private scannedTo = 0;
-  private startIndex = -1;
-  private depth = 0;
-  private inString = false;
-  private escaped = false;
-  private result: string | null = null;
-
-  push(text: string): string | null {
-    if (text.length < this.scannedTo) {
-      this.resetState();
-    }
-    if (this.result !== null) {
-      return this.result;
-    }
-    for (let index = this.scannedTo; index < text.length; index += 1) {
-      const char = text[index];
-      if (this.startIndex < 0) {
-        if (char === '{') {
-          this.startIndex = index;
-          this.depth = 1;
-        }
-        continue;
-      }
-      if (this.inString) {
-        if (this.escaped) {
-          this.escaped = false;
-        } else if (char === '\\') {
-          this.escaped = true;
-        } else if (char === '"') {
-          this.inString = false;
-        }
-        continue;
-      }
-      if (char === '"') {
-        this.inString = true;
-        continue;
-      }
-      if (char === '{') {
-        this.depth += 1;
-        continue;
-      }
-      if (char === '}') {
-        this.depth -= 1;
-        if (this.depth === 0) {
-          this.scannedTo = text.length;
-          this.result = text.slice(this.startIndex, index + 1).trim();
-          return this.result;
-        }
-      }
-    }
-    this.scannedTo = text.length;
-    return null;
-  }
-
-  private resetState(): void {
-    this.scannedTo = 0;
-    this.startIndex = -1;
-    this.depth = 0;
-    this.inString = false;
-    this.escaped = false;
-    this.result = null;
-  }
 }
 
 function getUsageValue(value: OptionalJsonValue): number | null {

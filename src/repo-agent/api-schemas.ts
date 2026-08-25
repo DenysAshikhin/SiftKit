@@ -4,6 +4,7 @@ import { z } from '../lib/zod.js';
 import { ApprovalModeSchema } from '../repo-search/engine/approval-gate.js';
 import { RepoSearchMockCommandResultSchema } from '../repo-search/types.js';
 import { RepoAgentRunIdSchema } from './run-schemas.js';
+import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
 
 export const RepoAgentStartRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1),
@@ -15,7 +16,7 @@ export const RepoAgentStartRequestSchema = z.strictObject({
   promptPrefix: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   availableModels: z.array(z.string().min(1)).optional(),
-  mockResponses: z.array(z.string()).optional(),
+  mockResponses: MockPlannerResponsesSchema.optional(),
   mockCommandResults: z.record(z.string(), RepoSearchMockCommandResultSchema).optional(),
 });
 export type RepoAgentStartRequest = z.infer<typeof RepoAgentStartRequestSchema>;

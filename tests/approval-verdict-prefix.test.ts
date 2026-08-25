@@ -7,6 +7,7 @@ import {
 } from '../src/repo-search/engine/pending-tool-call-message.js';
 import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
 import { buildApprovalVerdictPromptMessages } from '../src/repo-search/planner-protocol.js';
+import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
 
 test('tool-call ids depend only on turn and batch index', () => {
   assert.equal(buildBatchToolCallId(3, 0), 't3_c0');
@@ -19,14 +20,14 @@ test('the pending message equals the appended message when every call is approve
     turn: 2,
     thinkingText: 'plan',
     toolActions: [{
-      action: 'tool',
+      kind: 'tool', callId: 'provider-write',
       toolName: 'write',
       args: { path: 'a.ts', content: 'x' },
     }],
   });
   const appended = buildAssistantToolCallMessage([{
     action: { toolName: 'write', args: { path: 'a.ts', content: 'x' } },
-    toolCallId: 't2_c0',
+    toolCallId: 'provider-write',
     toolContent: 'ok',
   }], 'plan');
 
@@ -34,7 +35,9 @@ test('the pending message equals the appended message when every call is approve
 });
 
 test('pending and validated typed Git tools share one normalized identity', () => {
-  const toolAction = { action: 'tool' as const, toolName: 'git', args: { operation: 'status' } };
+  const toolAction = {
+    kind: 'tool', callId: 'provider-status', toolName: 'git', args: { operation: 'status' },
+  } satisfies AgentLoopToolAction;
 
   assert.deepEqual(resolveToolActionIdentity(toolAction), {
     normalizedToolName: 'git',

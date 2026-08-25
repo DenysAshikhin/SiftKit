@@ -40,7 +40,7 @@ async function runImageReadTurnRoles(repoRoot: string, paths: string[]): Promise
   );
   await processor.executeBatch(
     1,
-    paths.map((imagePath) => ({ action: 'tool' as const, toolName: 'read', args: { path: imagePath } })),
+    paths.map((imagePath) => ({ kind: 'tool', callId: 'test_call_43', toolName: 'read', args: { path: imagePath } })),
     '',
     { reported: 0, budgeted: 0 },
     false,

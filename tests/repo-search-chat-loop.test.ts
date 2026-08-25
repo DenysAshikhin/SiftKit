@@ -53,7 +53,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
       minToolCallsBeforeFinish: 0,
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
-      mockResponses: ['{"action":"finish","output":"4"}'],
+      mockResponses: [{ content: "4" }],
       mockCommandResults: {},
     },
   );
@@ -77,8 +77,8 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\".\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"needle","path":"."} }] },
+        { content: "done" },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\".\" pattern=\"needle\"": { exitCode: 0, stdout: 'should not execute', stderr: '' },
@@ -107,7 +107,7 @@ test('chat mode streams finish output as answer events', async () => {
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
-      mockResponses: ['{"action":"finish","output":"Hello there!"}'],
+      mockResponses: [{ content: "Hello there!" }],
       mockCommandResults: {},
       progressWriter: new CollectingProgressWriter(events),
     },
@@ -134,7 +134,7 @@ test('non-live writers do not receive the final planner answer event', async () 
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
-      mockResponses: ['{"action":"finish","output":"Hello there!"}'],
+      mockResponses: [{ content: "Hello there!" }],
       mockCommandResults: {},
       progressWriter: new NonLiveTextProgressWriter(events),
     },
@@ -158,8 +158,8 @@ test('tool token totals sum command output tokens', async () => {
       maxTurns: 2,
       maxInvalidResponses: 2,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+        { content: "done" },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
@@ -171,7 +171,7 @@ test('tool token totals sum command output tokens', async () => {
   assert.equal(result.toolTokens, commandOutputTokens);
 });
 
-test('chat answer streaming waits for extractable finish output instead of emitting raw planner json', async () => {
+test('chat streams native content as progress before classifying it as the final answer', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -181,9 +181,8 @@ test('chat answer streaming waits for extractable finish output instead of emitt
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish"' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: ',"output":"Hello' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: ' there!"}' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: ' there!' } }] })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
       return;
@@ -218,9 +217,12 @@ test('chat answer streaming waits for extractable finish output instead of emitt
     const answerTexts = events
       .filter((event) => event.kind === 'answer')
       .map((event) => String(event.answerText || ''));
+    const progressTexts = events
+      .filter((event) => event.kind === 'progress_update')
+      .map((event) => String(event.progressText || ''));
     assert.equal(result.finalOutput, 'Hello there!');
-    assert.deepEqual(answerTexts, ['Hello', 'Hello there!', 'Hello there!']);
-    assert.equal(answerTexts.some((text) => text.includes('"action"') || text.includes('"output"')), false);
+    assert.deepEqual(progressTexts, ['Hello', 'Hello there!']);
+    assert.deepEqual(answerTexts, ['Hello there!']);
   } finally {
     await closeServer(server);
   }
@@ -244,7 +246,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
         const parsed = asObject(parseJsonValueText(body || '{}'));
         if (requestCount === 1) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'not a valid action' } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '' } }] })}\n\n`);
           res.write('data: [DONE]\n\n');
           res.end();
           return;
@@ -320,7 +322,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         if (requestCount === 1) {
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'planning' } }] })}\n\n`);
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish","output":"draft","extra":true}' } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '' } }] })}\n\n`);
         } else {
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Terminal ' } }] })}\n\n`);
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'answer done' } }] })}\n\n`);
@@ -386,7 +388,7 @@ test('chat mode seeds system prompt override and history before the question', a
         { role: 'user', content: 'My name is Sam.' },
         { role: 'assistant', content: 'Hi Sam.' },
       ],
-      mockResponses: ['{"action":"finish","output":"You are Sam."}'],
+      mockResponses: [{ content: "You are Sam." }],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
         if (event.kind === 'turn_new_messages' && Array.isArray(event.messages)) {
@@ -433,7 +435,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
         { role: 'tool', tool_call_id: 'chat_tool_t1', content: 'previous fetched page text' },
         { role: 'assistant', content: 'previous answer' },
       ],
-      mockResponses: ['{"action":"finish","output":"next answer"}'],
+      mockResponses: [{ content: "next answer" }],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
         if (event.kind === 'turn_new_messages' && Array.isArray(event.messages)) {
@@ -482,7 +484,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
         Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
         Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on', IdleAction: 'unload' }] } },
       }),
-      mockResponses: ['{"action":"finish","output":"hi"}'],
+      mockResponses: [{ content: "hi" }],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
           if (event.kind === 'turn_model_request') {
@@ -510,7 +512,7 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
     taskPrompt: 'Say hi.',
     availableModels: ['mock'],
     model: 'mock',
-    mockResponses: ['{"action":"finish","output":"hi"}'],
+    mockResponses: [{ content: "hi" }],
     mockCommandResults: {},
   });
   const tasks = scorecard.tasks;
@@ -531,7 +533,7 @@ test('runRepoSearch rejects an undefined task prompt instead of executing self-t
       taskPrompt: undefined,
       availableModels: ['mock'],
       model: 'mock',
-      mockResponses: ['{"action":"finish","output":"unexpected"}'],
+      mockResponses: [{ content: "unexpected" }],
       mockCommandResults: {},
     }),
     /taskPrompt is required/u,

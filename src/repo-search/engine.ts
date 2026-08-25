@@ -32,6 +32,7 @@ import {
 } from './engine/task-loop.js';
 import type { ChatMessage } from './planner-protocol.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type {
   JsonLogger,
   RetainedWebToolCall,
@@ -149,7 +150,7 @@ export async function runRepoSearch(options: {
   thinkingEnabledOverride?: boolean;
   taskPrompt: string | undefined;
   availableModels?: string[];
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;

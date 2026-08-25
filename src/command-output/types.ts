@@ -6,7 +6,7 @@ import {
   type SummaryProviderId,
   type SummarySourceKind,
 } from '../summary/types.js';
-import { SummaryClassificationSchema } from '../planner-protocol/summary.js';
+import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 

@@ -7,16 +7,15 @@ import type {
   AgentLoopInvalidResponseResult,
   AgentLoopModelResponse,
   AgentLoopPreparedTurn,
-  AgentLoopProgressAction,
   AgentLoopPromptAdapter,
   AgentLoopResponseContext,
   AgentLoopToolAdapter,
   AgentLoopToolAction,
   AgentLoopToolExecution,
-  AgentLoopTurnOutcome,
 } from '../agent-loop/types.js';
 import type { AgentLoopModelClient } from '../agent-loop/agent-loop.js';
 import type { NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 
 export interface RepoSearchLoopController {
   prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn>;
@@ -24,7 +23,6 @@ export interface RepoSearchLoopController {
   inspectModelResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null;
   handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult>;
   evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation>;
-  handleProgress(action: AgentLoopProgressAction, context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome>;
   executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution>;
 }
 
@@ -46,12 +44,12 @@ export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
   private readonly parser = new AgentLoopActionParser();
 
   constructor(
-    private readonly allowedToolNames: readonly string[],
+    private readonly toolDefinitions: readonly PlannerToolDefinition[],
     private readonly controller: RepoSearchLoopController,
   ) {}
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
-    return this.parser.parseRepoSearchActions(response.text, this.allowedToolNames);
+    return this.parser.parseRepoSearchActions(response, this.toolDefinitions);
   }
 
   inspectResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null {
@@ -66,9 +64,6 @@ export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
     return this.controller.evaluateFinish(action, context);
   }
 
-  async handleProgress(action: AgentLoopProgressAction, context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
-    return this.controller.handleProgress(action, context);
-  }
 }
 
 export class RepoSearchToolAdapter implements AgentLoopToolAdapter {

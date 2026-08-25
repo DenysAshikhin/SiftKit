@@ -1,6 +1,7 @@
 import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
 import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
+import { AgentLoopActionParser } from '../../agent-loop/action-parser.js';
 import type {
   AgentLoopFinishAction,
   AgentLoopFinishEvaluation,
@@ -13,7 +14,7 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
-import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { LlamaCppToolCall, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
@@ -26,7 +27,7 @@ import {
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getErrorMessage, toError } from '../../lib/errors.js';
 import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
-import { ModelJson } from '../../lib/model-json.js';
+import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
 import { buildConservativeDirectFallbackDecision, normalizeStructuredDecision } from '../structured.js';
 import {
   executePlannerTool,
@@ -62,13 +63,10 @@ import {
   type SummarySourceKind,
 } from '../types.js';
 import {
-  SummaryPlannerToolCallSchema,
-  type SummaryClassification,
-  type SummaryPlannerAction as PlannerAction,
-} from '../../planner-protocol/summary.js';
-import {
   buildSummaryPlannerToolDefinitions,
   DEFAULT_SUMMARY_PLANNER_TOOL_NAMES,
+  SummaryNativeToolCallSchema,
+  type SummaryClassification,
   type SummaryPlannerToolName as PlannerToolName,
 } from '../../planner-protocol/summary-tools.js';
 import {
@@ -82,7 +80,6 @@ import {
   appendToolBatchExchange,
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
-  type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
 import { findContiguousUnreadRange, ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
 
@@ -103,39 +100,6 @@ function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): C
   return {
     timeoutMs,
     retryMaxWaitMs: timeoutMs,
-  };
-}
-
-function buildPlannerInvalidToolAction(
-  providerText: string,
-  toolDefinitions: readonly PlannerToolDefinition[],
-  allowUnsupportedInput: boolean,
-): ToolTranscriptAction {
-  try {
-    const recoveredAction = ModelJson.parseSummaryPlannerAction(providerText, {
-      toolDefinitions,
-      allowUnsupportedInput,
-    });
-    if (recoveredAction.action === 'tool') {
-      return recoveredAction;
-    }
-    if (recoveredAction.action === 'tool_batch') {
-      const firstToolCall = recoveredAction.calls[0];
-      if (firstToolCall) {
-        return {
-          toolName: firstToolCall.toolName,
-          args: firstToolCall.args,
-        };
-      }
-    }
-  } catch {
-    // Invalid responses are fed back to the model as an explicit invalid tool call.
-  }
-  return {
-    toolName: 'invalid_tool_call',
-    args: {
-      rawResponseText: String(providerText || '').trim(),
-    },
   };
 }
 
@@ -172,6 +136,7 @@ export type InvokePlannerModeOptions = {
 type PlannerPromptBudget = ReturnType<typeof getPlannerPromptBudget>;
 type SummaryPlannerDebugRecorder = ReturnType<typeof createPlannerDebugRecorder>;
 type SummaryPlannerToolResultRecord = {
+  callId: string;
   toolName: PlannerToolName;
   args: JsonObject;
   result: PlannerToolResult;
@@ -261,6 +226,7 @@ export class SummaryPlannerTranscriptState {
 type SummaryPlannerProviderResponse = {
   text: string;
   reasoningText: string | null;
+  toolCalls: LlamaCppToolCall[];
   inputTokens: number | null;
   outputCharacterCount: number | null;
   outputTokens: number | null;
@@ -276,7 +242,7 @@ type SummaryPlannerModelData = AgentLoopModelData & {
   providerResponse: SummaryPlannerProviderResponse;
 };
 type SummaryPlannerToolStatsPayload = Record<string, ReturnType<typeof createEmptyToolTypeStats>>;
-type SummaryPlannerToolAction = Extract<PlannerAction, { action: 'tool' }>;
+type SummaryPlannerToolAction = AgentLoopToolAction & { toolName: PlannerToolName };
 type SummaryPlannerEffectiveToolAction = {
   toolAction: SummaryPlannerToolAction;
   effectiveToolAction: SummaryPlannerToolAction;
@@ -486,7 +452,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return {
       text: response.text,
       reasoningText: response.reasoningText || '',
-      toolCalls: [],
+      toolCalls: response.toolCalls,
       usage: {
         promptTokens: response.inputTokens,
         completionTokens: response.outputTokens,
@@ -566,10 +532,6 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
           slotId: this.options.slotId ?? undefined,
           cachePrompt: true,
           tools: this.toolDefinitions,
-          structuredOutput: {
-            kind: 'siftkit-planner-action-json',
-            tools: this.toolDefinitions,
-          },
         });
       } finally {
         llamaSpan?.end();
@@ -588,6 +550,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       return {
         text: response.text,
         reasoningText: response.reasoningText,
+        toolCalls: response.toolCalls,
         inputTokens,
         outputCharacterCount,
         outputTokens,
@@ -692,13 +655,24 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.transcriptState.invalidActionCount += 1;
     const invalidResponseError = getErrorMessage(context.error);
     const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
-    appendToolCallExchange(
-      this.messages,
-      buildPlannerInvalidToolAction(providerResponse.text, this.toolDefinitions, this.allowUnsupportedInput),
-      `invalid_call_${this.transcriptState.invalidActionCount}`,
-      invalidToolResultText,
-      providerResponse.reasoningText || '',
-    );
+    if (context.error instanceof NativePlannerToolCallError) {
+      appendToolCallExchange(
+        this.messages,
+        { toolName: context.error.toolName, args: context.error.args },
+        context.error.callId,
+        invalidToolResultText,
+        providerResponse.reasoningText || '',
+      );
+    } else {
+      this.messages.push({
+        role: 'assistant',
+        content: providerResponse.text,
+        ...(providerResponse.reasoningText
+          ? { reasoning_content: providerResponse.reasoningText }
+          : {}),
+      });
+      this.messages.push({ role: 'user', content: invalidToolResultText });
+    }
     this.debugRecorder.record({
       kind: 'planner_invalid_response',
       error: invalidResponseError,
@@ -787,11 +761,15 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private buildToolActions(actions: readonly AgentLoopToolAction[]): SummaryPlannerToolAction[] {
     return actions.map((action) => {
-      return SummaryPlannerToolCallSchema.parse({
-        action: 'tool',
+      const parsed = SummaryNativeToolCallSchema.parse({
         toolName: action.toolName,
         args: JsonObjectSchema.parse(action.args),
       });
+      return {
+        ...action,
+        toolName: parsed.toolName,
+        args: JsonObjectSchema.parse(parsed.args),
+      };
     });
   }
 
@@ -820,7 +798,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       appendToolCallExchange(
         this.messages,
         rejectedToolAction,
-        `forced_finish_call_${this.toolResults.length + 1}`,
+        rejectedToolAction.callId,
         forcedToolResultText,
         providerResponse.reasoningText || '',
       );
@@ -867,7 +845,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       appendToolCallExchange(
         this.messages,
         limitedToolAction,
-        `tool_limit_call_${this.toolResults.length + 1}`,
+        limitedToolAction.callId,
         buildPlannerForcedFinishUserPrompt(),
         providerResponse.reasoningText || '',
       );
@@ -903,18 +881,21 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptText: forcedPrompt,
         promptTokenCount: forcedPromptTokenCount,
       });
-      const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text, {
-        toolDefinitions: this.toolDefinitions,
-        allowUnsupportedInput: this.allowUnsupportedInput,
-      });
-      if (forcedAction.action !== 'finish') {
+      const forcedActions = new AgentLoopActionParser().parseSummaryPlannerActions(
+        this.toNormalizedResponse(forcedResponse),
+        {
+          toolDefinitions: this.toolDefinitions,
+        },
+      );
+      const forcedAction = forcedActions.find((action) => action.kind === 'finish');
+      if (!forcedAction) {
         return false;
       }
       const forcedDecision = normalizeStructuredDecision(
         {
-          classification: forcedAction.classification,
-          rawReviewRequired: forcedAction.rawReviewRequired,
-          output: forcedAction.output,
+          classification: normalizeAgentLoopSummaryClassification(forcedAction.classification),
+          rawReviewRequired: forcedAction.rawReviewRequired === true,
+          output: forcedAction.text,
         },
         this.options.format,
       );
@@ -987,7 +968,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     }
     ctx.batchOutcomes.push({
       action: toolAction,
-      toolCallId: `duplicate_call_${this.toolResults.length + 1}`,
+      toolCallId: toolAction.callId,
       toolContent: duplicateSummary,
     });
     ctx.batchDuplicateAnchorIndex = ctx.batchOutcomes.length - 1;
@@ -1070,7 +1051,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
     ctx.batchOutcomes.push({
       action: toolAction,
-      toolCallId: `invalid_call_${this.transcriptState.invalidActionCount}`,
+      toolCallId: toolAction.callId,
       toolContent: invalidToolResultText,
     });
     this.debugRecorder.record({
@@ -1082,7 +1063,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     if (this.transcriptState.invalidActionCount < MAX_PLANNER_INVALID_RESPONSES) {
       return null;
     }
-    appendToolBatchExchange(this.messages, ctx.batchOutcomes, ctx.providerResponse.reasoningText || '');
+    appendToolBatchExchange(
+      this.messages,
+      ctx.batchOutcomes,
+      ctx.providerResponse.reasoningText || '',
+      ctx.providerResponse.text,
+    );
     this.debugRecorder.finish({
       status: 'failed',
       reason: 'planner_invalid_response_limit',
@@ -1243,10 +1229,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : this.transcriptState.consecutiveNoNewEvidence + 1;
     ctx.batchOutcomes.push({
       action: effectiveToolAction,
-      toolCallId: `call_${this.toolResults.length + 1}`,
+      toolCallId: toolAction.callId,
       toolContent: formatted.promptResultText,
     });
     this.toolResults.push({
+      callId: toolAction.callId,
       toolName: effectiveToolAction.toolName,
       args: effectiveToolAction.args,
       result: formatted.result,
@@ -1336,7 +1323,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       outcomeCount: ctx.batchOutcomes.length,
       beforeMessageCount: this.messages.length,
     });
-    appendToolBatchExchange(this.messages, ctx.batchOutcomes, ctx.providerResponse.reasoningText || '');
+    appendToolBatchExchange(
+      this.messages,
+      ctx.batchOutcomes,
+      ctx.providerResponse.reasoningText || '',
+      ctx.providerResponse.text,
+    );
     appendSpan?.end({ afterMessageCount: this.messages.length });
     if (ctx.batchDuplicateAnchorIndex !== null && ctx.batchOutcomes.length > 0) {
       this.transcriptState.duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + ctx.batchDuplicateAnchorIndex;
@@ -1347,8 +1339,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private buildAgentLoopToolResults(beforeToolResultCount: number): AgentLoopToolResult[] {
-    return this.toolResults.slice(beforeToolResultCount).map((result, index): AgentLoopToolResult => ({
-      callId: `call_${beforeToolResultCount + index + 1}`,
+    return this.toolResults.slice(beforeToolResultCount).map((result): AgentLoopToolResult => ({
+      callId: result.callId,
       toolName: result.toolName,
       args: result.args,
       text: result.resultText,
@@ -1391,7 +1383,10 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     Array.isArray(options.allowedTools) && options.allowedTools.length > 0
       ? options.allowedTools
       : [...DEFAULT_SUMMARY_PLANNER_TOOL_NAMES];
-  const toolDefinitions = buildSummaryPlannerToolDefinitions(allowedTools);
+  const toolDefinitions = buildSummaryPlannerToolDefinitions(
+    allowedTools,
+    allowsUnsupportedInput(options.sourceKind),
+  );
   const toolResults: SummaryPlannerToolResultRecord[] = [];
   const messages: LlamaCppChatMessage[] = [
     {

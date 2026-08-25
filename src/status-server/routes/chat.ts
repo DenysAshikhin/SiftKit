@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../../lib/json-types.js';
+import { MockPlannerResponsesSchema, type MockPlannerResponse } from '../../planner-protocol/mock-response.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
 import { toError } from '../../lib/errors.js';
@@ -206,7 +207,7 @@ function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof Re
   return count !== null && count > 0;
 }
 
-function getMockTokenConfig(config: SiftConfig, mockResponses: string[] | undefined): SiftConfig | undefined {
+function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlannerResponse[] | undefined): SiftConfig | undefined {
   return Array.isArray(mockResponses) ? undefined : config;
 }
 
@@ -247,6 +248,11 @@ function readRouteStringArray(reader: JsonRecordReader, key: string): string[] |
   return Array.isArray(value) ? value.map((entry) => String(entry)) : undefined;
 }
 
+function readRouteMockResponses(reader: JsonRecordReader, key: string): MockPlannerResponse[] | undefined {
+  const value = reader.value(key);
+  return Array.isArray(value) ? MockPlannerResponsesSchema.parse(value) : undefined;
+}
+
 function readRouteNumber(reader: JsonRecordReader, key: string): number | undefined {
   return reader.number(key) ?? undefined;
 }
@@ -278,7 +284,7 @@ function buildChatRepoOperationRequest(options: {
     maxTurns: readRouteNumber(options.reader, 'maxTurns'),
     logFile: options.reader.optionalString('logFile'),
     availableModels: readRouteStringArray(options.reader, 'availableModels'),
-    mockResponses: readRouteStringArray(options.reader, 'mockResponses'),
+    mockResponses: readRouteMockResponses(options.reader, 'mockResponses'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
     managedLlamaRunId: options.ctx.managedLlama.lastStartupLogs?.runId ?? null,
   };
@@ -728,7 +734,7 @@ class ChatMessageTurn {
     private readonly userContent: string,
     private readonly userImages: string[],
     private readonly userImageMeta: ImageMetadata[],
-    private readonly mockResponses: string[] | undefined,
+    private readonly mockResponses: MockPlannerResponse[] | undefined,
   ) {
     this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     this.memory = new ChatMemorySeam(ctx.assistant);
@@ -941,7 +947,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         messageRequest.content,
         selectedImages.images,
         selectedImages.imageMeta,
-        readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
+        readRouteMockResponses(new JsonRecordReader(request.parsedBody), 'mockResponses'),
       );
       if (providedAssistantContent) {
         await turn.runProvidedAssistantTurn(providedAssistantContent);
@@ -1021,7 +1027,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         : webOverrideRaw === 'off'
           ? false
           : selectedSession.webSearchEnabled === true;
-      const mockResponses = readRouteStringArray(reader, 'mockResponses');
+      const mockResponses = readRouteMockResponses(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(selectedImages.effectiveConfig, mockResponses);
       const telemetry = new ChatTurnTelemetry(selectedImages.effectiveConfig, mockTokenConfig);
       const result = await ctx.engineService.executeRepoSearch({
@@ -1424,7 +1430,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
         getRuntimeRoot(),
         config,
         request.session,
-        readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
+        readRouteMockResponses(new JsonRecordReader(request.parsedBody), 'mockResponses'),
         createServerJsonLogger(serverLogger, 'condense', request.session.id),
       );
       sendJson(res, 200, buildChatSessionResponse(config, updatedSession));

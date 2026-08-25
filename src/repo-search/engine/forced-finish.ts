@@ -1,8 +1,6 @@
-import { buildRepoSearchFinishActionExample } from '../../planner-protocol/repo-search.js';
-
 export const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 export const FORCED_FINISH_MAX_ATTEMPTS = 3;
-export const FORCED_FINISH_MODE_MESSAGE = `Forced finish mode active. Return ${buildRepoSearchFinishActionExample('<best available final result>')} now. Tool calls are blocked.`;
+export const FORCED_FINISH_MODE_MESSAGE = 'Forced finish mode active. Return the best available final result as plain content now. Tool calls are blocked.';
 
 export type ForcedFinishAttempt = {
   attemptsRemaining: number;
@@ -35,8 +33,8 @@ export class ForcedFinishController {
     this.attemptsRemaining = Math.max(this.attemptsRemaining - 1, 0);
     return {
       attemptsRemaining: this.attemptsRemaining,
-      rejectionReason: `Forced finish mode active. Return a finish action now. Attempts remaining: ${this.attemptsRemaining}.`,
-      countdownText: `Forced finish attempts remaining: ${this.attemptsRemaining}. Return a finish action now.`,
+      rejectionReason: `Forced finish mode active. Return the final answer as plain content now. Attempts remaining: ${this.attemptsRemaining}.`,
+      countdownText: `Forced finish attempts remaining: ${this.attemptsRemaining}. Return the final answer as plain content now.`,
       exhausted: this.attemptsRemaining === 0,
     };
   }

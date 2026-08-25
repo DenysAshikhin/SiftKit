@@ -10,19 +10,21 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
-test('a progress action emits a progress_update event and the run continues to finish', async () => {
+test('content alongside a native tool call emits progress and the run continues to finish', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const progressWriter = new CollectingProgressWriter<RepoSearchProgressEvent>();
     const result = await executeRepoSearchRequest({
       presetId: 'repo-search',
       prompt: 'find build scripts',
       repoRoot: tempRoot,
-      maxTurns: 3,
+      maxTurns: 2,
       progressWriter,
       mockResponses: [
-        '{"action":"progress","output":"scanning scripts next"}',
-        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
-        '{"action":"finish","output":"Found scripts"}',
+        {
+          content: 'scanning scripts next',
+          toolCalls: [{ name: 'git', arguments: { operation: 'status' } }],
+        },
+        { content: "Found scripts" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },

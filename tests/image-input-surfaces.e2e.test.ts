@@ -193,7 +193,7 @@ test('repo-search puts the image part on the first user message it sends', async
 test('executeRepoSearchRequest admits an oversized data URL before repo-search model content', async () => {
   const oversizedUrl = `data:image/png;base64,${rasterBuffer('png', 2000, 1000).toString('base64')}`;
   await withModelServer(
-    JSON.stringify({ action: 'finish', output: 'done' }),
+    'done',
     async (baseUrl, capturedBodies) => {
       const preset = imageRuntimePreset(baseUrl, 500_000);
       const dir = createManagedTempDir('siftkit-admit-repo-search-');
@@ -403,7 +403,7 @@ test('the repo-search runner refuses an image when the preset has no vision', as
         model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
-        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockResponses: [{ content: "done" }],
         mockCommandResults: {},
         initialUserImages: ['data:image/png;base64,AAAA'],
       }),
@@ -434,7 +434,7 @@ test('the repo-search runner refuses an image when retention is zero', async () 
         model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
-        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockResponses: [{ content: "done" }],
         mockCommandResults: {},
         initialUserImages: ['data:image/png;base64,AAAA'],
       }),
@@ -467,7 +467,7 @@ test('the repo-agent runner refuses an image when the preset has no vision', asy
         model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
-        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockResponses: [{ content: "done" }],
         mockCommandResults: {},
         initialUserImages: ['data:image/png;base64,AAAA'],
       }),

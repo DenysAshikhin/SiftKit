@@ -15,6 +15,7 @@ import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.
 import {
   buildSummaryPlannerToolDefinitions,
   SUMMARY_TOOL_ARGUMENT_SCHEMAS,
+  SummaryFinishToolArgsSchema,
   SummaryNativeToolCallSchema,
   SummaryPlannerToolNameSchema,
   type SummaryPlannerToolName as PlannerToolName,
@@ -23,24 +24,19 @@ import { asObject } from './helpers/dashboard-http.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 
-const TOOL_STEP_ACTION_TEXT = JSON.stringify({
-  action: 'tool',
-  toolName: 'json_filter',
-  args: {
-    filters: [
-      { path: 'from.worldX', op: 'gte', value: 3200 },
-      { path: 'from.worldX', op: 'lte', value: 3215 },
-    ],
-    select: ['id', 'label'],
-    limit: 20,
-  },
-});
-const FINISH_ACTION_TEXT = JSON.stringify({
-  action: 'finish',
+const TOOL_STEP_ARGUMENTS = {
+  filters: [
+    { path: 'from.worldX', op: 'gte', value: 3200 },
+    { path: 'from.worldX', op: 'lte', value: 3215 },
+  ],
+  select: ['id', 'label'],
+  limit: 20,
+};
+const FINISH_ARGUMENTS = {
   classification: 'summary',
   raw_review_required: false,
   output: 'final planner answer',
-});
+} as const;
 const STUB_PROMPT_TOKEN_COUNT = 101;
 const STUB_TOOL_ACTION_TOKEN_COUNT = 7;
 const STUB_FINISH_ACTION_TOKEN_COUNT = 11;
@@ -73,7 +69,6 @@ test('json_filter auto-selects sole top-level array when collectionPath is omitt
   });
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_filter',
     args: {
       filters: [{ path: 'failed_request_json', op: 'exists' }],
@@ -99,7 +94,6 @@ test('json_filter picks the best matching top-level array when collectionPath is
   });
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_filter',
     args: {
       filters: [{ path: 'groupId', op: 'eq', value: 12 }],
@@ -122,7 +116,6 @@ test('json_filter unwraps exact nested value scalar wrappers', () => {
   });
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_filter',
     args: {
       filters: [{ path: 'groupId', op: 'eq', value: { value: 12 } }],
@@ -145,7 +138,6 @@ test('json_filter honors requested limits above the old safety cap', () => {
   });
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_filter',
     args: {
       collectionPath: 'testResults',
@@ -169,7 +161,6 @@ test('find_text counts all hits even when maxHits truncates rendered blocks', ()
   ].join('\n');
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'find_text',
     args: {
       query: 'Lumbridge Castle',
@@ -192,7 +183,6 @@ test('find_text honors requested maxHits above the old safety cap', () => {
   const inputText = Array.from({ length: 25 }, (_, index) => `needle line ${index + 1}`).join('\n');
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'find_text',
     args: {
       query: 'needle',
@@ -217,7 +207,6 @@ test('find_text literal matching is case insensitive', () => {
   ].join('\n');
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'find_text',
     args: {
       query: 'SKILL',
@@ -241,7 +230,6 @@ test('find_text regex matching is case insensitive', () => {
   ].join('\n');
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'find_text',
     args: {
       query: 'SKILL|ACTIVITY|LOADOUT|SAVEFILE',
@@ -275,7 +263,6 @@ test('json_get resolves nested paths from embedded json fallback sections', () =
   ].join('\n');
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_get',
     args: {
       path: 'states.0.state_json.steps.1.status',
@@ -294,7 +281,6 @@ test('json_get reports missing paths explicitly', () => {
   });
 
   const result = executePlannerTool(inputText, {
-    action: 'tool',
     toolName: 'json_get',
     args: {
       path: 'states.1.id',
@@ -306,7 +292,7 @@ test('json_get reports missing paths explicitly', () => {
   assert.match(result.text, /path not found/u);
 });
 
-test('llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses', async () => {
+test('llama.cpp provider preserves planner tool actions from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -316,13 +302,13 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         idleTimeoutSeconds: 5,
-        structuredOutput: {
-          kind: 'siftkit-planner-action-json',
-          tools: buildSummaryPlannerToolDefinitions(),
-        },
+        tools: buildSummaryPlannerToolDefinitions(),
       });
 
-      assert.equal(summary.text, '{"action":"tool","toolName":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}}');
+      assert.equal(summary.text, '');
+      assert.equal(summary.toolCalls[0]?.id, 'call_1');
+      assert.equal(summary.toolCalls[0]?.function.name, 'json_filter');
+      assert.equal(summary.toolCalls[0]?.function.arguments, '{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}');
     }, {
       chatResponse() {
         return {
@@ -358,7 +344,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
   });
 });
 
-test('llama.cpp provider reconstructs planner tool batches from empty-content tool_calls responses', async () => {
+test('llama.cpp provider preserves planner tool batches from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -368,16 +354,13 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         idleTimeoutSeconds: 5,
-        structuredOutput: {
-          kind: 'siftkit-planner-action-json',
-          tools: buildSummaryPlannerToolDefinitions(),
-        },
+        tools: buildSummaryPlannerToolDefinitions(),
       });
 
-      assert.equal(
-        summary.text,
-        '{"action":"tool_batch","calls":[{"toolName":"find_text","args":{"query":"Lumbridge","mode":"literal"}},{"toolName":"read_lines","args":{"startLine":10,"endLine":20}}]}',
-      );
+      assert.equal(summary.text, '');
+      assert.deepEqual(summary.toolCalls.map((toolCall) => toolCall.function.name), ['find_text', 'read_lines']);
+      assert.equal(summary.toolCalls[0]?.function.arguments, '{"query":"Lumbridge","mode":"literal"}');
+      assert.equal(summary.toolCalls[1]?.function.arguments, '{"startLine":10,"endLine":20}');
     }, {
       chatResponse() {
         return {
@@ -494,7 +477,12 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
               index: 0,
               message: {
                 role: 'assistant',
-                content: FINISH_ACTION_TEXT,
+                content: '',
+                tool_calls: [{
+                  id: 'finish-1',
+                  type: 'function',
+                  function: { name: 'finish', arguments: JSON.stringify(FINISH_ARGUMENTS) },
+                }],
               },
             },
           ],
@@ -550,8 +538,8 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
     }, {
       tokenizeTokenCount(content) {
-        if (content === TOOL_STEP_ACTION_TEXT) return STUB_TOOL_ACTION_TOKEN_COUNT;
-        if (content === FINISH_ACTION_TEXT) return STUB_FINISH_ACTION_TOKEN_COUNT;
+        if (content.includes('"name":"json_filter"')) return STUB_TOOL_ACTION_TOKEN_COUNT;
+        if (content.includes('"name":"finish"')) return STUB_FINISH_ACTION_TOKEN_COUNT;
         return STUB_PROMPT_TOKEN_COUNT;
       },
       chatResponse(promptText, parsed, requestIndex) {
@@ -562,9 +550,14 @@ test('planner token accounting treats tool-step completion tokens as thinking an
             choices: [
               {
                 index: 0,
-                message: {
-                  role: 'assistant',
-                  content: TOOL_STEP_ACTION_TEXT,
+              message: {
+                role: 'assistant',
+                  content: '',
+                  tool_calls: [{
+                    id: 'tool-step-1',
+                    type: 'function',
+                    function: { name: 'json_filter', arguments: JSON.stringify(TOOL_STEP_ARGUMENTS) },
+                  }],
                 },
               },
             ],
@@ -584,7 +577,12 @@ test('planner token accounting treats tool-step completion tokens as thinking an
               index: 0,
               message: {
                 role: 'assistant',
-                content: FINISH_ACTION_TEXT,
+                content: '',
+                tool_calls: [{
+                  id: 'finish-step-2',
+                  type: 'function',
+                  function: { name: 'finish', arguments: JSON.stringify(FINISH_ARGUMENTS) },
+                }],
               },
             },
           ],
@@ -679,18 +677,12 @@ test('summary above planner threshold respects runtime reasoning for planner req
         reasoning_effort: 'xhigh',
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
-      const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
-      assert.match(firstResponseFormatText, /toolName/u);
-      assert.match(firstResponseFormatText, /find_text/u);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools || []), /find_text/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (JSON.stringify(asObject(parsed).response_format || {}).includes('find_text')) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'planner finish',
-          });
+        if (JSON.stringify(asObject(parsed).tools || []).includes('find_text')) {
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner finish' } }] };
         }
 
         return '{"classification":"summary","raw_review_required":false,"output":"ok"}';
@@ -702,10 +694,10 @@ test('summary above planner threshold respects runtime reasoning for planner req
 test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas', () => {
   const toolDefinitions = buildSummaryPlannerToolDefinitions();
   assert.equal(Array.isArray(toolDefinitions), true);
-  assert.equal(toolDefinitions.length, 4);
+  assert.equal(toolDefinitions.length, 5);
 
   const toolNames = toolDefinitions.map((entry) => entry?.function?.name).sort();
-  assert.deepEqual(toolNames, ['find_text', 'json_filter', 'json_get', 'read_lines']);
+  assert.deepEqual(toolNames, ['find_text', 'finish', 'json_filter', 'json_get', 'read_lines']);
 
   for (const entry of toolDefinitions) {
     assert.equal(entry.type, 'function');
@@ -754,7 +746,7 @@ test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas'
   assert.match(jsonGet.function.description, /"path":"states\.0\.state_json"/i);
 });
 
-test('oversized transition extraction uses planner action grammar before returning a tool-assisted summary', async () => {
+test('oversized transition extraction uses native planner tools before returning a tool-assisted summary', async () => {
   await withTempEnv(async () => {
     const expectedOutput = [
       '9001 | Lumbridge Castle Staircase | stairs | from (3205,3214,0) -> to (3205,3214,1) | bidirectional=true',
@@ -783,31 +775,24 @@ test('oversized transition extraction uses planner action grammar before returni
 
       const firstRequest = server.state.chatRequests[0];
       const firstPrompt = getChatRequestText(firstRequest);
-      assert.match(JSON.stringify(firstRequest?.response_format || {}), /action/u);
+      assert.equal(firstRequest?.response_format, undefined);
+      assert.match(JSON.stringify(firstRequest?.tools || []), /json_filter/u);
       assert.match(firstPrompt, /Planner mode:/u);
-      assert.match(firstPrompt, /Tools:/u);
-      assert.match(firstPrompt, /find_text/u);
-      assert.match(firstPrompt, /read_lines/u);
-      assert.match(firstPrompt, /json_filter/u);
+      assert.match(firstPrompt, /provided tools/u);
       assert.match(firstPrompt, /Use separate filters for gte\/lte bounds/u);
       assert.match(firstPrompt, /Do not use "value":\{"gte":3200,"lte":3215\}/u);
-      assert.match(firstPrompt, /Never emit JSON schema fragments like \{"type":"integer"\}/u);
+      assert.match(firstPrompt, /never JSON schema fragments/u);
       assert.match(firstPrompt, /Regex patterns must be valid JavaScript regex/u);
       assert.match(firstPrompt, /After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window/u);
-      assert.match(firstPrompt, /avoid many tiny adjacent slices unless verifying one exact line or symbol/u);
       assert.match(firstPrompt, /If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice/u);
-      assert.match(firstPrompt, /Example find_text: \{"action":"tool","toolName":"find_text","args":/u);
-      assert.match(firstPrompt, /Example read_lines: \{"action":"tool","toolName":"read_lines","args":/u);
-      assert.match(firstPrompt, /Example json_filter: \{"action":"tool","toolName":"json_filter","args":/u);
-      assert.doesNotMatch(firstPrompt, /"action":"find_text"|"action":"read_lines"|"action":"json_filter"/u);
+      assert.doesNotMatch(firstPrompt, /"action":"tool"|"toolName"/u);
       assert.equal(/parameters=/u.test(firstPrompt), false);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({
-            action: 'tool',
-            toolName: 'json_filter',
-            args: {
+          return { toolCalls: [{
+            name: 'json_filter',
+            arguments: {
               filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
@@ -817,16 +802,11 @@ test('oversized transition extraction uses planner action grammar before returni
               select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
               limit: 20,
             },
-          });
+          }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: expectedOutput,
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: expectedOutput } }] };
         }
 
         throw new Error(`unexpected planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -861,12 +841,7 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
       );
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'oversized planner success',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'oversized planner success' } }] };
       },
     });
   });
@@ -897,12 +872,7 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
       assert.match(getChatRequestText(server.state.chatRequests[0]), /Planner mode:/u);
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner handled monolithic json',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner handled monolithic json' } }] };
       },
     });
   });
@@ -911,6 +881,16 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
 test('every summary planner parameter schema is generated from its runtime Zod schema', () => {
   const definitions = buildSummaryPlannerToolDefinitions();
   for (const definition of definitions) {
+    if (definition.function.name === 'finish') {
+      const { $schema, ...expected } = z.toJSONSchema(SummaryFinishToolArgsSchema, { io: 'input' });
+      assert.equal(typeof $schema, 'string');
+      assert.deepEqual(definition.function.parameters, JsonObjectSchema.parse(expected), 'finish');
+      assert.deepEqual(
+        SummaryFinishToolArgsSchema.parse(definition.exampleArgs),
+        definition.exampleArgs,
+      );
+      continue;
+    }
     const toolName = SummaryPlannerToolNameSchema.parse(definition.function.name);
     const argsSchema = SUMMARY_TOOL_ARGUMENT_SCHEMAS[toolName];
     // `$schema` is a document-root dialect key; provider `function.parameters` is a subschema.

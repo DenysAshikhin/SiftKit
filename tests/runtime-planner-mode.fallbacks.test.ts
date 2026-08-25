@@ -38,16 +38,11 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'var.*Unlocks.*=.*{', mode: 'regex', maxHits: 3, contextLines: 2 } });
+          return { toolCalls: [{ name: 'find_text', arguments: { query: 'var.*Unlocks.*=.*{', mode: 'regex', maxHits: 3, contextLines: 2 } }] };
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({
-            action: 'finish',
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'planner recovered from invalid regex',
-          });
+          return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner recovered from invalid regex' } }] };
         }
 
         throw new Error(`unexpected invalid-regex request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -76,7 +71,8 @@ test('planner fails fast when the planner response body is empty', async () => {
         /Planner mode failed: llama\.cpp did not return a response body\./u,
       );
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
+      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.tools || []), /finish/u);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
@@ -116,12 +112,7 @@ test('planner tolerates several malformed replies before succeeding instead of a
         if (requestIndex < 4) {
           return 'this is not a valid planner action';
         }
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner tolerated invalid replies',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner tolerated invalid replies' } }] };
       },
     });
   });
@@ -153,12 +144,7 @@ test('planner accepts a direct finish action for oversized input instead of fall
       );
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'planner direct summary',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'planner direct summary' } }] };
       },
     });
   });
@@ -184,14 +170,8 @@ test('summarizeRequest no longer rejects input larger than 4x chunk threshold wh
       assert.equal(result.Summary, 'oversized input accepted');
     }, {
       assistantContent() {
-        return JSON.stringify({
-          action: 'finish',
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'oversized input accepted',
-        });
+        return { toolCalls: [{ name: 'finish', arguments: { classification: 'summary', raw_review_required: false, output: 'oversized input accepted' } }] };
       },
     });
   });
 });
-

@@ -54,7 +54,7 @@ function verdictOptions(transcriptMessages: ChatMessage[], executing: ReturnType
     question: 'approve?',
     executing,
     timeoutMs: 5000,
-    mockResponses: [APPROVE_MOCK],
+    mockResponses: [{ content: APPROVE_MOCK }],
     mockResponseIndex: 0,
   };
 }

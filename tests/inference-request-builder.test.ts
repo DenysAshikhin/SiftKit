@@ -41,18 +41,18 @@ function requireObject(value: OptionalJsonValue): JsonObject {
   return value;
 }
 
-function getActionVariant(schema: JsonObject, action: string): JsonObject {
+function getModeVariant(schema: JsonObject, mode: string): JsonObject {
   if (!Array.isArray(schema.anyOf)) {
-    throw new Error('Expected planner schema variants.');
+    throw new Error('Expected schema variants.');
   }
   for (const candidate of schema.anyOf) {
     const variant = requireObject(candidate);
-    const actionSchema = requireObject(requireObject(variant.properties).action);
-    if (actionSchema.const === action) {
+    const modeSchema = requireObject(requireObject(variant.properties).mode);
+    if (modeSchema.const === mode) {
       return variant;
     }
   }
-  throw new Error(`Missing planner action variant: ${action}`);
+  throw new Error(`Missing mode variant: ${mode}`);
 }
 
 test('llama request includes llama-only cache and slot controls', () => {
@@ -273,15 +273,15 @@ test('request builder preserves the canonical planner schema for llama', () => {
   }
 });
 
-test('request builder lowers only Formatron-incompatible planner constraints for EXL3', () => {
+test('request builder lowers optional structured-output properties for EXL3', () => {
   const direct = {
     type: 'object',
     properties: {
-      action: { const: 'inspect' },
+      mode: { const: 'inspect' },
       requiredText: { type: 'string' },
       optionalLimit: { type: 'integer' },
     },
-    required: ['action', 'requiredText'],
+    required: ['mode', 'requiredText'],
     additionalProperties: false,
   };
   const schema = {
@@ -290,10 +290,10 @@ test('request builder lowers only Formatron-incompatible planner constraints for
       {
         type: 'object',
         properties: {
-          action: { const: 'tool_batch' },
-          calls: { type: 'array', minItems: 1, items: direct },
+          mode: { const: 'collect' },
+          records: { type: 'array', minItems: 1, items: direct },
         },
-        required: ['action', 'calls'],
+        required: ['mode', 'records'],
         additionalProperties: false,
       },
     ],
@@ -318,17 +318,17 @@ test('request builder lowers only Formatron-incompatible planner constraints for
     throw new Error('Expected EXL3 JSON Schema response format.');
   }
   const loweredSchema = requireObject(request.response_format.json_schema.schema);
-  const loweredDirect = getActionVariant(loweredSchema, 'inspect');
-  assert.deepEqual(loweredDirect.required, ['action', 'requiredText', 'optionalLimit']);
+  const loweredDirect = getModeVariant(loweredSchema, 'inspect');
+  assert.deepEqual(loweredDirect.required, ['mode', 'requiredText', 'optionalLimit']);
   assert.deepEqual(requireObject(requireObject(loweredDirect.properties).optionalLimit), {
     anyOf: [{ type: 'integer' }, { type: 'null' }],
   });
-  const batch = getActionVariant(loweredSchema, 'tool_batch');
-  const calls = requireObject(requireObject(batch.properties).calls);
-  assert.equal(Object.hasOwn(calls, 'minItems'), false);
-  assert.deepEqual(requireObject(calls.items), loweredDirect);
+  const collection = getModeVariant(loweredSchema, 'collect');
+  const records = requireObject(requireObject(collection.properties).records);
+  assert.equal(records.minItems, 1);
+  assert.deepEqual(requireObject(records.items), loweredDirect);
   assert.equal(requireObject(requireObject(direct.properties).optionalLimit).type, 'integer');
-  assert.equal(requireObject(requireObject(requireObject(schema.anyOf[1]).properties).calls).minItems, 1);
+  assert.equal(requireObject(requireObject(requireObject(schema.anyOf[1]).properties).records).minItems, 1);
 });
 
 test('thinking requests carry the preset reasoning effort', () => {

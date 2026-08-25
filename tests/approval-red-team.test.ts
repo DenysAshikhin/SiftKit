@@ -40,7 +40,7 @@ test('the shipped replay puts the payload in a pending assistant tool call', () 
 
   assert.equal(pending?.role, 'assistant');
   assert.equal(pending?.tool_calls?.length, 1);
-  assert.ok(String(pending?.tool_calls?.[0]?.function.arguments).includes('execSync'));
+  assert.ok(JSON.stringify(pending?.tool_calls?.[0]?.function.arguments).includes('execSync'));
   assert.equal(replay.action.reviewPayload, null);
 });
 

@@ -343,11 +343,10 @@ export class DashboardModelQueueHarness {
 
   private completeChatResponse(pending: PendingChatRequest, content: string): void {
     pending.released = true;
-    const action = JSON.stringify({ action: 'finish', output: content });
     pending.response.write(`data: ${JSON.stringify({
       id: `chatcmpl-${pending.sessionId}`,
       object: 'chat.completion.chunk',
-      choices: [{ index: 0, delta: { role: 'assistant', content: action } }],
+      choices: [{ index: 0, delta: { role: 'assistant', content } }],
     })}\n\n`);
     pending.response.write(`data: ${JSON.stringify({
       id: `chatcmpl-${pending.sessionId}`,
@@ -416,8 +415,8 @@ export class DashboardModelQueueHarness {
         simulateWorkMs: 80,
         availableModels: [LOCK_HOLDER_MODEL],
         mockResponses: [
-          '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"x","path":"src"}}',
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           [LOCK_HOLDER_COMMAND]: {

@@ -21,17 +21,14 @@ export class FormatronSchemaLowerer {
       type: 'json_schema',
       json_schema: {
         ...responseFormat.json_schema,
-        schema: this.lowerSchema(schema, false),
+        schema: this.lowerSchema(schema),
       },
     };
   }
 
-  private lowerSchema(schema: JsonObject, removeMinItems: boolean): JsonObject {
+  private lowerSchema(schema: JsonObject): JsonObject {
     const lowered: MutableJsonObject = {};
     for (const [key, value] of Object.entries(schema)) {
-      if (key === 'minItems' && removeMinItems) {
-        continue;
-      }
       lowered[key] = this.lowerKeyword(key, value);
     }
 
@@ -40,7 +37,6 @@ export class FormatronSchemaLowerer {
       return lowered;
     }
     const required = new Set(this.getStringArray(schema.required));
-    const action = this.getObject(properties.action)?.const;
     const loweredProperties: MutableJsonObject = {};
     for (const [name, value] of Object.entries(properties)) {
       const propertySchema = this.getObject(value);
@@ -48,7 +44,7 @@ export class FormatronSchemaLowerer {
         loweredProperties[name] = value;
         continue;
       }
-      const loweredProperty = this.lowerSchema(propertySchema, action === 'tool_batch' && name === 'calls');
+      const loweredProperty = this.lowerSchema(propertySchema);
       loweredProperties[name] = required.has(name) ? loweredProperty : { anyOf: [loweredProperty, { type: 'null' }] };
     }
     lowered.properties = loweredProperties;
@@ -61,10 +57,10 @@ export class FormatronSchemaLowerer {
       return value;
     }
     if (key === 'items' && isJsonObject(value)) {
-      return this.lowerSchema(value, false);
+      return this.lowerSchema(value);
     }
     if ((key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(value)) {
-      return value.map((entry) => (isJsonObject(entry) ? this.lowerSchema(entry, false) : entry));
+      return value.map((entry) => (isJsonObject(entry) ? this.lowerSchema(entry) : entry));
     }
     return value;
   }

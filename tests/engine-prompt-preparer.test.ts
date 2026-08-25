@@ -18,6 +18,7 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
@@ -25,7 +26,7 @@ const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled
 function makePreparer(
   budget: TurnBudget,
   transcript: TranscriptManager,
-  mockResponses: string[] = ['SUMMARY BODY'],
+  mockResponses: MockPlannerResponseInput[] = [{ content: 'SUMMARY BODY' }],
   events: Array<Record<string, JsonSerializable>> = [],
   thinking: typeof NO_THINKING = NO_THINKING,
   taskKind: RepoSearchTaskKind = 'repo-search',
@@ -108,7 +109,7 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   const preparer = makePreparer(
     new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
     transcript,
-    ['SUMMARY BODY'],
+    [{ content: 'SUMMARY BODY' }],
     events,
   );
 
@@ -142,7 +143,7 @@ test('prepareTurn compacts at most once per turn and then reports overflow', asy
   const preparer = makePreparer(
     new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
     transcript,
-    ['SUMMARY BODY', 'SECOND SUMMARY'],
+    [{ content: 'SUMMARY BODY' }, { content: 'SECOND SUMMARY' }],
     events,
   );
 
@@ -198,8 +199,8 @@ test('preflight counts preserved reasoning_content toward the prompt', async () 
     liveImagePathKeys: new Set<string>(),
   });
 
-  const withReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), ['SUMMARY BODY'], [], WITH_PRESERVED_THINKING);
-  const withoutReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), ['SUMMARY BODY'], [], NO_THINKING);
+  const withReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], WITH_PRESERVED_THINKING);
+  const withoutReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], NO_THINKING);
 
   const counted = await withReasoning.prepareTurn(1, 0);
   const uncounted = await withoutReasoning.prepareTurn(1, 0);
@@ -217,7 +218,7 @@ test('preserved reasoning mass triggers compaction that plain content would not'
     liveImagePathKeys: new Set<string>(),
   });
   const events: Array<Record<string, JsonSerializable>> = [];
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript, ['SUMMARY BODY'], events, WITH_PRESERVED_THINKING);
+  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript, [{ content: 'SUMMARY BODY' }], events, WITH_PRESERVED_THINKING);
 
   const prepared = await preparer.prepareTurn(1, 0);
 
@@ -237,7 +238,7 @@ test('prepareTurn reports the transcript prompt size, not the request-envelope r
   const preparer = makePreparer(
     new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }),
     transcript,
-    ['SUMMARY BODY'],
+    [{ content: 'SUMMARY BODY' }],
     events,
   );
 

@@ -107,8 +107,8 @@ test('default repo-search uses git without approval or repo-agent run control', 
       maxTurns: 2,
       availableModels: ['mock-model'],
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { content: "done" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": {
@@ -143,8 +143,8 @@ test('interactive write run: approval_request precedes execution; approve comple
       interactive: true,
       availableModels: ['mock-model'],
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"interactive-out.txt\",\"content\":\"approved\"}}",
-        '{"action":"finish","output":"wrote it"}',
+        { toolCalls: [{ name: "write", arguments: {"path":"interactive-out.txt","content":"approved"} }] },
+        { content: "wrote it" },
       ],
       mockCommandResults: {},
     },
@@ -175,8 +175,8 @@ test('interactive deny: reason reaches the transcript; abort ends with error fra
       interactive: true,
       availableModels: ['mock-model'],
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"never.txt\",\"content\":\"never\"}}",
-        '{"action":"finish","output":"gave up"}',
+        { toolCalls: [{ name: "write", arguments: {"path":"never.txt","content":"never"} }] },
+        { content: "gave up" },
       ],
       mockCommandResults: {},
     },
@@ -196,7 +196,7 @@ test('interactive deny: reason reaches the transcript; abort ends with error fra
       prompt: 'abort me', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       interactive: true,
       availableModels: ['mock-model'],
-      mockResponses: ["{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{}}", '{"action":"finish","output":"unreachable"}'],
+      mockResponses: [{ toolCalls: [{ name: "ls", arguments: {} }] }, { content: "unreachable" }],
       mockCommandResults: {},
     },
     timeoutMs: 20_000,
@@ -225,7 +225,7 @@ test('approval endpoint returns 404 for unknown and disconnected runs', async (t
     maxTurns: 2,
     interactive: true,
     availableModels: ['mock-model'],
-    mockResponses: ["{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{}}", '{"action":"finish","output":"unreachable"}'],
+    mockResponses: [{ toolCalls: [{ name: "ls", arguments: {} }] }, { content: "unreachable" }],
     mockCommandResults: {},
   });
   await waitForApprovalRegistryRemoval(
@@ -241,7 +241,7 @@ test('approval endpoint returns 404 for unknown and disconnected runs', async (t
       model: 'mock-model',
       maxTurns: 1,
       availableModels: ['mock-model'],
-      mockResponses: ['{"action":"finish","output":"after disconnect done"}'],
+      mockResponses: [{ content: "after disconnect done" }],
       mockCommandResults: {},
     },
     timeoutMs: 20_000,
@@ -257,8 +257,8 @@ test('non-interactive body cannot smuggle mutating tools via allowedTools', asyn
       allowedTools: ['read', 'write', 'run'],
       availableModels: ['mock-model'],
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"smuggled.txt\",\"content\":\"nope\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "write", arguments: {"path":"smuggled.txt","content":"nope"} }] },
+        { content: "done" },
       ],
       mockCommandResults: {},
     },

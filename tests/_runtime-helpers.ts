@@ -33,6 +33,7 @@ import {
   ChatRequestSchema,
   type ChatRequest,
   type AssistantResponder,
+  AssistantMessageFixtureSchema,
   setManagedLlamaBaseUrl,
   mergeConfig,
   extractPromptSection,
@@ -725,11 +726,24 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
         parsed,
         state.chatRequests.length,
       );
-      const assistantContent = typeof configuredAssistantContent === 'string'
-        ? configuredAssistantContent
-        : (/"classification":"summary|command_failure|unsupported_input"/u.test(promptText)
-          ? JSON.stringify(buildStructuredStubDecision(String(promptText)))
-          : `summary:${String(promptText).slice(0, 24)}`);
+      const configuredFixture = configuredAssistantContent && typeof configuredAssistantContent === 'object'
+        ? AssistantMessageFixtureSchema.parse(configuredAssistantContent)
+        : null;
+      const nativeFinishAvailable = Array.isArray(parsed.tools)
+        && parsed.tools.some((tool) => isJsonObject(tool)
+          && isJsonObject(tool.function)
+          && tool.function.name === 'finish');
+      const defaultDecision = buildStructuredStubDecision(String(promptText));
+      const assistantFixture = configuredFixture ?? (typeof configuredAssistantContent === 'string'
+        ? { content: configuredAssistantContent, toolCalls: [] }
+        : nativeFinishAvailable
+          ? { content: '', toolCalls: [{ name: 'finish', arguments: defaultDecision }] }
+          : {
+              content: /"classification":"summary|command_failure|unsupported_input"/u.test(promptText)
+                ? JSON.stringify(defaultDecision)
+                : `summary:${String(promptText).slice(0, 24)}`,
+              toolCalls: [],
+            });
       const usage = options.omitUsage ? null : {
         prompt_tokens: 123,
         completion_tokens: 45,
@@ -753,7 +767,17 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
               index: 0,
               message: {
                 role: 'assistant',
-                content: assistantContent,
+                content: assistantFixture.content,
+                ...(assistantFixture.toolCalls.length > 0 ? {
+                  tool_calls: assistantFixture.toolCalls.map((toolCall, index) => ({
+                    id: toolCall.id ?? `stub_${state.chatRequests.length}_${index + 1}`,
+                    type: 'function',
+                    function: {
+                      name: toolCall.name,
+                      arguments: JSON.stringify(toolCall.arguments),
+                    },
+                  })),
+                } : {}),
                 ...(typeof configuredReasoningContent === 'string'
                   ? { reasoning_content: configuredReasoningContent }
                   : {}),

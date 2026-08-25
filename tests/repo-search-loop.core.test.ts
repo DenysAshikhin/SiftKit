@@ -107,7 +107,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
     maxTurns: 1,
     taskPrompt: 'find anything',
     mockResponses: [
-      '{"action":"finish","output":"done"}',
+      { content: "done" },
     ],
     mockCommandResults: {},
   });
@@ -140,8 +140,8 @@ test('repo-search executes a native web_search tool when allowed', async () => {
     maxTurns: 2,
     taskPrompt: 'find latest siftkit info',
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"siftkit\"}}",
-      '{"action":"finish","output":"done"}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"siftkit"} }] },
+      { content: "done" },
     ],
     mockCommandResults: {
       'web_search query="siftkit"': {
@@ -189,9 +189,9 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
       mockResponses: [
         // The pattern carries both quote flavours; grep builds an rg argv directly,
         // so nothing re-quotes it on the way to the process.
-        JSON.stringify({ action: 'tool', toolName: 'grep', args: { pattern: 'from [\'"]\\.\\./', path: 'src' } }),
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: 'grep', arguments: { pattern: 'from [\'"]\\.\\./', path: 'src' } }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
     }
   );
@@ -215,9 +215,9 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'planner hit', stderr: '' },
@@ -256,9 +256,9 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: longStdout, stderr: '' },
@@ -286,9 +286,9 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: longStdout, stderr: '' },
@@ -326,9 +326,9 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       // written against: 10000 response reserve, then 5000 held back for compaction.
       totalContextTokens: 20000,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: longStdout, stderr: '' },
@@ -365,8 +365,8 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"finish","output":"Duplicated answer body"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { content: "Duplicated answer body" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {},
       progressWriter: new CollectingProgressWriter(progressEvents),
@@ -401,12 +401,17 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
       chatRequestCount += 1;
       sendChatCompletionSse(res, {
         choices: [{
-          message: {
-            role: 'assistant',
-            content: chatRequestCount === 1
-              ? "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}"
-              : '{"action":"finish","output":"done"}',
-          },
+          message: chatRequestCount === 1
+            ? {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: 'status-1',
+                type: 'function',
+                function: { name: 'git', arguments: '{"operation":"status"}' },
+              }],
+            }
+            : { role: 'assistant', content: 'done' },
         }],
         usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
       });
@@ -482,10 +487,10 @@ test('runTaskLoop executes find and read natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"*.ts\",\"path\":\"src\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/sample.ts\",\"offset\":2,\"limit\":2}}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
+          { toolCalls: [{ name: "find", arguments: {"pattern":"*.ts","path":"src"} }] },
+          { toolCalls: [{ name: "read", arguments: {"path":"src/sample.ts","offset":2,"limit":2} }] },
+          { content: "done" },
+          { content: '{"verdict":"pass","reason":"supported"}' },
         ],
         mockCommandResults: {},
         logger: {
@@ -533,9 +538,9 @@ test('runTaskLoop executes ls at repository root natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{\"path\":\".\"}}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
+          { toolCalls: [{ name: "ls", arguments: {"path":"."} }] },
+          { content: "done" },
+          { content: '{"verdict":"pass","reason":"supported"}' },
         ],
         mockCommandResults: {},
         logger: {
@@ -581,9 +586,9 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"runner-*\",\"path\":\"logs\"}}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
+          { toolCalls: [{ name: "find", arguments: {"pattern":"runner-*","path":"logs"} }] },
+          { content: "done" },
+          { content: '{"verdict":"pass","reason":"supported"}' },
         ],
         mockCommandResults: {},
         logger: {
@@ -678,9 +683,9 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 2, stdout: '', stderr: 'boom' },
@@ -714,9 +719,9 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\"}}",
-        '{"action":"finish","output":"failed"}',
-        '{"verdict":"pass","reason":"ok"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"log"} }] },
+        { content: "failed" },
+        { content: '{"verdict":"pass","reason":"ok"}' },
       ],
       mockCommandResults: {
         "git operation=\"log\"": { exitCode: 1, stdout: '', stderr: 'error' },
@@ -741,8 +746,8 @@ test('runTaskLoop stops on finish action', async () => {
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"finish","output":"find_text read_lines json_filter"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { content: "find_text read_lines json_filter" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {},
     }
@@ -767,15 +772,12 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        JSON.stringify({
-          action: 'tool_batch',
-          calls: [
-            { toolName: 'git', args: { operation: 'grep', pattern: 'planner prompt', path: 'src' } },
-            { toolName: 'git', args: { operation: 'grep', pattern: 'prompt budget', path: 'src' } },
-          ],
-        }),
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [
+          { name: 'git', arguments: { operation: 'grep', pattern: 'planner prompt', path: 'src' } },
+          { name: 'git', arguments: { operation: 'grep', pattern: 'prompt budget', path: 'src' } },
+        ] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner prompt\"": {
@@ -813,10 +815,10 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"show\",\"ref\":\"HEAD\",\"path\":\"src/summary.ts\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"show","ref":"HEAD","path":"src/summary.ts"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'src\\summary.ts:10:planner hit', stderr: '' },
@@ -849,9 +851,9 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       maxTurns: 2,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
-        'Synthesized best-effort answer referencing src\\summary.ts:907.',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { content: 'Synthesized best-effort answer referencing src\\summary.ts:907.' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\\\\summary.ts\" pattern=\"buildPlannerPrompt\"": {
@@ -883,9 +885,9 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"summary","path":"src"} }] },
+        { content: "done" },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'planner hit', stderr: '' },
@@ -931,9 +933,9 @@ test('runTaskLoop records line-read stats for read windows', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"summary.ts\",\"offset\":41,\"limit\":6}}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
+          { toolCalls: [{ name: "read", arguments: {"path":"summary.ts","offset":41,"limit":6} }] },
+          { content: "done" },
+          { content: '{"verdict":"pass","reason":"supported"}' },
         ],
         mockCommandResults: {},
       }
@@ -976,22 +978,26 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         requestCount += 1;
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
-        const content = requestCount === 1
-          ? JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: 'planner', path: 'src' } })
-          : JSON.stringify({
-            action: 'finish',
-            output: 'done',
-          });
         sendChatCompletionSse(res, {
           id: 'chatcmpl-test',
           object: 'chat.completion',
           choices: [
             {
               index: 0,
-              message: {
-                role: 'assistant',
-                content,
-              },
+              message: requestCount === 1
+                ? {
+                  role: 'assistant',
+                  content: '',
+                  tool_calls: [{
+                    id: 'grep-1',
+                    type: 'function',
+                    function: {
+                      name: 'git',
+                      arguments: '{"operation":"grep","pattern":"planner","path":"src"}',
+                    },
+                  }],
+                }
+                : { role: 'assistant', content: 'done' },
             },
           ],
           usage: {
@@ -1054,9 +1060,9 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(chatRequests[1].cache_prompt, true);
     assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
-    assert.equal(asObject(chatRequests[0]?.response_format).type, 'json_schema');
-    assert.equal('tools' in chatRequests[0], false);
-    assert.equal('parallel_tool_calls' in chatRequests[0], false);
+    assert.equal(chatRequests[0]?.response_format, undefined);
+    assert.equal(Array.isArray(chatRequests[0]?.tools), true);
+    assert.equal(chatRequests[0]?.parallel_tool_calls, true);
     assert.equal(asArray(chatRequests[1].messages).length > asArray(chatRequests[0].messages).length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
@@ -1103,22 +1109,30 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         requestCount += 1;
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
-        const content = requestCount <= 5
-          ? JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: 'planner', path: OVERSIZED_DUPLICATE_PATH } })
-          : JSON.stringify({
-            action: 'finish',
-            output: 'done',
-          });
         sendChatCompletionSse(res, {
           id: 'chatcmpl-test',
           object: 'chat.completion',
           choices: [
             {
               index: 0,
-              message: {
-                role: 'assistant',
-                content,
-              },
+              message: requestCount <= 5
+                ? {
+                  role: 'assistant',
+                  content: '',
+                  tool_calls: [{
+                    id: `duplicate-${requestCount}`,
+                    type: 'function',
+                    function: {
+                      name: 'git',
+                      arguments: JSON.stringify({
+                        operation: 'grep',
+                        pattern: 'planner',
+                        path: OVERSIZED_DUPLICATE_PATH,
+                      }),
+                    },
+                  }],
+                }
+                : { role: 'assistant', content: 'done' },
             },
           ],
           usage: {
@@ -1191,7 +1205,9 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     const duplicateToolCallId = String(duplicateToolMessages[0]?.tool_call_id || '');
     const duplicateAssistant = assistantToolCalls.find((message) => asObjectArray(message?.tool_calls)
       .some((call) => String(call?.id || '') === duplicateToolCallId));
-    const duplicateArguments = String(asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '');
+    const duplicateArguments = String(
+      asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '',
+    );
     assert.match(duplicateArguments, /chars of arguments discarded/u);
     assert.ok(duplicateArguments.length < REJECTED_ARGS_ELISION_LIMIT);
     const acceptedAssistant = assistantToolCalls.find((message) => message !== duplicateAssistant);
@@ -1216,8 +1232,8 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
-        'best-effort answer with evidence',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { content: 'best-effort answer with evidence' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\\\\summary.ts\" pattern=\"buildPlannerPrompt\"": {
@@ -1244,7 +1260,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
       req.on('end', () => {
         chatRequests.push(JSON.parse(body || '{}'));
         sendChatCompletionSse(res, {
-          choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
+          choices: [{ message: { role: 'assistant', content: 'done' } }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
         });
       });
@@ -1315,12 +1331,12 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
-        const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
+        const isTerminalSynthesis = !Array.isArray(parsed.tools) || parsed.tools.length === 0;
         sendChatCompletionSse(res, {
           choices: [{
             message: {
               role: 'assistant',
-              content: isTerminalSynthesis ? 'best-effort answer' : 'not-json',
+              content: isTerminalSynthesis ? 'best-effort answer' : '',
             },
           }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
@@ -1391,12 +1407,12 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
       req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
-        const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
+        const isTerminalSynthesis = !Array.isArray(parsed.tools) || parsed.tools.length === 0;
         sendChatCompletionSse(res, {
           choices: [{
             message: {
               role: 'assistant',
-              content: isTerminalSynthesis ? 'best-effort answer' : 'not-json',
+              content: isTerminalSynthesis ? 'best-effort answer' : '',
             },
           }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
@@ -1470,10 +1486,10 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"prompt\",\"path\":\"src\"}}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"prompt","path":"src"} }] },
+        { content: "done" },
+        { content: '{"verdict":"pass","reason":"supported"}' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'planner hit', stderr: '' },

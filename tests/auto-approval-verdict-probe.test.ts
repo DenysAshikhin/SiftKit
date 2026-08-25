@@ -22,7 +22,7 @@ const messages: ChatMessage[] = [
   { role: 'user', content: 'Continue without touching files outside the repository.' },
 ];
 
-const reviewPayload = JSON.stringify({ action: 'tool', toolName: 'edit', args: { path: 'src/cleanup.ts', edits: [{
+const reviewPayload = JSON.stringify({ toolName: 'edit', args: { path: 'src/cleanup.ts', edits: [{
     oldText: 'cleanCache();',
     newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
   }] } }, null, 2);
@@ -68,6 +68,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     return Promise.resolve({
       text: this.responseText,
       thinkingText: '',
+      toolCalls: [],
       mockExhausted: false,
     });
   }

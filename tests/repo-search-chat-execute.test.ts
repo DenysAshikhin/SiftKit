@@ -43,7 +43,7 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
     allowedTools: [],
     availableModels: ['mock'],
     model: 'mock',
-    mockResponses: ['{"action":"finish","output":"You like green."}'],
+    mockResponses: [{ content: "You like green." }],
     progressWriter: new CollectingProgressWriter(events),
   });
   const tasks = result.scorecard.tasks;
@@ -64,7 +64,7 @@ test('lifecycle reporting stays active without sending live text to a disabled t
     allowedTools: [],
     availableModels: ['mock'],
     model: 'mock',
-    mockResponses: ['{"action":"finish","output":"Hello."}'],
+    mockResponses: [{ content: "Hello." }],
     progressWriter: new DisabledCollectingProgressWriter(events),
   });
 
@@ -90,9 +90,9 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     }),
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
-      '{"action":"finish","output":"About 150 gp per bar."}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
+      { content: "About 150 gp per bar." },
     ],
     mockCommandResults: {
       'web_search query="iron bar GE price"': {
@@ -128,10 +128,10 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
     model: 'mock',
     maxTurns: 4,
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS F2P ironman fastest iron ore milestones\"}}",
-      '{"action":"finish","output":"Use the Mining Guild at level 30 after Doric\'s Quest."}',
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Mining_Guild\"}}",
-      '{"action":"finish","output":"Fetched evidence says the Mining Guild requires 60 Mining, so level 60 is the relevant milestone."}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS F2P ironman fastest iron ore milestones"} }] },
+      { content: "Use the Mining Guild at level 30 after Doric's Quest." },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Mining_Guild"} }] },
+      { content: "Fetched evidence says the Mining Guild requires 60 Mining, so level 60 is the relevant milestone." },
     ],
     mockCommandResults: {
       'web_search query="OSRS F2P ironman fastest iron ore milestones"': {
@@ -169,10 +169,10 @@ test('chat with web tools rejects finish before web_search and requires fetched 
     model: 'mock',
     maxTurns: 5,
     mockResponses: [
-      '{"action":"finish","output":"Iron bars make kiteshields and random quest rewards."}',
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bar uses\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
-      '{"action":"finish","output":"Fetched evidence says iron bars are used as Smithing material and in Construction items."}',
+      { content: "Iron bars make kiteshields and random quest rewards." },
+      { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS iron bar uses"} }] },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar"} }] },
+      { content: "Fetched evidence says iron bars are used as Smithing material and in Construction items." },
     ],
     mockCommandResults: {
       'web_search query="OSRS iron bar uses"': {
@@ -210,10 +210,10 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
     model: 'mock',
     maxTurns: 6,
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS F2P ironman fastest iron ore mining methods milestones\"}}",
-      '{"action":"finish","output":"Move to the Mining Guild at level 30 after Doric\'s Quest."}',
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Mining_Guild\"}}",
-      '{"action":"finish","output":"For F2P ironman iron ore milestones, the fetched source says Mining Guild access requires 60 Mining, so the iron ore milestone is 60 Mining rather than 30."}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS F2P ironman fastest iron ore mining methods milestones"} }] },
+      { content: "Move to the Mining Guild at level 30 after Doric's Quest." },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Mining_Guild"} }] },
+      { content: "For F2P ironman iron ore milestones, the fetched source says Mining Guild access requires 60 Mining, so the iron ore milestone is 60 Mining rather than 30." },
     ],
     mockCommandResults: {
       'web_search query="OSRS F2P ironman fastest iron ore mining methods milestones"': {
@@ -252,10 +252,10 @@ test('chat with web tools does not force finish after duplicate web_search', asy
     model: 'mock',
     maxTurns: 5,
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs iron bar\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs iron bar\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
-      '{"action":"finish","output":"Fetched evidence says iron bars require 15 Smithing and iron ore."}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"osrs iron bar"} }] },
+      { toolCalls: [{ name: "web_search", arguments: {"query":"osrs iron bar"} }] },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar"} }] },
+      { content: "Fetched evidence says iron bars require 15 Smithing and iron ore." },
     ],
     mockCommandResults: {
       'web_search query="osrs iron bar"': {
@@ -292,11 +292,11 @@ test('chat with web tools rejects repeated search and fetch calls across the ret
     model: 'mock',
     maxTurns: 5,
     mockResponses: [
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bars\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs   IRON bars\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
-      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar#Uses\"}}",
-      '{"action":"finish","output":"Iron bars are used for Smithing."}',
+      { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS iron bars"} }] },
+      { toolCalls: [{ name: "web_search", arguments: {"query":"osrs   IRON bars"} }] },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar"} }] },
+      { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar#Uses"} }] },
+      { content: "Iron bars are used for Smithing." },
     ],
     mockCommandResults: {
       'web_search query="OSRS iron bars"': {
@@ -333,7 +333,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
       Presets: CONTEXT_FREE_PRESETS,
       Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on', IdleAction: 'unload' }] } },
     }),
-    mockResponses: ['{"action":"finish","output":"Hello"}'],
+    mockResponses: [{ content: "Hello" }],
   });
   const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'Hello');

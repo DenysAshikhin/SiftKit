@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { RepoSearchActionAdapter, type RepoSearchLoopController } from '../src/repo-search/agent-loop-adapter.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 const usage = {
   promptTokens: 1,
@@ -27,23 +28,26 @@ const controller: RepoSearchLoopController = {
   inspectModelResponse: () => null,
   handleInvalidResponse: async () => ({ outcome: 'stop' }),
   evaluateFinish: async () => ({ accepted: true, outcome: 'stop' }),
-  handleProgress: async () => 'continue',
   executeTools: async () => ({ outcome: 'stop', results: [] }),
 };
 
-test('repo-search action adapter parses tool batches and finish actions', () => {
-  const adapter = new RepoSearchActionAdapter(['grep'], controller);
+test('repo-search action adapter maps native narration, provider call ids, and finish content', () => {
+  const adapter = new RepoSearchActionAdapter(resolveRepoSearchPlannerToolDefinitions(['grep']), controller);
   const tools = adapter.parseActions({
-    text: '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"x"}}]}',
+    text: 'Searching now.',
     reasoningText: 'thinking',
-    toolCalls: [],
+    toolCalls: [{
+      id: 'provider-call-7',
+      type: 'function',
+      function: { name: 'grep', arguments: '{"pattern":"x"}' },
+    }],
     usage,
     raw: {},
     stoppedEarly: false,
     invalidFrameCount: 0,
   });
   const finish = adapter.parseActions({
-    text: '{"action":"finish","output":"done"}',
+    text: 'done',
     reasoningText: '',
     toolCalls: [],
     usage,
@@ -52,6 +56,8 @@ test('repo-search action adapter parses tool batches and finish actions', () => 
     invalidFrameCount: 0,
   });
 
-  assert.equal(tools[0]?.kind, 'tool');
+  assert.deepEqual(tools, [
+    { kind: 'tool', callId: 'provider-call-7', toolName: 'grep', args: { pattern: 'x' } },
+  ]);
   assert.equal(finish[0]?.kind, 'finish');
 });

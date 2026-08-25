@@ -718,7 +718,7 @@ test('manual condense reports the summarizer retry through the logger it is give
       runtimeRoot,
       mockOfflineSiftConfig(),
       session,
-      ['', 'RECOVERED SUMMARY'],
+      [{ content: '' }, { content: 'RECOVERED SUMMARY' }],
       { path: 'memory', write: (event) => { logged.push(event); } },
     );
 

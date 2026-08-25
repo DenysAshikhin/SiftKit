@@ -44,12 +44,6 @@ const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 
 const REPLAY_ARGUMENT_PATTERN = /([A-Za-z][A-Za-z0-9_]*)=("(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/gu;
 
 export class LlamaCppToolCallParser {
-  private readonly allowedToolNames: Set<string>;
-
-  constructor(allowedToolNames: readonly string[]) {
-    this.allowedToolNames = new Set(allowedToolNames);
-  }
-
   parseFromChoice(choice: RawChoice): LlamaCppToolCall[] {
     const calls: LlamaCppToolCall[] = [];
     for (const raw of choice.message?.tool_calls || []) {
@@ -70,7 +64,7 @@ export class LlamaCppToolCallParser {
     for (const blockMatch of text.matchAll(QWEN_TOOL_CALL_PATTERN)) {
       const functionMatch = QWEN_FUNCTION_PATTERN.exec(blockMatch[1] || '');
       const name = functionMatch?.[1]?.trim() || '';
-      if (!this.allowedToolNames.has(name)) continue;
+      if (!name) continue;
       const parameters: Record<string, OptionalJsonValue> = {};
       for (const parameterMatch of (functionMatch?.[2] || '').matchAll(QWEN_PARAMETER_PATTERN)) {
         const parameterName = parameterMatch[1]?.trim() || '';
@@ -88,7 +82,7 @@ export class LlamaCppToolCallParser {
 
   parseToolCall(raw: RawToolCall): LlamaCppToolCall | null {
     const name = typeof raw.function?.name === 'string' ? raw.function.name.trim() : '';
-    if (!this.allowedToolNames.has(name)) return null;
+    if (!name) return null;
     return {
       id: typeof raw.id === 'string' && raw.id.trim() ? raw.id : `call_${name}`,
       type: 'function',
@@ -101,7 +95,7 @@ export class LlamaCppToolCallParser {
 
   private parseLegacyFunctionCall(raw: RawFunctionCall | undefined): LlamaCppToolCall | null {
     const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
-    if (!this.allowedToolNames.has(name)) return null;
+    if (!name) return null;
     return {
       id: `call_${name}`,
       type: 'function',

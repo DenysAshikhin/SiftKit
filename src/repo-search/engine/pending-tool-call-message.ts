@@ -7,7 +7,7 @@ import {
   isRepoSearchNativeToolName,
   normalizeToolName,
 } from '../planner-protocol.js';
-import type { RepoSearchToolAction } from '../../planner-protocol/repo-search.js';
+import type { AgentLoopToolAction } from '../../agent-loop/types.js';
 
 /** Stable transcript identity derived before approval decisions are made. */
 export function buildBatchToolCallId(turn: number, batchIndex: number): string {
@@ -21,7 +21,7 @@ export type ResolvedToolActionIdentity = {
 };
 
 /** Decision-independent identity shared by pending-message construction and validation. */
-export function resolveToolActionIdentity(toolAction: RepoSearchToolAction): ResolvedToolActionIdentity {
+export function resolveToolActionIdentity(toolAction: AgentLoopToolAction): ResolvedToolActionIdentity {
   const normalizedToolName = normalizeToolName(toolAction.toolName);
   const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
   return {
@@ -35,17 +35,19 @@ export function resolveToolActionIdentity(toolAction: RepoSearchToolAction): Res
 export function buildPendingAssistantMessage(options: {
   turn: number;
   thinkingText: string;
-  toolActions: RepoSearchToolAction[];
+  content?: string;
+  toolActions: readonly AgentLoopToolAction[];
 }): AssistantToolCallMessage {
   return buildAssistantToolCallMessage(
     options.toolActions.map((toolAction, index) => {
       const identity = resolveToolActionIdentity(toolAction);
       return {
         action: { toolName: identity.normalizedToolName, args: identity.rawArgs },
-        toolCallId: buildBatchToolCallId(options.turn, index),
+        toolCallId: toolAction.callId,
         toolContent: '',
       };
     }),
     options.thinkingText,
+    options.content ?? '',
   );
 }

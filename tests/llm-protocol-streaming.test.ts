@@ -63,7 +63,7 @@ function buildStreamingConfig(): SiftConfig {
 
 const streamingConfig = buildStreamingConfig();
 
-test('llama streaming client assembles deltas, callbacks, timings, tool chunks, and early reasoning actions', async () => {
+test('llama streaming client assembles reasoning, content, timings, and native tool chunks', async () => {
   const thinkingUpdates: string[] = [];
   const contentUpdates: string[] = [];
   const http = new StreamingHttpClient([
@@ -140,10 +140,10 @@ test('streaming client requests include_usage and captures a final usage-only ch
   assert.equal(response.usage.promptEvalTokens, 811);
 });
 
-test('llama streaming client stops on completed planner action in reasoning', async () => {
+test('llama streaming client does not reinterpret JSON in reasoning as an action', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { reasoning: 'prefix {"action":"finish","output":"done"} suffix' } }] },
-    { choices: [{ delta: { content: 'must not be read' } }] },
+    { choices: [{ delta: { content: 'final answer' } }] },
   ]);
 
   const response = await new LlamaCppClient(http).chat({
@@ -155,10 +155,10 @@ test('llama streaming client stops on completed planner action in reasoning', as
     allowedToolNames: [],
   });
 
-  assert.equal(response.text, '{"action":"finish","output":"done"}');
-  assert.equal(response.reasoningText, '');
-  assert.equal(response.stoppedEarly, true);
-  assert.equal(response.earlyStopReason, 'planner action completed in streamed reasoning');
+  assert.equal(response.text, 'final answer');
+  assert.equal(response.reasoningText, 'prefix {"action":"finish","output":"done"} suffix');
+  assert.equal(response.stoppedEarly, false);
+  assert.equal(response.earlyStopReason, undefined);
 });
 
 test('llama streaming client converts transient HTTP stream errors', async () => {
@@ -213,7 +213,8 @@ test('llama streaming client covers empty packets, thinking fallback, malformed 
 
   assert.equal(response.text, 'prefix');
   assert.equal(response.reasoningText, 'deep ');
-  assert.equal(response.toolCalls.length, 0);
+  assert.equal(response.toolCalls.length, 1);
+  assert.equal(response.toolCalls[0]?.function.name, 'not_allowed');
   assert.equal(response.stoppedEarly, true);
   assert.match(response.earlyStopReason || '', /recent planner content tokens repeated/u);
 });
@@ -308,27 +309,4 @@ test('llama streaming client detects a runaway completing after the last throttl
   // end-of-stream check. Per-frame checking stops inside the loop at frame
   // 49 and produces only 49 callbacks.
   assert.equal(contentUpdates.length, 50);
-});
-
-test('llama streaming client stops on a planner action assembled across reasoning frames', async () => {
-  const http = new StreamingHttpClient([
-    { choices: [{ delta: { reasoning_content: 'plan: {"action":"tool","toolName":"grep","args"' } }] },
-    { choices: [{ delta: { reasoning_content: ':{"pattern":"x{y}"' } }] },
-    { choices: [{ delta: { reasoning_content: '}} trailing' } }] },
-    { choices: [{ delta: { content: 'must not be read' } }] },
-  ]);
-
-  const response = await new LlamaCppClient(http).chat({
-    config: streamingConfig,
-    model: 'local',
-    messages: [{ role: 'user', content: 'hello' }],
-    tools: [],
-    maxTokens: 64,
-    allowedToolNames: [],
-  });
-
-  assert.equal(response.text, '{"action":"tool","toolName":"grep","args":{"pattern":"x{y}"}}');
-  assert.equal(response.reasoningText, '');
-  assert.equal(response.stoppedEarly, true);
-  assert.equal(response.earlyStopReason, 'planner action completed in streamed reasoning');
 });

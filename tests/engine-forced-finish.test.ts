@@ -20,8 +20,8 @@ test('consumeAttempt counts down with exact engine message strings and reports e
   controller.activateFromStagnation();
   const first = controller.consumeAttempt();
   assert.equal(first.attemptsRemaining, FORCED_FINISH_MAX_ATTEMPTS - 1);
-  assert.equal(first.rejectionReason, `Forced finish mode active. Return a finish action now. Attempts remaining: ${FORCED_FINISH_MAX_ATTEMPTS - 1}.`);
-  assert.equal(first.countdownText, `Forced finish attempts remaining: ${FORCED_FINISH_MAX_ATTEMPTS - 1}. Return a finish action now.`);
+  assert.equal(first.rejectionReason, `Forced finish mode active. Return the final answer as plain content now. Attempts remaining: ${FORCED_FINISH_MAX_ATTEMPTS - 1}.`);
+  assert.equal(first.countdownText, `Forced finish attempts remaining: ${FORCED_FINISH_MAX_ATTEMPTS - 1}. Return the final answer as plain content now.`);
   assert.equal(first.exhausted, false);
   controller.consumeAttempt();
   const last = controller.consumeAttempt();

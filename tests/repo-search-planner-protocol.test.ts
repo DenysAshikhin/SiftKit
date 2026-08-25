@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { ModelJson } from '../src/lib/model-json.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
@@ -13,7 +13,6 @@ import {
   buildContextCompactionPromptMessages,
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
-  getRepoSearchToolNamesForParsing,
   requestApprovalVerdict,
   requestContextCompactionSummary,
   requestRepoSearchPlannerProtocolAction,
@@ -39,13 +38,6 @@ function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
   return mockSiftConfig({
     Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload' }] } },
   });
-}
-
-function parseRepoSearchPlannerAction(text: string, allowedToolNames: readonly string[]) {
-  return ModelJson.parseRepoSearchPlannerAction(
-    text,
-    resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-  );
 }
 
 async function captureChatRequestBody(
@@ -86,27 +78,6 @@ async function withServer(handler: (req: http.IncomingMessage, res: http.ServerR
     });
   }
 }
-
-test('ModelJson parses repo-search tool batches', () => {
-  const action = parseRepoSearchPlannerAction(
-    JSON.stringify({
-      action: 'tool_batch',
-      calls: [
-        { toolName: 'grep', args: { pattern: 'plan' } },
-        { toolName: 'grep', args: { pattern: 'repo-search' } },
-      ],
-    }),
-    getRepoSearchToolNamesForParsing(),
-  );
-
-  assert.deepEqual(action, {
-    action: 'tool_batch',
-    calls: [
-      { toolName: 'grep', args: { pattern: 'plan' } },
-      { toolName: 'grep', args: { pattern: 'repo-search' } },
-    ],
-  });
-});
 
 test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when explicitly allowed', () => {
   const withoutWeb = resolveRepoSearchPlannerToolDefinitions(['grep']);
@@ -162,32 +133,6 @@ test('run output-mode guidance is readable ASCII text', () => {
   assert.doesNotMatch(description ?? '', /[^\x00-\x7F]/u);
 });
 
-test('getRepoSearchToolNamesForParsing excludes web tools so forged web actions are rejected by default', () => {
-  const names = getRepoSearchToolNamesForParsing();
-  assert.equal(names.includes('web_search'), false);
-  assert.equal(names.includes('web_fetch'), false);
-});
-
-test('ModelJson rejects web tools unless allowed and preserves canonical args when allowed', () => {
-  assert.throws(() => parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', ['grep']), /unknown|invalid/i);
-
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_search","args":{"query":"x"}}', ['web_search']), {
-    action: 'tool',
-    toolName: 'web_search',
-    args: { query: 'x' },
-  });
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_search","args":{"query":"x","timeFilter":"week"}}', ['web_search']), {
-    action: 'tool',
-    toolName: 'web_search',
-    args: { query: 'x', timeFilter: 'week' },
-  });
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_fetch","args":{"url":"https://example.com"}}', ['web_fetch']), {
-    action: 'tool',
-    toolName: 'web_fetch',
-    args: { url: 'https://example.com' },
-  });
-});
-
 test('repo-search tool registry exposes the pi tool surface and withholds the mutating tools', () => {
   const toolNames = getRepoSearchToolNames().sort();
   assert.deepEqual(toolNames, ['find', 'git', 'grep', 'ls', 'read', 'web_fetch', 'web_search']);
@@ -222,7 +167,7 @@ test('repo-search tool registry exposes the pi tool surface and withholds the mu
   assert.equal(JSON.stringify(gitParameters).includes('ls_files'), true);
 });
 
-test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from multi-tool responses', async () => {
+test('requestRepoSearchPlannerProtocolAction preserves a native batch from multi-tool responses', async () => {
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -270,18 +215,19 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from mult
       });
 
       assert.equal(result.mockExhausted, false);
-      assert.deepEqual(parseRepoSearchPlannerAction(result.text, getRepoSearchToolNamesForParsing()), {
-        action: 'tool_batch',
-        calls: [
-          { toolName: 'grep', args: { pattern: 'plan' } },
-          { toolName: 'grep', args: { pattern: 'repo-search' } },
-        ],
-      });
+      assert.deepEqual(result.toolCalls.map((toolCall) => ({
+        id: toolCall.id,
+        toolName: toolCall.function.name,
+        args: ModelJson.parseToolArguments(toolCall.function.arguments),
+      })), [
+        { id: 'call_1', toolName: 'grep', args: { pattern: 'plan' } },
+        { id: 'call_2', toolName: 'grep', args: { pattern: 'repo-search' } },
+      ]);
     },
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from streaming multi-tool responses', async () => {
+test('requestRepoSearchPlannerProtocolAction preserves a native batch from streaming multi-tool responses', async () => {
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -310,55 +256,13 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
         maxTokens: 512,
       });
 
-      assert.deepEqual(parseRepoSearchPlannerAction(result.text, getRepoSearchToolNamesForParsing()), {
-        action: 'tool_batch',
-        calls: [
-          { toolName: 'grep', args: { pattern: 'plan' } },
-          { toolName: 'grep', args: { pattern: 'repo-search' } },
-        ],
-      });
-    },
-  );
-});
-
-test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a complete planner action', async () => {
-  const actionText = '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"planner"}}]}';
-  let writeCount = 0;
-
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      req.resume();
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: actionText } }] })}\n\n`);
-      writeCount += 1;
-      const interval = setInterval(() => {
-        writeCount += 1;
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '}' } }] })}\n\n`);
-      }, 25);
-      res.on('close', () => clearInterval(interval));
-    },
-    async (baseUrl) => {
-      const result = await requestRepoSearchPlannerProtocolAction({
-        config: buildTestConfig(),
-        baseUrl,
-        model: 'mock-model',
-        messages: [{ role: 'user', content: 'find planner' }],
-        timeoutMs: 2000,
-        maxTokens: 512,
-      });
-
-      assert.equal(result.text, actionText);
-      assert.equal(result.thinkingText, '');
-      assert.equal(writeCount, 1);
+      assert.deepEqual(result.toolCalls.map((toolCall) => ({
+        toolName: toolCall.function.name,
+        args: ModelJson.parseToolArguments(toolCall.function.arguments),
+      })), [
+        { toolName: 'grep', args: { pattern: 'plan' } },
+        { toolName: 'grep', args: { pattern: 'repo-search' } },
+      ]);
     },
   );
 });
@@ -531,7 +435,7 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction sends json_schema response_format without native tools or grammar', async () => {
+test('requestRepoSearchPlannerProtocolAction sends native tools without response format or grammar', async () => {
   let capturedBody: JsonObject | null = null;
   await withServer(
     (req, res) => {
@@ -563,16 +467,15 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
       });
 
       const captured = asObject(capturedBody);
-      assert.equal(asObject(captured.response_format).type, 'json_schema');
-      assert.match(JSON.stringify(captured.response_format), /"const":"progress"/u);
-      assert.equal('tools' in captured, false);
-      assert.equal('parallel_tool_calls' in captured, false);
+      assert.equal('response_format' in captured, false);
+      assert.match(JSON.stringify(captured.tools), /"name":"git"/u);
+      assert.equal(captured.parallel_tool_calls, true);
       assert.equal('grammar' in captured, false);
     },
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured output', async () => {
+test('requestRepoSearchPlannerProtocolAction forwards native EXL3 tools without planner structured output', async () => {
   let capturedBody: JsonObject | null = null;
   await withServer(
     (req, res) => {
@@ -599,17 +502,17 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured out
       });
 
       const captured = asObject(capturedBody);
-      assert.equal(asObject(captured.response_format).type, 'json_schema');
-      assert.match(JSON.stringify(captured.response_format), /"const":"progress"/u);
-      assert.equal('tools' in captured, false);
+      assert.equal('response_format' in captured, false);
+      assert.match(JSON.stringify(captured.tools), /"name":"git"/u);
       assert.equal('cache_prompt' in captured, false);
       assert.equal('id_slot' in captured, false);
     },
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamically from provided tool definitions', async () => {
+test('requestRepoSearchPlannerProtocolAction sends and returns provided native tool definitions', async () => {
   let capturedBody: JsonObject | null = null;
+  let plannerResponse: PlannerActionResponse | null = null;
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -625,12 +528,12 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
       req.on('end', () => {
         capturedBody = JSON.parse(body || '{}');
         sendChatCompletionSse(res, {
-            choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-          });
+          choices: [{ message: { content: '<tool_call><function=search_symbol><parameter=symbol>buildPlanner</parameter></function></tool_call>' } }],
+        });
       });
     },
     async (baseUrl) => {
-      await requestRepoSearchPlannerProtocolAction({
+      plannerResponse = await requestRepoSearchPlannerProtocolAction({
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -639,7 +542,9 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
         maxTokens: 512,
         toolDefinitions: [
           {
+            kind: 'tool',
             type: 'function',
+            argumentSchema: JsonObjectSchema,
             exampleArgs: { symbol: 'buildPlanner' },
             function: {
               name: 'search_symbol',
@@ -655,13 +560,13 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
       });
 
       const captured = asObject(capturedBody);
-      const schemaText = JSON.stringify(captured.response_format || {});
-      assert.match(schemaText, /search_symbol/u);
-      assert.doesNotMatch(schemaText, /run_repo_cmd/u);
-      assert.match(schemaText, /"action":\{"const":"tool"\}/u);
-      assert.match(schemaText, /"toolName":\{"const":"search_symbol"\}/u);
-      assert.match(schemaText, /"args":\{"type":"object"/u);
-      assert.equal('tools' in captured, false);
+      const toolsText = JSON.stringify(captured.tools || {});
+      assert.match(toolsText, /search_symbol/u);
+      assert.doesNotMatch(toolsText, /run_repo_cmd/u);
+      assert.match(toolsText, /"parameters":\{"type":"object"/u);
+      assert.equal('response_format' in captured, false);
+      assert.equal(plannerResponse.toolCalls[0]?.id, 'call_search_symbol_0');
+      assert.equal(plannerResponse.toolCalls[0]?.function.name, 'search_symbol');
     },
   );
 });

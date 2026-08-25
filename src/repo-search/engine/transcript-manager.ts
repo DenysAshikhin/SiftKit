@@ -109,9 +109,9 @@ export class TranscriptManager {
     appendToolCallExchange(this.messages, action, toolCallId, toolContent, thinkingText);
   }
 
-  appendBatchExchange(outcomes: ToolBatchOutcome[], thinkingText: string): number {
+  appendBatchExchange(outcomes: ToolBatchOutcome[], thinkingText: string, content = ''): number {
     const preAppendLength = this.messages.length;
-    appendToolBatchExchange(this.messages, outcomes, thinkingText);
+    appendToolBatchExchange(this.messages, outcomes, thinkingText, content);
     return preAppendLength;
   }
 

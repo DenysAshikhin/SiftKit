@@ -48,6 +48,7 @@ test('SummaryPlannerTranscriptState owns mutable planner transcript state', () =
   assert.deepEqual(transcript.inputLines, ['first', 'second', 'third']);
 
   transcript.toolResults.push({
+    callId: 'read-lines-1',
     toolName: 'read_lines',
     args: { startLine: 1, endLine: 1 },
     result: { text: 'first' },

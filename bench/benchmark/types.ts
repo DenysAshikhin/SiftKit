@@ -3,7 +3,7 @@ import {
   SummaryPolicyProfileSchema,
   type SummaryProviderId,
 } from '../../src/summary/types.js';
-import type { SummaryClassification } from '../../src/planner-protocol/summary.js';
+import type { SummaryClassification } from '../../src/planner-protocol/summary-tools.js';
 
 export const BenchmarkFixtureSchema = z.object({
   Name: z.string(),

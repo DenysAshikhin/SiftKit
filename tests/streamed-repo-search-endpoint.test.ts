@@ -4,6 +4,7 @@ import { request as httpRequest } from 'node:http';
 import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
 import { requestSse } from './helpers/sse-http.js';
 import { startHarness } from './helpers/streamed-op-harness.js';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 
 const REPO_SEARCH_BODY = {
   prompt: 'find x',
@@ -11,8 +12,8 @@ const REPO_SEARCH_BODY = {
   maxTurns: 2,
   availableModels: ['mock-model'],
   mockResponses: [
-    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-    '{"action":"finish","output":"done"}',
+    { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+    { content: "done" },
   ],
   mockCommandResults: {
     "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 400 },
@@ -37,13 +38,13 @@ test('repo-search streams tool progress then a schema-valid result', async (t) =
 
 test('repo-search emits activity_summary after ten tool turns', async (t) => {
   const harness = await startHarness('siftkit-streamed-rs-activity-', t);
-  const mockResponses: string[] = [];
+  const mockResponses: MockPlannerResponseInput[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string; delayMs: number }> = {};
   for (let i = 1; i <= 10; i++) {
-    mockResponses.push(`{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"x","path":"src${i}"}}`);
+    mockResponses.push({ toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'x', path: `src${i}` } }] });
     mockCommandResults[`git operation="grep" path="src${i}" pattern="x"`] = { exitCode: 0, stdout: `src${i}/example.ts:1:x`, stderr: '', delayMs: 50 };
   }
-  mockResponses.push('{"action":"finish","output":"done"}');
+  mockResponses.push({ content: 'done' });
   const response = await requestSse(`${harness.baseUrl}/repo-search`, {
     body: {
       prompt: 'find x',
@@ -102,7 +103,7 @@ test('queued repo-search sees lock_wait progress while a slow native tool holds 
       model: 'mock-model',
       maxTurns: 1,
       availableModels: ['mock-model'],
-      mockResponses: ['{"action":"finish","output":"queued done"}'],
+      mockResponses: [{ content: "queued done" }],
       mockCommandResults: {},
     },
     timeoutMs: 20_000,
@@ -150,7 +151,7 @@ test('client disconnect aborts the run and frees the lock', async (t) => {
       model: 'mock-model',
       maxTurns: 1,
       availableModels: ['mock-model'],
-      mockResponses: ['{"action":"finish","output":"after abort done"}'],
+      mockResponses: [{ content: "after abort done" }],
       mockCommandResults: {},
     },
     timeoutMs: 20_000,
@@ -174,8 +175,8 @@ test('sanity-check failure surfaces as an error frame', async (t) => {
     maxTurns: 8,
     availableModels: ['mock-model'],
     mockResponses: [
-      ...terms.map((term) => JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: term, path: 'src' } })),
-      JSON.stringify({ action: 'finish', output: [...duplicated, ...duplicated].join('\n') }),
+      ...terms.map((term) => ({ toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: term, path: 'src' } }] })),
+      { content: [...duplicated, ...duplicated].join('\n') },
     ],
     mockCommandResults: Object.fromEntries(terms.map((term, index) => [
       `git operation="grep" path="src" pattern=${JSON.stringify(term)}`,

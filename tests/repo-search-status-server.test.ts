@@ -115,8 +115,8 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 100 },
@@ -228,7 +228,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
         mockCommandResults: {},
       },
@@ -298,8 +298,8 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           maxTurns: 2,
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
           mockResponses: [
-            "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-            '{"action":"finish","output":"done"}',
+            { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+            { content: "done" },
           ],
           mockCommandResults: {
             "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
@@ -316,7 +316,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
           maxTurns: 1,
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
-          mockResponses: ['{"action":"finish","output":"queued"}'],
+          mockResponses: [{ content: "queued" }],
           mockCommandResults: {},
         },
       });
@@ -718,8 +718,8 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
-            "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
-            '{"action":"finish","output":"done"}',
+            { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+            { content: "done" },
           ],
           mockCommandResults: {
             "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
@@ -963,8 +963,8 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         maxTurns: 2,
         availableModels: ['mock-model'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"needle","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"needle\"": { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
@@ -993,7 +993,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
       ));
       const toolCalls = asObjectArray(assistantMessage?.tool_calls);
       const firstCallFunction = asObject(toolCalls[0]?.function);
-      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
+      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '')));
       assert.equal(String(firstCallFunction.name || ''), 'git');
       assert.deepEqual(firstCallArgs, { operation: 'grep', pattern: 'needle', path: 'src' });
     } finally {
@@ -1062,9 +1062,9 @@ test('repo-search transcript artifact replays the fitted read range using per-to
         maxTurns: 4,
         availableModels: ['mock-model'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big.ts\",\"offset\":300,\"limit\":601}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+          { toolCalls: [{ name: "read", arguments: {"path":"src/big.ts","offset":300,"limit":601} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -1094,7 +1094,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
       const toolMessage = messages.find((message) => message.role === 'tool');
       const toolCalls = asObjectArray(assistantMessage?.tool_calls);
       const firstCallFunction = asObject(toolCalls[0]?.function);
-      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
+      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '')));
       assert.equal(String(firstCallFunction.name || ''), 'read');
       assert.equal(firstCallArgs.path, 'src/big.ts');
       assert.equal(firstCallArgs.offset, 300);
@@ -1202,8 +1202,8 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          'Terminal synthesis answer: src/example.ts:1.',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: 'Terminal synthesis answer: src/example.ts:1.' },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
@@ -1294,8 +1294,8 @@ test('repo-search endpoint rejects duplicated final output before sending succes
         maxTurns: 8,
         availableModels: ['mock-model'],
         mockResponses: [
-          ...patterns.map((pattern) => JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern, path: 'src' } })),
-          JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
+          ...patterns.map((pattern) => ({ toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern, path: 'src' } }] })),
+          { content: duplicatedFinalOutput },
         ],
         mockCommandResults,
       },

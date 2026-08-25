@@ -167,7 +167,7 @@ function createRequest(
     maxTurns: 7,
     logFile: 'operation.log',
     availableModels: ['test-model'],
-    mockResponses: ['{"action":"finish","output":"done"}'],
+    mockResponses: [{ content: "done" }],
     mockCommandResults: {},
     managedLlamaRunId: null,
   };

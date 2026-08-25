@@ -532,7 +532,7 @@ test('internal op repo-search via request file executes search', async () => {
       Prompt: 'find something',
       RepoRoot: tempRoot,
       MaxTurns: 1,
-      MockResponses: ['{"action":"finish","output":"done"}'],
+      MockResponses: [{ content: 'done' }],
       MockCommandResults: {},
     }), 'utf8');
     const stdout = makeCaptureStream();

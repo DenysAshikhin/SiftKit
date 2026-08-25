@@ -695,9 +695,9 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"dashboard\",\"path\":\".\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"/dashboard/chat/sessions\",\"path\":\"siftKitStatus/index.js\"}}",
-          '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths."}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"dashboard","path":"."} }] },
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"/dashboard/chat/sessions","path":"siftKitStatus/index.js"} }] },
+          { content: "Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths." },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\".\" pattern=\"dashboard\"": { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
@@ -764,7 +764,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',
-      body: JSON.stringify({ mockResponses: ['CONDENSED: the session discussed a stored assistant response.'] }),
+      body: JSON.stringify({ mockResponses: [{ content: 'CONDENSED: the session discussed a stored assistant response.' }] }),
     });
     assert.equal(condenseResponse.statusCode, 200);
     const condensedSession = d(condenseResponse.body.session);
@@ -1119,8 +1119,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       maxTurns: 2,
       availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
       mockResponses: [
-        "<think>inspect test coverage</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}}",
-        '<think>prepare implementation plan</think>{"action":"finish","output":"done"}',
+        {
+          thinking: 'inspect test coverage',
+          toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'test', path: '.' } }],
+        },
+        { thinking: 'prepare implementation plan', content: 'done' },
       ],
       mockCommandResults: {
         "git operation=\"grep\" path=\".\" pattern=\"test\"": { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
@@ -1211,8 +1214,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "<think>inspect repository tests</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}}",
-          '<think>report repository evidence</think>{"action":"finish","output":"done"}',
+          {
+            thinking: 'inspect repository tests',
+            toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'test', path: '.' } }],
+          },
+          { thinking: 'report repository evidence', content: 'done' },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\".\" pattern=\"test\"": { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
@@ -1307,7 +1313,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
     repoRoot: tempRoot,
     images: [PNG],
     maxTurns: 1,
-    mockResponses: ['{"action":"finish","output":"done"}'],
+    mockResponses: [{ content: "done" }],
   };
 
   try {
@@ -1388,7 +1394,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
     req.on('end', () => {
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
       res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
@@ -1559,7 +1565,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
     req.on('end', () => {
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
       res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
@@ -1746,7 +1752,7 @@ test('repo-search endpoint rejects images when the active preset lacks vision', 
         content: 'where is the login screen',
         repoRoot: tempRoot,
         images: [PNG],
-        mockResponses: ['done'],
+        mockResponses: [{ content: 'done' }],
       }),
     });
     assert.equal(response.statusCode, 500);
@@ -1800,7 +1806,7 @@ test('plan stream endpoint rejects images when image retention is zero', async (
         content: 'plan it',
         repoRoot: tempRoot,
         images: [PNG],
-        mockResponses: ['done'],
+        mockResponses: [{ content: 'done' }],
       }),
     });
     const errorEvent = response.events.find((event) => event.event === 'error');
@@ -1906,8 +1912,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
         choices: [{ delta: { reasoning_content: thinkingText } }],
       })}\n\n`);
       setTimeout(() => {
-        const action = JSON.stringify({ action: 'finish', output: answerText });
-        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: action } }] })}\n\n`);
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: answerText } }] })}\n\n`);
         response.write(`data: ${JSON.stringify({
           choices: [{ delta: {} }],
           usage: {
@@ -2036,7 +2041,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
           webSearchOverride: 'off',
           availableModels: ['mock'],
           model: 'mock',
-          mockResponses: ['{"action":"finish","output":"4"}'],
+          mockResponses: [{ content: "4" }],
         }),
       });
     } finally {
@@ -2099,10 +2104,10 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"finish","output":"About 999 gp per bar without checking."}',
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
-          '{"action":"finish","output":"About 150 gp per bar."}',
+          { content: "About 999 gp per bar without checking." },
+          { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
+          { content: "About 150 gp per bar." },
         ],
         mockCommandResults: {
           'web_search query="iron bar GE price"': {
@@ -2154,11 +2159,11 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar live price\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar-live\"}}",
-          '{"action":"finish","output":"About 151 gp per bar."}',
+          { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
+          { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar live price"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar-live"} }] },
+          { content: "About 151 gp per bar." },
         ],
         mockCommandResults: {
           'web_search query="iron bar live price"': {
@@ -2251,9 +2256,9 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bar\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
-          '{"action":"finish","output":"Iron bars are used in Smithing and quests."}',
+          { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS iron bar"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar"} }] },
+          { content: "Iron bars are used in Smithing and quests." },
         ],
         mockCommandResults: {
           'web_search query="OSRS iron bar"': {
@@ -2289,7 +2294,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"finish","output":"The fetched page text said: Iron bars are used in Smithing and quests."}',
+          { content: "The fetched page text said: Iron bars are used in Smithing and quests." },
         ],
       }),
     });
@@ -2358,9 +2363,9 @@ test('deleting retained web tool step allows the same web call in a later chat t
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
-          '{"action":"finish","output":"About 150 gp per bar."}',
+          { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
+          { content: "About 150 gp per bar." },
         ],
         mockCommandResults: {
           'web_search query="iron bar GE price"': {
@@ -2397,9 +2402,9 @@ test('deleting retained web tool step allows the same web call in a later chat t
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
-          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar-live\"}}",
-          '{"action":"finish","output":"About 151 gp per bar."}',
+          { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
+          { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar-live"} }] },
+          { content: "About 151 gp per bar." },
         ],
         mockCommandResults: {
           'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
@@ -2477,8 +2482,8 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -2549,8 +2554,8 @@ test('same session rejects a second request instead of entering the model FIFO',
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -2715,8 +2720,8 @@ test('queued model request is dropped when client disconnects before lock grant'
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -2792,7 +2797,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
         repoRoot: process.cwd(),
         maxTurns: 1,
         availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
-        mockResponses: ['{"action":"finish","output":"must not run"}'],
+        mockResponses: [{ content: "must not run" }],
         mockCommandResults: {},
       }),
     });
@@ -2842,7 +2847,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
         repoRoot: process.cwd(),
         maxTurns: 1,
         availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
-        mockResponses: ['{"action":"finish","output":"must not run"}'],
+        mockResponses: [{ content: "must not run" }],
         mockCommandResults: {},
       }),
       250,
@@ -2898,8 +2903,8 @@ test('invalid model request is rejected without waiting for active model work', 
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -3063,7 +3068,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       capturedChatRawBody = raw;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
       res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
@@ -3109,8 +3114,8 @@ test('chat completion replays prior tool evidence without hidden system context'
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"name","path":"package.json"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"package.json\" pattern=\"name\"": { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
@@ -3159,9 +3164,9 @@ test('chat completion replays prior tool evidence without hidden system context'
       const statusAfterChat = await requestJson(`${baseUrl}/status`);
       const statusMetrics = d(statusAfterChat.body.metrics);
       assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
-      assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
+      assert.equal(Number(statusMetrics.outputTokensTotal) >= 1, true);
       assert.equal(Number(d(d(statusMetrics.taskTotals).chat).inputTokensTotal) >= 20, true);
-      assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 4, true);
+      assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 1, true);
     }, 5000);
     assert.notEqual(capturedChatRawBody, '');
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
@@ -3224,7 +3229,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
       capturedChatRawBody = raw;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
       res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
@@ -3329,7 +3334,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     req.on('end', () => {
       capturedChatRawBody = raw;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
       res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
@@ -3372,8 +3377,8 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}}",
-          '{"action":"finish","output":"done"}',
+          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"name","path":"package.json"} }] },
+          { content: "done" },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"package.json\" pattern=\"name\"": { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },

@@ -74,7 +74,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
 });
 
 test('tool-call parser normalizes message, choice, and legacy function calls', () => {
-  const parser = new LlamaCppToolCallParser(['grep', 'finish']);
+  const parser = new LlamaCppToolCallParser();
   const calls = parser.parseFromChoice({
     message: {
       tool_calls: [{
@@ -91,7 +91,7 @@ test('tool-call parser normalizes message, choice, and legacy function calls', (
     }],
   });
 
-  assert.deepEqual(calls.map((call) => call.function.name), ['grep', 'finish']);
+  assert.deepEqual(calls.map((call) => call.function.name), ['grep', 'not_allowed', 'finish']);
   assert.equal(calls[0]?.function.arguments, '{"pattern":"AgentLoop"}');
 });
 
@@ -353,7 +353,7 @@ test('llama client covers streamed request and response normalization branches',
 });
 
 test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
-  const parser = new LlamaCppToolCallParser(['find_text', 'read_lines']);
+  const parser = new LlamaCppToolCallParser();
   const calls = parser.parseFromText(`
 <tool_call>
 <function=find_text>
@@ -368,11 +368,15 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
 </tool_call>`);
 
   assert.deepEqual(calls.map((call) => call.function.name), ['find_text', 'read_lines']);
-  assert.deepEqual(JSON.parse(calls[0]?.function.arguments || '{}'), {
+  const firstArguments = calls[0]?.function.arguments;
+  const secondArguments = calls[1]?.function.arguments;
+  assert.ok(typeof firstArguments === 'string');
+  assert.ok(typeof secondArguments === 'string');
+  assert.deepEqual(JSON.parse(firstArguments), {
     pattern: 'InferenceRequestBuilder',
     max_results: 20,
   });
-  assert.deepEqual(JSON.parse(calls[1]?.function.arguments || '{}'), {
+  assert.deepEqual(JSON.parse(secondArguments), {
     path: 'src/providers/llama-cpp.ts',
   });
 });
@@ -423,7 +427,10 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
   assert.equal(body.parallel_tool_calls, true);
   assert.deepEqual(body.response_format, { type: 'json_object' });
   assert.equal(response.toolCalls[0]?.function.name, 'grep');
-  assert.deepEqual(JSON.parse(response.toolCalls[0]?.function.arguments || '{}'), { pattern: 'SelectedBackend' });
+  assert.equal(response.text, '');
+  const toolCallArguments = response.toolCalls[0]?.function.arguments;
+  assert.ok(typeof toolCallArguments === 'string');
+  assert.deepEqual(JSON.parse(toolCallArguments), { pattern: 'SelectedBackend' });
 });
 
 test('EXL3 chat requests are serialized for a single Tabby cache slot', async () => {
@@ -477,11 +484,15 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
   assert.equal(response.usage.promptTokens, null);
 });
 
-test('tool-call parser covers fallback ids, default arguments, quoted replay values, and empty quotes', () => {
-  const parser = new LlamaCppToolCallParser(['grep', 'finish']);
+test('tool-call parser preserves unknown names and covers fallback ids, arguments, and replay values', () => {
+  const parser = new LlamaCppToolCallParser();
 
   assert.deepEqual(parser.parseFromChoice({}), []);
-  assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'not_allowed', arguments: '{}' } }), null);
+  assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'not_allowed', arguments: '{}' } }), {
+    id: 'call_not_allowed',
+    type: 'function',
+    function: { name: 'not_allowed', arguments: '{}' },
+  });
   assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'grep' } }), {
     id: 'call_grep',
     type: 'function',

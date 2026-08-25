@@ -20,27 +20,27 @@ test('Formatron lowering passes through formats and schemas that do not need low
   assert.equal(lowerResponseFormatForBackend('llama', scalarSchema), scalarSchema);
 });
 
-test('Formatron lowering recursively normalizes optional properties and only relaxes batch calls', () => {
+test('Formatron lowering recursively normalizes optional properties and retains array bounds', () => {
   const canonical = {
     type: 'json_schema',
     json_schema: {
-      name: 'planner',
+      name: 'decision',
       strict: true,
       schema: {
         type: 'object',
-        required: ['action', 'calls', 7],
+        required: ['kind', 'records', 7],
         properties: {
-          action: { const: 'tool_batch' },
-          calls: {
+          kind: { const: 'batch' },
+          records: {
             type: 'array',
             minItems: 1,
             items: {
               anyOf: [
                 {
                   type: 'object',
-                  required: ['action'],
+                  required: ['kind'],
                   properties: {
-                    action: { const: 'read' },
+                    kind: { const: 'record' },
                     path: { type: 'string' },
                     offset: { type: 'number' },
                     raw: false,
@@ -64,22 +64,23 @@ test('Formatron lowering recursively normalizes optional properties and only rel
   assert.deepEqual(lowered, {
     type: 'json_schema',
     json_schema: {
-      name: 'planner',
+      name: 'decision',
       strict: true,
       schema: {
         type: 'object',
-        required: ['action', 'calls', 'metadata'],
+        required: ['kind', 'records', 'metadata'],
         properties: {
-          action: { const: 'tool_batch' },
-          calls: {
+          kind: { const: 'batch' },
+          records: {
             type: 'array',
+            minItems: 1,
             items: {
               anyOf: [
                 {
                   type: 'object',
-                  required: ['action', 'path', 'offset', 'raw'],
+                  required: ['kind', 'path', 'offset', 'raw'],
                   properties: {
-                    action: { const: 'read' },
+                    kind: { const: 'record' },
                     path: { anyOf: [{ type: 'string' }, { type: 'null' }] },
                     offset: { anyOf: [{ type: 'number' }, { type: 'null' }] },
                     raw: false,
@@ -116,10 +117,10 @@ test('Formatron lowering recursively normalizes optional properties and only rel
       },
     },
   });
-  assert.equal(canonical.json_schema.schema.properties.calls.minItems, 1);
+  assert.equal(canonical.json_schema.schema.properties.records.minItems, 1);
 });
 
-test('Formatron lowering retains minItems outside discriminated tool batches', () => {
+test('Formatron lowering retains minItems on ordinary arrays', () => {
   const responseFormat = {
     type: 'json_schema',
     json_schema: {

@@ -335,8 +335,8 @@ test('live transcript ages images out in place and releases the dropped path gua
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', toolName: 'read', args: { path: 'docs/arch.png' } },
-      { action: 'tool', toolName: 'read', args: { path: 'docs/flow.png' } },
+      { kind: 'tool', callId: 'test_call_44', toolName: 'read', args: { path: 'docs/arch.png' } },
+      { kind: 'tool', callId: 'test_call_45', toolName: 'read', args: { path: 'docs/flow.png' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -353,7 +353,7 @@ test('live transcript ages images out in place and releases the dropped path gua
 
   await processor.executeBatch(
     2,
-    [{ action: 'tool', toolName: 'read', args: { path: 'docs/arch.png' } }],
+    [{ kind: 'tool', callId: 'test_call_46', toolName: 'read', args: { path: 'docs/arch.png' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,

@@ -1,4 +1,4 @@
-import type { JsonObject, OptionalJsonValue } from './lib/json-types.js';
+import type { JsonObject } from './lib/json-types.js';
 
 export type ToolTranscriptAction = {
   toolName: string;
@@ -14,7 +14,7 @@ export type ToolTranscriptMessage = {
     type?: string;
     function?: {
       name?: string;
-      arguments?: OptionalJsonValue;
+      arguments?: string;
     };
   }>;
   tool_call_id?: string;
@@ -55,7 +55,7 @@ export type ToolBatchOutcome = {
 
 export type AssistantToolCallMessage = {
   role: 'assistant';
-  content: '';
+  content: string;
   tool_calls: Array<{
     id: string;
     type: 'function';
@@ -68,10 +68,11 @@ export type AssistantToolCallMessage = {
 export function buildAssistantToolCallMessage(
   outcomes: ToolBatchOutcome[],
   thinkingText = '',
+  content = '',
 ): AssistantToolCallMessage {
   return {
     role: 'assistant',
-    content: '',
+    content,
     tool_calls: outcomes.map(({ action, toolCallId }) => ({
       id: toolCallId,
       type: 'function',
@@ -88,11 +89,12 @@ export function appendToolBatchExchange(
   messages: ToolTranscriptMessage[],
   outcomes: ToolBatchOutcome[],
   thinkingText = '',
+  content = '',
 ): void {
   if (outcomes.length === 0) {
     return;
   }
-  messages.push(buildAssistantToolCallMessage(outcomes, thinkingText));
+  messages.push(buildAssistantToolCallMessage(outcomes, thinkingText, content));
   for (const { toolCallId, toolContent } of outcomes) {
     messages.push({
       role: 'tool',

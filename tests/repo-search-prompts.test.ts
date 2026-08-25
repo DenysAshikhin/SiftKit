@@ -53,7 +53,7 @@ function buildAgentSystemPrompt(context: PresetSystemContext): string {
 }
 
 const SPARSE_PROGRESS_POLICY =
-  'Progress is optional. Use it sparingly, only for a meaningful phase change or a checkpoint after substantial work. Do not narrate routine next steps.';
+  'You may include concise progress narration alongside tool calls.';
 
 function countOccurrences(text: string, search: string): number {
   return text.split(search).length - 1;
@@ -64,9 +64,9 @@ test('system prompt action instructions match the request tool surface', () => {
   const reduced = buildTaskSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read']));
   const empty = buildTaskSystemPromptForTools(context, []);
 
-  assert.match(reduced, /Allowed tools: read/u);
-  assert.doesNotMatch(reduced, /Allowed tools:.*grep/u);
-  assert.doesNotMatch(empty, /Allowed tools:|tool_batch/u);
+  assert.match(reduced, /Use only the request tools listed above: read/u);
+  assert.doesNotMatch(reduced, /Use only the request tools listed above:.*grep/u);
+  assert.doesNotMatch(empty, /Use only the request tools listed above|multiple independent tools/u);
 });
 
 test('restricted and empty agent prompts preserve the completion review instruction', () => {
@@ -75,24 +75,27 @@ test('restricted and empty agent prompts preserve the completion review instruct
   const empty = buildAgentSystemPromptForTools(context, []);
 
   for (const prompt of [reduced, empty]) {
-    assert.match(prompt, /Before calling finish, re-read the original task and any referenced spec or plan/u);
+    assert.match(prompt, /Before finishing, re-read the original task and any referenced spec or plan/u);
   }
-  assert.match(reduced, /Allowed tools: read/u);
-  assert.doesNotMatch(reduced, /Allowed tools:.*grep/u);
-  assert.doesNotMatch(empty, /Allowed tools:|tool_batch/u);
+  assert.match(reduced, /Use only the request tools listed above: read/u);
+  assert.doesNotMatch(reduced, /Use only the request tools listed above:.*grep/u);
+  assert.doesNotMatch(empty, /Use only the request tools listed above|multiple independent tools/u);
 });
 
 test('repo prompts render one canonical sparse-progress policy', () => {
   const context = buildTestContext(process.cwd());
   const prompts = [
-    buildAgentSystemPrompt(context),
-    buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read'])),
-    buildAgentSystemPromptForTools(context, []),
-    buildTaskSystemPrompt(context),
+    { prompt: buildAgentSystemPrompt(context), expectedCount: 1 },
+    {
+      prompt: buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read'])),
+      expectedCount: 1,
+    },
+    { prompt: buildAgentSystemPromptForTools(context, []), expectedCount: 0 },
+    { prompt: buildTaskSystemPrompt(context), expectedCount: 1 },
   ];
 
-  for (const prompt of prompts) {
-    assert.equal(countOccurrences(prompt, SPARSE_PROGRESS_POLICY), 1);
+  for (const { prompt, expectedCount } of prompts) {
+    assert.equal(countOccurrences(prompt, SPARSE_PROGRESS_POLICY), expectedCount);
     assert.doesNotMatch(prompt, /scanning scripts next|genuine non-terminal status/u);
   }
 });
@@ -139,10 +142,10 @@ test('buildTaskSystemPrompt advertises the native tool surface and no shell comm
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
-    assert.match(prompt, /Allowed tools: read, grep, find, ls, git/u);
-    for (const toolName of ['grep', 'find', 'ls', 'read', 'git']) {
-      assert.match(prompt, new RegExp(`"action":"tool","toolName":"${toolName}"`, 'u'));
-    }
+    assert.match(prompt, /Use only the request tools listed above: read, grep, find, ls, git/u);
+    assert.match(prompt, /multiple independent tools in one response/u);
+    assert.match(prompt, /final answer as content without tool calls/u);
+    assert.doesNotMatch(prompt, /"action":"tool"|"toolName"|tool_batch/u);
     // `git` is the only tool that still takes a command string.
     assert.doesNotMatch(prompt, /Get-Content/u);
     assert.doesNotMatch(prompt, /Get-ChildItem/u);
@@ -158,8 +161,8 @@ test('buildTaskSystemPrompt preserves load-bearing planner rules after compressi
 
     // Header / output contract
     assert.match(prompt, /You are a repo-search planner\./u);
-    assert.match(prompt, /tool_batch/u);
-    assert.match(prompt, /"action":"finish"/u);
+    assert.match(prompt, /multiple independent tools/u);
+    assert.match(prompt, /final answer as content without tool calls/u);
 
     // Anchor-before-read
     assert.match(prompt, /3 of your first 5/u);
@@ -210,12 +213,11 @@ test('buildTaskSystemPrompt turn-1 directive searches from the repository root',
   });
 });
 
-test('buildTaskSystemPrompt renders canonical examples from tool metadata', () => {
+test('buildTaskSystemPrompt leaves native tool schemas to the request', () => {
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
-    assert.match(prompt, /"action":"tool","toolName":"read","args":\{"path":"src\/app\.ts","offset":1,"limit":120\}/u);
-    assert.match(prompt, /"action":"tool","toolName":"grep","args":\{"pattern":"buildPlanner"/u);
+    assert.doesNotMatch(prompt, /"action":"tool"|"toolName"|"args":/u);
     assert.match(prompt, /\bdir\/foo\.ts:45-60\b/u);
   });
 });
@@ -233,12 +235,12 @@ test('buildTaskSystemPrompt includes anti-loop and larger single-file read guida
   });
 });
 
-test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', () => {
+test('buildTaskSystemPrompt instructs larger reads and anchor-first flow without envelope examples', () => {
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
-    assert.match(prompt, /"action":"tool","toolName":"grep","args":\{"pattern":"buildPlanner"/u);
-    assert.match(prompt, /"action":"tool","toolName":"find","args":\{"pattern":"\*\*\/\*\.test\.ts"/u);
-    assert.match(prompt, /"action":"tool","toolName":"read","args":\{"path":"src\/app\.ts","offset":1,"limit":120\}/u);
+    assert.match(prompt, /Turn 1: pick 5 keywords/u);
+    assert.match(prompt, /one large window per anchor/u);
+    assert.doesNotMatch(prompt, /"action":"tool"|"toolName"/u);
     assert.match(prompt, /tiny-slice/u);
   });
 });
@@ -256,7 +258,7 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   for (const tool of ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']) {
     assert.ok(prompt.includes(tool), `expected tool ${tool} in prompt`);
   }
-  assert.match(prompt, /"action":"finish"/u);
+  assert.match(prompt, /final answer as content without tool calls/u);
   assert.match(prompt, /Prefer `edit`/u);
   // Must NOT carry the read-only search-discipline persona.
   assert.doesNotMatch(prompt, /repo-search planner/u);
@@ -318,7 +320,7 @@ test('buildAgentSystemPrompt documents automatic validation trimming and full ou
 test('buildAgentSystemPrompt requires a completion review against the task and referenced plans', () => {
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
-  assert.match(prompt, /Before calling finish/u);
+  assert.match(prompt, /Before finishing/u);
   assert.match(prompt, /re-read the original task/u);
   assert.match(prompt, /referenced spec or plan/u);
   assert.match(prompt, /every requirement/u);

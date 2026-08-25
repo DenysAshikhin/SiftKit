@@ -1,8 +1,8 @@
 import { getErrorMessage } from '../../lib/errors.js';
-import type { JsonValue, OptionalJsonValue } from '../../lib/json-types.js';
-import type { SummaryPlannerToolCall as PlannerToolCall } from '../../planner-protocol/summary.js';
+import type { JsonObject, JsonValue, OptionalJsonValue } from '../../lib/json-types.js';
 import {
   SUMMARY_PLANNER_TOOL_NAMES,
+  SummaryNativeToolCallSchema,
   type FindTextToolArgs,
   type JsonFilterToolArgs,
   type JsonGetToolArgs,
@@ -353,20 +353,24 @@ function executeJsonGetTool(inputText: string, args: JsonGetToolArgs): PlannerTo
 
 export function executePlannerTool(
   inputText: string,
-  action: PlannerToolCall,
+  action: { toolName: PlannerToolName; args: JsonObject },
   allowedTools: readonly PlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES,
 ): PlannerToolResult {
-  if (!allowedTools.includes(action.toolName)) {
-    throw new Error(`Planner tool is not allowed by the active preset: ${action.toolName}`);
+  const parsed = SummaryNativeToolCallSchema.parse({
+    toolName: action.toolName,
+    args: action.args,
+  });
+  if (!allowedTools.includes(parsed.toolName)) {
+    throw new Error(`Planner tool is not allowed by the active preset: ${parsed.toolName}`);
   }
-  switch (action.toolName) {
+  switch (parsed.toolName) {
     case 'find_text':
-      return executeFindTextTool(inputText, action.args);
+      return executeFindTextTool(inputText, parsed.args);
     case 'read_lines':
-      return executeReadLinesTool(inputText, action.args);
+      return executeReadLinesTool(inputText, parsed.args);
     case 'json_filter':
-      return executeJsonFilterTool(inputText, action.args);
+      return executeJsonFilterTool(inputText, parsed.args);
     case 'json_get':
-      return executeJsonGetTool(inputText, action.args);
+      return executeJsonGetTool(inputText, parsed.args);
   }
 }

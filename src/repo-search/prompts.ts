@@ -4,7 +4,6 @@ import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import {
-  buildRepoSearchActionInstructions,
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
@@ -226,26 +225,32 @@ function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: re
 }
 
 const COMPLETION_REVIEW_INSTRUCTION =
-  'Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
+  'Before finishing, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
+
+function buildNativePlannerInstructions(toolNames: readonly string[]): string {
+  if (toolNames.length === 0) {
+    return 'No repository tools are available for this request; answer only from the supplied context.';
+  }
+  return [
+    `Use only the request tools listed above: ${toolNames.join(', ')}.`,
+    'You may call multiple independent tools in one response.',
+    'You may include concise progress narration alongside tool calls.',
+    'When the work is complete, return the final answer as content without tool calls.',
+  ].join('\n');
+}
 
 function buildRestrictedToolSystemPrompt(options: {
   role: 'repo-search planner' | 'repository coding agent';
   context: PresetSystemContext;
-  toolDefinitions: readonly PlannerToolDefinition[];
   toolNames: readonly string[];
 }): string {
-  const toolStatus = options.toolNames.length > 0
-    ? `Use only the request tools listed above: ${options.toolNames.join(', ')}.`
-    : 'No repository tools are available for this request; answer only from the supplied context.';
   return [
-    `You are a ${options.role}. Return ONE valid JSON object — no markdown fences.`,
-    buildRepoSearchActionInstructions(options.toolDefinitions),
-    '',
-    toolStatus,
+    `You are a ${options.role}.`,
+    buildNativePlannerInstructions(options.toolNames),
     options.context.hasRepoFileListing
       ? 'A repository file listing is provided in the system context.'
       : 'No startup repository file listing is available.',
-    'Use finish only when the requested work is complete, with a concise final output.',
+    'Finish only when the requested work is complete, with a concise final output.',
     ...(options.role === 'repository coding agent' ? [COMPLETION_REVIEW_INSTRUCTION] : []),
   ].join('\n');
 }
@@ -256,14 +261,14 @@ export function buildTaskSystemPrompt(
 ): string {
   const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   if (!hasExactToolSurface(toolNames, EXPOSED_REPO_TOOL_NAMES)) {
-    return buildRestrictedToolSystemPrompt({ role: 'repo-search planner', context, toolDefinitions, toolNames });
+    return buildRestrictedToolSystemPrompt({ role: 'repo-search planner', context, toolNames });
   }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — derive targeted grep searches from the task wording.'
     : '- A repository file listing is provided in this system message; use it to decide where to look.';
   return [
-    'You are a repo-search planner. Return ONE valid JSON object — no markdown fences.',
-    buildRepoSearchActionInstructions(toolDefinitions),
+    'You are a repo-search planner.',
+    buildNativePlannerInstructions(toolNames),
     '',
     'Role: repository search agent. Answer the task using concrete repo evidence from tool calls.',
     '',
@@ -294,7 +299,7 @@ export function buildTaskSystemPrompt(
     '- `grep` for code/keywords. `find` for filenames by glob. `ls` for directory structure.',
     '- `read` with one large window per anchor (never tiny consecutive slices). Lines you already read are skipped automatically, so re-reading with the same offset advances.',
     '- `git` for typed, read-only repo inspection. Choose operation `status`, `log`, `show`, `diff`, `blame`, `grep`, or `ls_files`; shell commands and Git options cannot be supplied.',
-    '- One call per turn; use `tool_batch` only for genuinely independent searches.',
+    '- Use multiple calls in one response only for genuinely independent searches.',
     '- Token-budget error on a read → strengthen the anchor (grep for a symbol), don\'t shrink the window.',
     '',
     'Tool behaviour (do not fight it):',
@@ -315,7 +320,7 @@ export function buildAgentSystemPrompt(
 ): string {
   const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   if (!hasExactToolSurface(toolNames, INTERACTIVE_REPO_TOOL_NAMES)) {
-    return buildRestrictedToolSystemPrompt({ role: 'repository coding agent', context, toolDefinitions, toolNames });
+    return buildRestrictedToolSystemPrompt({ role: 'repository coding agent', context, toolNames });
   }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
@@ -324,8 +329,7 @@ export function buildAgentSystemPrompt(
     'You are an expert coding assistant operating inside SiftKit, a repository coding agent.',
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
     '',
-    'Return ONE valid JSON object per turn — no markdown fences.',
-    buildRepoSearchActionInstructions(toolDefinitions),
+    buildNativePlannerInstructions(toolNames),
     '',
     'Available tools:',
     '- read: read a file (line-numbered; use offset/limit for large files).',

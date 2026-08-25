@@ -17,12 +17,7 @@ export type AgentLoopToolAction = {
   args: JsonObject;
 };
 
-export type AgentLoopProgressAction = {
-  kind: 'progress';
-  text: string;
-};
-
-export type AgentLoopAction = AgentLoopFinishAction | AgentLoopToolAction | AgentLoopProgressAction;
+export type AgentLoopAction = AgentLoopFinishAction | AgentLoopToolAction;
 
 export type AgentLoopToolResult = {
   callId: string;
@@ -124,7 +119,6 @@ export interface AgentLoopActionAdapter {
   inspectResponse(context: AgentLoopResponseContext): AgentLoopTurnOutcome | null;
   handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult>;
   evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation>;
-  handleProgress(action: AgentLoopProgressAction, context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome>;
 }
 
 export interface AgentLoopToolAdapter {

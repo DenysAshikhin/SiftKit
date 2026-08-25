@@ -6,6 +6,7 @@ import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger } from '../repo-search/types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { buildCompactionSummaryMessage, TranscriptCompactor } from '../repo-search/engine/transcript-compactor.js';
@@ -723,7 +724,7 @@ export async function condenseChatSession(
   runtimeRoot: string,
   config: SiftConfig,
   session: ChatSession,
-  mockResponses: string[] | undefined,
+  mockResponses: MockPlannerResponseInput[] | undefined,
   logger: JsonLogger | null,
 ): Promise<ChatSession & { messages: PersistedChatMessage[] }> {
   const effectiveConfig = resolveChatSessionConfig(config, session);

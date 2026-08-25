@@ -18,6 +18,7 @@ import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
@@ -57,8 +58,9 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
     verdictRequester: {
       // What the real reviewer returns when the model answers with anything but a verdict.
       requestApprovalVerdict: () => Promise.resolve({
-        text: "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}",
+        text: 'not a verdict',
         thinkingText: '',
+        toolCalls: [],
         mockExhausted: false,
       }),
     },
@@ -128,7 +130,7 @@ function makeRecordingLogger() {
 
 function makeAutoLoopOptions(
   tempRoot: string,
-  mockResponses: string[],
+  mockResponses: MockPlannerResponseInput[],
   writer: RecordingWriter,
   gate: ApprovalGate,
   logger?: { path: string; write: (event: Record<string, JsonSerializable>) => void },
@@ -160,9 +162,9 @@ test('auto mode: reviewer approve executes the write with no human involvement',
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"verdict":"approve","reason":"task-scoped write"}',
-      '{"action":"finish","output":"wrote it"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: '{"verdict":"approve","reason":"task-scoped write"}' },
+      { content: "wrote it" },
     ], writer, gate, logger));
     assert.equal(result.finalOutput, 'wrote it');
     assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
@@ -191,9 +193,9 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"verdict":"deny","reason":"not needed for the task"}',
-      '{"action":"finish","output":"gave up"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: '{"verdict":"deny","reason":"not needed for the task"}' },
+      { content: "gave up" },
     ], writer, gate));
     assert.equal(result.finalOutput, 'gave up');
     assert.equal(fs.existsSync(path.join(tempRoot, 'out.txt')), false);
@@ -214,9 +216,9 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      '{"verdict":"unsure","reason":"cannot judge scope"}',
-      '{"action":"finish","output":"wrote it"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: '{"verdict":"unsure","reason":"cannot judge scope"}' },
+      { content: "wrote it" },
     ], writer, gate));
     assert.equal(result.finalOutput, 'wrote it');
     assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
@@ -235,12 +237,14 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   }
 });
 
-for (const testCase of [
-  { toolName: 'read', action: "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.txt\"}}" },
-  { toolName: 'grep', action: "{\"action\":\"tool\",\"toolName\":\"grep\",\"args\":{\"pattern\":\"content-a\",\"path\":\"a.txt\",\"literal\":true}}" },
-  { toolName: 'find', action: "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"a.txt\",\"path\":\".\"}}" },
-  { toolName: 'ls', action: "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{\"path\":\".\"}}" },
-]) {
+const AUTO_FAST_PATH_CASES: Array<{ toolName: string; args: JsonObject }> = [
+  { toolName: 'read', args: { path: 'a.txt' } },
+  { toolName: 'grep', args: { pattern: 'content-a', path: 'a.txt', literal: true } },
+  { toolName: 'find', args: { pattern: 'a.txt', path: '.' } },
+  { toolName: 'ls', args: { path: '.' } },
+];
+
+for (const testCase of AUTO_FAST_PATH_CASES) {
   test(`auto mode: ${testCase.toolName} fast-paths silently, spending neither a verdict call nor a log line`, async () => {
     const tempRoot = createManagedTempDir('siftkit-llm-auto-fastpath-');
     try {
@@ -251,8 +255,8 @@ for (const testCase of [
       const { events: logEvents, logger } = makeRecordingLogger();
       // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
       const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
-        testCase.action,
-        '{"action":"finish","output":"done"}',
+        { toolCalls: [{ name: testCase.toolName, arguments: testCase.args }] },
+        { content: "done" },
       ], writer, gate, logger));
       assert.equal(result.finalOutput, 'done');
       // The tool call itself still reports; the exemption is static policy and adds nothing to it.
@@ -276,10 +280,10 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
-      'not json at all',
-      '{"verdict":"maybe","reason":"bad enum"}',
-      '{"action":"finish","output":"wrote it"}',
+      { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
+      { content: 'not json at all' },
+      { content: '{"verdict":"maybe","reason":"bad enum"}' },
+      { content: "wrote it" },
     ], writer, gate));
     assert.equal(result.finalOutput, 'wrote it');
     assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
@@ -311,6 +315,24 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
     };
   }
 
+  function toolCompletionBody(name: string, args: JsonObject, reasoning: string): JsonObject {
+    return {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: '',
+          reasoning_content: reasoning,
+          tool_calls: [{
+            id: `provider-${plannerCalls}`,
+            type: 'function',
+            function: { name, arguments: JSON.stringify(args) },
+          }],
+        },
+      }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    };
+  }
+
   const server = http.createServer((req, res) => {
     let body = '';
     req.setEncoding('utf8');
@@ -335,12 +357,12 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         }
         plannerBodies.push(parsed);
         plannerCalls += 1;
-        const content = plannerCalls === 1
-          ? "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.txt\"}}"
+        const response = plannerCalls === 1
+          ? toolCompletionBody('read', { path: 'a.txt' }, 'thought-1')
           : plannerCalls === 2
-            ? "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}"
-            : '{"action":"finish","output":"wrote it"}';
-        sendChatCompletionSse(res, completionBody(content, `thought-${plannerCalls}`));
+            ? toolCompletionBody('write', { path: 'out.txt', content: 'hello' }, 'thought-2')
+            : completionBody('wrote it', 'thought-3');
+        sendChatCompletionSse(res, response);
         return;
       }
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -399,7 +421,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
     const pendingCall = asObject(asArray(pending.tool_calls)[0]);
     const pendingFunction = asObject(pendingCall.function);
     assert.deepEqual(
-      asObject(parseJsonValueText(String(pendingFunction.arguments))),
+      asObject(parseJsonValueText(String(pendingFunction.arguments || ''))),
       { path: 'out.txt', content: 'hello' },
     );
     const question = asObject(verdictMessages.at(-1));
@@ -433,7 +455,7 @@ test('auto mode without a human gate fails loudly at construction', async () => 
         runtimeProfile: RUNTIME_PROFILE,
         maxTurns: 4,
         minToolCallsBeforeFinish: 0,
-        mockResponses: ['{"action":"finish","output":"unreachable"}'],
+        mockResponses: [{ content: "unreachable" }],
         mockCommandResults: {},
         progressWriter: writer,
         approvalMode: 'auto' as const,

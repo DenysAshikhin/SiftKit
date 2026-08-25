@@ -69,7 +69,7 @@ test('summary endpoint waits behind the model request queue', async () => {
         maxTurns: 1,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
       },
     });

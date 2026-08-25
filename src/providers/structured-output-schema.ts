@@ -1,7 +1,4 @@
 import type { JsonObject } from '../lib/json-types.js';
-import { buildRepoSearchPlannerProtocol } from '../planner-protocol/repo-search.js';
-import { buildSummaryPlannerProtocol } from '../planner-protocol/summary.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 
 type JsonSchema = JsonObject;
 
@@ -26,24 +23,6 @@ export function buildSummaryDecisionJsonSchema(options: { allowUnsupportedInput:
     required: ['classification', 'raw_review_required', 'output'],
     additionalProperties: false,
   };
-}
-
-export function buildSummaryPlannerActionJsonSchema(options: {
-  toolDefinitions: readonly PlannerToolDefinition[];
-  allowUnsupportedInput: boolean;
-}): JsonSchema {
-  const protocol = buildSummaryPlannerProtocol(
-    options.toolDefinitions,
-    options.allowUnsupportedInput,
-  );
-  return protocol.jsonSchema;
-}
-
-export function buildRepoSearchPlannerActionJsonSchema(options: {
-  toolDefinitions: readonly PlannerToolDefinition[];
-}): JsonSchema {
-  const protocol = buildRepoSearchPlannerProtocol(options.toolDefinitions);
-  return protocol.jsonSchema;
 }
 
 export function buildFinishValidationJsonSchema(): JsonSchemaObject {

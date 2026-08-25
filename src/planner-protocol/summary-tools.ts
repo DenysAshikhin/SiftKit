@@ -1,3 +1,4 @@
+import type { AgentLoopFinishAction } from '../agent-loop/types.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from './json-schema.js';
@@ -5,6 +6,23 @@ import { buildPlannerJsonSchema, type PlannerToolDefinition } from './json-schem
 const NonBlankTextSchema = z.string().refine((value) => value.trim().length > 0, 'Expected non-blank text.');
 const PositiveIntegerSchema = z.number().int().positive();
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
+
+export const SummaryClassificationSchema = z.enum([
+  'summary',
+  'command_failure',
+  'unsupported_input',
+]);
+export type SummaryClassification = z.infer<typeof SummaryClassificationSchema>;
+
+export const SummaryFinishToolArgsSchema = z.strictObject({
+  classification: SummaryClassificationSchema,
+  raw_review_required: z.boolean(),
+  output: NonBlankTextSchema,
+});
+
+export const SupportedSummaryFinishToolArgsSchema = SummaryFinishToolArgsSchema.extend({
+  classification: z.enum(['summary', 'command_failure']),
+});
 
 export const FindTextToolArgsSchema = z.strictObject({
   query: NonBlankTextSchema.describe('The literal text or regex pattern to search for.'),
@@ -110,7 +128,9 @@ function buildSummaryToolDefinition(toolName: SummaryPlannerToolName): PlannerTo
   const argsSchema = SUMMARY_TOOL_ARGUMENT_SCHEMAS[toolName];
   const metadata = SUMMARY_TOOL_METADATA[toolName];
   return {
+    kind: 'tool',
     type: 'function',
+    argumentSchema: argsSchema.transform((args) => JsonObjectSchema.parse(args)),
     exampleArgs: JsonObjectSchema.parse(argsSchema.parse(metadata.exampleArgs)),
     function: {
       name: toolName,
@@ -127,11 +147,40 @@ const SUMMARY_TOOL_REGISTRY = {
   json_get: buildSummaryToolDefinition('json_get'),
 } as const satisfies Record<SummaryPlannerToolName, PlannerToolDefinition>;
 
+function buildSummaryFinishToolDefinition(allowUnsupportedInput: boolean): PlannerToolDefinition {
+  const argumentSchema = allowUnsupportedInput
+    ? SummaryFinishToolArgsSchema
+    : SupportedSummaryFinishToolArgsSchema;
+  return {
+    kind: 'finish',
+    type: 'function',
+    argumentSchema: argumentSchema.transform((args): AgentLoopFinishAction => ({
+      kind: 'finish',
+      text: args.output,
+      classification: args.classification,
+      rawReviewRequired: args.raw_review_required,
+      rawAction: JsonObjectSchema.parse(args),
+    })),
+    exampleArgs: {
+      classification: 'summary',
+      raw_review_required: false,
+      output: 'final answer text',
+    },
+    function: {
+      name: 'finish',
+      description: 'Return the classified final answer only when the task is complete.',
+      parameters: buildPlannerJsonSchema(argumentSchema),
+    },
+  };
+}
+
 export function buildSummaryPlannerToolDefinitions(
   allowedTools: readonly SummaryPlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES,
+  allowUnsupportedInput = true,
 ): PlannerToolDefinition[] {
   const allowed = new Set<SummaryPlannerToolName>(allowedTools);
   return SUMMARY_PLANNER_TOOL_NAMES
     .filter((toolName) => allowed.has(toolName))
-    .map((toolName) => SUMMARY_TOOL_REGISTRY[toolName]);
+    .map((toolName) => SUMMARY_TOOL_REGISTRY[toolName])
+    .concat(buildSummaryFinishToolDefinition(allowUnsupportedInput));
 }

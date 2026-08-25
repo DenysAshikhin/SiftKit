@@ -2,19 +2,13 @@ import type { LlamaCppChatMessage } from '../../providers/llama-cpp.js';
 import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
-import { allowsUnsupportedInput, type SummarySourceKind } from '../types.js';
+import type { SummarySourceKind } from '../types.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import { buildSingleAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
-import {
-  buildSummaryPlannerFinishActionExample,
-  buildSummaryPlannerProtocol,
-  type SummaryPlannerToolCall as PlannerToolCall,
-} from '../../planner-protocol/summary.js';
-import { buildPlannerToolActionExample } from '../../planner-protocol/json-schema.js';
-import { buildSummaryPlannerToolDefinitions } from '../../planner-protocol/summary-tools.js';
+import type { SummaryNativeToolCall } from '../../planner-protocol/summary-tools.js';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the
@@ -85,30 +79,21 @@ export function buildPlannerSystemPrompt(options: {
   rawReviewRequired: boolean;
   toolDefinitions: readonly PlannerToolDefinition[];
 }): string {
-  const allowUnsupportedInput = allowsUnsupportedInput(options.sourceKind);
-  const plannerProtocol = buildSummaryPlannerProtocol(
-    options.toolDefinitions,
-    allowUnsupportedInput,
-  );
   const sections = [
     'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
     '',
     'Planner mode:',
     '- The full input is too large for a direct pass, so inspect only the minimum evidence needed.',
     '- If the document profile or current tool results are already sufficient, finish immediately.',
-    '- When multiple independent tool calls are genuinely useful, you may request them in the same response.',
-    '- Return only a valid JSON object. No markdown fences.',
-    '- For tool calls, use action "tool", put the allowed name in toolName, and put all tool arguments inside args.',
+    '- Use the provided tools. When multiple independent calls are genuinely useful, you may call them in the same response.',
+    '- Complete the task only by calling `finish` with the final classification, raw-review decision, and output.',
     '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
     '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
     '- When the document profile shows top_level=object with object_array_paths=..., use collectionPath to target that array and filter item fields relative to each array element.',
-    '- Never emit JSON schema fragments like {"type":"integer"} as argument values. Use concrete literals.',
+    '- Use concrete literal tool arguments, never JSON schema fragments.',
     '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
     '- After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window rather than multiple tiny nearby slices.',
     '- If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice.',
-    '',
-    'Available actions:',
-    plannerProtocol.actionInstructions,
     '',
     'Source handling:',
     getSourceInstructions(options.sourceKind, options.commandExitCode),
@@ -117,9 +102,6 @@ export function buildPlannerSystemPrompt(options: {
     options.rawReviewRequired
       ? 'Raw-log review is likely required. Set raw_review_required to true unless the visible evidence clearly proves otherwise.'
       : 'Set raw_review_required to false unless the output contains genuine errors, failures, or incomplete results that warrant manual inspection.',
-    '',
-    'Tools:',
-    ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}`),
   ];
 
   return new PresetSystemPromptComposer(
@@ -144,15 +126,9 @@ export function buildPlannerInputSection(options: {
 }
 
 export function buildPlannerInvalidResponseUserPrompt(message: string): string {
-  const examples = buildSummaryPlannerToolDefinitions(['find_text', 'read_lines'])
-    .map(buildPlannerToolActionExample);
   return [
     `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,
-    'Reply with exactly one JSON object and nothing else — no markdown fences, no commentary.',
-    'Use action "tool", put the allowed tool name in "toolName", and put concrete literal arguments inside "args".',
-    'Valid examples:',
-    ...examples,
-    buildSummaryPlannerFinishActionExample('final answer text'),
+    'Call one of the provided tools with valid arguments. Call `finish` only when the final answer is ready.',
   ].join('\n');
 }
 
@@ -182,7 +158,7 @@ export function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string
 }
 
 export function buildPlannerAssistantToolMessage(
-  action: PlannerToolCall,
+  action: SummaryNativeToolCall,
   toolCallId: string
 ): LlamaCppChatMessage {
   return buildSharedAssistantToolCallMessage(action, toolCallId);

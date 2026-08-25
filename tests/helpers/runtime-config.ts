@@ -47,10 +47,22 @@ export const ChatRequestSchema = z.object({
 export type ChatRequestMessage = z.infer<typeof ChatRequestMessageSchema>;
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 
-// Fixture-supplied assistant content: a literal, a per-request responder, or a
-// per-request rotation of either. Shared with the stub server in _runtime-helpers.
-export type AssistantResponderFn = (promptText: string, parsed: JsonValue, requestIndex: number) => string;
-export type AssistantResponder = string | AssistantResponderFn | Array<string | AssistantResponderFn>;
+export const AssistantMessageFixtureSchema = z.strictObject({
+  content: z.string().default(''),
+  toolCalls: z.array(z.strictObject({
+    id: z.string().min(1).optional(),
+    name: z.string().min(1),
+    arguments: JsonObjectSchema,
+  })).default([]),
+});
+export type AssistantMessageFixtureInput = z.input<typeof AssistantMessageFixtureSchema>;
+export type AssistantResponderValue = string | AssistantMessageFixtureInput;
+export type AssistantResponderFn = (
+  promptText: string,
+  parsed: JsonValue,
+  requestIndex: number,
+) => AssistantResponderValue;
+export type AssistantResponder = AssistantResponderValue | AssistantResponderFn | Array<AssistantResponderValue | AssistantResponderFn>;
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   const target = new URL(configuredUrl);
@@ -399,7 +411,7 @@ export function resolveAssistantContent(
   promptText: string,
   parsed: JsonValue,
   requestIndex: number,
-): string | undefined {
+): AssistantResponderValue | undefined {
   if (typeof option === 'function') {
     return option(promptText, parsed, requestIndex);
   }

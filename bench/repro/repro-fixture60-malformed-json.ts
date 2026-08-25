@@ -14,7 +14,7 @@ import { getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summ
 import {
   DEFAULT_SUMMARY_PROVIDER,
 } from '../../src/summary/types.js';
-import type { SummaryClassification } from '../../src/planner-protocol/summary.js';
+import type { SummaryClassification } from '../../src/planner-protocol/summary-tools.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';

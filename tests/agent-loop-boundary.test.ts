@@ -76,7 +76,7 @@ test('repo-search does not keep a separate agent loop', () => {
 
 test('native repo-tool arguments have one runtime-schema implementation', () => {
   const modelJsonPath = path.join(process.cwd(), 'src', 'lib', 'model-json.ts');
-  const canonicalProtocolPath = path.join(process.cwd(), 'src', 'planner-protocol', 'repo-search.ts');
+  const canonicalProtocolPath = path.join(process.cwd(), 'src', 'repo-search', 'repo-tool-arguments.ts');
   const modelJsonText = fs.readFileSync(modelJsonPath, 'utf8');
   const canonicalProtocolText = fs.readFileSync(canonicalProtocolPath, 'utf8');
 

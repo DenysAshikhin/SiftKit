@@ -112,7 +112,7 @@ test('synthesize returns the first non-empty mock response', async () => {
   const synthesizer = makeSynthesizer(tokenUsage);
   const result = await synthesizer.synthesize({
     taskId: 't1', question: 'q', reason: 'max_turns', transcript: 'evidence', turnsUsed: 3,
-    mockResponses: ['synthesized answer'], mockResponseIndex: 0,
+    mockResponses: [{ content: 'synthesized answer' }], mockResponseIndex: 0,
   });
   assert.equal(result.finalOutput, 'synthesized answer');
   assert.ok(tokenUsage.snapshot().outputTokens > 0);
@@ -122,7 +122,7 @@ test('synthesize retries past empty responses', async () => {
   const synthesizer = makeSynthesizer(new TokenUsageTracker(undefined));
   const result = await synthesizer.synthesize({
     taskId: 't1', question: 'q', reason: 'max_turns', transcript: 'evidence', turnsUsed: 3,
-    mockResponses: ['', 'second try answer'], mockResponseIndex: 0,
+    mockResponses: [{ content: '' }, { content: 'second try answer' }], mockResponseIndex: 0,
   });
   assert.equal(result.finalOutput, 'second try answer');
 });

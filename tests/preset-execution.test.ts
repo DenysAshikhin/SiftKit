@@ -11,13 +11,12 @@ import { getDefaultConfig } from '../src/status-server/config-store.js';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
   const definitions = buildSummaryPlannerToolDefinitions(['find_text']);
-  assert.deepEqual(definitions.map((definition) => definition.function.name), ['find_text']);
+  assert.deepEqual(definitions.map((definition) => definition.function.name), ['find_text', 'finish']);
 });
 
 test('summary planner tool execution rejects disallowed tools', () => {
   assert.throws(
     () => executePlannerTool('alpha\nbeta', {
-      action: 'tool',
       toolName: 'read_lines',
       args: { startLine: 1, endLine: 1 },
     }, ['find_text']),

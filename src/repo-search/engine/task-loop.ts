@@ -11,23 +11,19 @@ import type {
   AgentLoopModelData,
   AgentLoopModelResponse,
   AgentLoopPreparedTurn,
-  AgentLoopProgressAction,
   AgentLoopResponseContext,
   AgentLoopToolAction,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-  AgentLoopTurnOutcome,
   TurnPromptTokens,
 } from '../../agent-loop/types.js';
+import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
-import { JsonObjectSchema } from '../../lib/json-types.js';
 import { toProtocolTools } from '../../providers/llama-cpp.js';
-import { StreamingFinishOutputExtractor } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
   PLANNER_REASONING_BUDGET_MESSAGE,
   captureExecutingPlannerRequest,
-  getRepoSearchToolNamesForParsing,
   requestApprovalVerdict as requestApprovalVerdictRequest,
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
@@ -38,10 +34,6 @@ import {
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
-import type {
-  RepoSearchFinishAction,
-  RepoSearchToolAction,
-} from '../../planner-protocol/repo-search.js';
 import {
   RepoSearchActionAdapter,
   RepoSearchPlannerModelClient,
@@ -71,7 +63,6 @@ import { ReadWindowGovernor } from './read-window-governor.js';
 import {
   allocateLlamaCppSlotId,
   buildAssistantReplayMessage,
-  buildInvalidToolCallActionFromResponseText,
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
@@ -87,7 +78,6 @@ import {
 } from './task-loop-support.js';
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
 import { ToolActionProcessor } from './tool-action-processor.js';
-import { buildBatchToolCallId } from './pending-tool-call-message.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
@@ -237,12 +227,7 @@ export class TaskLoop {
     }
     this.plannerToolDefinitions = options.plannerToolDefinitions;
     const activePlannerToolNames = this.plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
-    this.allowedPlannerToolNames = this.loopKind === 'chat'
-      ? activePlannerToolNames
-      : Array.from(new Set<string>([
-        ...activePlannerToolNames,
-        ...getRepoSearchToolNamesForParsing(),
-      ]));
+    this.allowedPlannerToolNames = activePlannerToolNames;
     this.chatWebGroundingEnabled = this.loopKind === 'chat'
       && this.allowedPlannerToolNames.includes('web_search')
       && this.allowedPlannerToolNames.includes('web_fetch');
@@ -401,7 +386,7 @@ export class TaskLoop {
 
   async run(): Promise<TaskResult> {
     const promptAdapter = new RepoSearchPromptAdapter(this);
-    const actionAdapter = new RepoSearchActionAdapter(this.allowedPlannerToolNames, this);
+    const actionAdapter = new RepoSearchActionAdapter(this.plannerToolDefinitions, this);
     const toolAdapter = new RepoSearchToolAdapter(this);
     await new AgentLoop({
       maxTurns: this.maxTurns,
@@ -493,6 +478,16 @@ export class TaskLoop {
       this.counters.reason = 'mock_responses_exhausted';
       return 'stop';
     }
+    const narration = context.response.text.trim();
+    if (narration && context.response.toolCalls.length > 0) {
+      this.progress.progressUpdate(context.turnNumber, narration);
+      this.options.logger?.write({
+        kind: 'turn_progress',
+        taskId: this.task.id,
+        turn: context.turnNumber,
+        text: narration,
+      });
+    }
     return null;
   }
 
@@ -503,23 +498,11 @@ export class TaskLoop {
     return { outcome: this.counters.reason === 'invalid_response_limit' ? 'stop' : 'continue' };
   }
 
-  async handleProgress(action: AgentLoopProgressAction, context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
-    const turn = context.turnNumber;
-    const response = getRepoSearchModelData(context).plannerResponse;
-    this.finishVerification.recordNonFinishAction();
-    this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
-    this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
-    this.transcript.pushUser('Progress note recorded. Continue with the next action.');
-    this.progress.progressUpdate(turn, action.text);
-    this.options.logger?.write({ kind: 'turn_progress', taskId: this.task.id, turn, text: action.text });
-    return 'continue';
-  }
-
   async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
     const data = getRepoSearchModelData(context);
     const outcome = this.handleFinishAction(
       context.turnNumber,
-      { action: 'finish', output: action.text },
+      action,
       data.plannerResponse,
       data.resolvedTokens,
     );
@@ -534,17 +517,13 @@ export class TaskLoop {
     this.finishVerification.recordNonFinishAction();
     const beforeCommandCount = this.commands.length;
     const response = getRepoSearchModelData(context).plannerResponse;
-    const toolActions: RepoSearchToolAction[] = actions.map((action) => ({
-      action: 'tool',
-      toolName: action.toolName,
-      args: JsonObjectSchema.parse(action.args),
-    }));
     const outcome = await this.toolActions.executeBatch(
       context.turnNumber,
-      toolActions,
+      actions,
       String(response.thinkingText || '').trim(),
       context.preparedTurn.promptTokens,
       context.preparedTurn.inForcedFinishMode,
+      response.text,
     );
     const newCommands = this.commands.slice(beforeCommandCount);
     return {
@@ -555,7 +534,7 @@ export class TaskLoop {
           throw new Error(`Repo-search produced ${newCommands.length} command results for ${actions.length} tool actions.`);
         }
         return {
-          callId: buildBatchToolCallId(context.turnNumber, index),
+          callId: sourceAction.callId,
           toolName: sourceAction.toolName,
           args: sourceAction.args,
           text: String(command.promptOutput ?? command.output ?? ''),
@@ -577,7 +556,7 @@ export class TaskLoop {
     return {
       text: response.text,
       reasoningText: response.thinkingText || '',
-      toolCalls: [],
+      toolCalls: response.toolCalls,
       usage: {
         promptTokens: promptTokenCount,
         completionTokens: resolvedTokens.completionTokens,
@@ -618,7 +597,6 @@ export class TaskLoop {
         this.plannerThinking.reasoningContentEnabled,
       );
       this.executingPlannerRequest = captureExecutingPlannerRequest(serializedMessages, this.plannerThinking);
-      const finishOutputExtractor = new StreamingFinishOutputExtractor();
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,
         baseUrl: this.options.baseUrl,
@@ -635,17 +613,7 @@ export class TaskLoop {
           ? (accThinking) => { this.progress.thinking(turn, accThinking); }
           : undefined,
         onContentDelta: this.progress.liveTextEnabled
-          ? (accContent) => {
-              if (this.streamFinishAsAnswer) {
-                const finishOutput = finishOutputExtractor.push(accContent);
-                if (finishOutput !== null) {
-                  this.progress.answer(turn, finishOutput);
-                }
-              } else {
-                const finishOutput = finishOutputExtractor.push(accContent) ?? accContent;
-                this.progress.thinking(turn, finishOutput);
-              }
-            }
+          ? (accContent) => { this.progress.progressUpdate(turn, accContent); }
           : undefined,
         mockResponses: this.options.mockResponses,
         mockResponseIndex: this.mockResponseIndex,
@@ -661,14 +629,26 @@ export class TaskLoop {
   private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     this.counters.invalidResponses += 1;
-    const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
-    const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), this.allowedPlannerToolNames);
-    this.transcript.appendToolExchange(
-      invalidToolAction,
-      `t${turn}_invalid_${this.counters.invalidResponses}`,
-      invalidActionMessage,
-      String(response.thinkingText || '').trim(),
-    );
+    const invalidActionMessage = error instanceof NativePlannerToolCallError
+      ? error.message
+      : `Previous response was invalid: ${error.message} Return content to finish or call one of the provided tools with valid arguments.`;
+    const invalidToolAction = error instanceof NativePlannerToolCallError
+      ? { toolName: error.toolName, args: error.args }
+      : null;
+    if (error instanceof NativePlannerToolCallError) {
+      this.transcript.appendToolExchange(
+        { toolName: error.toolName, args: error.args },
+        error.callId,
+        invalidActionMessage,
+        String(response.thinkingText || '').trim(),
+      );
+    } else {
+      this.transcript.pushAssistant(buildAssistantReplayMessage(
+        response.text,
+        String(response.thinkingText || '').trim(),
+      ));
+      this.transcript.pushUser(invalidActionMessage);
+    }
     this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
     this.options.logger?.write({
       kind: 'turn_action_invalid',
@@ -694,11 +674,11 @@ export class TaskLoop {
     this.transcript.pushUser(message);
   }
 
-  private handleFinishAction(turn: number, action: RepoSearchFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+  private handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
-      finalOutput: action.output,
+      finalOutput: action.text,
       successfulToolCalls: this.successfulToolCalls,
     });
     if (!finishEvaluation.allowed) {
@@ -740,7 +720,7 @@ export class TaskLoop {
         });
       }
     }
-    this.finalOutput = action.output;
+    this.finalOutput = action.text;
     if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
       this.progress.answer(turn, this.finalOutput);
     }
@@ -779,7 +759,10 @@ export class TaskLoop {
 
     const evidenceParts = [this.finalOutput, ...this.commands.map((item) => item.output)];
     const signalCheck = evaluateTaskSignals(this.task, evidenceParts.join('\n'));
-    const passed = signalCheck.passed && this.counters.commandFailures === 0;
+    const hasExecutedCommandFailure = this.commands.some(
+      (command) => command.safe && command.exitCode !== null && command.exitCode !== 0,
+    );
+    const passed = signalCheck.passed && !hasExecutedCommandFailure;
 
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,

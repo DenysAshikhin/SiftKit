@@ -1,6 +1,6 @@
 import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { RepoSearchToolAction } from '../../planner-protocol/repo-search.js';
+import type { AgentLoopToolAction } from '../../agent-loop/types.js';
 import type { TaskCommand } from '../prompts.js';
 
 export const ActivitySummaryCategorySchema = z.enum([
@@ -66,7 +66,7 @@ function classifyToolName(toolName: string): ActivitySummaryCategory | null {
   }
 }
 
-function extractLabel(toolName: string, action: RepoSearchToolAction): string {
+function extractLabel(toolName: string, action: AgentLoopToolAction): string {
   const reader = new JsonRecordReader(action.args);
   if (toolName === 'read' || toolName === 'edit' || toolName === 'write') {
     return reader.optionalString('path') || 'unknown';
@@ -80,7 +80,7 @@ function extractLabel(toolName: string, action: RepoSearchToolAction): string {
   return reader.optionalString('command') || toolName;
 }
 
-function classifyEntry(toolName: string, action: RepoSearchToolAction, command: TaskCommand): ActivitySummaryEntry {
+function classifyEntry(toolName: string, action: AgentLoopToolAction, command: TaskCommand): ActivitySummaryEntry {
   const category = classifyToolName(toolName) ?? (isTestCommand(command.command) ? 'tests' : 'commands');
   const label = extractLabel(toolName, action);
   const failed = !command.safe || command.exitCode === null || command.exitCode !== 0;
@@ -90,7 +90,7 @@ function classifyEntry(toolName: string, action: RepoSearchToolAction, command: 
 export class ActivitySummaryCollector {
   private window: ActivitySummaryEntry[] = [];
 
-  recordBatch(_turn: number, actions: readonly RepoSearchToolAction[], commands: readonly TaskCommand[]): void {
+  recordBatch(_turn: number, actions: readonly AgentLoopToolAction[], commands: readonly TaskCommand[]): void {
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
       const command = commands[i];

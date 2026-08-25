@@ -1,90 +1,30 @@
-import { ModelJson } from '../lib/model-json.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../repo-search/planner-protocol.js';
-import type { SummaryPlannerParseOptions } from '../planner-protocol/summary.js';
+import type { NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import { parseNativePlannerActions } from '../planner-protocol/native-actions.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type { AgentLoopAction } from './types.js';
 
+type SummaryPlannerParseOptions = {
+  toolDefinitions: readonly PlannerToolDefinition[];
+};
+
 export class AgentLoopActionParser {
-  parseRepoSearchAction(text: string, allowedToolNames: readonly string[]): AgentLoopAction {
-    return this.parseRepoSearchActions(text, allowedToolNames)[0];
+  parseRepoSearchActions(
+    response: NormalizedLlamaCppChatResponse,
+    toolDefinitions: readonly PlannerToolDefinition[],
+  ): AgentLoopAction[] {
+    return parseNativePlannerActions(response, {
+      toolDefinitions,
+      contentWithoutTools: 'finish',
+    });
   }
 
-  parseRepoSearchActions(text: string, allowedToolNames: readonly string[]): AgentLoopAction[] {
-    const parsed = ModelJson.parseRepoSearchPlannerAction(
-      text,
-      resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-    );
-    if (parsed.action === 'finish') {
-      return [
-        {
-          kind: 'finish',
-          text: parsed.output,
-          rawAction: { action: 'finish', output: parsed.output },
-        },
-      ];
-    }
-    if (parsed.action === 'progress') {
-      return [
-        {
-          kind: 'progress',
-          text: parsed.output,
-        },
-      ];
-    }
-    if (parsed.action === 'tool_batch') {
-      return parsed.calls.map((toolCall, index) => ({
-        kind: 'tool',
-        callId: `call_${index + 1}`,
-        toolName: toolCall.toolName,
-        args: toolCall.args,
-      }));
-    }
-    return [
-      {
-        kind: 'tool',
-        callId: 'call_1',
-        toolName: parsed.toolName,
-        args: parsed.args,
-      },
-    ];
-  }
-
-  parseSummaryPlannerAction(text: string, options: SummaryPlannerParseOptions): AgentLoopAction {
-    return this.parseSummaryPlannerActions(text, options)[0];
-  }
-
-  parseSummaryPlannerActions(text: string, options: SummaryPlannerParseOptions): AgentLoopAction[] {
-    const parsed = ModelJson.parseSummaryPlannerAction(text, options);
-    if (parsed.action === 'finish') {
-      return [
-        {
-          kind: 'finish',
-          text: parsed.output,
-          classification: parsed.classification,
-          rawReviewRequired: parsed.rawReviewRequired,
-          rawAction: {
-            action: 'finish',
-            classification: parsed.classification,
-            rawReviewRequired: parsed.rawReviewRequired,
-            output: parsed.output,
-          },
-        },
-      ];
-    }
-    if (parsed.action === 'tool_batch') {
-      return parsed.calls.map((toolCall, index) => ({
-        kind: 'tool',
-        callId: `call_${index + 1}`,
-        toolName: toolCall.toolName,
-        args: toolCall.args,
-      }));
-    }
-    return [
-      {
-        kind: 'tool',
-        callId: 'call_1',
-        toolName: parsed.toolName,
-        args: parsed.args,
-      },
-    ];
+  parseSummaryPlannerActions(
+    response: NormalizedLlamaCppChatResponse,
+    options: SummaryPlannerParseOptions,
+  ): AgentLoopAction[] {
+    return parseNativePlannerActions(response, {
+      toolDefinitions: options.toolDefinitions,
+      contentWithoutTools: 'invalid',
+    });
   }
 }

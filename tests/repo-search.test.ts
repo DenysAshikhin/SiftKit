@@ -223,8 +223,8 @@ test('executeRepoSearchRequest runs one task for an image-only chat request', as
       maxTurns: 1,
       initialUserImages: [IMAGES_ONLY_PNG],
       mockResponses: [
-        '{"action":"finish","output":"image answer"}',
-        'image answer',
+        { content: "image answer" },
+        { content: 'image answer' },
       ],
       mockCommandResults: {},
     });
@@ -245,7 +245,7 @@ test('executeRepoSearchRequest forwards an aborted signal to the engine', async 
         prompt: 'find test patterns',
         repoRoot: tempRoot,
         abortSignal: controller.signal,
-        mockResponses: ['{"action":"finish","output":"unexpected"}'],
+        mockResponses: [{ content: "unexpected" }],
         mockCommandResults: {},
       }),
       /stream disconnected/u,
@@ -262,7 +262,7 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
       repoRoot: tempRoot,
       maxTurns: 1,
       mockResponses: [
-        '{"action":"finish","output":"Found test patterns in tests/"}',
+        { content: "Found test patterns in tests/" },
       ],
       mockCommandResults: {},
       progressWriter,
@@ -303,7 +303,7 @@ test('executeRepoSearchRequest does not wait for running status notification res
         statusBackendUrl: statusServer.statusUrl,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
         mockCommandResults: {},
         progressWriter,
@@ -339,7 +339,7 @@ test('executeRepoSearchRequest does not wait for terminal metadata notification 
         statusBackendUrl: statusServer.statusUrl,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
         mockCommandResults: {},
       });
@@ -395,8 +395,8 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
-        '{"action":"finish","output":"Found scripts"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { content: "Found scripts" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
@@ -419,7 +419,7 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
         repoRoot: tempRoot,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
         mockCommandResults: {},
       });
@@ -518,9 +518,9 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       repoRoot: tempRoot,
       maxTurns: 3,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\",\"limit\":1}}",
-        '{"action":"finish","output":"budget answer"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"log","limit":1} }] },
+        { content: "budget answer" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -554,9 +554,9 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       repoRoot: tempRoot,
       maxTurns: 4,
       mockResponses: [
-        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
-        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big.ts\",\"offset\":300,\"limit\":601}}",
-        '{"action":"finish","output":"budget answer"}',
+        { toolCalls: [{ name: "git", arguments: {"operation":"status"} }] },
+        { toolCalls: [{ name: "read", arguments: {"path":"src/big.ts","offset":300,"limit":601} }] },
+        { content: "budget answer" },
       ],
       mockCommandResults: {
         "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -694,7 +694,7 @@ test('executeRepoSearchRequest hard-fails on invalid mock response and persists 
         repoRoot: tempRoot,
         maxTurns: 1,
         mockResponses: [
-          'not valid json at all',
+          {},
         ],
         mockCommandResults: {},
       });
@@ -723,7 +723,7 @@ test('executeRepoSearchRequest trace output when SIFTKIT_TRACE_REPO_SEARCH=1', a
         repoRoot: tempRoot,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done"}',
+          { content: "done" },
         ],
         mockCommandResults: {},
       });

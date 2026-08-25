@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { z } from '../../lib/zod.js';
+import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.js';
 import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
@@ -32,7 +33,7 @@ const CAPTION_PROMPT = 'Describe this image in two or three sentences. Say what 
 const CaptionRequestSchema = z.object({
   messageId: z.string().min(1),
   imageIndex: z.number().int().nonnegative(),
-  mockResponses: z.array(z.string()).optional(),
+  mockResponses: MockPlannerResponsesSchema.optional(),
 });
 type CaptionRequest = z.infer<typeof CaptionRequestSchema>;
 

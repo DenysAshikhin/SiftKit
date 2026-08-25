@@ -1,11 +1,11 @@
 import { getActiveModelPreset, type SiftConfig } from '../../config/index.js';
-import { ModelJson } from '../../lib/model-json.js';
 import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage, type PlannerThinkingFlags } from '../planner-protocol.js';
+import { type ChatMessage, type PlannerThinkingFlags } from '../planner-protocol.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
 import { TaskCommandSchema } from '../prompts.js';
 import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
@@ -15,7 +15,6 @@ import type {
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from '../types.js';
-import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../repetition-guard.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
@@ -171,7 +170,7 @@ export type RunTaskLoopOptions = {
   initialUserImages?: readonly string[];
   plannerToolDefinitions: readonly PlannerToolDefinition[];
   systemContext: PresetSystemContext;
-  mockResponses?: string[];
+  mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
@@ -219,38 +218,6 @@ export function buildAssistantReplayMessage(content: string, thinkingText: strin
     role: 'assistant',
     content,
     ...(thinkingText ? { reasoning_content: thinkingText } : {}),
-  };
-}
-
-export function buildInvalidToolCallActionFromResponseText(
-  responseText: string,
-  allowedToolNames: readonly string[],
-): ToolTranscriptAction {
-  try {
-    const action = ModelJson.parseRepoSearchPlannerAction(
-      responseText,
-      resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-    );
-    if (action.action === 'tool') {
-      return action;
-    }
-    if (action.action === 'tool_batch') {
-      const firstToolCall = action.calls[0];
-      if (firstToolCall) {
-        return {
-          toolName: firstToolCall.toolName,
-          args: firstToolCall.args,
-        };
-      }
-    }
-  } catch {
-    // Invalid responses are fed back to the model as an explicit invalid tool call.
-  }
-  return {
-    toolName: 'invalid_tool_call',
-    args: {
-      rawResponseText: String(responseText || '').trim(),
-    },
   };
 }
 

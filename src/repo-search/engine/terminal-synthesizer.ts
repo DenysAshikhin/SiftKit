@@ -6,6 +6,7 @@ import { buildTerminalSynthesisPrompt } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { TokenUsageTracker } from './token-usage.js';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 
 const MAX_SYNTHESIS_ATTEMPTS = 3;
 
@@ -30,7 +31,7 @@ export class TerminalSynthesizer {
     reason: string;
     transcript: string;
     turnsUsed: number;
-    mockResponses?: string[];
+    mockResponses?: MockPlannerResponseInput[];
     mockResponseIndex: number;
   }): Promise<{ finalOutput: string; nextMockResponseIndex: number }> {
     const synthesisPrompt = buildTerminalSynthesisPrompt({

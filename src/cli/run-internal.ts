@@ -20,6 +20,7 @@ import { parseOptionalSummaryProvider } from '../summary/types.js';
 import { buildTestResult } from './run-test.js';
 import { SilentProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
+import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
 
 function readRequestFile(filePath: string): JsonObject {
   return JsonRecordReader.asObject(parseJsonValueText(readTextFileWithEncoding(filePath))) ?? {};
@@ -174,7 +175,7 @@ export async function runInternal(options: ResolvedCliArgs & {
         maxTurns: request.MaxTurns === undefined ? undefined : Number(request.MaxTurns),
         logFile: request.LogFile ? String(request.LogFile) : undefined,
         availableModels: Array.isArray(request.AvailableModels) ? request.AvailableModels.map(String) : undefined,
-        mockResponses: Array.isArray(request.MockResponses) ? request.MockResponses.map(String) : undefined,
+        mockResponses: Array.isArray(request.MockResponses) ? MockPlannerResponsesSchema.parse(request.MockResponses) : undefined,
         mockCommandResults: JsonRecordReader.asObject(request.MockCommandResults) ?? undefined,
       }, renderer);
       break;
