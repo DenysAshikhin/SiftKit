@@ -21,6 +21,7 @@ import {
   type PresetSystemContext,
 } from '../src/preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = createManagedTempDir('siftkit-repo-prompt-');
@@ -44,11 +45,11 @@ function buildTestContext(
 }
 
 function buildTaskSystemPrompt(context: PresetSystemContext): string {
-  return buildTaskSystemPromptForTools(context, EXPOSED_REPO_TOOL_NAMES);
+  return buildTaskSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(EXPOSED_REPO_TOOL_NAMES));
 }
 
 function buildAgentSystemPrompt(context: PresetSystemContext): string {
-  return buildAgentSystemPromptForTools(context, INTERACTIVE_REPO_TOOL_NAMES);
+  return buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(INTERACTIVE_REPO_TOOL_NAMES));
 }
 
 const SPARSE_PROGRESS_POLICY =
@@ -60,7 +61,7 @@ function countOccurrences(text: string, search: string): number {
 
 test('system prompt action instructions match the request tool surface', () => {
   const context = buildTestContext(process.cwd());
-  const reduced = buildTaskSystemPromptForTools(context, ['read']);
+  const reduced = buildTaskSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read']));
   const empty = buildTaskSystemPromptForTools(context, []);
 
   assert.match(reduced, /Allowed tools: read/u);
@@ -70,7 +71,7 @@ test('system prompt action instructions match the request tool surface', () => {
 
 test('restricted and empty agent prompts preserve the completion review instruction', () => {
   const context = buildTestContext(process.cwd());
-  const reduced = buildAgentSystemPromptForTools(context, ['read']);
+  const reduced = buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read']));
   const empty = buildAgentSystemPromptForTools(context, []);
 
   for (const prompt of [reduced, empty]) {
@@ -85,7 +86,7 @@ test('repo prompts render one canonical sparse-progress policy', () => {
   const context = buildTestContext(process.cwd());
   const prompts = [
     buildAgentSystemPrompt(context),
-    buildAgentSystemPromptForTools(context, ['read']),
+    buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read'])),
     buildAgentSystemPromptForTools(context, []),
     buildTaskSystemPrompt(context),
   ];

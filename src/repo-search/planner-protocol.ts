@@ -7,7 +7,6 @@ import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContent
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
 import { ModelJson } from '../lib/model-json.js';
-import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
 import { toError } from '../lib/errors.js';
 import {
   buildProviderErrorMessage,
@@ -20,14 +19,12 @@ import {
   buildLlamaJsonSchemaResponseFormat,
   buildRepoSearchPlannerActionJsonSchema,
 } from '../providers/structured-output-schema.js';
-import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
-import { GitToolArgsSchema, RepoNativeToolCallSchema, RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
-import { z } from '../lib/zod.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
+import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-arguments.js';
 import type {
   RepoSearchToolAction,
 } from '../planner-protocol/repo-search.js';
@@ -70,7 +67,6 @@ export type ChatMessage = {
 };
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
-const GIT_TOOL_PARAMETERS = JsonObjectSchema.parse(z.toJSONSchema(GitToolArgsSchema, { io: 'input' }));
 
 /**
  * Generated from IMAGE_MIME_MAP rather than hardcoded, so adding a format cannot leave the
@@ -87,184 +83,75 @@ function buildVisionReadDescription(textOnlyDescription: string): string {
 // `git` and the two web tools. `write`, `edit` and `run` are implemented and tested
 // in engine/repo-tools.ts but deliberately absent from EXPOSED_REPO_TOOL_NAMES, so they never reach
 // a model. See docs/plan-pi-tool-surface.md.
+function buildRepoToolDefinition(options: {
+  toolName: RepoToolName;
+  description: string;
+  exampleArgs: JsonObject;
+}): PlannerToolDefinition {
+  const argsSchema = REPO_TOOL_ARGUMENT_SCHEMAS[options.toolName];
+  const exampleArgs = JsonObjectSchema.parse(argsSchema.parse(options.exampleArgs));
+  return {
+    type: 'function',
+    exampleArgs,
+    function: {
+      name: options.toolName,
+      description: options.description,
+      parameters: buildPlannerJsonSchema(argsSchema),
+    },
+  };
+}
+
 const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
-  read: {
-    type: 'function',
+  read: buildRepoToolDefinition({
+    toolName: 'read',
+    description: TEXT_ONLY_READ_DESCRIPTION,
     exampleArgs: { path: 'src/app.ts', offset: 1, limit: 120 },
-    function: {
-      name: 'read',
-      description: TEXT_ONLY_READ_DESCRIPTION,
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to read, relative to the repository root' },
-          offset: { type: 'integer', description: 'Line number to start reading from (1-indexed)' },
-          limit: { type: 'integer', description: 'Maximum number of lines to read' },
-        },
-        required: ['path'],
-      },
-    },
-  },
-  grep: {
-    type: 'function',
+  }),
+  grep: buildRepoToolDefinition({
+    toolName: 'grep',
+    description: 'Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignored paths are excluded automatically. Output is capped at limit matches (default 100).',
     exampleArgs: { pattern: 'buildPlanner', path: 'src', glob: '*.ts', context: 2 },
-    function: {
-      name: 'grep',
-      description: 'Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignored paths are excluded automatically. Output is capped at limit matches (default 100).',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: { type: 'string', description: 'Search pattern (regex, or literal string when literal=true)' },
-          path: { type: 'string', description: 'Directory or file to search (default: repository root)' },
-          glob: { type: 'string', description: "Filter files by glob pattern, e.g. '*.ts' or 'src/**/*.test.ts'" },
-          ignoreCase: { type: 'boolean', description: 'Case-insensitive search (default: true)' },
-          literal: { type: 'boolean', description: 'Treat pattern as a literal string instead of a regex (default: false)' },
-          context: { type: 'integer', description: 'Number of lines to show before and after each match (default: 0)' },
-          limit: { type: 'integer', description: 'Maximum number of matches to return (default: 100)' },
-        },
-        required: ['pattern'],
-      },
-    },
-  },
-  find: {
-    type: 'function',
+  }),
+  find: buildRepoToolDefinition({
+    toolName: 'find',
+    description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
     exampleArgs: { pattern: '**/*.test.ts', path: '.' },
-    function: {
-      name: 'find',
-      description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: { type: 'string', description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.test.ts'" },
-          path: { type: 'string', description: 'Directory to search in (default: repository root)' },
-          limit: { type: 'integer', description: 'Maximum number of results (default: 1000)' },
-        },
-        required: ['pattern'],
-      },
-    },
-  },
-  ls: {
-    type: 'function',
+  }),
+  ls: buildRepoToolDefinition({
+    toolName: 'ls',
+    description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500).",
     exampleArgs: { path: 'src' },
-    function: {
-      name: 'ls',
-      description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500).",
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Directory to list (default: repository root)' },
-          limit: { type: 'integer', description: 'Maximum number of entries to return (default: 500)' },
-        },
-        required: [],
-      },
-    },
-  },
-  write: {
-    type: 'function',
+  }),
+  write: buildRepoToolDefinition({
+    toolName: 'write',
+    description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
     exampleArgs: { path: 'src/new-file.ts', content: 'export const value = 1;\n' },
-    function: {
-      name: 'write',
-      description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to write, relative to the repository root' },
-          content: { type: 'string', description: 'Content to write to the file' },
-        },
-        required: ['path', 'content'],
-      },
-    },
-  },
-  edit: {
-    type: 'function',
+  }),
+  edit: buildRepoToolDefinition({
+    toolName: 'edit',
+    description: 'Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits.',
     exampleArgs: { path: 'src/app.ts', edits: [{ oldText: 'before', newText: 'after' }] },
-    function: {
-      name: 'edit',
-      description: 'Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to edit, relative to the repository root' },
-          edits: {
-            type: 'array',
-            description: 'One or more targeted replacements. Each edit is matched against the original file, not incrementally.',
-            items: {
-              type: 'object',
-              properties: {
-                oldText: { type: 'string', description: 'Exact text for one targeted replacement. Must be unique in the original file and must not overlap any other edits[].oldText in the same call.' },
-                newText: { type: 'string', description: 'Replacement text for this targeted edit.' },
-              },
-              required: ['oldText', 'newText'],
-            },
-          },
-        },
-        required: ['path', 'edits'],
-      },
-    },
-  },
-  run: {
-    type: 'function',
+  }),
+  run: buildRepoToolDefinition({
+    toolName: 'run',
+    description: 'Execute a shell command in the repository root. Returns stdout and stderr.',
     exampleArgs: { command: 'npm test', outputMode: 'auto' },
-    function: {
-      name: 'run',
-      description: 'Execute a shell command in the repository root. Returns stdout and stderr.',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Command to execute' },
-          timeoutMs: {
-            type: 'integer',
-            description: `Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS})`,
-          },
-          outputMode: {
-            type: 'string',
-            enum: RUN_OUTPUT_MODES,
-            description:
-              `Output shaping. auto (default) keeps a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`,
-          },
-        },
-        required: ['command'],
-      },
-    },
-  },
-  git: {
-    type: 'function',
+  }),
+  git: buildRepoToolDefinition({
+    toolName: 'git',
+    description: 'Inspect repository state with one typed read-only operation: status, log, show, diff, blame, grep, or ls_files.',
     exampleArgs: { operation: 'status' },
-    function: {
-      name: 'git',
-      description: 'Inspect repository state with one typed read-only operation: status, log, show, diff, blame, grep, or ls_files.',
-      parameters: GIT_TOOL_PARAMETERS,
-    },
-  },
-  web_search: {
-    type: 'function',
+  }),
+  web_search: buildRepoToolDefinition({
+    toolName: 'web_search',
+    description: 'Search the public web and return concise result titles, URLs, and snippets. Use only when external/current information is needed.',
     exampleArgs: { query: 'current TypeScript documentation' },
-    function: {
-      name: 'web_search',
-      description: 'Search the public web and return concise result titles, URLs, and snippets. Use only when external/current information is needed.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-          timeFilter: { type: 'string', enum: ['day', 'week', 'month', 'year'] },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  web_fetch: {
-    type: 'function',
+  }),
+  web_fetch: buildRepoToolDefinition({
+    toolName: 'web_fetch',
+    description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
     exampleArgs: { url: 'https://example.com/' },
-    function: {
-      name: 'web_fetch',
-      description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
-      parameters: {
-        type: 'object',
-        properties: { url: { type: 'string' } },
-        required: ['url'],
-      },
-    },
-  },
+  }),
 };
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
@@ -322,20 +209,15 @@ export function resolveRepoSearchPlannerToolDefinitions(
     }
     seen.add(toolName);
     const definition = REPO_TOOL_REGISTRY[toolName];
-    const example = RepoNativeToolCallSchema.safeParse({ toolName, args: definition.exampleArgs });
-    if (!example.success) {
-      throw new Error(`Invalid exampleArgs for repo planner tool "${toolName}": ${example.error.issues[0]?.message ?? 'schema validation failed'}`);
-    }
-    const validatedDefinition = { ...definition, exampleArgs: example.data.args };
     definitions.push(visionEnabled && toolName === 'read'
       ? {
-        ...validatedDefinition,
+        ...definition,
         function: {
-          ...validatedDefinition.function,
-          description: buildVisionReadDescription(validatedDefinition.function.description ?? TEXT_ONLY_READ_DESCRIPTION),
+          ...definition.function,
+          description: buildVisionReadDescription(definition.function.description),
         },
       }
-      : validatedDefinition);
+      : definition);
   }
   return definitions;
 }
@@ -360,7 +242,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   stage?: string;
   model: string;
   messageRoles: readonly string[];
-  toolDefinitions?: PlannerToolDefinition[];
+  toolDefinitions?: readonly PlannerToolDefinition[];
   maxTokens: number;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
@@ -443,7 +325,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   stage?: string;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  toolDefinitions?: PlannerToolDefinition[];
+  toolDefinitions?: readonly PlannerToolDefinition[];
   reasoningBudgetMessage?: string;
 };
 

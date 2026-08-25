@@ -71,7 +71,7 @@ import { buildSummaryPrompt } from '../src/summary/prompt.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getSummaryDecision } from '../src/summary/decision.js';
 import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
-import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { runCommand } from './helpers/run-command-for-test.js';
 import { runBenchmarkSuite } from '../bench/benchmark/index.js';
 import {
@@ -1511,7 +1511,7 @@ export {
   getStatusServerUnavailableMessage,
   summarizeRequest, buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
   createEmptyPresetSystemContext,
-  getPlannerPromptBudget, buildPlannerToolDefinitions,
+  getPlannerPromptBudget, buildSummaryPlannerToolDefinitions,
   runCommand, runBenchmarkSuite,
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,

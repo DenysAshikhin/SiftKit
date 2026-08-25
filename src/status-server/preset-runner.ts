@@ -23,8 +23,10 @@ import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import type { RepoSearchProgressEvent } from './dashboard-runs.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import type { SummaryPolicyProfile } from '../summary/types.js';
-import type { SummaryPlannerToolName as PlannerToolName } from '../planner-protocol/summary.js';
-import { SUMMARY_PLANNER_TOOL_NAMES } from '../planner-protocol/summary.js';
+import {
+  SUMMARY_PLANNER_TOOL_NAMES,
+  type SummaryPlannerToolName as PlannerToolName,
+} from '../planner-protocol/summary-tools.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 import {

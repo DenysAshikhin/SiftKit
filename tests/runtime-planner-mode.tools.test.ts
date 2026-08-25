@@ -8,15 +8,20 @@ import {
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../src/config/index.js';
-import {
-  summarizeRequest,
-  buildPlannerToolDefinitions,
-} from '../src/summary.js';
+import { summarizeRequest } from '../src/summary.js';
 import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
 import { executePlannerTool } from '../src/summary/planner/tools.js';
-import type { PlannerToolDefinition } from '../src/summary/types.js';
-import type { SummaryPlannerToolName as PlannerToolName } from '../src/planner-protocol/summary.js';
+import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
+import {
+  buildSummaryPlannerToolDefinitions,
+  SUMMARY_TOOL_ARGUMENT_SCHEMAS,
+  SummaryNativeToolCallSchema,
+  SummaryPlannerToolNameSchema,
+  type SummaryPlannerToolName as PlannerToolName,
+} from '../src/planner-protocol/summary-tools.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
+import { z } from '../src/lib/zod.js';
 
 const TOOL_STEP_ACTION_TEXT = JSON.stringify({
   action: 'tool',
@@ -313,7 +318,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
         idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
-          tools: buildPlannerToolDefinitions(),
+          tools: buildSummaryPlannerToolDefinitions(),
         },
       });
 
@@ -365,7 +370,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
         idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
-          tools: buildPlannerToolDefinitions(),
+          tools: buildSummaryPlannerToolDefinitions(),
         },
       });
 
@@ -694,8 +699,8 @@ test('summary above planner threshold respects runtime reasoning for planner req
   });
 });
 
-test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () => {
-  const toolDefinitions = buildPlannerToolDefinitions();
+test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas', () => {
+  const toolDefinitions = buildSummaryPlannerToolDefinitions();
   assert.equal(Array.isArray(toolDefinitions), true);
   assert.equal(toolDefinitions.length, 4);
 
@@ -901,4 +906,23 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
       },
     });
   });
+});
+
+test('every summary planner parameter schema is generated from its runtime Zod schema', () => {
+  const definitions = buildSummaryPlannerToolDefinitions();
+  for (const definition of definitions) {
+    const toolName = SummaryPlannerToolNameSchema.parse(definition.function.name);
+    const argsSchema = SUMMARY_TOOL_ARGUMENT_SCHEMAS[toolName];
+    // `$schema` is a document-root dialect key; provider `function.parameters` is a subschema.
+    const { $schema, ...expected } = z.toJSONSchema(argsSchema, { io: 'input' });
+    assert.equal(typeof $schema, 'string');
+    assert.deepEqual(definition.function.parameters, JsonObjectSchema.parse(expected), toolName);
+    assert.deepEqual(
+      SummaryNativeToolCallSchema.parse({
+        toolName,
+        args: definition.exampleArgs,
+      }),
+      { toolName, args: definition.exampleArgs },
+    );
+  }
 });

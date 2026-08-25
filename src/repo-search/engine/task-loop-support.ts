@@ -5,6 +5,7 @@ import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorde
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage, type PlannerThinkingFlags } from '../planner-protocol.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
 import { TaskCommandSchema } from '../prompts.js';
 import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
@@ -168,7 +169,7 @@ export type RunTaskLoopOptions = {
   systemPromptOverride?: string;
   historyMessages?: ChatMessage[];
   initialUserImages?: readonly string[];
-  plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
+  plannerToolDefinitions: readonly PlannerToolDefinition[];
   systemContext: PresetSystemContext;
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;

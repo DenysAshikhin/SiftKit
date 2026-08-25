@@ -46,10 +46,7 @@ function buildRepoToolPromptContextContent(
   const systemPrompt = new PresetSystemPromptComposer(
     preset.promptPrefix,
     systemContext,
-  ).compose(buildTaskSystemPrompt(
-    systemContext,
-    toolDefinitions.map(({ function: definition }) => definition.name),
-  ));
+  ).compose(buildTaskSystemPrompt(systemContext, toolDefinitions));
   return [
     formatSection('System prompt', systemPrompt),
     formatSection('Tool schema', JSON.stringify(toolDefinitions, null, 2)),

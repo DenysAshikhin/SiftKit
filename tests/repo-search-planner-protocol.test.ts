@@ -209,7 +209,8 @@ test('repo-search tool registry exposes the pi tool surface and withholds the mu
   assert.deepEqual(find?.function?.parameters?.required, ['pattern']);
 
   const ls = definitions.find((tool) => tool.function.name === 'ls');
-  assert.deepEqual(ls?.function?.parameters?.required, []);
+  // Every ls argument is optional, so the generated schema omits `required` entirely.
+  assert.equal(ls?.function?.parameters?.required, undefined);
   assert.equal(ls?.function?.parameters?.properties?.path?.type, 'string');
 
   const git = definitions.find((tool) => tool.function.name === 'git');

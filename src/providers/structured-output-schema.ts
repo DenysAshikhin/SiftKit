@@ -29,7 +29,7 @@ export function buildSummaryDecisionJsonSchema(options: { allowUnsupportedInput:
 }
 
 export function buildSummaryPlannerActionJsonSchema(options: {
-  toolDefinitions: PlannerToolDefinition[];
+  toolDefinitions: readonly PlannerToolDefinition[];
   allowUnsupportedInput: boolean;
 }): JsonSchema {
   const protocol = buildSummaryPlannerProtocol(
@@ -40,7 +40,7 @@ export function buildSummaryPlannerActionJsonSchema(options: {
 }
 
 export function buildRepoSearchPlannerActionJsonSchema(options: {
-  toolDefinitions: PlannerToolDefinition[];
+  toolDefinitions: readonly PlannerToolDefinition[];
 }): JsonSchema {
   const protocol = buildRepoSearchPlannerProtocol(options.toolDefinitions);
   return protocol.jsonSchema;

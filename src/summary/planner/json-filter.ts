@@ -1,5 +1,6 @@
 import { parseJsonValueText } from '../../lib/json.js';
 import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
+import { JsonFilterBoundOpSchema, JsonFilterEntrySchema, type JsonFilterEntry } from '../../planner-protocol/summary-tools.js';
 
 export const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
 
@@ -7,11 +8,6 @@ export function getRecord(value: OptionalJsonValue): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value
     : null;
-}
-
-export function getFiniteInteger(value: OptionalJsonValue): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
 export function getValueByPath(value: OptionalJsonValue, pathText: string): OptionalJsonValue {
@@ -71,13 +67,11 @@ export function setValueByPath(
 }
 
 export function normalizeJsonFilterFilters(
-  filters: JsonObject[]
-): JsonObject[] {
-  const normalized: JsonObject[] = [];
+  filters: readonly JsonFilterEntry[]
+): JsonFilterEntry[] {
+  const normalized: JsonFilterEntry[] = [];
 
   for (const filter of filters) {
-    const pathText = typeof filter.path === 'string' ? filter.path : '';
-    const op = typeof filter.op === 'string' ? filter.op : '';
     const wrappedValue = getRecord(filter.value);
     const normalizedValue = wrappedValue
       && Object.keys(wrappedValue).length === 1
@@ -88,23 +82,20 @@ export function normalizeJsonFilterFilters(
       : filter.value;
     const nestedBounds = getRecord(normalizedValue);
     const nestedEntries = nestedBounds
-      ? Object.entries(nestedBounds).filter((entry) => ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(entry[0]))
+      ? Object.entries(nestedBounds).filter((entry) => JsonFilterBoundOpSchema.safeParse(entry[0]).success)
       : [];
-    if (pathText && op && nestedEntries.length > 0) {
+    if (nestedEntries.length > 0) {
       for (const [nestedOp, nestedValue] of nestedEntries) {
-        normalized.push({
-          path: pathText,
+        normalized.push(JsonFilterEntrySchema.parse({
+          path: filter.path,
           op: nestedOp,
           value: nestedValue,
-        });
+        }));
       }
       continue;
     }
 
-    normalized.push({
-      ...filter,
-      value: normalizedValue,
-    });
+    normalized.push({ ...filter, value: normalizedValue });
   }
 
   return normalized;
@@ -154,11 +145,9 @@ export function compareJsonFilterOrdered(
   }
 }
 
-export function matchesJsonFilter(item: OptionalJsonValue, filter: JsonObject): boolean {
-  const pathText = typeof filter.path === 'string' ? filter.path : '';
-  const op = typeof filter.op === 'string' ? filter.op : '';
-  const expected = filter.value;
-  const actual = getValueByPath(item, pathText);
+export function matchesJsonFilter(item: OptionalJsonValue, filter: JsonFilterEntry): boolean {
+  const { op, value: expected } = filter;
+  const actual = getValueByPath(item, filter.path);
 
   switch (op) {
     case 'eq':
@@ -175,16 +164,14 @@ export function matchesJsonFilter(item: OptionalJsonValue, filter: JsonObject): 
       return compareJsonFilterOrdered(actual, expected, 'lte');
     case 'contains':
       return Array.isArray(actual)
-        ? actual.includes(expected)
+        ? actual.some((entry) => entry === expected)
         : String(actual ?? '').includes(String(expected ?? ''));
     case 'exists':
       return expected === false ? actual === undefined : actual !== undefined;
-    default:
-      throw new Error(`Unsupported json_filter op: ${op}`);
   }
 }
 
-export function projectJsonFilterItem(item: OptionalJsonValue, select: string[] | null): OptionalJsonValue {
+export function projectJsonFilterItem(item: OptionalJsonValue, select: readonly string[] | null): OptionalJsonValue {
   if (!select || select.length === 0) {
     return item;
   }

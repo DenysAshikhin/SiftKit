@@ -13,6 +13,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 /**
  * Wildly divergent from any prompt this loop can build, so a re-introduced
@@ -62,6 +63,7 @@ async function runOneTurnAgainstServer(): Promise<LoopRun> {
     const result = await runTaskLoop(
       { id: 'prompt-accounting', question: 'Finish immediately.', signals: [] },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: createManagedTempDir('siftkit-prompt-accounting-'),
         model: 'mock-model',
         baseUrl,

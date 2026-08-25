@@ -6,12 +6,14 @@ import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import {
   GitToolArgsSchema,
+  REPO_TOOL_ARGUMENT_SCHEMAS,
   RepoNativeToolCallSchema,
   RUN_OUTPUT_MODES,
   RunOutputModeSchema,
 } from '../src/repo-search/repo-tool-arguments.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 
 test('git schema accepts all supported typed read-only operations', () => {
   const cases = [
@@ -53,13 +55,26 @@ test('git schema rejects malformed and legacy arguments', () => {
   }
 });
 
-test('Git planner parameters are generated from the canonical Zod schema', () => {
-  const definition = resolveRepoSearchPlannerToolDefinitions(['git'])[0];
-  if (!definition?.function.parameters) throw new Error('Expected Git planner parameters.');
-  assert.deepEqual(
-    definition.function.parameters,
-    JsonObjectSchema.parse(z.toJSONSchema(GitToolArgsSchema, { io: 'input' })),
-  );
+test('every repo planner parameter schema is generated from its runtime Zod schema', () => {
+  const definitions = resolveRepoSearchPlannerToolDefinitions(INTERACTIVE_REPO_TOOL_NAMES);
+
+  for (const toolName of INTERACTIVE_REPO_TOOL_NAMES) {
+    const definition = definitions.find((candidate) => candidate.function.name === toolName);
+    if (!definition) {
+      throw new Error(`Missing planner definition for ${toolName}.`);
+    }
+    const argsSchema = REPO_TOOL_ARGUMENT_SCHEMAS[toolName];
+    // `$schema` is a document-root dialect key; provider `function.parameters` is a subschema,
+    // so it is dropped rather than re-sent on every tool, every turn.
+    const { $schema, ...expected } = z.toJSONSchema(argsSchema, { io: 'input' });
+    assert.equal(typeof $schema, 'string');
+    assert.deepEqual(definition.function.parameters, JsonObjectSchema.parse(expected), toolName);
+    assert.deepEqual(
+      RepoNativeToolCallSchema.parse({ toolName, args: definition.exampleArgs }),
+      { toolName, args: definition.exampleArgs },
+      toolName,
+    );
+  }
 });
 
 test('canonical schema accepts and normalizes every native repo-tool call', () => {

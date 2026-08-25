@@ -12,6 +12,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
 const REPO_SEARCH_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
@@ -147,6 +148,7 @@ test('tool token totals sum command output tokens', async () => {
   const result = await runTaskLoop(
     { id: 'repo-search', question: 'Find x.', signals: [] },
     {
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       runtimeProfile: REPO_SEARCH_RUNTIME_PROFILE,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -502,7 +504,7 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
     taskKind: 'chat',
     config: MOCK_CONFIG,
     baseUrl: DEAD_BASE_URL,
-    allowedTools: [],
+    plannerToolDefinitions: [],
     allowEmptyTools: true,
     minToolCallsBeforeFinish: 0,
     taskPrompt: 'Say hi.',
@@ -523,7 +525,7 @@ test('runRepoSearch rejects an undefined task prompt instead of executing self-t
       taskKind: 'chat',
       config: MOCK_CONFIG,
       baseUrl: DEAD_BASE_URL,
-      allowedTools: [],
+      plannerToolDefinitions: [],
       allowEmptyTools: true,
       minToolCallsBeforeFinish: 0,
       taskPrompt: undefined,

@@ -9,7 +9,7 @@ export {
   getPlannerPromptBudget,
   planTokenAwareLlamaCppChunks,
 } from './summary/chunking.js';
-export { buildPlannerToolDefinitions } from './summary/planner/tools.js';
+export { buildSummaryPlannerToolDefinitions } from './planner-protocol/summary-tools.js';
 export {
   readSummaryInput,
   summarizeRequest,

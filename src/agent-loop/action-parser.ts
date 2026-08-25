@@ -1,6 +1,6 @@
 import { ModelJson } from '../lib/model-json.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../repo-search/planner-protocol.js';
-import { buildPlannerToolDefinitions } from '../summary/planner/tools.js';
+import type { SummaryPlannerParseOptions } from '../planner-protocol/summary.js';
 import type { AgentLoopAction } from './types.js';
 
 export class AgentLoopActionParser {
@@ -47,14 +47,12 @@ export class AgentLoopActionParser {
     ];
   }
 
-  parseSummaryPlannerAction(text: string): AgentLoopAction {
-    return this.parseSummaryPlannerActions(text)[0];
+  parseSummaryPlannerAction(text: string, options: SummaryPlannerParseOptions): AgentLoopAction {
+    return this.parseSummaryPlannerActions(text, options)[0];
   }
 
-  parseSummaryPlannerActions(text: string): AgentLoopAction[] {
-    const parsed = ModelJson.parseSummaryPlannerAction(text, {
-      toolDefinitions: buildPlannerToolDefinitions(),
-    });
+  parseSummaryPlannerActions(text: string, options: SummaryPlannerParseOptions): AgentLoopAction[] {
+    const parsed = ModelJson.parseSummaryPlannerAction(text, options);
     if (parsed.action === 'finish') {
       return [
         {

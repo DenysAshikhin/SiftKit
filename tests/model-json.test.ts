@@ -8,13 +8,12 @@ import {
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
 } from '../src/repo-search/planner-protocol.js';
-import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 
-const SUMMARY_TOOL_DEFINITIONS = buildPlannerToolDefinitions();
-
-function parseSummaryPlannerAction(text: string) {
+function parseSummaryPlannerAction(text: string, allowUnsupportedInput = false) {
   return ModelJson.parseSummaryPlannerAction(text, {
-    toolDefinitions: SUMMARY_TOOL_DEFINITIONS,
+    toolDefinitions: buildSummaryPlannerToolDefinitions(),
+    allowUnsupportedInput,
   });
 }
 
@@ -235,41 +234,44 @@ test('ModelJson parses direct summary planner tool actions', () => {
   });
 });
 
-test('ModelJson preserves explicit nulls inside canonical summary args', () => {
-  const action = parseSummaryPlannerAction(
-    plannerToolJson('find_text', {
-      query: 'needle',
-      mode: 'literal',
-      maxHits: null,
-      contextLines: null,
-    }),
-  );
-  assert.deepEqual(action, {
-    action: 'tool',
-    toolName: 'find_text',
-    args: { query: 'needle', mode: 'literal', maxHits: null, contextLines: null },
-  });
+test('ModelJson rejects null summary args for schema-typed optional fields', () => {
+  const nullArgCases: JsonObject[] = [
+    { query: 'needle', mode: 'literal', maxHits: null },
+    { query: 'needle', mode: 'literal', contextLines: null },
+  ];
+  for (const args of nullArgCases) {
+    assert.throws(
+      () => parseSummaryPlannerAction(plannerToolJson('find_text', args)),
+      /invalid planner tool action/u,
+      JSON.stringify(args),
+    );
+  }
 });
 
-test('ModelJson preserves nested and top-level null data inside canonical summary args', () => {
+test('ModelJson preserves nested null filter data but rejects null typed summary args', () => {
   const action = parseSummaryPlannerAction(
     plannerToolJson('json_filter', {
-      collectionPath: null,
       filters: [{ path: 'deletedAt', op: 'eq', value: null }],
-      select: null,
-      limit: null,
     }),
   );
   assert.deepEqual(action, {
     action: 'tool',
     toolName: 'json_filter',
-    args: {
-      collectionPath: null,
-      filters: [{ path: 'deletedAt', op: 'eq', value: null }],
-      select: null,
-      limit: null,
-    },
+    args: { filters: [{ path: 'deletedAt', op: 'eq', value: null }] },
   });
+
+  for (const nulledField of ['collectionPath', 'select', 'limit']) {
+    assert.throws(
+      () => parseSummaryPlannerAction(
+        plannerToolJson('json_filter', {
+          filters: [{ path: 'deletedAt', op: 'eq', value: null }],
+          [nulledField]: null,
+        }),
+      ),
+      /invalid planner tool action/u,
+      nulledField,
+    );
+  }
 });
 
 test('ModelJson rejects tool-argument repairs that synthesize missing values', () => {
@@ -288,28 +290,29 @@ test('ModelJson rejects planner repairs that synthesize missing values', () => {
 });
 
 test('ModelJson permits safe planner repair within canonical args', () => {
-  const action = parseSummaryPlannerAction("{'action':'tool','toolName':'find_text','args':{'query':'needle','mode':'literal','maxHits':null,}}");
+  const action = parseSummaryPlannerAction("{'action':'tool','toolName':'find_text','args':{'query':'needle','mode':'literal','maxHits':5,}}");
 
   assert.deepEqual(action, {
     action: 'tool',
     toolName: 'find_text',
-    args: { query: 'needle', mode: 'literal', maxHits: null },
+    args: { query: 'needle', mode: 'literal', maxHits: 5 },
   });
 });
 
-test('ModelJson preserves top-level nulls that are not schema-declared omission fields', () => {
-  const action = parseSummaryPlannerAction(
-    plannerToolJson('json_filter', {
-      filters: null,
-      undeclared: null,
-    }),
+test('ModelJson rejects null required and undeclared summary args', () => {
+  assert.throws(
+    () => parseSummaryPlannerAction(plannerToolJson('json_filter', { filters: null })),
+    /invalid planner tool action/u,
   );
-
-  assert.deepEqual(action, {
-    action: 'tool',
-    toolName: 'json_filter',
-    args: { filters: null, undeclared: null },
-  });
+  assert.throws(
+    () => parseSummaryPlannerAction(
+      plannerToolJson('json_filter', {
+        filters: [{ path: 'status', op: 'eq', value: 'failed' }],
+        undeclared: null,
+      }),
+    ),
+    /invalid planner tool action/u,
+  );
 });
 
 test('ModelJson rejects wrapped summary planner tool actions', () => {

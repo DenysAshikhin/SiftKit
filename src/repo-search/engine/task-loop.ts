@@ -30,7 +30,6 @@ import {
   getRepoSearchToolNamesForParsing,
   requestApprovalVerdict as requestApprovalVerdictRequest,
   requestRepoSearchPlannerProtocolAction,
-  resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
   toProtocolChatMessages,
   type ExecutingPlannerRequest,
@@ -38,6 +37,7 @@ import {
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import type {
   RepoSearchFinishAction,
   RepoSearchToolAction,
@@ -150,7 +150,7 @@ export class TaskLoop {
   private readonly loopKind: RepoSearchLoopKind;
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerBudgetMessageOverride: string | null;
-  private readonly plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
+  private readonly plannerToolDefinitions: readonly PlannerToolDefinition[];
   private readonly allowedPlannerToolNames: string[];
   private readonly chatWebGroundingEnabled: boolean;
   private readonly chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -235,9 +235,7 @@ export class TaskLoop {
           + 'the planner action budget message cannot apply, so the model may still read it as "finish now".',
       });
     }
-    this.plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
-      ? options.plannerToolDefinitions
-      : resolveRepoSearchPlannerToolDefinitions();
+    this.plannerToolDefinitions = options.plannerToolDefinitions;
     const activePlannerToolNames = this.plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
     this.allowedPlannerToolNames = this.loopKind === 'chat'
       ? activePlannerToolNames
@@ -257,7 +255,7 @@ export class TaskLoop {
 
     const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
       ? options.systemPromptOverride.trim()
-      : buildTaskSystemPrompt(options.systemContext, activePlannerToolNames);
+      : buildTaskSystemPrompt(options.systemContext, this.plannerToolDefinitions);
     const systemPromptContent = this.chatWebGroundingEnabled
       ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
       : baseSystemPrompt;

@@ -1,5 +1,6 @@
-import { MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
+import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
 import { z } from '../lib/zod.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 
 const PATH_CONTROL_ESCAPES = /[\t\n\r\b\f]/gu;
 const COMMAND_PATH_CONTROL_ESCAPES = /(?<=\S)[\t\r\b\f](?=\S)/gu;
@@ -35,52 +36,58 @@ export const RUN_OUTPUT_MODES = ['auto', 'full'] as const;
 export const RunOutputModeSchema = z.enum(RUN_OUTPUT_MODES);
 export type RunOutputMode = z.infer<typeof RunOutputModeSchema>;
 
-const ReadToolArgsSchema = z.object({
-  path: PathSchema,
-  offset: PositiveIntegerSchema.optional(),
-  limit: PositiveIntegerSchema.optional(),
+export const ReadToolArgsSchema = z.object({
+  path: PathSchema.describe('Path to the file to read, relative to the repository root'),
+  offset: PositiveIntegerSchema.describe('Line number to start reading from (1-indexed)').optional(),
+  limit: PositiveIntegerSchema.describe('Maximum number of lines to read').optional(),
 }).strict();
 
-const GrepToolArgsSchema = z.object({
-  pattern: RequiredTrimmedTextSchema,
-  path: PathSchema.optional(),
-  glob: RequiredTrimmedTextSchema.optional(),
-  ignoreCase: z.boolean().optional(),
-  literal: z.boolean().optional(),
-  context: z.number().int().nonnegative().optional(),
-  limit: PositiveIntegerSchema.optional(),
+export const GrepToolArgsSchema = z.object({
+  pattern: RequiredTrimmedTextSchema.describe('Search pattern (regex, or literal string when literal=true)'),
+  path: PathSchema.describe('Directory or file to search (default: repository root)').optional(),
+  glob: RequiredTrimmedTextSchema.describe("Filter files by glob pattern, e.g. '*.ts' or 'src/**/*.test.ts'").optional(),
+  ignoreCase: z.boolean().describe('Case-insensitive search (default: true)').optional(),
+  literal: z.boolean().describe('Treat pattern as a literal string instead of a regex (default: false)').optional(),
+  context: z.number().int().nonnegative().describe('Number of lines to show before and after each match (default: 0)').optional(),
+  limit: PositiveIntegerSchema.describe('Maximum number of matches to return (default: 100)').optional(),
 }).strict();
 
-const FindToolArgsSchema = z.object({
-  pattern: RequiredTrimmedTextSchema,
-  path: PathSchema.optional(),
-  limit: PositiveIntegerSchema.optional(),
+export const FindToolArgsSchema = z.object({
+  pattern: RequiredTrimmedTextSchema.describe("Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.test.ts'"),
+  path: PathSchema.describe('Directory to search in (default: repository root)').optional(),
+  limit: PositiveIntegerSchema.describe('Maximum number of results (default: 1000)').optional(),
 }).strict();
 
-const LsToolArgsSchema = z.object({
-  path: PathSchema.optional(),
-  limit: PositiveIntegerSchema.optional(),
+export const LsToolArgsSchema = z.object({
+  path: PathSchema.describe('Directory to list (default: repository root)').optional(),
+  limit: PositiveIntegerSchema.describe('Maximum number of entries to return (default: 500)').optional(),
 }).strict();
 
-const WriteToolArgsSchema = z.object({
-  path: PathSchema,
-  content: VerbatimNonEmptyTextSchema,
+export const WriteToolArgsSchema = z.object({
+  path: PathSchema.describe('Path to the file to write, relative to the repository root'),
+  content: VerbatimNonEmptyTextSchema.describe('Content to write to the file'),
 }).strict();
 
 const EditReplacementSchema = z.object({
-  oldText: VerbatimNonEmptyTextSchema,
-  newText: z.string(),
+  oldText: VerbatimNonEmptyTextSchema.describe('Exact text for one targeted replacement. Must be unique in the original file and must not overlap any other edits[].oldText in the same call.'),
+  newText: z.string().describe('Replacement text for this targeted edit.'),
 }).strict();
 
-const EditToolArgsSchema = z.object({
-  path: PathSchema,
-  edits: z.array(EditReplacementSchema).min(1),
+export const EditToolArgsSchema = z.object({
+  path: PathSchema.describe('Path to the file to edit, relative to the repository root'),
+  edits: z.array(EditReplacementSchema)
+    .min(1)
+    .describe('One or more targeted replacements. Each edit is matched against the original file, not incrementally.'),
 }).strict();
 
-const RunToolArgsSchema = z.object({
-  command: CommandSchema,
-  timeoutMs: PositiveIntegerSchema.max(MAX_RUN_TIMEOUT_MS).optional(),
-  outputMode: RunOutputModeSchema.optional(),
+export const RunToolArgsSchema = z.object({
+  command: CommandSchema.describe('Command to execute'),
+  timeoutMs: PositiveIntegerSchema.max(MAX_RUN_TIMEOUT_MS)
+    .describe(`Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS})`)
+    .optional(),
+  outputMode: RunOutputModeSchema
+    .describe(`Output shaping. auto (default) keeps a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`)
+    .optional(),
 }).strict();
 
 export const GitToolArgsSchema = z.discriminatedUnion('operation', [
@@ -130,14 +137,29 @@ export const GitToolArgsSchema = z.discriminatedUnion('operation', [
   }).strict(),
 ]);
 
-const WebSearchToolArgsSchema = z.object({
+export const WebSearchToolArgsSchema = z.object({
   query: RequiredTrimmedTextSchema,
   timeFilter: z.enum(['day', 'week', 'month', 'year']).optional(),
 }).strict();
 
-const WebFetchToolArgsSchema = z.object({
+export const WebFetchToolArgsSchema = z.object({
   url: RequiredTrimmedTextSchema,
 }).strict();
+
+export const REPO_TOOL_ARGUMENT_SCHEMAS = {
+  read: ReadToolArgsSchema,
+  grep: GrepToolArgsSchema,
+  find: FindToolArgsSchema,
+  ls: LsToolArgsSchema,
+  write: WriteToolArgsSchema,
+  edit: EditToolArgsSchema,
+  run: RunToolArgsSchema,
+  git: GitToolArgsSchema,
+  web_search: WebSearchToolArgsSchema,
+  web_fetch: WebFetchToolArgsSchema,
+} as const;
+
+export type RepoToolName = keyof typeof REPO_TOOL_ARGUMENT_SCHEMAS;
 
 export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
   z.object({ toolName: z.literal('read'), args: ReadToolArgsSchema }).strict(),

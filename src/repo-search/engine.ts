@@ -5,7 +5,6 @@ import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
-  getActiveModelPreset,
   loadConfig,
   type SiftConfig,
 } from '../config/index.js';
@@ -31,10 +30,8 @@ import {
   type TaskDefinition,
   type TaskResult,
 } from './engine/task-loop.js';
-import {
-  resolveRepoSearchPlannerToolDefinitions,
-  type ChatMessage,
-} from './planner-protocol.js';
+import type { ChatMessage } from './planner-protocol.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type {
   JsonLogger,
   RetainedWebToolCall,
@@ -140,7 +137,7 @@ export async function runRepoSearch(options: {
   config?: SiftConfig;
   model?: string;
   baseUrl?: string;
-  allowedTools?: string[];
+  plannerToolDefinitions: readonly PlannerToolDefinition[];
   maxTurns?: number;
   timeoutMs?: number;
   maxInvalidResponses?: number;
@@ -181,11 +178,7 @@ export async function runRepoSearch(options: {
     options.model,
   );
   configSpan?.end();
-  const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
-    options.allowedTools,
-    getActiveModelPreset(config).VisionEnabled === true,
-  );
-  if (plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
+  if (options.plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
   }
   const model = getConfiguredModel(config);
@@ -228,7 +221,7 @@ export async function runRepoSearch(options: {
       systemPromptOverride: options.systemPromptOverride,
       historyMessages: options.historyMessages,
       thinkingEnabledOverride: options.thinkingEnabledOverride,
-      plannerToolDefinitions,
+      plannerToolDefinitions: options.plannerToolDefinitions,
       systemContext: options.systemContext,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,

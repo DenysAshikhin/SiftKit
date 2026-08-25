@@ -18,7 +18,7 @@ import {
 } from '../src/summary/planner/prompts.js';
 import type { PresetSystemContext } from '../src/preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { longestCommonPrefixLength } from './helpers/common-prefix.js';
 
 const PRESET = 'PRESET_INSTRUCTIONS';
@@ -125,7 +125,7 @@ test('summary planner prompt exposes no progress action or policy', () => {
     systemContext: SYSTEM_CONTEXT,
     sourceKind: 'standalone',
     rawReviewRequired: false,
-    toolDefinitions: buildPlannerToolDefinitions(),
+    toolDefinitions: buildSummaryPlannerToolDefinitions(),
   });
 
   assert.doesNotMatch(prompt, /"progress"|Progress is optional|meaningful phase change/u);
@@ -266,7 +266,7 @@ test('every volatile planner prompt input leaves the system context inside the s
     systemContext: REPO_CONTEXT,
     sourceKind: 'standalone',
     rawReviewRequired: false,
-    toolDefinitions: buildPlannerToolDefinitions(),
+    toolDefinitions: buildSummaryPlannerToolDefinitions(),
   } satisfies PlannerPromptOptions;
 
   const variants: readonly { label: string; options: PlannerPromptOptions }[] = [
@@ -274,7 +274,7 @@ test('every volatile planner prompt input leaves the system context inside the s
     { label: 'exit code 0', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 0 } },
     { label: 'exit code 1', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 1 } },
     { label: 'raw review required', options: { ...baseOptions, rawReviewRequired: true } },
-    { label: 'reduced tools', options: { ...baseOptions, toolDefinitions: buildPlannerToolDefinitions(['find_text', 'read_lines']) } },
+    { label: 'reduced tools', options: { ...baseOptions, toolDefinitions: buildSummaryPlannerToolDefinitions(['find_text', 'read_lines']) } },
     { label: 'additional prefix', options: { ...baseOptions, additionalPromptPrefix: ADDITIONAL } },
   ];
 

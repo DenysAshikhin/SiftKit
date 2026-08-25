@@ -18,7 +18,7 @@ import {
 } from '../src/providers/structured-output-schema.js';
 import { buildPlannerToolActionExample } from '../src/planner-protocol/json-schema.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 
 function collectPropertyConstants(value: JsonValue, propertyName: string): string[] {
   if (Array.isArray(value)) {
@@ -59,13 +59,13 @@ test('canonical repo and summary tool envelopes accept only nested camelCase fie
   assert.deepEqual(parseRepoSearchPlannerAction(REPO_DIRECT_ACTION, repoTools), REPO_DIRECT_ACTION);
   assert.deepEqual(parseRepoSearchPlannerAction(REPO_BATCH_ACTION, repoTools), REPO_BATCH_ACTION);
 
-  const summaryTools = buildPlannerToolDefinitions(['json_filter']);
+  const summaryTools = buildSummaryPlannerToolDefinitions(['json_filter']);
   const summaryAction: JsonObject = {
     action: 'tool',
     toolName: 'json_filter',
     args: { filters: [{ path: 'status', op: 'eq', value: 'failed' }] },
   };
-  assert.deepEqual(parseSummaryPlannerAction(summaryAction, summaryTools), summaryAction);
+  assert.deepEqual(parseSummaryPlannerAction(summaryAction, { toolDefinitions: summaryTools, allowUnsupportedInput: false }), summaryAction);
 
   const obsoleteShapes: JsonObject[] = [
     { action: 'git', operation: 'status' },
@@ -111,9 +111,9 @@ test('protocol instructions omit tool and batch actions when no tools are availa
 });
 
 test('summary planner exposes one canonical action set without progress', () => {
-  const protocol = buildSummaryPlannerProtocol(buildPlannerToolDefinitions(), false);
+  const protocol = buildSummaryPlannerProtocol(buildSummaryPlannerToolDefinitions(), false);
   const schema = buildSummaryPlannerActionJsonSchema({
-    toolDefinitions: buildPlannerToolDefinitions(),
+    toolDefinitions: buildSummaryPlannerToolDefinitions(),
     allowUnsupportedInput: false,
   });
 
@@ -143,7 +143,7 @@ test('every repo and summary tool exposes one validated canonical example', () =
     'web_search',
     'web_fetch',
   ]);
-  const summaryTools = buildPlannerToolDefinitions();
+  const summaryTools = buildSummaryPlannerToolDefinitions();
 
   assert.deepEqual(repoTools.map((tool) => tool.function.name), [
     'read',
@@ -174,8 +174,88 @@ test('every repo and summary tool exposes one validated canonical example', () =
   for (const tool of summaryTools) {
     const exampleText = buildPlannerToolActionExample(tool);
     assert.deepEqual(
-      parseSummaryPlannerAction(JsonObjectSchema.parse(JSON.parse(exampleText)), summaryTools),
+      parseSummaryPlannerAction(JsonObjectSchema.parse(JSON.parse(exampleText)), {
+        toolDefinitions: summaryTools,
+        allowUnsupportedInput: false,
+      }),
       { action: 'tool', toolName: tool.function.name, args: tool.exampleArgs },
     );
   }
+});
+
+test('repo and summary protocols render the same canonical tool and batch grammar', () => {
+  const repo = buildRepoSearchPlannerProtocol(resolveRepoSearchPlannerToolDefinitions(['read', 'git']));
+  const summary = buildSummaryPlannerProtocol(buildSummaryPlannerToolDefinitions(['find_text', 'read_lines']), false);
+  const expected = [
+    { protocol: repo, toolNames: ['read', 'git'] },
+    { protocol: summary, toolNames: ['find_text', 'read_lines'] },
+  ];
+
+  for (const { protocol, toolNames } of expected) {
+    const instructions = protocol.actionInstructions;
+    assert.equal(
+      instructions.split('\n')[0],
+      `Tool: {"action":"tool","toolName":"<tool>","args":{...}}. Allowed tools: ${toolNames.join(', ')}.`,
+    );
+    assert.match(instructions, /Allowed tools: [^.]+\./u);
+    assert.match(instructions, /"action":"tool_batch"/u);
+    assert.equal(instructions.match(/Batch independent tool calls/gu)?.length, 1);
+  }
+});
+
+test('summary planner validates nested arguments at the protocol boundary', () => {
+  const tools = buildSummaryPlannerToolDefinitions();
+  const invalidActions: JsonObject[] = [
+    { action: 'tool', toolName: 'find_text', args: { query: 'x' } },
+    { action: 'tool', toolName: 'read_lines', args: { startLine: 0, endLine: 1 } },
+    { action: 'tool', toolName: 'json_filter', args: { filters: [] } },
+    { action: 'tool', toolName: 'json_get', args: { path: '   ' } },
+    { action: 'tool', toolName: 'json_get', args: { path: 'x', extra: true } },
+  ];
+
+  for (const action of invalidActions) {
+    assert.throws(
+      () => parseSummaryPlannerAction(action, { toolDefinitions: tools, allowUnsupportedInput: false }),
+      /invalid planner tool action|invalid.*args/u,
+    );
+  }
+});
+
+test('summary finish parsing uses the same unsupported-input policy as its provider schema', () => {
+  const toolDefinitions = buildSummaryPlannerToolDefinitions();
+  const unsupported: JsonObject = {
+    action: 'finish',
+    classification: 'unsupported_input',
+    raw_review_required: true,
+    output: 'unsupported',
+  };
+
+  assert.throws(
+    () => parseSummaryPlannerAction(unsupported, {
+      toolDefinitions,
+      allowUnsupportedInput: false,
+    }),
+    /invalid planner finish action/u,
+  );
+  assert.deepEqual(
+    parseSummaryPlannerAction(unsupported, {
+      toolDefinitions,
+      allowUnsupportedInput: true,
+    }),
+    {
+      action: 'finish',
+      classification: 'unsupported_input',
+      rawReviewRequired: true,
+      output: 'unsupported',
+    },
+  );
+});
+
+test('planner action schemas never embed the $schema dialect key', () => {
+  const repo = buildRepoSearchPlannerProtocol(resolveRepoSearchPlannerToolDefinitions(['grep', 'read']));
+  const summary = buildSummaryPlannerProtocol(buildSummaryPlannerToolDefinitions(), true);
+
+  assert.doesNotMatch(JSON.stringify(repo.jsonSchema), /"\$schema"/u);
+  assert.doesNotMatch(JSON.stringify(summary.jsonSchema), /"\$schema"/u);
+  assert.doesNotMatch(JSON.stringify(summary.finishJsonSchema), /"\$schema"/u);
 });

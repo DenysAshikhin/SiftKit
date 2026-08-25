@@ -152,15 +152,25 @@ test('repo-agent runtime behavior flows through one profile', () => {
 });
 
 test('run planner metadata references canonical runtime exports', () => {
+  // Run-tool provider metadata is generated from the canonical Zod argument schema, so the
+  // runtime constants must be referenced there, and the planner registry must hold no
+  // hand-written parameter schema.
+  const toolArguments = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'repo-tool-arguments.ts'),
+    'utf8',
+  );
   const planner = fs.readFileSync(
     path.join(process.cwd(), 'src', 'repo-search', 'planner-protocol.ts'),
     'utf8',
   );
 
-  assert.match(planner, /RUN_OUTPUT_MODES/u);
-  assert.match(planner, /REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT/u);
-  assert.doesNotMatch(planner, /enum:\s*\['auto',\s*'full'\]/u);
-  assert.doesNotMatch(planner, /final 50 lines/u);
+  assert.match(toolArguments, /RUN_OUTPUT_MODES/u);
+  assert.match(toolArguments, /REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT/u);
+  for (const source of [toolArguments, planner]) {
+    assert.doesNotMatch(source, /enum:\s*\['auto',\s*'full'\]/u);
+    assert.doesNotMatch(source, /final 50 lines/u);
+  }
+  assert.doesNotMatch(planner, /parameters:\s*\{/u);
 });
 
 test('production repo-search and summary planner use AgentLoop model-client path', () => {

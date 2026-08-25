@@ -8,7 +8,7 @@ import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
-import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type { IgnorePolicy } from './command-safety.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
@@ -228,13 +228,10 @@ function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: re
 const COMPLETION_REVIEW_INSTRUCTION =
   'Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
 
-function buildActionInstructions(toolNames: readonly string[]): string {
-  return buildRepoSearchActionInstructions(resolveRepoSearchPlannerToolDefinitions(toolNames));
-}
-
 function buildRestrictedToolSystemPrompt(options: {
   role: 'repo-search planner' | 'repository coding agent';
   context: PresetSystemContext;
+  toolDefinitions: readonly PlannerToolDefinition[];
   toolNames: readonly string[];
 }): string {
   const toolStatus = options.toolNames.length > 0
@@ -242,7 +239,7 @@ function buildRestrictedToolSystemPrompt(options: {
     : 'No repository tools are available for this request; answer only from the supplied context.';
   return [
     `You are a ${options.role}. Return ONE valid JSON object — no markdown fences.`,
-    buildActionInstructions(options.toolNames),
+    buildRepoSearchActionInstructions(options.toolDefinitions),
     '',
     toolStatus,
     options.context.hasRepoFileListing
@@ -253,16 +250,20 @@ function buildRestrictedToolSystemPrompt(options: {
   ].join('\n');
 }
 
-export function buildTaskSystemPrompt(context: PresetSystemContext, toolNames: readonly string[]): string {
+export function buildTaskSystemPrompt(
+  context: PresetSystemContext,
+  toolDefinitions: readonly PlannerToolDefinition[],
+): string {
+  const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   if (!hasExactToolSurface(toolNames, EXPOSED_REPO_TOOL_NAMES)) {
-    return buildRestrictedToolSystemPrompt({ role: 'repo-search planner', context, toolNames });
+    return buildRestrictedToolSystemPrompt({ role: 'repo-search planner', context, toolDefinitions, toolNames });
   }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — derive targeted grep searches from the task wording.'
     : '- A repository file listing is provided in this system message; use it to decide where to look.';
   return [
     'You are a repo-search planner. Return ONE valid JSON object — no markdown fences.',
-    buildActionInstructions(toolNames),
+    buildRepoSearchActionInstructions(toolDefinitions),
     '',
     'Role: repository search agent. Answer the task using concrete repo evidence from tool calls.',
     '',
@@ -308,9 +309,13 @@ export function buildTaskSystemPrompt(context: PresetSystemContext, toolNames: r
   ].join('\n');
 }
 
-export function buildAgentSystemPrompt(context: PresetSystemContext, toolNames: readonly string[]): string {
+export function buildAgentSystemPrompt(
+  context: PresetSystemContext,
+  toolDefinitions: readonly PlannerToolDefinition[],
+): string {
+  const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   if (!hasExactToolSurface(toolNames, INTERACTIVE_REPO_TOOL_NAMES)) {
-    return buildRestrictedToolSystemPrompt({ role: 'repository coding agent', context, toolNames });
+    return buildRestrictedToolSystemPrompt({ role: 'repository coding agent', context, toolDefinitions, toolNames });
   }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
@@ -320,7 +325,7 @@ export function buildAgentSystemPrompt(context: PresetSystemContext, toolNames: 
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
     '',
     'Return ONE valid JSON object per turn — no markdown fences.',
-    buildActionInstructions(toolNames),
+    buildRepoSearchActionInstructions(toolDefinitions),
     '',
     'Available tools:',
     '- read: read a file (line-numbered; use offset/limit for large files).',

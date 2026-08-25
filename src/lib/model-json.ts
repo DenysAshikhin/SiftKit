@@ -8,6 +8,7 @@ import {
   parseSummaryPlannerAction,
   SummaryClassificationSchema,
   type SummaryPlannerAction,
+  type SummaryPlannerParseOptions,
 } from '../planner-protocol/summary.js';
 import type {
   FinishValidationResult,
@@ -26,7 +27,7 @@ import {
 } from './json-types.js';
 import { stripCodeFence } from './text-format.js';
 
-type PlannerParserOptions = {
+type RepoPlannerParserOptions = {
   toolDefinitions: readonly PlannerToolDefinition[];
 };
 
@@ -256,12 +257,12 @@ export class ModelJson {
     return this.validateSummaryDecision(parsed);
   }
 
-  static parseSummaryPlannerAction(text: string, options: PlannerParserOptions): SummaryPlannerAction {
+  static parseSummaryPlannerAction(text: string, options: SummaryPlannerParseOptions): SummaryPlannerAction {
     const parsed = this.parsePlannerObject(text);
-    return parseSummaryPlannerAction(parsed, options.toolDefinitions);
+    return parseSummaryPlannerAction(parsed, options);
   }
 
-  static parseRepoSearchPlannerAction(text: string, options: PlannerParserOptions): RepoSearchPlannerAction {
+  static parseRepoSearchPlannerAction(text: string, options: RepoPlannerParserOptions): RepoSearchPlannerAction {
     const parsed = this.parsePlannerObject(text);
     return parseRepoSearchPlannerAction(parsed, options.toolDefinitions);
   }

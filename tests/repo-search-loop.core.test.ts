@@ -27,6 +27,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -88,6 +89,7 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const scorecard = await runRepoSearch({
+                                          plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',
@@ -134,7 +136,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
     model: 'Qwen3.5-9B-Q8_0.gguf',
     baseUrl: 'http://127.0.0.1:8097',
     availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
-    allowedTools: ['web_search'],
+    plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['web_search']),
     maxTurns: 2,
     taskPrompt: 'find latest siftkit info',
     mockResponses: [
@@ -174,6 +176,7 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
       signals: ['BridgeClient'],
     },
     {
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
       repoRoot,
       systemContext: createEmptyPresetSystemContext(),
@@ -425,6 +428,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
@@ -1015,6 +1019,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
@@ -1141,6 +1146,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
@@ -1266,6 +1272,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
@@ -1343,6 +1350,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
@@ -1418,6 +1426,7 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
         signals: [],
       },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),

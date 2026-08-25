@@ -29,14 +29,13 @@ import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { buildConservativeDirectFallbackDecision, normalizeStructuredDecision } from '../structured.js';
 import {
-  buildPlannerToolDefinitions,
   executePlannerTool,
   formatPlannerResult,
   formatPlannerToolResultHeader,
-  getPlannerToolName,
   type PlannerToolResult,
 } from './tools.js';
 import { createPlannerDebugRecorder, traceSummary } from '../artifacts.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import {
   buildPlannerForcedFinishUserPrompt,
   buildPlannerInputSection,
@@ -56,17 +55,22 @@ import {
   SummaryPlannerToolAdapter,
   type SummaryPlannerLoopController,
 } from './agent-loop-adapter.js';
-import type {
-  StructuredModelDecision,
-  SummaryProviderId,
-  SummarySourceKind,
+import {
+  allowsUnsupportedInput,
+  type StructuredModelDecision,
+  type SummaryProviderId,
+  type SummarySourceKind,
 } from '../types.js';
-import type {
-  SummaryClassification,
-  SummaryPlannerAction as PlannerAction,
-  SummaryPlannerToolName as PlannerToolName,
+import {
+  SummaryPlannerToolCallSchema,
+  type SummaryClassification,
+  type SummaryPlannerAction as PlannerAction,
 } from '../../planner-protocol/summary.js';
-import { DEFAULT_SUMMARY_PLANNER_TOOL_NAMES } from '../../planner-protocol/summary.js';
+import {
+  buildSummaryPlannerToolDefinitions,
+  DEFAULT_SUMMARY_PLANNER_TOOL_NAMES,
+  type SummaryPlannerToolName as PlannerToolName,
+} from '../../planner-protocol/summary-tools.js';
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
@@ -102,18 +106,15 @@ function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): C
   };
 }
 
-function tryParseSummaryDecision(providerText: string): StructuredModelDecision | null {
-  try {
-    return ModelJson.parseSummaryDecision(providerText);
-  } catch {
-    return null;
-  }
-}
-
-function buildPlannerInvalidToolAction(providerText: string, toolDefinitions: readonly PlannerToolDefinition[]): ToolTranscriptAction {
+function buildPlannerInvalidToolAction(
+  providerText: string,
+  toolDefinitions: readonly PlannerToolDefinition[],
+  allowUnsupportedInput: boolean,
+): ToolTranscriptAction {
   try {
     const recoveredAction = ModelJson.parseSummaryPlannerAction(providerText, {
       toolDefinitions,
+      allowUnsupportedInput,
     });
     if (recoveredAction.action === 'tool') {
       return recoveredAction;
@@ -169,7 +170,6 @@ export type InvokePlannerModeOptions = {
 };
 
 type PlannerPromptBudget = ReturnType<typeof getPlannerPromptBudget>;
-type PlannerToolDefinition = ReturnType<typeof buildPlannerToolDefinitions>[number];
 type SummaryPlannerDebugRecorder = ReturnType<typeof createPlannerDebugRecorder>;
 type SummaryPlannerToolResultRecord = {
   toolName: PlannerToolName;
@@ -364,6 +364,10 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
   private get toolDefinitions(): PlannerToolDefinition[] {
     return this.requestContext.toolDefinitions;
+  }
+
+  private get allowUnsupportedInput(): boolean {
+    return allowsUnsupportedInput(this.options.sourceKind);
   }
   private get debugRecorder(): SummaryPlannerDebugRecorder {
     return this.requestContext.debugRecorder;
@@ -685,31 +689,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   async handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult> {
     const providerResponse = getSummaryPlannerModelData(context).providerResponse;
-    const recoveredDecision = this.toolResults.length === 0 ? tryParseSummaryDecision(providerResponse.text) : null;
-    if (recoveredDecision) {
-      const decision = normalizeStructuredDecision(recoveredDecision, this.options.format);
-      this.debugRecorder.finish({
-        status: 'completed',
-        command: this.options.debugCommand ?? null,
-        finalOutput: decision.output,
-        classification: decision.classification,
-        rawReviewRequired: decision.rawReviewRequired,
-      });
-      this.completionState.complete(decision);
-      await this.notifyIteration({
-        providerResponse,
-        countOutputTokens: false,
-        countToolTokens: false,
-        toolStatsPayload: null,
-      });
-      return { outcome: 'stop' };
-    }
     this.transcriptState.invalidActionCount += 1;
     const invalidResponseError = getErrorMessage(context.error);
     const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
     appendToolCallExchange(
       this.messages,
-      buildPlannerInvalidToolAction(providerResponse.text, this.toolDefinitions),
+      buildPlannerInvalidToolAction(providerResponse.text, this.toolDefinitions, this.allowUnsupportedInput),
       `invalid_call_${this.transcriptState.invalidActionCount}`,
       invalidToolResultText,
       providerResponse.reasoningText || '',
@@ -744,7 +729,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
     const providerResponse = getSummaryPlannerModelData(context).providerResponse;
-    if (action.classification === 'unsupported_input' && this.options.sourceKind === 'command-output') {
+    if (action.classification === 'unsupported_input' && !this.allowUnsupportedInput) {
       const fallbackDecision = normalizeStructuredDecision(
         buildConservativeDirectFallbackDecision({
           inputText: this.options.inputText,
@@ -802,15 +787,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private buildToolActions(actions: readonly AgentLoopToolAction[]): SummaryPlannerToolAction[] {
     return actions.map((action) => {
-      const toolName = getPlannerToolName(action.toolName);
-      if (!toolName) {
-        throw new Error(`Unsupported planner tool: ${action.toolName}`);
-      }
-      return {
-        action: 'tool' as const,
-        toolName: toolName,
+      return SummaryPlannerToolCallSchema.parse({
+        action: 'tool',
+        toolName: action.toolName,
         args: JsonObjectSchema.parse(action.args),
-      };
+      });
     });
   }
 
@@ -924,6 +905,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       });
       const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text, {
         toolDefinitions: this.toolDefinitions,
+        allowUnsupportedInput: this.allowUnsupportedInput,
       });
       if (forcedAction.action !== 'finish') {
         return false;
@@ -961,11 +943,14 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     };
   }
 
-  private getToolStats(ctx: SummaryPlannerToolBatchContext, toolName: PlannerToolName): ReturnType<typeof createEmptyToolTypeStats> {
-    ctx.toolStatsPayload ||= {};
-    const currentToolStats = ctx.toolStatsPayload[toolName] || createEmptyToolTypeStats();
-    ctx.toolStatsPayload[toolName] = currentToolStats;
-    return currentToolStats;
+  private getToolStats(
+    ctx: SummaryPlannerToolBatchContext,
+    toolName: PlannerToolName,
+  ): ReturnType<typeof createEmptyToolTypeStats> {
+    ctx.toolStatsPayload ??= {};
+    const current = ctx.toolStatsPayload[toolName] ?? createEmptyToolTypeStats();
+    ctx.toolStatsPayload[toolName] = current;
+    return current;
   }
 
   private handleDuplicateToolAction(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction): boolean {
@@ -1010,10 +995,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private recordDuplicateToolStats(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction, fingerprint: string): void {
     const duplicateToolStats = this.getToolStats(ctx, toolAction.toolName);
-    ctx.toolStatsPayload![toolAction.toolName] = {
-      ...duplicateToolStats,
-      semanticRepeatRejects: duplicateToolStats.semanticRepeatRejects + 1,
-    };
+    duplicateToolStats.semanticRepeatRejects += 1;
     this.debugRecorder.record({
       kind: 'planner_semantic_repeat',
       toolCall: toolAction,
@@ -1027,11 +1009,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     ctx.pendingModeChangeUserMessages.push(
       buildPlannerForcedFinishUserPrompt('You repeated the same tool call too many times. Produce your final answer now.'),
     );
-    const currentToolStats = ctx.toolStatsPayload![toolAction.toolName];
-    ctx.toolStatsPayload![toolAction.toolName] = {
-      ...currentToolStats,
-      forcedFinishFromStagnation: currentToolStats.forcedFinishFromStagnation + 1,
-    };
+    duplicateToolStats.forcedFinishFromStagnation += 1;
   }
 
   private resolveEffectiveToolAction(toolAction: SummaryPlannerToolAction): SummaryPlannerEffectiveToolAction {
@@ -1254,8 +1232,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       recentEvidenceKeys: this.recentEvidenceKeys,
     });
     for (const evidenceKey of novelty.evidenceKeys) this.recentEvidenceKeys.add(evidenceKey);
-    ctx.toolStatsPayload![toolAction.toolName].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
-    ctx.toolStatsPayload![toolAction.toolName].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
+    const noveltyToolStats = this.getToolStats(ctx, toolAction.toolName);
+    noveltyToolStats.newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
+    noveltyToolStats.noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
     this.transcriptState.duplicateReplayFingerprint = null;
     this.transcriptState.duplicateReplayCount = 0;
     this.transcriptState.duplicateReplayToolMessageIndex = -1;
@@ -1282,18 +1261,16 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   ): void {
     const readLineCount = toolAction.toolName === 'read_lines' && Number.isFinite(formatted.result.lineCount) ? Number(formatted.result.lineCount) : 0;
     const currentToolStats = this.getToolStats(ctx, toolAction.toolName);
-    ctx.toolStatsPayload![toolAction.toolName] = {
-      ...currentToolStats,
-      calls: currentToolStats.calls + 1,
-      outputCharsTotal: currentToolStats.outputCharsTotal + formatted.promptResultText.length,
-      outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(formatted.resolvedToolResultTokenCount)),
-      outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (formatted.toolResultTokenEstimated ? 1 : 0),
-      lineReadCalls: currentToolStats.lineReadCalls + (readLineCount > 0 ? 1 : 0),
-      lineReadLinesTotal: currentToolStats.lineReadLinesTotal + readLineCount,
-      lineReadTokensTotal: currentToolStats.lineReadTokensTotal + (readLineCount > 0 ? formatted.rawResultTokenCount : 0),
-      promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(formatted.resolvedToolResultTokenCount)),
-      rawToolResultTokens: currentToolStats.rawToolResultTokens + formatted.rawResultTokenCount,
-    };
+    const resolvedToolResultTokens = Math.max(0, Math.ceil(formatted.resolvedToolResultTokenCount));
+    currentToolStats.calls += 1;
+    currentToolStats.outputCharsTotal += formatted.promptResultText.length;
+    currentToolStats.outputTokensTotal += resolvedToolResultTokens;
+    currentToolStats.outputTokensEstimatedCount += formatted.toolResultTokenEstimated ? 1 : 0;
+    currentToolStats.lineReadCalls += readLineCount > 0 ? 1 : 0;
+    currentToolStats.lineReadLinesTotal += readLineCount;
+    currentToolStats.lineReadTokensTotal += readLineCount > 0 ? formatted.rawResultTokenCount : 0;
+    currentToolStats.promptInsertedTokens += resolvedToolResultTokens;
+    currentToolStats.rawToolResultTokens += formatted.rawResultTokenCount;
   }
 
   private recordReadLinesRange(effectiveToolAction: SummaryPlannerToolAction, result: PlannerToolResult, promptResultText: string): void {
@@ -1414,7 +1391,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     Array.isArray(options.allowedTools) && options.allowedTools.length > 0
       ? options.allowedTools
       : [...DEFAULT_SUMMARY_PLANNER_TOOL_NAMES];
-  const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
+  const toolDefinitions = buildSummaryPlannerToolDefinitions(allowedTools);
   const toolResults: SummaryPlannerToolResultRecord[] = [];
   const messages: LlamaCppChatMessage[] = [
     {
@@ -1462,7 +1439,11 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
   const completionState = new SummaryPlannerCompletionState();
   const runtime = new SummaryPlannerLoopRuntime(requestContext, transcriptState, completionState);
   const promptAdapter = new SummaryPlannerPromptAdapter(runtime);
-  const actionAdapter = new SummaryPlannerActionAdapter(runtime);
+  const actionAdapter = new SummaryPlannerActionAdapter(
+    runtime,
+    toolDefinitions,
+    allowsUnsupportedInput(options.sourceKind),
+  );
   const toolAdapter = new SummaryPlannerToolAdapter(runtime);
   await new AgentLoop({
     maxTurns: MAX_PLANNER_TOOL_CALLS + 1,

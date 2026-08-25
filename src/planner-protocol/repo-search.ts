@@ -1,11 +1,12 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 import { RepoNativeToolCallSchema } from '../repo-search/repo-tool-arguments.js';
 import {
   buildPlannerActionJsonSchema,
-  buildPlannerToolActionExample,
+  buildPlannerJsonSchema,
   type PlannerToolDefinition,
 } from './json-schema.js';
+import { buildPlannerToolInstructions } from './tool-instructions.js';
 import {
   parsePlannerToolAction,
   parsePlannerToolBatchAction,
@@ -75,52 +76,37 @@ const REPO_SEARCH_NON_TOOL_ACTIONS = [
   },
 ] as const;
 
-const TOOL_BATCH_INSTRUCTION =
-  'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of {"toolName":"<tool>","args":{...}} entries.';
-
 export function buildRepoSearchFinishActionExample(output: string): string {
   return JSON.stringify(RepoSearchFinishActionSchema.parse({ action: 'finish', output }));
 }
 
-function toJsonSchema(schema: typeof RepoSearchProgressActionSchema | typeof RepoSearchFinishActionSchema): JsonObject {
-  return JsonObjectSchema.parse(z.toJSONSchema(schema, { io: 'input' }));
-}
-
 export function getRepoSearchNonToolActionJsonSchemas(): JsonObject[] {
-  return REPO_SEARCH_NON_TOOL_ACTIONS.map(({ schema }) => toJsonSchema(schema));
+  return REPO_SEARCH_NON_TOOL_ACTIONS.map(({ schema }) => buildPlannerJsonSchema(schema));
 }
 
 export function buildRepoSearchActionInstructions(toolDefinitions: readonly PlannerToolDefinition[]): string {
-  const toolNames = toolDefinitions.map((tool) => tool.function.name);
-  const exampleCalls = toolDefinitions.map((tool) => `Example ${tool.function.name}: ${buildPlannerToolActionExample(tool)}`);
-  const batchTools = toolDefinitions.slice(0, 2);
-  const batchExample = JSON.stringify({
-    action: 'tool_batch',
-    calls: batchTools.map((tool) => ({ toolName: tool.function.name, args: tool.exampleArgs })),
-  });
-  const toolInstructions = toolNames.length > 0 ? [
-    `Tool: {"action":"tool","toolName":"<tool>","args":{...}}. Allowed tools: ${toolNames.join(', ')}.`,
-    ...exampleCalls,
-    TOOL_BATCH_INSTRUCTION,
-    `Batch example: ${batchExample}`,
-  ] : [];
   return [
-    ...toolInstructions,
+    ...buildPlannerToolInstructions(toolDefinitions),
     ...REPO_SEARCH_NON_TOOL_ACTIONS.map(({ description, example }) => `${description}: ${example}`),
   ].join('\n');
+}
+
+function getRepoSearchPlannerActionNames(
+  toolDefinitions: readonly PlannerToolDefinition[],
+): string[] {
+  return [
+    ...(toolDefinitions.length > 0 ? ['tool', 'tool_batch'] : []),
+    ...REPO_SEARCH_NON_TOOL_ACTIONS.map(({ action }) => action),
+  ];
 }
 
 export function buildRepoSearchPlannerProtocol(
   toolDefinitions: readonly PlannerToolDefinition[],
 ): RepoSearchPlannerProtocol {
-  const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   const nonToolActionJsonSchemas = getRepoSearchNonToolActionJsonSchemas();
   return {
-    actionNames: [
-      ...(toolNames.length > 0 ? ['tool', 'tool_batch'] : []),
-      ...REPO_SEARCH_NON_TOOL_ACTIONS.map(({ action }) => action),
-    ],
-    toolNames,
+    actionNames: getRepoSearchPlannerActionNames(toolDefinitions),
+    toolNames: toolDefinitions.map(({ function: definition }) => definition.name),
     actionInstructions: buildRepoSearchActionInstructions(toolDefinitions),
     jsonSchema: buildPlannerActionJsonSchema(toolDefinitions, nonToolActionJsonSchemas),
   };
@@ -179,6 +165,6 @@ export function parseRepoSearchPlannerAction(
     }
   }
 
-  const validActions = buildRepoSearchPlannerProtocol(toolDefinitions).actionNames.slice().sort().join(', ');
+  const validActions = getRepoSearchPlannerActionNames(toolDefinitions).slice().sort().join(', ');
   throw new Error(`Provider returned an unknown planner action "${action}"; valid actions: ${validActions}`);
 }

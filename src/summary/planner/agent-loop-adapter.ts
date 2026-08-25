@@ -1,4 +1,5 @@
 import { AgentLoopActionParser } from '../../agent-loop/action-parser.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,
@@ -39,10 +40,17 @@ export class SummaryPlannerPromptAdapter implements AgentLoopPromptAdapter {
 export class SummaryPlannerActionAdapter implements AgentLoopActionAdapter {
   private readonly parser = new AgentLoopActionParser();
 
-  constructor(private readonly controller: SummaryPlannerLoopController) {}
+  constructor(
+    private readonly controller: SummaryPlannerLoopController,
+    private readonly toolDefinitions: readonly PlannerToolDefinition[],
+    private readonly allowUnsupportedInput: boolean,
+  ) {}
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
-    return this.parser.parseSummaryPlannerActions(response.text);
+    return this.parser.parseSummaryPlannerActions(response.text, {
+      toolDefinitions: this.toolDefinitions,
+      allowUnsupportedInput: this.allowUnsupportedInput,
+    });
   }
 
   inspectResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null {

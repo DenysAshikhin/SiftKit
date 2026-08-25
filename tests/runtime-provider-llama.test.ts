@@ -12,7 +12,7 @@ import {
   path,
   Database,
   loadConfig,
-  buildPlannerToolDefinitions,
+  buildSummaryPlannerToolDefinitions,
   countLlamaCppTokens,
   listLlamaCppModels,
   generateLlamaCppResponse,
@@ -364,7 +364,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
         idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
-          tools: buildPlannerToolDefinitions(),
+          tools: buildSummaryPlannerToolDefinitions(),
         },
       });
 
@@ -389,7 +389,7 @@ test('EXL3 provider forwards native structured planner output', async () => {
         idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
-          tools: buildPlannerToolDefinitions(),
+          tools: buildSummaryPlannerToolDefinitions(),
         },
       });
 

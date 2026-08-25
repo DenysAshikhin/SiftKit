@@ -17,6 +17,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import type { SiftConfig } from '../src/config/types.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 type FakeStreamServer = {
   baseUrl: string;
@@ -201,6 +202,7 @@ async function runBudgetedTaskLoop(
   await runTaskLoop(
     { id: loopKind, question: 'hi', signals: [] },
     {
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: budgetedConfig('exl3', { baseUrl, stockBudgetMessage: opts.stockBudgetMessage }),
@@ -265,6 +267,7 @@ test('planner loop on llama backend warns that the planner budget message cannot
     await runTaskLoop(
       { id: loopKind, question: 'hi', signals: [] },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         config: budgetedConfig('llama'),

@@ -19,6 +19,7 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -141,6 +142,7 @@ test('a task loop refuses an approval verdict before any planner request', async
     const loop = new TaskLoop(
       { id: 'task-1', question: 'q', signals: [] },
       {
+        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: tempRoot,
         systemContext: createEmptyPresetSystemContext(),
         config: MOCK_CONFIG,

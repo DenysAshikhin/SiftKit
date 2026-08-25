@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SummaryPlannerActionAdapter, type SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
+import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
+import type { NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
 
 const usage = {
   promptTokens: 1,
@@ -30,8 +33,36 @@ const controller: SummaryPlannerLoopController = {
   executeTools: async () => ({ outcome: 'stop', results: [] }),
 };
 
+function buildResponse(text: string): NormalizedLlamaCppChatResponse {
+  return {
+    text,
+    reasoningText: '',
+    toolCalls: [],
+    usage,
+    raw: {},
+    stoppedEarly: false,
+    invalidFrameCount: 0,
+  };
+}
+
+const RESPONSE_CONTEXT: AgentLoopResponseContext = {
+  turnNumber: 1,
+  preparedTurn: {
+    outcome: 'continue',
+    turnNumber: 1,
+    promptTokens: { reported: 0, budgeted: 0 },
+    maxOutputTokens: 0,
+    messages: [],
+    toolDefinitions: [],
+    inForcedFinishMode: false,
+  },
+  response: buildResponse('{}'),
+  modelData: null,
+  turns: [],
+};
+
 test('summary planner action adapter parses planner tool and finish actions', () => {
-  const adapter = new SummaryPlannerActionAdapter(controller);
+  const adapter = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), false);
   const tool = adapter.parseActions({
     text: '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
     reasoningText: '',
@@ -53,4 +84,55 @@ test('summary planner action adapter parses planner tool and finish actions', ()
 
   assert.equal(tool[0]?.kind, 'tool');
   assert.equal(finish[0]?.kind, 'finish');
+});
+
+test('summary planner action adapter routes decision-shaped output to the invalid-response path', async () => {
+  const invalidResponses: string[] = [];
+  const finishEvaluations: string[] = [];
+  const adapter = new SummaryPlannerActionAdapter(
+    {
+      ...controller,
+      handleInvalidResponse: async (context) => {
+        invalidResponses.push(context.error.message);
+        return { outcome: 'stop' };
+      },
+      evaluateFinish: async (action) => {
+        finishEvaluations.push(action.text);
+        return { accepted: true, outcome: 'stop' };
+      },
+    },
+    buildSummaryPlannerToolDefinitions(),
+    false,
+  );
+
+  assert.throws(
+    () => adapter.parseActions(
+      buildResponse('{"classification":"summary","raw_review_required":false,"output":"legacy decision"}'),
+    ),
+    /unknown planner action/u,
+  );
+
+  await adapter.handleInvalidResponse({
+    ...RESPONSE_CONTEXT,
+    error: new Error('Provider returned an unknown planner action.'),
+  });
+
+  assert.deepEqual(invalidResponses, ['Provider returned an unknown planner action.']);
+  assert.deepEqual(finishEvaluations, []);
+});
+
+test('summary planner action adapter applies the unsupported-input finish policy', () => {
+  const unsupportedFinish = buildResponse(
+    '{"action":"finish","classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}',
+  );
+
+  assert.throws(
+    () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), false)
+      .parseActions(unsupportedFinish),
+    /invalid planner finish action/u,
+  );
+
+  const allowed = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), true)
+    .parseActions(unsupportedFinish);
+  assert.equal(allowed[0]?.kind, 'finish');
 });

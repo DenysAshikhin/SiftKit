@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { resolvePresetAllowedTools } from '../src/presets.js';
-import { buildPlannerToolDefinitions, executePlannerTool } from '../src/summary/planner/tools.js';
+import { executePlannerTool } from '../src/summary/planner/tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { runRepoSearch } from '../src/repo-search/engine.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
-  const definitions = buildPlannerToolDefinitions(['find_text']);
+  const definitions = buildSummaryPlannerToolDefinitions(['find_text']);
   assert.deepEqual(definitions.map((definition) => definition.function.name), ['find_text']);
 });
 
@@ -24,6 +26,8 @@ test('summary planner tool execution rejects disallowed tools', () => {
 });
 
 test('repo-search rejects presets that disable the repo command tool', async () => {
+  const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(['find_text']);
+  assert.deepEqual(plannerToolDefinitions, []);
   await assert.rejects(
     () => runRepoSearch({
       repoRoot: process.cwd(),
@@ -33,8 +37,8 @@ test('repo-search rejects presets that disable the repo command tool', async () 
       model: 'mock-model',
       availableModels: ['mock-model'],
       mockResponses: [],
-      allowedTools: ['find_text'],
-      taskPrompt: 'find planner tools',
+      plannerToolDefinitions,
+      taskPrompt: 'inspect',
     }),
     /No repo-search planner tools are enabled/u,
   );
@@ -50,7 +54,7 @@ test('repo-search rejects presets that resolve to an empty allowed-tools list', 
       model: 'mock-model',
       availableModels: ['mock-model'],
       mockResponses: [],
-      allowedTools: [],
+      plannerToolDefinitions: [],
       taskPrompt: 'find planner tools',
     }),
     /No repo-search planner tools are enabled/u,

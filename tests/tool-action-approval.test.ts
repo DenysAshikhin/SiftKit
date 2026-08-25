@@ -228,6 +228,7 @@ test('without a gate, mutating tools stay invalid actions (non-interactive uncha
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
     const result = await runTaskLoop(makeTask('write a file'), {
+                                                                 plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       repoRoot: tempRoot,
       systemContext: createEmptyPresetSystemContext(),
       config: mockOfflineSiftConfig(),

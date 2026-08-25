@@ -3,6 +3,7 @@ import { createEmptyPresetSystemContext } from './empty-preset-system-context.js
 import { mockOfflineSiftConfig } from './mock-config.js';
 import { createManagedTempDir } from './temp-dirs.js';
 import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
 
 /**
  * The required RunTaskLoopOptions fields for a mock-mode loop, which never reaches a
@@ -18,5 +19,6 @@ export function createMockLoopDefaults(tempDirPrefix: string) {
     runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
+    plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
   };
 }

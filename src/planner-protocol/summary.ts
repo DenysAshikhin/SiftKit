@@ -1,15 +1,22 @@
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 import {
   buildPlannerActionJsonSchema,
-  buildPlannerToolActionExample,
+  buildPlannerJsonSchema,
   type PlannerToolDefinition,
 } from './json-schema.js';
+import { buildPlannerToolInstructions } from './tool-instructions.js';
+import {
+  FindTextToolArgsSchema,
+  JsonFilterToolArgsSchema,
+  JsonGetToolArgsSchema,
+  ReadLinesToolArgsSchema,
+  SummaryNativeToolCallSchema,
+  type SummaryNativeToolCall,
+} from './summary-tools.js';
 import {
   parsePlannerToolAction,
   parsePlannerToolBatchAction,
-  PlannerBatchCallSchema,
-  PlannerToolActionEnvelopeSchema,
 } from './parser.js';
 
 export const SummaryClassificationSchema = z.enum([
@@ -38,18 +45,16 @@ const SupportedSummaryPlannerFinishActionSchema = z.strictObject({
 
 export type SummaryPlannerFinishAction = z.infer<typeof SummaryPlannerFinishActionSchema>;
 
-export const DEFAULT_SUMMARY_PLANNER_TOOL_NAMES = ['find_text', 'read_lines', 'json_filter'] as const;
-export const SUMMARY_PLANNER_TOOL_NAMES = [...DEFAULT_SUMMARY_PLANNER_TOOL_NAMES, 'json_get'] as const;
-export const SummaryPlannerToolNameSchema = z.enum(SUMMARY_PLANNER_TOOL_NAMES);
-export type SummaryPlannerToolName = z.infer<typeof SummaryPlannerToolNameSchema>;
-
-export const SummaryPlannerToolCallSchema = PlannerToolActionEnvelopeSchema.extend({
-  toolName: SummaryPlannerToolNameSchema,
-});
+export const SummaryPlannerToolCallSchema = z.discriminatedUnion('toolName', [
+  z.strictObject({ action: z.literal('tool'), toolName: z.literal('find_text'), args: FindTextToolArgsSchema }),
+  z.strictObject({ action: z.literal('tool'), toolName: z.literal('read_lines'), args: ReadLinesToolArgsSchema }),
+  z.strictObject({ action: z.literal('tool'), toolName: z.literal('json_filter'), args: JsonFilterToolArgsSchema }),
+  z.strictObject({ action: z.literal('tool'), toolName: z.literal('json_get'), args: JsonGetToolArgsSchema }),
+]);
 
 export const SummaryPlannerToolBatchActionSchema = z.strictObject({
   action: z.literal('tool_batch'),
-  calls: z.array(PlannerBatchCallSchema.extend({ toolName: SummaryPlannerToolNameSchema })).min(1),
+  calls: z.array(SummaryNativeToolCallSchema).min(1),
 });
 
 export const NormalizedSummaryPlannerFinishActionSchema = z.strictObject({
@@ -109,18 +114,7 @@ export function buildSummaryPlannerProtocol(
   const classification = allowUnsupportedInput
     ? 'summary|command_failure|unsupported_input'
     : 'summary|command_failure';
-  const finishJsonSchema = JsonObjectSchema.parse(z.toJSONSchema(finishAction.schema, { io: 'input' }));
-  const batchTools = toolDefinitions.slice(0, 2);
-  const batchExample = JSON.stringify({
-    action: 'tool_batch',
-    calls: batchTools.map((tool) => ({ toolName: tool.function.name, args: tool.exampleArgs })),
-  });
-  const toolInstructions = toolNames.length > 0 ? [
-    `Tool: {"action":"tool","toolName":"<tool>","args":{...}}. Allowed tools: ${toolNames.join('|')}.`,
-    ...toolDefinitions.map((tool) => `Example ${tool.function.name}: ${buildPlannerToolActionExample(tool)}`),
-    'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of {"toolName":"<tool>","args":{...}} entries.',
-    `Batch example: ${batchExample}`,
-  ] : [];
+  const finishJsonSchema = buildPlannerJsonSchema(finishAction.schema);
   return {
     actionNames,
     toolNames,
@@ -128,20 +122,38 @@ export function buildSummaryPlannerProtocol(
     finishJsonSchema,
     jsonSchema: buildPlannerActionJsonSchema(toolDefinitions, [finishJsonSchema]),
     actionInstructions: [
-      ...toolInstructions,
+      ...buildPlannerToolInstructions(toolDefinitions),
       `Allowed finish classifications: ${classification}`,
       `${finishAction.description}: ${finishAction.example}`,
     ].join('\n'),
   };
 }
 
+function validateSummaryToolCall(toolName: string, args: JsonObject): SummaryNativeToolCall {
+  const result = SummaryNativeToolCallSchema.safeParse({ toolName, args });
+  if (!result.success) {
+    throw new Error(
+      `Provider returned an invalid planner tool action: ${result.error.issues[0]?.message ?? 'schema validation failed'}`,
+    );
+  }
+  return result.data;
+}
+
+export type SummaryPlannerParseOptions = {
+  toolDefinitions: readonly PlannerToolDefinition[];
+  allowUnsupportedInput: boolean;
+};
+
 export function parseSummaryPlannerAction(
   parsed: JsonObject,
-  toolDefinitions: readonly PlannerToolDefinition[],
+  options: SummaryPlannerParseOptions,
 ): SummaryPlannerAction {
   const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
   if (action === 'finish') {
-    const finish = SummaryPlannerFinishActionSchema.safeParse(parsed);
+    const finishSchema = options.allowUnsupportedInput
+      ? SummaryPlannerFinishActionSchema
+      : SupportedSummaryPlannerFinishActionSchema;
+    const finish = finishSchema.safeParse(parsed);
     if (!finish.success) {
       throw new Error(`Provider returned an invalid planner finish action: ${finish.error.issues[0]?.message ?? 'schema validation failed'}`);
     }
@@ -153,18 +165,23 @@ export function parseSummaryPlannerAction(
     });
   }
   if (action === 'tool_batch') {
-    const calls = parsePlannerToolBatchAction(parsed, toolDefinitions).map(({ toolName, args }) => ({
-      toolName: SummaryPlannerToolNameSchema.parse(toolName),
-      args,
-    }));
+    const calls = parsePlannerToolBatchAction(parsed, options.toolDefinitions).map(({ toolName, args }, index) => {
+      try {
+        return validateSummaryToolCall(toolName, args);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Provider returned an invalid planner tool batch action: call ${index + 1} — ${message}`);
+      }
+    });
     return SummaryPlannerToolBatchActionSchema.parse({ action: 'tool_batch', calls });
   }
-  const direct = parsePlannerToolAction(parsed, toolDefinitions);
+  const direct = parsePlannerToolAction(parsed, options.toolDefinitions);
   if (direct) {
+    const nativeCall = validateSummaryToolCall(direct.toolName, direct.args);
     return SummaryPlannerToolCallSchema.parse({
       action: 'tool',
-      toolName: SummaryPlannerToolNameSchema.parse(direct.toolName),
-      args: direct.args,
+      toolName: nativeCall.toolName,
+      args: nativeCall.args,
     });
   }
   throw new Error('Provider returned an unknown planner action.');

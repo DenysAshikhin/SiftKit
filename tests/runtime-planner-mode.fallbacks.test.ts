@@ -127,7 +127,7 @@ test('planner tolerates several malformed replies before succeeding instead of a
   });
 });
 
-test('planner accepts a direct structured summary response for oversized input instead of falling back to chunking', async () => {
+test('planner accepts a direct finish action for oversized input instead of falling back to chunking', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -154,6 +154,7 @@ test('planner accepts a direct structured summary response for oversized input i
     }, {
       assistantContent() {
         return JSON.stringify({
+          action: 'finish',
           classification: 'summary',
           raw_review_required: false,
           output: 'planner direct summary',

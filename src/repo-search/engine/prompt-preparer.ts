@@ -6,10 +6,10 @@ import { estimateTokenCount } from '../../lib/token-estimate.js';
 import {
   buildPlannerRequestPromptReserveText,
   plannerMessageKeepsReasoningContent,
-  resolveRepoSearchPlannerToolDefinitions,
   type ChatMessage,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
 import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
@@ -51,7 +51,7 @@ export class PromptPreparer {
       config: SiftConfig;
       useEstimatedTokensOnly: boolean;
       budget: TurnBudget;
-      plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
+      plannerToolDefinitions: readonly PlannerToolDefinition[];
       thinking: PlannerThinkingFlags;
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;

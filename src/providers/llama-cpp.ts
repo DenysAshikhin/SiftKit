@@ -195,7 +195,7 @@ export function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): Pr
   });
 }
 
-export function toProtocolTools(tools: PlannerToolDefinition[] | undefined): LlamaCppToolDefinition[] {
+export function toProtocolTools(tools: readonly PlannerToolDefinition[] | undefined): LlamaCppToolDefinition[] {
   if (!Array.isArray(tools)) {
     return [];
   }

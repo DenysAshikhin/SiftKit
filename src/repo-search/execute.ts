@@ -369,10 +369,10 @@ export async function executeRepoSearchRequest(
       .map((image) => image.dataUrl);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
-    const promptToolNames = resolveRepoSearchPlannerToolDefinitions(
+    const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
       request.allowedTools,
       activeVisionPreset.VisionEnabled === true,
-    ).map(({ function: definition }) => definition.name);
+    );
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
       request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
@@ -381,10 +381,10 @@ export async function executeRepoSearchRequest(
       progressWriter.write({ ...contextWarningEvent(warningText), elapsedMs: Date.now() - startedAt });
     }
     const baseSystemPrompt = isAgent
-      ? buildAgentSystemPrompt(systemContext, promptToolNames)
+      ? buildAgentSystemPrompt(systemContext, plannerToolDefinitions)
       : taskKind === 'chat'
         ? request.systemPrompt || ''
-        : buildTaskSystemPrompt(systemContext, promptToolNames);
+        : buildTaskSystemPrompt(systemContext, plannerToolDefinitions);
     const systemPromptOverride = new PresetSystemPromptComposer(
       preset.promptPrefix,
       systemContext,
@@ -397,7 +397,7 @@ export async function executeRepoSearchRequest(
       taskKind: executionTaskKind,
       model: request.model,
       maxTurns: request.maxTurns,
-      allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
+      plannerToolDefinitions,
       allowEmptyTools: taskKind === 'chat',
       streamFinishAsAnswer: taskKind === 'chat',
       minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,

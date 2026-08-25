@@ -24,12 +24,21 @@ import type {
   LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from '../src/llm-protocol/types.js';
+import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
+
+const SUMMARY_PARSE_OPTIONS = {
+  toolDefinitions: buildSummaryPlannerToolDefinitions(),
+  allowUnsupportedInput: false,
+} as const;
 
 test('agent loop action parser parses repo-search and summary planner actions explicitly', () => {
   const parser = new AgentLoopActionParser();
 
   const repo = parser.parseRepoSearchAction('{"action":"finish","output":"done"}', ['grep']);
-  const summary = parser.parseSummaryPlannerAction('{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}');
+  const summary = parser.parseSummaryPlannerAction(
+    '{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}',
+    SUMMARY_PARSE_OPTIONS,
+  );
 
   assert.equal(repo.kind, 'finish');
   assert.equal(repo.text, 'done');
@@ -274,9 +283,13 @@ test('agent loop action parser covers single-tool repo and summary batches', () 
     '{"action":"tool","toolName":"read","args":{"path":"src/agent-loop/agent-loop.ts"}}',
     ['read'],
   );
-  const summaryTool = parser.parseSummaryPlannerAction('{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}');
+  const summaryTool = parser.parseSummaryPlannerAction(
+    '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
+    SUMMARY_PARSE_OPTIONS,
+  );
   const summaryBatch = parser.parseSummaryPlannerActions(
     '{"action":"tool_batch","calls":[{"toolName":"find_text","args":{"query":"needle","mode":"literal"}},{"toolName":"read_lines","args":{"startLine":1,"endLine":2}}]}',
+    SUMMARY_PARSE_OPTIONS,
   );
 
   assert.equal(repoTool.kind, 'tool');
@@ -541,4 +554,22 @@ test('agent loop routes a progress action through handleProgress and continues',
   assert.equal(result.reason, 'finished');
   assert.equal(result.finishText, 'done');
   assert.deepEqual(actionAdapter.progressTexts, ['halfway']);
+});
+
+test('agent loop action parser applies the summary unsupported-input finish policy', () => {
+  const parser = new AgentLoopActionParser();
+  const unsupportedFinish = '{"action":"finish","classification":"unsupported_input","raw_review_required":true,"output":"unsupported"}';
+
+  assert.throws(
+    () => parser.parseSummaryPlannerAction(unsupportedFinish, SUMMARY_PARSE_OPTIONS),
+    /invalid planner finish action/u,
+  );
+
+  const allowed = parser.parseSummaryPlannerAction(unsupportedFinish, {
+    ...SUMMARY_PARSE_OPTIONS,
+    allowUnsupportedInput: true,
+  });
+  assert.equal(allowed.kind, 'finish');
+  assert.equal(allowed.classification, 'unsupported_input');
+  assert.equal(allowed.rawReviewRequired, true);
 });

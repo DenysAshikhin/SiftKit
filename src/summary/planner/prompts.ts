@@ -2,10 +2,8 @@ import type { LlamaCppChatMessage } from '../../providers/llama-cpp.js';
 import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
-import type {
-  PlannerToolDefinition,
-  SummarySourceKind,
-} from '../types.js';
+import { allowsUnsupportedInput, type SummarySourceKind } from '../types.js';
+import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import { buildSingleAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
@@ -16,7 +14,7 @@ import {
   type SummaryPlannerToolCall as PlannerToolCall,
 } from '../../planner-protocol/summary.js';
 import { buildPlannerToolActionExample } from '../../planner-protocol/json-schema.js';
-import { buildPlannerToolDefinitions } from './tools.js';
+import { buildSummaryPlannerToolDefinitions } from '../../planner-protocol/summary-tools.js';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the
@@ -85,9 +83,9 @@ export function buildPlannerSystemPrompt(options: {
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   rawReviewRequired: boolean;
-  toolDefinitions: PlannerToolDefinition[];
+  toolDefinitions: readonly PlannerToolDefinition[];
 }): string {
-  const allowUnsupportedInput = options.sourceKind !== 'command-output';
+  const allowUnsupportedInput = allowsUnsupportedInput(options.sourceKind);
   const plannerProtocol = buildSummaryPlannerProtocol(
     options.toolDefinitions,
     allowUnsupportedInput,
@@ -146,7 +144,7 @@ export function buildPlannerInputSection(options: {
 }
 
 export function buildPlannerInvalidResponseUserPrompt(message: string): string {
-  const examples = buildPlannerToolDefinitions(['find_text', 'read_lines'])
+  const examples = buildSummaryPlannerToolDefinitions(['find_text', 'read_lines'])
     .map(buildPlannerToolActionExample);
   return [
     `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,

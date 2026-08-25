@@ -369,6 +369,43 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
   });
 });
 
+test('planner decision-shaped output without a finish action fails after the invalid-response limit', async () => {
+  await withTempEnv(async () => {
+    const dumpPath = await withStubServerCapturingPlannerDebugDump(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+
+      await assert.rejects(
+        () => summarizeRequest({
+          repoRoot: process.cwd(),
+          question: 'Summarize the input.',
+          inputText: buildOversizedTransitionsInput(threshold + 1000),
+          format: 'text',
+          policyProfile: 'general',
+          provider: 'real',
+          model: 'mock-model',
+        }),
+        /planner_invalid_response_limit/u,
+      );
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'legacy decision without finish action',
+        });
+      },
+    });
+
+    const debugDump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
+    assert.equal(debugDump.final.reason, 'planner_invalid_response_limit');
+    assert.equal(
+      debugDump.events.filter((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response').length,
+      4,
+    );
+  });
+});
+
 test('planner json_filter supports scalar timestamp ranges on object-root array collections', async () => {
   await withTempEnv(async () => {
     const dumpPath = await withStubServerCapturingPlannerDebugDump(async (server) => {

@@ -5,8 +5,8 @@ import type { ProgressWriter } from '../lib/progress-writer.js';
 import {
   SummaryClassificationSchema,
   type SummaryClassification,
-  type SummaryPlannerToolName,
 } from '../planner-protocol/summary.js';
+import type { SummaryPlannerToolName } from '../planner-protocol/summary-tools.js';
 
 /**
  * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see
@@ -45,6 +45,14 @@ export const SummaryPolicyProfileSchema = z.enum([
 export type SummaryPolicyProfile = z.infer<typeof SummaryPolicyProfileSchema>;
 
 export type SummarySourceKind = 'standalone' | 'command-output';
+
+/**
+ * Command output must finish as summary|command_failure; only standalone input
+ * may classify as unsupported_input. Single source for prompt and parser policy.
+ */
+export function allowsUnsupportedInput(sourceKind: SummarySourceKind): boolean {
+  return sourceKind !== 'command-output';
+}
 
 export type SummaryPhase = 'leaf' | 'merge' | 'planner';
 
@@ -110,8 +118,6 @@ export type StructuredModelDecision = {
   rawReviewRequired: boolean;
   output: string;
 };
-
-export type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 
 export type PlannerPromptBudget = {
   numCtxTokens: number;

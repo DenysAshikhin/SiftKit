@@ -1,13 +1,14 @@
 import { getErrorMessage } from '../../lib/errors.js';
-import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
-import type {
-  PlannerToolDefinition,
-} from '../types.js';
-import type {
-  SummaryPlannerToolCall as PlannerToolCall,
-  SummaryPlannerToolName as PlannerToolName,
-} from '../../planner-protocol/summary.js';
-import { SUMMARY_PLANNER_TOOL_NAMES } from '../../planner-protocol/summary.js';
+import type { JsonValue, OptionalJsonValue } from '../../lib/json-types.js';
+import type { SummaryPlannerToolCall as PlannerToolCall } from '../../planner-protocol/summary.js';
+import {
+  SUMMARY_PLANNER_TOOL_NAMES,
+  type FindTextToolArgs,
+  type JsonFilterToolArgs,
+  type JsonGetToolArgs,
+  type ReadLinesToolArgs,
+  type SummaryPlannerToolName as PlannerToolName,
+} from '../../planner-protocol/summary-tools.js';
 import {
   formatCompactJsonBlock,
   formatNumberedLineBlock,
@@ -17,7 +18,6 @@ import {
   truncatePlannerText,
 } from './formatters.js';
 import {
-  getFiniteInteger,
   getRecord,
   getValueByPath,
   matchesJsonFilter,
@@ -46,12 +46,6 @@ export interface PlannerToolResult {
   [key: string]: JsonValue;
 }
 
-export function getPlannerToolName(value: OptionalJsonValue): PlannerToolName | null {
-  return value === 'find_text' || value === 'read_lines' || value === 'json_filter' || value === 'json_get'
-    ? value
-    : null;
-}
-
 function isRegexCharEscaped(text: string, index: number): boolean {
   let slashCount = 0;
   for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
@@ -71,118 +65,6 @@ export function escapeUnescapedRegexBraces(query: string): string {
     normalized += char;
   }
   return normalized;
-}
-
-export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES): PlannerToolDefinition[] {
-  const allowed = new Set<PlannerToolName>(allowedTools);
-  const definitions: PlannerToolDefinition[] = [
-    {
-      type: 'function',
-      exampleArgs: { query: 'ERROR', mode: 'literal', maxHits: 20, contextLines: 2 },
-      function: {
-        name: 'find_text',
-        description: 'Search the input text for a literal string or regex and return matching lines with optional surrounding context. Regex patterns must be valid JavaScript regex source without surrounding slashes; do not escape ordinary quotes unless the regex itself requires it. Example: {"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'The literal text or regex pattern to search for.' },
-            mode: { type: 'string', enum: ['literal', 'regex'], description: 'Whether query is treated as literal text or regex.' },
-            maxHits: { type: 'integer', description: 'Maximum number of matching locations to return.' },
-            contextLines: { type: 'integer', description: 'Number of surrounding lines to include before and after each hit.' },
-          },
-          required: ['query', 'mode'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      exampleArgs: { startLine: 1, endLine: 120 },
-      function: {
-        name: 'read_lines',
-        description: 'Read a specific 1-based line range from the input text. Prefer larger contiguous windows after a find_text anchor; avoid many tiny adjacent slices unless verifying one exact line or symbol. Example: {"startLine":1340,"endLine":1405}',
-        parameters: {
-          type: 'object',
-          properties: {
-            startLine: { type: 'integer', description: 'Inclusive 1-based start line.' },
-            endLine: { type: 'integer', description: 'Inclusive 1-based end line.' },
-          },
-          required: ['startLine', 'endLine'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      exampleArgs: {
-        filters: [{ path: 'status', op: 'eq', value: 'failed' }],
-        select: ['name', 'status'],
-        limit: 20,
-      },
-      function: {
-        name: 'json_filter',
-        description: 'Parse JSON, filter array items by field conditions, and project only the selected fields. Use collectionPath when the root JSON value is an object with an array under a child key; for example use {"collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100} for a root object with a states array. Use separate filters for gte/lte bounds; each filter value should be a single scalar value, not an object containing multiple operators. Do not use "value":{"gte":3200,"lte":3215}. Example: {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}',
-        parameters: {
-          type: 'object',
-          properties: {
-            collectionPath: { type: 'string', description: 'Optional dot-path to the array collection. Omit for a root array.' },
-            filters: {
-              type: 'array',
-              description: 'Field predicates applied to each item in the collection.',
-              items: {
-                type: 'object',
-                properties: {
-                  path: { type: 'string' },
-                  op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'exists'] },
-                  value: {},
-                },
-                required: ['path', 'op'],
-              },
-            },
-            select: {
-              type: 'array',
-              description: 'Optional list of dot-path fields to project from each matched item.',
-              items: { type: 'string' },
-            },
-            limit: { type: 'integer', description: 'Maximum number of matched items to return.' },
-          },
-          required: ['filters'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      exampleArgs: { path: 'results.0' },
-      function: {
-        name: 'json_get',
-        description: 'Parse JSON and return the value at one dot-path. Use this for nested object drill-down when you need one exact field rather than filtering an array. Dot paths may include array indexes. Example: {"path":"states.0.state_json"}',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'Dot-path to the target value. Array indexes are allowed.' },
-          },
-          required: ['path'],
-        },
-      },
-    },
-  ];
-  const selected = definitions.filter((definition) => {
-    const toolName = getPlannerToolName(definition.function.name);
-    return toolName !== null && allowed.has(toolName);
-  });
-  for (const definition of selected) {
-    const toolName = getPlannerToolName(definition.function.name);
-    if (toolName === null) {
-      throw new Error(`Invalid summary planner tool name: ${definition.function.name}`);
-    }
-    const validationInput = toolName === 'find_text'
-      ? 'ERROR'
-      : toolName === 'json_filter'
-        ? '[{"name":"task","status":"failed"}]'
-        : toolName === 'json_get'
-          ? '{"results":[1]}'
-          : 'line';
-    executePlannerTool(validationInput, { action: 'tool', toolName, args: definition.exampleArgs }, [toolName]);
-  }
-  return selected;
 }
 
 type JsonFilterCollectionCandidate = {
@@ -209,7 +91,7 @@ function getJsonFilterCollectionCandidates(parsed: OptionalJsonValue): JsonFilte
     });
 }
 
-function getJsonFilterPathHints(args: JsonObject): string[] {
+function getJsonFilterPathHints(args: JsonFilterToolArgs): string[] {
   const hints = new Set<string>();
   const addHint = (value: OptionalJsonValue) => {
     if (typeof value !== 'string') {
@@ -221,15 +103,11 @@ function getJsonFilterPathHints(args: JsonObject): string[] {
     }
   };
 
-  if (Array.isArray(args.filters)) {
-    for (const item of args.filters) {
-      addHint(getRecord(item)?.path);
-    }
+  for (const filter of args.filters) {
+    addHint(filter.path);
   }
-  if (Array.isArray(args.select)) {
-    for (const item of args.select) {
-      addHint(item);
-    }
+  for (const path of args.select ?? []) {
+    addHint(path);
   }
 
   return Array.from(hints);
@@ -237,7 +115,7 @@ function getJsonFilterPathHints(args: JsonObject): string[] {
 
 function selectJsonFilterCollectionCandidate(
   candidates: JsonFilterCollectionCandidate[],
-  args: JsonObject,
+  args: JsonFilterToolArgs,
 ): JsonFilterCollectionCandidate | null {
   if (candidates.length === 1) {
     return candidates[0];
@@ -284,9 +162,9 @@ function buildJsonFilterCollectionPathGuidanceResult(options: {
 
 function resolveJsonFilterCollection(
   parsed: OptionalJsonValue,
-  args: JsonObject,
+  args: JsonFilterToolArgs,
 ): { collectionPath: string; collection: JsonValue[] } | { recoverableResult: PlannerToolResult } {
-  const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath.trim() : '';
+  const collectionPath = args.collectionPath?.trim() ?? '';
   if (collectionPath) {
     const collection = getValueByPath(parsed, collectionPath);
     if (Array.isArray(collection)) {
@@ -333,15 +211,10 @@ function resolveJsonFilterCollection(
   throw new Error('json_filter collection is not an array.');
 }
 
-function executeFindTextTool(inputText: string, args: JsonObject): PlannerToolResult {
-  const query = typeof args.query === 'string' ? args.query : '';
-  const mode = args.mode === 'regex' ? 'regex' : args.mode === 'literal' ? 'literal' : null;
-  if (!query.trim() || !mode) {
-    throw new Error('find_text requires query and mode.');
-  }
-
-  const maxHits = Math.max(1, getFiniteInteger(args.maxHits) ?? 5);
-  const contextLines = Math.max(0, Math.min(getFiniteInteger(args.contextLines) ?? 0, 3));
+function executeFindTextTool(inputText: string, args: FindTextToolArgs): PlannerToolResult {
+  const { query, mode } = args;
+  const maxHits = args.maxHits ?? 5;
+  const contextLines = args.contextLines ?? 0;
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
   let matcher: RegExp | null = null;
   const literalQuery = query.toLowerCase();
@@ -404,9 +277,8 @@ function executeFindTextTool(inputText: string, args: JsonObject): PlannerToolRe
   };
 }
 
-function executeReadLinesTool(inputText: string, args: JsonObject): PlannerToolResult {
-  const startLine = Math.max(getFiniteInteger(args.startLine) ?? 1, 1);
-  const endLine = Math.max(getFiniteInteger(args.endLine) ?? startLine, startLine);
+function executeReadLinesTool(inputText: string, args: ReadLinesToolArgs): PlannerToolResult {
+  const { startLine, endLine } = args;
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
   const clampedStart = Math.min(startLine, lines.length || 1);
   const clampedEnd = Math.min(endLine, lines.length || clampedStart);
@@ -420,17 +292,10 @@ function executeReadLinesTool(inputText: string, args: JsonObject): PlannerToolR
   };
 }
 
-function executeJsonFilterTool(inputText: string, args: JsonObject): PlannerToolResult {
+function executeJsonFilterTool(inputText: string, args: JsonFilterToolArgs): PlannerToolResult {
   const parsedContext = parseJsonForJsonFilter(inputText);
   const parsed = parsedContext.parsed;
-  const filters = Array.isArray(args.filters)
-    ? normalizeJsonFilterFilters(
-      args.filters.map((item) => getRecord(item)).filter((entry): entry is JsonObject => entry !== null),
-    )
-    : [];
-  if (filters.length === 0) {
-    throw new Error('json_filter requires at least one filter.');
-  }
+  const filters = normalizeJsonFilterFilters(args.filters);
 
   const resolvedCollection = resolveJsonFilterCollection(parsed, args);
   if ('recoverableResult' in resolvedCollection) {
@@ -443,10 +308,8 @@ function executeJsonFilterTool(inputText: string, args: JsonObject): PlannerTool
   }
   const { collectionPath, collection } = resolvedCollection;
 
-  const select = Array.isArray(args.select)
-    ? args.select.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    : null;
-  const limit = Math.max(1, getFiniteInteger(args.limit) ?? 10);
+  const select = args.select ?? null;
+  const limit = args.limit ?? 10;
   const matches: JsonValue[] = [];
   for (const item of collection) {
     if (!filters.every((filter) => matchesJsonFilter(item, filter))) {
@@ -470,11 +333,8 @@ function executeJsonFilterTool(inputText: string, args: JsonObject): PlannerTool
   };
 }
 
-function executeJsonGetTool(inputText: string, args: JsonObject): PlannerToolResult {
-  const path = typeof args.path === 'string' ? args.path.trim() : '';
-  if (!path) {
-    throw new Error('json_get requires path.');
-  }
+function executeJsonGetTool(inputText: string, args: JsonGetToolArgs): PlannerToolResult {
+  const path = args.path.trim();
 
   const parsedContext = parseJsonForJsonFilter(inputText);
   const value = getValueByPath(parsedContext.parsed, path);
@@ -508,7 +368,5 @@ export function executePlannerTool(
       return executeJsonFilterTool(inputText, action.args);
     case 'json_get':
       return executeJsonGetTool(inputText, action.args);
-    default:
-      throw new Error(`Unsupported planner tool: ${String(action.toolName)}`);
   }
 }
