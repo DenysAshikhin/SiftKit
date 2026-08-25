@@ -60,8 +60,8 @@ test('executeBatch records one command entry per tool action so results stay ali
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', tool_name: 'frobnicate', args: {} },
-      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+      { action: 'tool', toolName: 'frobnicate', args: {} },
+      { action: 'tool', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -80,7 +80,7 @@ test('executeBatch rejects malformed native-tool arguments before execution', as
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
+    [{ action: 'tool', toolName: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -101,7 +101,7 @@ test('non-image command records omit optional image fields from their JSON shape
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -120,7 +120,7 @@ test('an executed command entry records the turn prompt token count', async () =
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 4321, budgeted: 4321 },
     false,
@@ -148,7 +148,7 @@ test('a typed Git action executes through the native tool path', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
   const { processor, commands, counters, events } = makeProcessor(root, ['git']);
 
-  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ action: 'tool', toolName: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git operation="status"');
@@ -167,7 +167,7 @@ test('native command start is observable before delayed execution completes', as
 
   const pending = processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'git', args: { operation: 'status' } }],
+    [{ action: 'tool', toolName: 'git', args: { operation: 'status' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -185,7 +185,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    [{ action: 'tool', toolName: 'ls', args: { path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -211,7 +211,7 @@ test('a valid tool action decays the invalid-response counter', async () => {
   const { processor, counters } = makeProcessor(root);
   counters.invalidResponses = 2;
 
-  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ action: 'tool', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 1);
 });
@@ -224,9 +224,9 @@ test('an invalid action followed by two valid ones leaves the counter at zero', 
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', tool_name: 'frobnicate', args: {} },
-      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
-      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+      { action: 'tool', toolName: 'frobnicate', args: {} },
+      { action: 'tool', toolName: 'ls', args: { path: '.' } },
+      { action: 'tool', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -243,7 +243,7 @@ test('a valid action whose command exits non-zero still decays the counter', asy
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'git', args: { operation: 'log', limit: 1 } }],
+    [{ action: 'tool', toolName: 'git', args: { operation: 'log', limit: 1 } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -262,8 +262,8 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
   await processor.executeBatch(
     1,
     [
-      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
-      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+      { action: 'tool', toolName: 'ls', args: { path: '.' } },
+      { action: 'tool', toolName: 'ls', args: { path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -279,8 +279,8 @@ test('malformed actions alternating with invalid Git operations still hit the in
   const { processor, counters } = makeProcessor(root, ['ls', 'git']);
   const actions: RepoSearchToolAction[] = [];
   for (let index = 0; index < 3; index += 1) {
-    actions.push({ action: 'tool', tool_name: 'frobnicate', args: {} });
-    actions.push({ action: 'tool', tool_name: 'git', args: { operation: `push-${index}` } });
+    actions.push({ action: 'tool', toolName: 'frobnicate', args: {} });
+    actions.push({ action: 'tool', toolName: 'git', args: { operation: `push-${index}` } });
   }
 
   await processor.executeBatch(1, actions, '', { reported: 0, budgeted: 0 }, false);
@@ -306,7 +306,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
   const singleCallCapTokens = single.budget.perToolCapTokens(0, 1);
   await single.processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } }],
+    [{ action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -322,9 +322,9 @@ test('a parallel batch spends no more tool budget in total than a single call is
   await batch.processor.executeBatch(
     1,
     [
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } },
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'beta', path: '.' } },
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -357,9 +357,9 @@ test('every member of a batch is capped at the same share regardless of position
   await processor.executeBatch(
     4,
     [
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } },
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'beta', path: '.' } },
-      { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'beta', path: '.' } },
+      { action: 'tool', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
     { reported: 0, budgeted: 0 },
@@ -379,7 +379,7 @@ test('a downgraded full run may be retried once despite duplicate screening', as
   const root = createManagedTempDir('siftkit-run-full-retry-');
   writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
-  const runAction: RepoSearchToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
+  const runAction: RepoSearchToolAction = { action: 'tool', toolName: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
   await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
@@ -411,7 +411,7 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
   );
   const validation: RepoSearchToolAction = {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
 
@@ -435,12 +435,12 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
   );
   const stable: RepoSearchToolAction = {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'Write-Output stable' },
   };
   const validation: RepoSearchToolAction = {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
 
@@ -476,7 +476,7 @@ test('an approval-denied granted retry is consumed', async () => {
   );
   const validation: RepoSearchToolAction = {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
 
@@ -499,12 +499,12 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
   );
   const validation: RepoSearchToolAction = {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'npm test', outputMode: 'full' },
   };
 
   await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ action: 'tool', tool_name: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [{ action: 'tool', toolName: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);

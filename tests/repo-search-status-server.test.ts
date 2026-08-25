@@ -115,7 +115,7 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -298,7 +298,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           maxTurns: 2,
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
           mockResponses: [
-            "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+            "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
@@ -718,7 +718,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
-            "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+            "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
@@ -963,7 +963,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         maxTurns: 2,
         availableModels: ['mock-model'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -1062,8 +1062,8 @@ test('repo-search transcript artifact replays the fitted read range using per-to
         maxTurns: 4,
         availableModels: ['mock-model'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"status\"}",
-          '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big.ts\",\"offset\":300,\"limit\":601}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -1202,7 +1202,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           'Terminal synthesis answer: src/example.ts:1.',
         ],
         mockCommandResults: {
@@ -1294,12 +1294,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
         maxTurns: 8,
         availableModels: ['mock-model'],
         mockResponses: [
-          ...patterns.map((pattern) => JSON.stringify({
-            action: 'git',
-            operation: 'grep',
-            pattern,
-            path: 'src',
-          })),
+          ...patterns.map((pattern) => JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern, path: 'src' } })),
           JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
         ],
         mockCommandResults,

@@ -34,7 +34,7 @@ const controller: RepoSearchLoopController = {
 test('repo-search action adapter parses tool batches and finish actions', () => {
   const adapter = new RepoSearchActionAdapter(['grep'], controller);
   const tools = adapter.parseActions({
-    text: '{"action":"tool_batch","calls":[{"action":"grep","pattern":"x"}]}',
+    text: '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"x"}}]}',
     reasoningText: 'thinking',
     toolCalls: [],
     usage,

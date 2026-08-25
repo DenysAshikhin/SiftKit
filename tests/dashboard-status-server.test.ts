@@ -695,8 +695,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"dashboard\",\"path\":\".\"}",
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"/dashboard/chat/sessions\",\"path\":\"siftKitStatus/index.js\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"dashboard\",\"path\":\".\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"/dashboard/chat/sessions\",\"path\":\"siftKitStatus/index.js\"}}",
           '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths."}',
         ],
         mockCommandResults: {
@@ -1119,7 +1119,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       maxTurns: 2,
       availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
       mockResponses: [
-        "<think>inspect test coverage</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}",
+        "<think>inspect test coverage</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}}",
         '<think>prepare implementation plan</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -1211,7 +1211,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "<think>inspect repository tests</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}",
+          "<think>inspect repository tests</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}}",
           '<think>report repository evidence</think>{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -2100,8 +2100,8 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         model: 'mock',
         mockResponses: [
           '{"action":"finish","output":"About 999 gp per bar without checking."}',
-          '{"action":"web_search","query":"iron bar GE price"}',
-          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
           '{"action":"finish","output":"About 150 gp per bar."}',
         ],
         mockCommandResults: {
@@ -2154,10 +2154,10 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"web_search","query":"iron bar GE price"}',
-          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
-          '{"action":"web_search","query":"iron bar live price"}',
-          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar-live"}',
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar live price\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar-live\"}}",
           '{"action":"finish","output":"About 151 gp per bar."}',
         ],
         mockCommandResults: {
@@ -2251,8 +2251,8 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"web_search","query":"OSRS iron bar"}',
-          '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bar\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
           '{"action":"finish","output":"Iron bars are used in Smithing and quests."}',
         ],
         mockCommandResults: {
@@ -2358,8 +2358,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"web_search","query":"iron bar GE price"}',
-          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
           '{"action":"finish","output":"About 150 gp per bar."}',
         ],
         mockCommandResults: {
@@ -2397,8 +2397,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
-          '{"action":"web_search","query":"iron bar GE price"}',
-          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar-live"}',
+          "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar-live\"}}",
           '{"action":"finish","output":"About 151 gp per bar."}',
         ],
         mockCommandResults: {
@@ -2477,7 +2477,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -2549,7 +2549,7 @@ test('same session rejects a second request instead of entering the model FIFO',
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -2715,7 +2715,7 @@ test('queued model request is dropped when client disconnects before lock grant'
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -2898,7 +2898,7 @@ test('invalid model request is rejected without waiting for active model work', 
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -3109,7 +3109,7 @@ test('chat completion replays prior tool evidence without hidden system context'
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -3372,7 +3372,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {

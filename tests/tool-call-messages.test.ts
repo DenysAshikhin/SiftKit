@@ -15,7 +15,7 @@ test('appendToolCallExchange appends assistant tool_call and tool result message
   appendToolCallExchange(
     messages,
     {
-      tool_name: 'grep',
+      toolName: 'grep',
       args: { command: 'rg -n "planner" src' },
     },
     'call_1',
@@ -35,17 +35,17 @@ test('appendToolBatchExchange emits one assistant message with all tool_calls fo
   const messages: ToolTranscriptMessage[] = [];
   const outcomes: ToolBatchOutcome[] = [
     {
-      action: { tool_name: 'grep', args: { pattern: 'foo' } },
+      action: { toolName: 'grep', args: { pattern: 'foo' } },
       toolCallId: 'call_a',
       toolContent: 'result a',
     },
     {
-      action: { tool_name: 'read_lines', args: { path: 'src/x.ts', start: 1, count: 10 } },
+      action: { toolName: 'read_lines', args: { path: 'src/x.ts', start: 1, count: 10 } },
       toolCallId: 'call_b',
       toolContent: 'result b',
     },
     {
-      action: { tool_name: 'json_filter', args: { query: '.foo' } },
+      action: { toolName: 'json_filter', args: { query: '.foo' } },
       toolCallId: 'call_c',
       toolContent: 'result c',
     },
@@ -82,7 +82,7 @@ test('appendToolBatchExchange is a no-op for an empty outcome list', () => {
 test('appendToolBatchExchange omits reasoning_content when thinking text is empty', () => {
   const messages: ToolTranscriptMessage[] = [];
   appendToolBatchExchange(messages, [
-    { action: { tool_name: 'grep', args: {} }, toolCallId: 'call_1', toolContent: 'r' },
+    { action: { toolName: 'grep', args: {} }, toolCallId: 'call_1', toolContent: 'r' },
   ], '');
   assert.equal(messages.length, 2);
   assert.equal('reasoning_content' in (messages[0] || {}), false);

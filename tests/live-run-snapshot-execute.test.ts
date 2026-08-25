@@ -26,7 +26,7 @@ test('transcript records preflight start and command start events for every turn
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"status\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
@@ -49,7 +49,7 @@ test('a live snapshot exists while the run is in flight and is removed once it f
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"status\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
@@ -105,7 +105,7 @@ test('the live snapshot is skipped when SIFTKIT_LIVE_SNAPSHOT=0', async () => {
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"status\"}",
+          '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
           '{"action":"finish","output":"Found scripts"}',
         ],
         mockCommandResults: {

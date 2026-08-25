@@ -97,7 +97,7 @@ export class ActivitySummaryCollector {
       if (command === undefined) {
         continue;
       }
-      const toolName = String(action.tool_name || '').trim().toLowerCase();
+      const toolName = String(action.toolName || '').trim().toLowerCase();
       this.window.push(classifyEntry(toolName, action, command));
     }
   }

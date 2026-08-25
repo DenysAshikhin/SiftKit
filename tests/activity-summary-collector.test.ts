@@ -5,27 +5,27 @@ import type { RepoSearchToolAction } from '../src/planner-protocol/repo-search.j
 import type { TaskCommand } from '../src/repo-search/prompts.js';
 
 function makeReadAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'read', args: { path } };
+  return { action: 'tool', toolName: 'read', args: { path } };
 }
 
 function makeGitAction(operation: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'git', args: { operation } };
+  return { action: 'tool', toolName: 'git', args: { operation } };
 }
 
 function makeRunAction(command: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'run', args: { command } };
+  return { action: 'tool', toolName: 'run', args: { command } };
 }
 
 function makeEditAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'edit', args: { path } };
+  return { action: 'tool', toolName: 'edit', args: { path } };
 }
 
 function makeWriteAction(path: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'write', args: { path } };
+  return { action: 'tool', toolName: 'write', args: { path } };
 }
 
 function makeWebSearchAction(query: string): RepoSearchToolAction {
-  return { action: 'tool', tool_name: 'web_search', args: { query } };
+  return { action: 'tool', toolName: 'web_search', args: { query } };
 }
 
 function makeCommand(command: string, turn: number, safe = true, exitCode = 0): TaskCommand {
@@ -201,9 +201,9 @@ test('labels actions whose planner args omit the expected field', () => {
   collector.recordBatch(
     10,
     [
-      { action: 'tool', tool_name: 'read', args: {} },
-      { action: 'tool', tool_name: 'web_search', args: {} },
-      { action: 'tool', tool_name: 'run', args: {} },
+      { action: 'tool', toolName: 'read', args: {} },
+      { action: 'tool', toolName: 'web_search', args: {} },
+      { action: 'tool', toolName: 'run', args: {} },
     ],
     [makeCommand('read', 10), makeCommand('web_search', 10), makeCommand('run', 10)],
   );

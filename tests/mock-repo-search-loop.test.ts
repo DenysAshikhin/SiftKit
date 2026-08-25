@@ -141,7 +141,7 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"git","operation":"grep","pattern":"planner","path":"src"',
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"planner","path":"src"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -348,7 +348,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -402,8 +402,8 @@ test('runTaskLoop advances overlapping read calls to the next unread span', asyn
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":5}",
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":5}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":5}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":5}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -451,8 +451,8 @@ test('runTaskLoop replays effective read range after native unread expansion', a
       totalContextTokens: 35000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"read","path":"src/big-file.ts","offset":1,"limit":80}',
-        '{"action":"read","path":"src/big-file.ts","offset":40,"limit":51}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big-file.ts\",\"offset\":1,\"limit\":80}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big-file.ts\",\"offset\":40,\"limit\":51}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -506,8 +506,8 @@ test('runTaskLoop replays only the returned read range after fitting an oversize
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git', 'read']),
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}",
-        '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big.ts\",\"offset\":300,\"limit\":601}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -567,8 +567,8 @@ test('runTaskLoop bounds the unread read span at the next returned range', async
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":11,\"limit\":5}",
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":20}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":11,\"limit\":5}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":20}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -607,8 +607,8 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -637,7 +637,7 @@ test('runTaskLoop forces finish after repeated exhausted reads', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
   const events: JsonObject[] = [];
-  const readAction = '{"action":"read","path":"target.ts","offset":1,"limit":3}';
+  const readAction = "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}";
   await runTaskLoop(
     {
       id: 'task-native-read-exhausted-stagnation',
@@ -696,7 +696,7 @@ test('runTaskLoop truncates oversized find output with omitted file count', asyn
       totalContextTokens: 7000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['find']),
       mockResponses: [
-        "{\"action\":\"find\",\"pattern\":\"*.ts\",\"path\":\".\"}",
+        "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"*.ts\",\"path\":\".\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -737,7 +737,7 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"read","path":"big.ts","offset":1,"limit":300}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"big.ts\",\"offset\":1,\"limit\":300}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -787,7 +787,7 @@ test('runTaskLoop does not print a red console warning when successful output is
         minToolCallsBeforeFinish: 0,
         totalContextTokens,
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -1009,9 +1009,9 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"repo\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"repo\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1061,7 +1061,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       totalContextTokens,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1114,8 +1114,8 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
         JSON.stringify({
           action: 'tool_batch',
           calls: [
-            { action: 'git', operation: 'grep', pattern: 'planner prompt', path: 'src' },
-            { action: 'git', operation: 'grep', pattern: 'prompt budget', path: 'src' },
+            { toolName: 'git', args: { operation: 'grep', pattern: 'planner prompt', path: 'src' } },
+            { toolName: 'git', args: { operation: 'grep', pattern: 'prompt budget', path: 'src' } },
           ],
         }),
         '{"action":"finish","output":"done"}',
@@ -1241,16 +1241,16 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
 test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
   const events: JsonObject[] = [];
   const mockResponses = [
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-1\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-2\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-3\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-4\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-5\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-6\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-7\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-8\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-9\",\"path\":\"src\"}",
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-10\",\"path\":\"src\"}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-1\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-2\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-3\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-4\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-5\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-6\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-7\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-8\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-9\",\"path\":\"src\"}}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"hit-10\",\"path\":\"src\"}}",
     '{"action":"finish","output":"src\\\\target.ts:10"}',
   ];
   const mockCommandResults = {
@@ -1327,9 +1327,9 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner2\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner3\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner2\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner3\",\"path\":\"src\"}}",
         'Synthesized best-effort answer.',
       ],
       mockCommandResults: {
@@ -1382,7 +1382,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
       const toolIndex = requestCount <= 4 ? requestCount : null;
       const content = toolIndex === null
         ? '{"action":"finish","output":"done"}'
-        : `{"action":"git","operation":"grep","pattern":"q${toolIndex}","path":"src"}`;
+        : `{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"q${toolIndex}","path":"src"}}`;
       sendChatCompletionSse(res, {
         choices: [
           {
@@ -1581,8 +1581,8 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1614,8 +1614,8 @@ test('runTaskLoop blocks an identical typed Git call as an exact duplicate', asy
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"log\",\"limit\":5}",
-        "{\"action\":\"git\",\"operation\":\"log\",\"limit\":5}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\",\"limit\":5}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\",\"limit\":5}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1660,9 +1660,9 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
-        '{"action":"read","path":"b.ts","offset":50,"limit":20}',
-        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":100,\"limit\":20}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"b.ts\",\"offset\":50,\"limit\":20}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":110,\"limit\":20}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1710,8 +1710,8 @@ test('runTaskLoop with ExpandReads disabled skips returned lines but stops at th
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
-        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":100,\"limit\":20}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":110,\"limit\":20}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1748,10 +1748,10 @@ test('runTaskLoop does not compact different commands that happen to return the 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"alpha\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"beta\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"gamma\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"delta\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"alpha\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"beta\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"gamma\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"delta\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1786,10 +1786,10 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string }> = {};
   for (let index = 1; index <= 10; index += 1) {
     const command = `git operation="grep" path="src" pattern="q${index}"`;
-    mockResponses.push(`{"action":"git","operation":"grep","pattern":"q${index}","path":"src"}`);
+    mockResponses.push(`{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"q${index}","path":"src"}}`);
     mockCommandResults[command] = { exitCode: 0, stdout: '', stderr: '' };
   }
-  mockResponses.push("{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"forced\",\"path\":\"src\"}");
+  mockResponses.push("{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"forced\",\"path\":\"src\"}}");
   mockResponses.push('{"action":"finish","output":"forced conclusion"}');
   const result = await runTaskLoop(
     {
@@ -1844,11 +1844,11 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"c\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"d\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"e\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"c\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"d\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"e\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1901,8 +1901,8 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -1992,8 +1992,8 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "<think>plan step a</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
-        "<think>plan step b</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
+        "<think>plan step a</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}}",
+        "<think>plan step b</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}}",
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -2035,8 +2035,8 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
         },
       }),
       mockResponses: [
-        "<think>plan step a</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
-        "<think>plan step b</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
+        "<think>plan step a</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}}",
+        "<think>plan step b</think>{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}}",
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -2058,8 +2058,8 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -2113,9 +2113,9 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'edit']),
       mockResponses: [
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
-        '{"action":"edit","path":"target.ts","edits":[{"oldText":"line-2","newText":"line-2-EDITED"}]}',
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
+        "{\"action\":\"tool\",\"toolName\":\"edit\",\"args\":{\"path\":\"target.ts\",\"edits\":[{\"oldText\":\"line-2\",\"newText\":\"line-2-EDITED\"}]}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -2157,9 +2157,9 @@ test('runTaskLoop keeps read history across a typed read-only Git call', async (
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'git']),
       mockResponses: [
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
-        "{\"action\":\"git\",\"operation\":\"status\"}",
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -2204,9 +2204,9 @@ test('runTaskLoop lets a read repeat after run invalidates every window with Exp
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'run']),
       mockResponses: [
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
-        '{"action":"run","command":"npm run lint"}',
-        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
+        "{\"action\":\"tool\",\"toolName\":\"run\",\"args\":{\"command\":\"npm run lint\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"target.ts\",\"offset\":1,\"limit\":3}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],

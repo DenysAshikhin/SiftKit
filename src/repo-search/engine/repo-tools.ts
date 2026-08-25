@@ -307,9 +307,9 @@ export function buildEffectiveTranscriptAction(options: {
   commandToRun: string;
 }): ToolTranscriptAction {
   if (options.toolName === 'read') {
-    return { tool_name: options.toolName, args: parseEffectiveReadArgs(options.commandToRun, options.rawArgs) };
+    return { toolName: options.toolName, args: parseEffectiveReadArgs(options.commandToRun, options.rawArgs) };
   }
-  return { tool_name: options.toolName, args: options.rawArgs };
+  return { toolName: options.toolName, args: options.rawArgs };
 }
 
 /**
@@ -334,9 +334,9 @@ export function buildRejectedTranscriptAction(options: {
     return effective;
   }
   return {
-    tool_name: effective.tool_name,
+    toolName: effective.toolName,
     args: {
-      elided: `rejected ${effective.tool_name} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
+      elided: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
     },
   };
 }

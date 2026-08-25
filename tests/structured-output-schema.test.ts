@@ -14,6 +14,7 @@ import { isJsonObject, type JsonObject, type JsonValue, type OptionalJsonValue }
 const SUMMARY_TOOLS: PlannerToolDefinition[] = [
   {
     type: 'function',
+    exampleArgs: { query: 'needle', mode: 'literal' },
     function: {
       name: 'find_text',
       description: 'find text',
@@ -29,6 +30,7 @@ const SUMMARY_TOOLS: PlannerToolDefinition[] = [
   },
   {
     type: 'function',
+    exampleArgs: { startLine: 1, endLine: 10 },
     function: {
       name: 'read_lines',
       description: 'read lines',
@@ -58,11 +60,13 @@ function requireArray(value: OptionalJsonValue): JsonValue[] {
   return value;
 }
 
-function getActionVariant(schema: JsonObject, action: string): JsonObject {
+function getActionVariant(schema: JsonObject, action: string, toolName?: string): JsonObject {
   for (const candidate of requireArray(schema.anyOf)) {
     const variant = requireObject(candidate);
-    const actionSchema = requireObject(requireObject(variant.properties).action);
-    if (actionSchema.const === action) {
+    const properties = requireObject(variant.properties);
+    const actionSchema = requireObject(properties.action);
+    const toolNameSchema = toolName === undefined ? null : requireObject(properties.toolName);
+    if (actionSchema.const === action && (toolName === undefined || toolNameSchema?.const === toolName)) {
       return variant;
     }
   }
@@ -94,7 +98,9 @@ test('buildSummaryPlannerActionJsonSchema encodes only provided tools', () => {
   assert.match(schemaText, /calls/u);
   assert.match(schemaText, /finish/u);
   assert.doesNotMatch(schemaText, /tool_name/u);
-  assert.doesNotMatch(schemaText, /args/u);
+  assert.match(schemaText, /"action":\{"const":"tool"\}/u);
+  assert.match(schemaText, /"toolName":\{"const":"find_text"\}/u);
+  assert.match(schemaText, /"args":\{"type":"object"/u);
 });
 
 test('buildRepoSearchPlannerActionJsonSchema enforces command args and output-only finish', () => {
@@ -102,6 +108,7 @@ test('buildRepoSearchPlannerActionJsonSchema enforces command args and output-on
     toolDefinitions: [
       {
         type: 'function',
+        exampleArgs: { command: 'npm test' },
         function: {
           name: 'run_repo_cmd',
           description: 'repo command',
@@ -119,7 +126,8 @@ test('buildRepoSearchPlannerActionJsonSchema enforces command args and output-on
   assert.match(schemaText, /command/u);
   assert.doesNotMatch(schemaText, /confidence/u);
   assert.doesNotMatch(schemaText, /tool_name/u);
-  assert.doesNotMatch(schemaText, /args/u);
+  assert.match(schemaText, /"toolName":\{"const":"run_repo_cmd"\}/u);
+  assert.match(schemaText, /"args":\{"type":"object"/u);
   assert.match(schemaText, /"additionalProperties":false/u);
 });
 
@@ -149,8 +157,10 @@ test('planner schemas never emit oneOf at any depth', () => {
 test('planner tool schemas retain canonical optional properties and non-empty batches', () => {
   const tool: PlannerToolDefinition = {
     type: 'function',
+    exampleArgs: { requiredText: 'value' },
     function: {
       name: 'inspect',
+      description: 'inspect values',
       parameters: {
         type: 'object',
         properties: {
@@ -184,22 +194,26 @@ test('planner tool schemas retain canonical optional properties and non-empty ba
   const schema = buildRepoSearchPlannerActionJsonSchema({
     toolDefinitions: [tool],
   });
-  const direct = getActionVariant(schema, 'inspect');
+  const direct = getActionVariant(schema, 'tool', 'inspect');
   const batch = getActionVariant(schema, 'tool_batch');
   const calls = requireObject(requireObject(batch.properties).calls);
+  const directArgs = requireObject(requireObject(direct.properties).args);
 
-  assert.deepEqual(direct.required, ['action', 'requiredText']);
-  assert.deepEqual(requireObject(requireObject(direct.properties).optionalEnum), {
+  assert.deepEqual(direct.required, ['action', 'toolName', 'args']);
+  assert.deepEqual(directArgs.required, ['requiredText']);
+  assert.deepEqual(requireObject(requireObject(directArgs.properties).optionalEnum), {
     type: 'string',
     enum: ['a', 'b'],
   });
-  const optionalObject = requireObject(requireObject(direct.properties).optionalObject);
+  const optionalObject = requireObject(requireObject(directArgs.properties).optionalObject);
   assert.deepEqual(optionalObject.required, ['requiredNested']);
-  const optionalArray = requireObject(requireObject(direct.properties).optionalArray);
+  const optionalArray = requireObject(requireObject(directArgs.properties).optionalArray);
   const item = requireObject(optionalArray.items);
   assert.deepEqual(item.required, ['requiredItem']);
   assert.equal(calls.minItems, 1);
-  assert.deepEqual(calls.items, direct);
+  const batchItem = requireObject(calls.items);
+  assert.deepEqual(batchItem.required, ['toolName', 'args']);
+  assert.equal(requireObject(requireObject(batchItem.properties).toolName).const, 'inspect');
 });
 
 test('multi-tool planner schema unions action variants and tool_batch items with anyOf', () => {

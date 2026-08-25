@@ -5,10 +5,10 @@ import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import {
   buildRepoSearchActionInstructions,
-  buildRepoSearchFinishActionExample,
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
+import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
 import type { IgnorePolicy } from './command-safety.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
@@ -225,6 +225,13 @@ function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: re
     && expectedToolNames.every((toolName) => actual.has(toolName));
 }
 
+const COMPLETION_REVIEW_INSTRUCTION =
+  'Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
+
+function buildActionInstructions(toolNames: readonly string[]): string {
+  return buildRepoSearchActionInstructions(resolveRepoSearchPlannerToolDefinitions(toolNames));
+}
+
 function buildRestrictedToolSystemPrompt(options: {
   role: 'repo-search planner' | 'repository coding agent';
   context: PresetSystemContext;
@@ -235,14 +242,14 @@ function buildRestrictedToolSystemPrompt(options: {
     : 'No repository tools are available for this request; answer only from the supplied context.';
   return [
     `You are a ${options.role}. Return ONE valid JSON object — no markdown fences.`,
-    buildRepoSearchActionInstructions(options.toolNames),
+    buildActionInstructions(options.toolNames),
     '',
     toolStatus,
     options.context.hasRepoFileListing
       ? 'A repository file listing is provided in the system context.'
       : 'No startup repository file listing is available.',
-    'Use progress only for a genuine non-terminal status.',
     'Use finish only when the requested work is complete, with a concise final output.',
+    ...(options.role === 'repository coding agent' ? [COMPLETION_REVIEW_INSTRUCTION] : []),
   ].join('\n');
 }
 
@@ -255,7 +262,7 @@ export function buildTaskSystemPrompt(context: PresetSystemContext, toolNames: r
     : '- A repository file listing is provided in this system message; use it to decide where to look.';
   return [
     'You are a repo-search planner. Return ONE valid JSON object — no markdown fences.',
-    buildRepoSearchActionInstructions(toolNames),
+    buildActionInstructions(toolNames),
     '',
     'Role: repository search agent. Answer the task using concrete repo evidence from tool calls.',
     '',
@@ -294,15 +301,6 @@ export function buildTaskSystemPrompt(context: PresetSystemContext, toolNames: r
     '- grep is case-insensitive unless you pass `ignoreCase:false`, and regex unless you pass `literal:true`.',
     '- grep caps at `limit` matches (default 100); find at 1000; ls at 500. Narrow rather than raising the cap.',
     '',
-    'JSON examples:',
-    '{"action":"grep","pattern":"invokePlannerMode"}',
-    '{"action":"grep","pattern":"buildPlanner","path":"dir/sub","glob":"*.ts","context":2}',
-    '{"action":"find","pattern":"**/*.test.ts"}',
-    '{"action":"ls","path":"dir/sub"}',
-    '{"action":"read","path":"dir/foo.ts","offset":861,"limit":240}',
-    '{"action":"git","operation":"status"}',
-    buildRepoSearchFinishActionExample('dir/foo.ts:42 — definition; dir/bar.ts:120-135 — call site'),
-    '',
     'Forbidden:',
     '- Shell syntax in tool args. `grep`/`find`/`ls`/`read` take structured fields, not command lines — there is no `command` key on them.',
     '- Coverage-first noise; tiny-slice progression on one file; claims of mutation from read-only ops; answers without `file:line` evidence; paths outside the repo root.',
@@ -322,7 +320,7 @@ export function buildAgentSystemPrompt(context: PresetSystemContext, toolNames: 
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
     '',
     'Return ONE valid JSON object per turn — no markdown fences.',
-    buildRepoSearchActionInstructions(toolNames),
+    buildActionInstructions(toolNames),
     '',
     'Available tools:',
     '- read: read a file (line-numbered; use offset/limit for large files).',
@@ -346,7 +344,7 @@ export function buildAgentSystemPrompt(context: PresetSystemContext, toolNames: 
     '- Read a file before editing it; re-read after large edits to confirm the result.',
     '- Use `run` to verify changes (build, tests, lint) whenever a relevant check exists.',
     '- `git` is read-only here; staging and committing are not your job unless the task explicitly asks.',
-    '- Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.',
+    COMPLETION_REVIEW_INSTRUCTION,
     '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
     startupScanLine,
   ].join('\n');

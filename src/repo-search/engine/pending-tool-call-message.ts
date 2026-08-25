@@ -22,7 +22,7 @@ export type ResolvedToolActionIdentity = {
 
 /** Decision-independent identity shared by pending-message construction and validation. */
 export function resolveToolActionIdentity(toolAction: RepoSearchToolAction): ResolvedToolActionIdentity {
-  const normalizedToolName = normalizeToolName(toolAction.tool_name);
+  const normalizedToolName = normalizeToolName(toolAction.toolName);
   const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
   return {
     normalizedToolName,
@@ -41,7 +41,7 @@ export function buildPendingAssistantMessage(options: {
     options.toolActions.map((toolAction, index) => {
       const identity = resolveToolActionIdentity(toolAction);
       return {
-        action: { tool_name: identity.normalizedToolName, args: identity.rawArgs },
+        action: { toolName: identity.normalizedToolName, args: identity.rawArgs },
         toolCallId: buildBatchToolCallId(options.turn, index),
         toolContent: '',
       };

@@ -57,7 +57,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
     verdictRequester: {
       // What the real reviewer returns when the model answers with anything but a verdict.
       requestApprovalVerdict: () => Promise.resolve({
-        text: "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}",
+        text: "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}",
         thinkingText: '',
         mockExhausted: false,
       }),
@@ -160,7 +160,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      '{"action":"write","path":"out.txt","content":"hello"}',
+      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
       '{"verdict":"approve","reason":"task-scoped write"}',
       '{"action":"finish","output":"wrote it"}',
     ], writer, gate, logger));
@@ -191,7 +191,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      '{"action":"write","path":"out.txt","content":"hello"}',
+      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
       '{"verdict":"deny","reason":"not needed for the task"}',
       '{"action":"finish","output":"gave up"}',
     ], writer, gate));
@@ -214,7 +214,7 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      '{"action":"write","path":"out.txt","content":"hello"}',
+      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
       '{"verdict":"unsure","reason":"cannot judge scope"}',
       '{"action":"finish","output":"wrote it"}',
     ], writer, gate));
@@ -236,10 +236,10 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
 });
 
 for (const testCase of [
-  { toolName: 'read', action: '{"action":"read","path":"a.txt"}' },
-  { toolName: 'grep', action: '{"action":"grep","pattern":"content-a","path":"a.txt","literal":true}' },
-  { toolName: 'find', action: '{"action":"find","pattern":"a.txt","path":"."}' },
-  { toolName: 'ls', action: '{"action":"ls","path":"."}' },
+  { toolName: 'read', action: "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.txt\"}}" },
+  { toolName: 'grep', action: "{\"action\":\"tool\",\"toolName\":\"grep\",\"args\":{\"pattern\":\"content-a\",\"path\":\"a.txt\",\"literal\":true}}" },
+  { toolName: 'find', action: "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"a.txt\",\"path\":\".\"}}" },
+  { toolName: 'ls', action: "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{\"path\":\".\"}}" },
 ]) {
   test(`auto mode: ${testCase.toolName} fast-paths silently, spending neither a verdict call nor a log line`, async () => {
     const tempRoot = createManagedTempDir('siftkit-llm-auto-fastpath-');
@@ -276,7 +276,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
     const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
-      '{"action":"write","path":"out.txt","content":"hello"}',
+      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}",
       'not json at all',
       '{"verdict":"maybe","reason":"bad enum"}',
       '{"action":"finish","output":"wrote it"}',
@@ -336,9 +336,9 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         plannerBodies.push(parsed);
         plannerCalls += 1;
         const content = plannerCalls === 1
-          ? '{"action":"read","path":"a.txt"}'
+          ? "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.txt\"}}"
           : plannerCalls === 2
-            ? '{"action":"write","path":"out.txt","content":"hello"}'
+            ? "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"out.txt\",\"content\":\"hello\"}}"
             : '{"action":"finish","output":"wrote it"}';
         sendChatCompletionSse(res, completionBody(content, `thought-${plannerCalls}`));
         return;

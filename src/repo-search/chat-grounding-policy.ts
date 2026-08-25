@@ -166,7 +166,7 @@ export class ChatGroundingPolicy {
     return [
       'Do not answer from search snippets.',
       'You ran web_search but have not successfully fetched a source page.',
-      `Use {"action":"tool","tool_name":"web_fetch","args":{"url":"${bestUrl}"}} before answering, or run a different web_search if the results were poor.`,
+      `Use {"action":"tool","toolName":"web_fetch","args":{"url":"${bestUrl}"}} before answering, or run a different web_search if the results were poor.`,
       `Recommended fetch: web_fetch url="${bestUrl}".`,
       'If fetching is impossible after the retry budget, answer only with the limitation that fetched evidence was unavailable.',
     ].join(' ');

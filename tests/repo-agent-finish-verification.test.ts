@@ -34,7 +34,7 @@ test('repo-agent finish is challenged once and accepted when the model doubles d
       minToolCallsBeforeFinish: 0,
       maxTurns: 6,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"planner","path":"src"}}',
         '{"action":"finish","output":"done"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
@@ -62,11 +62,11 @@ test('repo-agent model may back down twice; the third finish is forced done', as
       minToolCallsBeforeFinish: 0,
       maxTurns: 10,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"planner","path":"src"}}',
         '{"action":"finish","output":"v1"}',
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"budget\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"budget","path":"src"}}',
         '{"action":"finish","output":"v2"}',
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"tokens\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"tokens","path":"src"}}',
         '{"action":"finish","output":"v3"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -96,7 +96,7 @@ test('repo-search loop finishes are never challenged', async () => {
       maxTurns: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"planner","path":"src"}}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -126,7 +126,11 @@ test('finish during forced-finish mode bypasses the verification gate', async ()
       minToolCallsBeforeFinish: 0,
       maxTurns: 15,
       mockResponses: [
-        ...patterns.map((pattern) => JSON.stringify({ action: 'git', operation: 'grep', pattern, path: 'src' })),
+        ...patterns.map((pattern) => JSON.stringify({
+          action: 'tool',
+          toolName: 'git',
+          args: { operation: 'grep', pattern, path: 'src' },
+        })),
         '{"action":"finish","output":"nothing found"}',
         '{"verdict":"pass","reason":"supported"}',
       ],

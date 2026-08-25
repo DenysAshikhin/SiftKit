@@ -362,8 +362,8 @@ export class ToolActionProcessor {
     const identity = resolveToolActionIdentity(toolAction);
     const { normalizedToolName, isNativeTool } = identity;
     if (!isNativeTool) {
-      const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
-      return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.tool_name || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
+      const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.toolName}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
+      return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.toolName || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
     }
     if (!this.deps.allowedPlannerToolNames.includes(normalizedToolName)) {
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
@@ -468,7 +468,7 @@ export class ToolActionProcessor {
       output: message,
     });
     state.batchOutcomes.push({
-      action: { tool_name: displayToolName, args: toolAction.args },
+      action: { toolName: displayToolName, args: toolAction.args },
       toolCallId: buildBatchToolCallId(turn, state.batchIndex),
       toolContent: message,
     });

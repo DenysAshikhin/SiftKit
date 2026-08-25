@@ -159,6 +159,29 @@ test('start completed prints one result object and exits zero', async () => {
   assert.equal(capture.stderr.read(), '');
 });
 
+test('start failed preserves terminal output and exits non-zero', async () => {
+  const harness = makeCommand({
+    status: 'failed',
+    runId: RUN_ID,
+    error: 'invalid_response_limit',
+    output: 'best-effort terminal synthesis',
+  });
+  const capture = makeStreams();
+
+  const code = await harness.command.run(
+    parseRepoAgentInvocation(['implement it']),
+    capture.streams,
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(parseSingleResult(capture.stdout), {
+    status: 'failed',
+    runId: RUN_ID,
+    error: 'invalid_response_limit',
+    output: 'best-effort terminal synthesis',
+  });
+});
+
 test('start approval_required prints the resume banner and exits three', async () => {
   const result: RepoAgentRunResult = {
     status: 'approval_required',

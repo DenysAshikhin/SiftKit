@@ -13,7 +13,7 @@ test('the verdict prompt shares P + A with the next planner request', () => {
     { role: 'user' as const, content: 'task' },
   ];
   const assistant = buildAssistantToolCallMessage([{
-    action: { tool_name: 'write', args: { path: 'a.ts', content: 'x'.repeat(4096) } },
+    action: { toolName: 'write', args: { path: 'a.ts', content: 'x'.repeat(4096) } },
     toolCallId: 't1_c0',
     toolContent: '',
   }]);

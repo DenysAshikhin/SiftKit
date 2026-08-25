@@ -1,8 +1,17 @@
 import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
-import { buildPlannerActionJsonSchema, type PlannerToolDefinition } from './json-schema.js';
-import { parsePlannerToolAction, parsePlannerToolBatchAction } from './parser.js';
 import { RepoNativeToolCallSchema } from '../repo-search/repo-tool-arguments.js';
+import {
+  buildPlannerActionJsonSchema,
+  buildPlannerToolActionExample,
+  type PlannerToolDefinition,
+} from './json-schema.js';
+import {
+  parsePlannerToolAction,
+  parsePlannerToolBatchAction,
+  PlannerToolActionEnvelopeSchema,
+  PlannerToolBatchEnvelopeSchema,
+} from './parser.js';
 
 const NonEmptyOutputSchema = z.string().trim().min(1);
 
@@ -24,16 +33,8 @@ export const RepoSearchNonToolActionSchema = z.union([
 export type RepoSearchProgressAction = z.infer<typeof RepoSearchProgressActionSchema>;
 export type RepoSearchFinishAction = z.infer<typeof RepoSearchFinishActionSchema>;
 
-export const RepoSearchToolActionSchema = z.strictObject({
-  action: z.literal('tool'),
-  tool_name: z.string().trim().min(1),
-  args: JsonObjectSchema,
-});
-
-export const RepoSearchToolBatchActionSchema = z.strictObject({
-  action: z.literal('tool_batch'),
-  tool_calls: z.array(RepoSearchToolActionSchema.omit({ action: true })).min(1),
-});
+export const RepoSearchToolActionSchema = PlannerToolActionEnvelopeSchema;
+export const RepoSearchToolBatchActionSchema = PlannerToolBatchEnvelopeSchema;
 
 export const RepoSearchPlannerActionSchema = z.union([
   RepoSearchToolActionSchema,
@@ -54,6 +55,7 @@ export const INTERACTIVE_REPO_TOOL_NAMES = [...EXPOSED_REPO_TOOL_NAMES, 'write',
 
 export type RepoSearchPlannerProtocol = {
   actionNames: string[];
+  toolNames: string[];
   actionInstructions: string;
   jsonSchema: JsonObject;
 };
@@ -62,8 +64,8 @@ const REPO_SEARCH_NON_TOOL_ACTIONS = [
   {
     action: 'progress',
     schema: RepoSearchProgressActionSchema,
-    description: 'Record a non-terminal one-line status; the run continues with the next action',
-    example: '{"action":"progress","output":"scanning scripts next"}',
+    description: 'Progress is optional. Use it sparingly, only for a meaningful phase change or a checkpoint after substantial work. Do not narrate routine next steps.',
+    example: '{"action":"progress","output":"RED test confirmed; implementing the minimum fix now"}',
   },
   {
     action: 'finish',
@@ -74,7 +76,7 @@ const REPO_SEARCH_NON_TOOL_ACTIONS = [
 ] as const;
 
 const TOOL_BATCH_INSTRUCTION =
-  'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of direct tool actions.';
+  'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of {"toolName":"<tool>","args":{...}} entries.';
 
 export function buildRepoSearchFinishActionExample(output: string): string {
   return JSON.stringify(RepoSearchFinishActionSchema.parse({ action: 'finish', output }));
@@ -88,11 +90,19 @@ export function getRepoSearchNonToolActionJsonSchemas(): JsonObject[] {
   return REPO_SEARCH_NON_TOOL_ACTIONS.map(({ schema }) => toJsonSchema(schema));
 }
 
-export function buildRepoSearchActionInstructions(toolNames: readonly string[]): string {
-  const directTools = toolNames.length > 0 ? toolNames.join(', ') : '(none)';
+export function buildRepoSearchActionInstructions(toolDefinitions: readonly PlannerToolDefinition[]): string {
+  const toolNames = toolDefinitions.map((tool) => tool.function.name);
+  const exampleCalls = toolDefinitions.map((tool) => `Example ${tool.function.name}: ${buildPlannerToolActionExample(tool)}`);
+  const batchTools = toolDefinitions.slice(0, 2);
+  const batchExample = JSON.stringify({
+    action: 'tool_batch',
+    calls: batchTools.map((tool) => ({ toolName: tool.function.name, args: tool.exampleArgs })),
+  });
   const toolInstructions = toolNames.length > 0 ? [
-    `Tool: {"action":"<tool>", ...args}. Allowed tools: ${directTools}.`,
+    `Tool: {"action":"tool","toolName":"<tool>","args":{...}}. Allowed tools: ${toolNames.join(', ')}.`,
+    ...exampleCalls,
     TOOL_BATCH_INSTRUCTION,
+    `Batch example: ${batchExample}`,
   ] : [];
   return [
     ...toolInstructions,
@@ -107,13 +117,28 @@ export function buildRepoSearchPlannerProtocol(
   const nonToolActionJsonSchemas = getRepoSearchNonToolActionJsonSchemas();
   return {
     actionNames: [
-      ...toolNames,
-      ...(toolNames.length > 0 ? ['tool_batch'] : []),
+      ...(toolNames.length > 0 ? ['tool', 'tool_batch'] : []),
       ...REPO_SEARCH_NON_TOOL_ACTIONS.map(({ action }) => action),
     ],
-    actionInstructions: buildRepoSearchActionInstructions(toolNames),
+    toolNames,
+    actionInstructions: buildRepoSearchActionInstructions(toolDefinitions),
     jsonSchema: buildPlannerActionJsonSchema(toolDefinitions, nonToolActionJsonSchemas),
   };
+}
+
+function validateRepoToolAction(toolName: string, args: JsonObject): RepoSearchToolAction {
+  const nativeCall = RepoNativeToolCallSchema.safeParse({ toolName, args });
+  if (!nativeCall.success) {
+    const issue = nativeCall.error.issues[0];
+    const issuePath = issue?.path.map(String).join('.') || 'args';
+    const issueMessage = issue?.message.replace(/[.\s]+$/u, '') || 'schema validation failed';
+    throw new Error(`"${toolName}" has invalid "${issuePath}": ${issueMessage}`);
+  }
+  return RepoSearchToolActionSchema.parse({
+    action: 'tool',
+    toolName: nativeCall.data.toolName,
+    args: nativeCall.data.args,
+  });
 }
 
 export function parseRepoSearchPlannerAction(
@@ -131,40 +156,23 @@ export function parseRepoSearchPlannerAction(
     return result.data;
   }
 
-  const normalizeTool = (toolName: string, args: JsonObject): RepoSearchToolAction => {
-    const nativeCall = RepoNativeToolCallSchema.safeParse({ toolName, args });
-    if (!nativeCall.success) {
-      const issue = nativeCall.error.issues[0];
-      const issuePath = issue?.path.map(String).join('.') || 'args';
-      const issueMessage = issue?.message.replace(/[.\s]+$/u, '') || 'schema validation failed';
-      throw new Error(`"${toolName}" has invalid "${issuePath}": ${issueMessage}`);
-    }
-    return RepoSearchToolActionSchema.parse({
-      action: 'tool',
-      tool_name: nativeCall.data.toolName,
-      args: nativeCall.data.args,
-    });
-  };
-
   if (action === 'tool_batch') {
-    const toolCalls = parsePlannerToolBatchAction(parsed, toolDefinitions).map(({ toolName, args }, index) => {
+    const calls = parsePlannerToolBatchAction(parsed, toolDefinitions).map(({ toolName, args }, index) => {
       try {
-        return normalizeTool(toolName, args);
+        const validated = validateRepoToolAction(toolName, args);
+        return { toolName: validated.toolName, args: validated.args };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Provider returned an invalid planner tool batch action: call ${index + 1} — ${message}`);
       }
     });
-    return RepoSearchToolBatchActionSchema.parse({
-      action: 'tool_batch',
-      tool_calls: toolCalls.map(({ tool_name, args }) => ({ tool_name, args })),
-    });
+    return RepoSearchToolBatchActionSchema.parse({ action: 'tool_batch', calls });
   }
 
   const direct = parsePlannerToolAction(parsed, toolDefinitions);
   if (direct) {
     try {
-      return normalizeTool(direct.toolName, direct.args);
+      return validateRepoToolAction(direct.toolName, direct.args);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Provider returned an invalid planner tool action: ${message}`);

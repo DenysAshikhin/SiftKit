@@ -27,7 +27,7 @@ test('summary-family request whose marker matches the active agent run is reject
       approval: 'off',
       availableModels: ['mock-model'],
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"x","path":"src"}}',
         '{\"action\":\"finish\",\"output\":\"done\"}',
       ],
       mockCommandResults: {

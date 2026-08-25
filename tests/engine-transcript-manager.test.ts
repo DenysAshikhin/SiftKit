@@ -46,7 +46,7 @@ test('replaceWith swaps content and resets the logging cursor', () => {
 test('appendBatchExchange appends assistant tool_calls + tool results and returns pre-append length', () => {
   const transcript = makeTranscript();
   const preAppendLength = transcript.appendBatchExchange(
-    [{ action: { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
+    [{ action: { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
     'thinking-text',
   );
   assert.equal(preAppendLength, 4);
@@ -61,7 +61,7 @@ test('pruneThinking keeps only the latest assistant reasoning_content when per-s
   const transcript = makeTranscript();
   transcript.pushAssistant({ role: 'assistant', content: 'first', reasoning_content: 'think one' });
   transcript.appendBatchExchange(
-    [{ action: { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
+    [{ action: { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
     'think two',
   );
   transcript.pushAssistant({ role: 'assistant', content: 'final', reasoning_content: 'final think' });
@@ -76,7 +76,7 @@ test('pruneThinking keeps only the latest assistant reasoning_content when per-s
 test('appendToolExchange and explicit push helpers append transcript messages', () => {
   const transcript = makeTranscript();
   transcript.appendToolExchange(
-    { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } },
+    { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } },
     'call_1',
     'result-text',
     'thinking-text',
@@ -131,7 +131,7 @@ test('TranscriptManager keeps a plain string when there are no images', () => {
 test('replaceToolMessage overwrites in place preserving tool_call_id', () => {
   const transcript = makeTranscript();
   transcript.appendBatchExchange(
-    [{ action: { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'original' }],
+    [{ action: { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'original' }],
     '',
   );
   transcript.replaceToolMessage(5, 'duplicate command requested x2');

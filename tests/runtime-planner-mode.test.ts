@@ -43,7 +43,7 @@ interface PlannerDebugEvent {
   command?: string;
   error?: JsonValue;
   thinkingProcess?: JsonValue;
-  toolCall?: { tool_name?: string };
+  toolCall?: { toolName?: string };
   output?: { text?: string; matchedCount?: number };
 }
 
@@ -138,12 +138,10 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: { gte: 3200, lte: 3215 } },
                 { path: 'from.worldY', op: 'gte', value: { gte: 3210, lte: 3225 } },
-              ],
-              select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
-              limit: 100, });
+              ], select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'], limit: 100 } });
         }
 
         return JSON.stringify({
@@ -200,8 +198,7 @@ test('planner iteration running=false notification is fire-and-forget', async ()
       delayNonTerminalStatusFalseMs: 1500,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }],
-              limit: 1, });
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }], limit: 1 } });
         }
 
         return JSON.stringify({
@@ -237,23 +234,21 @@ test('planner retries malformed json_filter schema-placeholder args once and the
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
                 { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
                 { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
                 { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
-              ],
-              limit: 100, });
+              ], limit: 100 } });
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3228 },
                 { path: 'from.worldX', op: 'lte', value: 3230 },
                 { path: 'from.worldY', op: 'gte', value: 3210 },
                 { path: 'from.worldY', op: 'lte', value: 3215 },
-              ],
-              limit: 100, });
+              ], limit: 100 } });
         }
 
         return JSON.stringify({
@@ -300,11 +295,9 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'groupId', op: 'eq', value: { value: 12 } },
-              ],
-              select: ['id', 'groupId', 'childIndex', 'text'],
-              limit: 100, });
+              ], select: ['id', 'groupId', 'childIndex', 'text'], limit: 100 } });
         }
 
         return JSON.stringify({
@@ -358,13 +351,12 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
       );
     }, {
       assistantContent() {
-        return JSON.stringify({ action: 'json_filter', filters: [
+        return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
               { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
               { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
               { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
               { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
-            ],
-            limit: 100, });
+            ], limit: 100 } });
       },
     });
 
@@ -403,13 +395,10 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', collectionPath: 'states',
-              filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { collectionPath: 'states', filters: [
                 { path: 'timestamp', op: 'gte', value: '2026-03-30T18:40:00Z' },
                 { path: 'timestamp', op: 'lte', value: '2026-03-30T18:50:00Z' },
-              ],
-              select: ['timestamp', 'lifecycle_state', 'bridge_state', 'scenario_id', 'step_id', 'state_json'],
-              limit: 10, });
+              ], select: ['timestamp', 'lifecycle_state', 'bridge_state', 'scenario_id', 'step_id', 'state_json'], limit: 10 } });
         }
 
         return JSON.stringify({
@@ -468,9 +457,7 @@ test('planner returns recoverable json_filter collectionPath guidance without co
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [{ path: 'id', op: 'exists' }],
-              select: ['id', 'name'],
-              limit: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'id', op: 'exists' }], select: ['id', 'name'], limit: 5 } });
         }
 
         return JSON.stringify({
@@ -543,10 +530,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', collectionPath: 'testResults',
-              filters: [{ path: 'name', op: 'exists' }],
-              select: ['name', 'perfStats.runtime', 'status'],
-              limit: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { collectionPath: 'testResults', filters: [{ path: 'name', op: 'exists' }], select: ['name', 'perfStats.runtime', 'status'], limit: 5 } });
         }
 
         return JSON.stringify({
@@ -614,9 +598,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [{ path: 'name', op: 'exists' }],
-              select: ['name'],
-              limit: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'name', op: 'exists' }], select: ['name'], limit: 5 } });
         }
 
         return JSON.stringify({
@@ -816,8 +798,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 2,
-              endLine: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
         }
 
         return JSON.stringify({
@@ -862,12 +843,10 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 2,
-              endLine: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
         }
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'read_lines', startLine: 6,
-              endLine: 9, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 6, endLine: 9 } });
         }
         return JSON.stringify({
           action: 'finish',
@@ -880,7 +859,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
 
     const debugDump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
     assert.equal(
-      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_semantic_repeat' && event.toolCall?.tool_name === 'read_lines'),
+      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_semantic_repeat' && event.toolCall?.toolName === 'read_lines'),
       true,
     );
   });
@@ -936,24 +915,19 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
     }, {
       assistantContent(_promptText, _parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_ALPHA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
         }
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_ALPHA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
         }
         if (requestIndex === 3) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_ALPHA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
         }
         if (requestIndex === 4) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_ALPHA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
         }
         if (requestIndex === 5) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_ALPHA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_ALPHA', mode: 'literal' } });
         }
         return JSON.stringify({
           action: 'finish',
@@ -995,19 +969,14 @@ test('planner find_text and json_filter results use compact text blocks in promp
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'find_text', query: 'Lumbridge Castle',
-              mode: 'literal',
-              maxHits: 2,
-              contextLines: 1, });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'Lumbridge Castle', mode: 'literal', maxHits: 2, contextLines: 1 } });
         }
 
         if (requestIndex === 2) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ],
-              select: ['id', 'label', 'from', 'to', 'bidirectional'],
-              limit: 5, });
+              ], select: ['id', 'label', 'from', 'to', 'bidirectional'], limit: 5 } });
         }
 
         return JSON.stringify({
@@ -1109,8 +1078,7 @@ test('planner keeps short read_lines output when reported token count is high', 
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 2,
-              endLine: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
         }
 
         if (requestIndex === 2) {
@@ -1164,8 +1132,7 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 2,
-              endLine: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 2, endLine: 5 } });
         }
 
         if (requestIndex === 2) {
@@ -1222,8 +1189,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 1,
-              endLine: 4000, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
         }
 
         if (requestIndex === 2) {
@@ -1281,8 +1247,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'read_lines', startLine: 1,
-              endLine: 4000, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
         }
 
         if (requestIndex === 2) {
@@ -1335,8 +1300,7 @@ test('planner advances repeated read_lines calls to one unread span', async () =
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 2) {
-          return JSON.stringify({ action: 'read_lines', startLine: 1,
-              endLine: 5, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 5 } });
         }
 
         if (requestIndex === 3) {
@@ -1398,8 +1362,7 @@ test('planner advances repeated read_lines calls from fitted returned lines only
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 2) {
-          return JSON.stringify({ action: 'read_lines', startLine: 1,
-              endLine: 4000, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
         }
 
         if (requestIndex === 3) {
@@ -1445,13 +1408,11 @@ test('planner forced finish rejects read_lines before unread expansion', async (
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex >= 1 && requestIndex <= 5) {
-          return JSON.stringify({ action: 'find_text', query: 'NO_MATCH_BETA',
-              mode: 'literal', });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'NO_MATCH_BETA', mode: 'literal' } });
         }
 
         if (requestIndex === 6) {
-          return JSON.stringify({ action: 'read_lines', startLine: 1,
-              endLine: 4000, });
+          return JSON.stringify({ action: 'tool', toolName: 'read_lines', args: { startLine: 1, endLine: 4000 } });
         }
 
         if (requestIndex === 7) {
@@ -1511,9 +1472,7 @@ test('planner fits oversized find_text output and reports omitted results', asyn
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'find_text', query: 'needle',
-              mode: 'literal',
-              maxHits: 400, });
+          return JSON.stringify({ action: 'tool', toolName: 'find_text', args: { query: 'needle', mode: 'literal', maxHits: 400 } });
         }
 
         if (requestIndex === 2) {
@@ -1610,9 +1569,11 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex <= 30) {
           toolCallCount += 1;
-          return JSON.stringify({ action: toolCallCount % 2 === 0 ? 'read_lines' : 'find_text', ...(toolCallCount % 2 === 0
-              ? { startLine: toolCallCount, endLine: toolCallCount + 4 }
-              : { query: 'Lumbridge Castle', mode: 'literal', maxHits: 5 }) });
+          const toolName = toolCallCount % 2 === 0 ? 'read_lines' : 'find_text';
+          const args = toolCallCount % 2 === 0
+            ? { startLine: toolCallCount, endLine: toolCallCount + 4 }
+            : { query: 'Lumbridge Castle', mode: 'literal', maxHits: 5 };
+          return JSON.stringify({ action: 'tool', toolName, args });
         }
 
         if (requestIndex === 31) {
@@ -1677,12 +1638,10 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
       omitUsage: true,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 3) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ],
-              select: ['id', 'label', 'from', 'to'],
-              limit: 5, });
+              ], select: ['id', 'label', 'from', 'to'], limit: 5 } });
         }
 
         if (requestIndex === 2 || requestIndex === 4) {
@@ -1738,12 +1697,10 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
       assistantContent(promptText, parsed, requestIndex) {
         if (!servedPlannerToolCall) {
           servedPlannerToolCall = true;
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ],
-              select: ['id', 'label', 'from', 'to'],
-              limit: 20, });
+              ], select: ['id', 'label', 'from', 'to'], limit: 20 } });
         }
 
         throw new Error(`unexpected fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
@@ -1789,12 +1746,10 @@ test('planner fails fast when the next planner turn would exceed thinking headro
       assistantContent(promptText, parsed, requestIndex) {
         if (!servedPlannerToolCall) {
           servedPlannerToolCall = true;
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldY', op: 'gte', value: 3210 },
                 { path: 'from.worldY', op: 'lte', value: 3225 },
-              ],
-              select: ['id', 'label', 'from', 'to'],
-              limit: 20, });
+              ], select: ['id', 'label', 'from', 'to'], limit: 20 } });
         }
 
         throw new Error(`unexpected thinking fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);

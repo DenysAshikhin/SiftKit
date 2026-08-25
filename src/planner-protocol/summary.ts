@@ -1,7 +1,16 @@
 import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
-import { buildPlannerActionJsonSchema, type PlannerToolDefinition } from './json-schema.js';
-import { parsePlannerToolAction, parsePlannerToolBatchAction } from './parser.js';
+import {
+  buildPlannerActionJsonSchema,
+  buildPlannerToolActionExample,
+  type PlannerToolDefinition,
+} from './json-schema.js';
+import {
+  parsePlannerToolAction,
+  parsePlannerToolBatchAction,
+  PlannerBatchCallSchema,
+  PlannerToolActionEnvelopeSchema,
+} from './parser.js';
 
 export const SummaryClassificationSchema = z.enum([
   'summary',
@@ -34,15 +43,13 @@ export const SUMMARY_PLANNER_TOOL_NAMES = [...DEFAULT_SUMMARY_PLANNER_TOOL_NAMES
 export const SummaryPlannerToolNameSchema = z.enum(SUMMARY_PLANNER_TOOL_NAMES);
 export type SummaryPlannerToolName = z.infer<typeof SummaryPlannerToolNameSchema>;
 
-export const SummaryPlannerToolCallSchema = z.strictObject({
-  action: z.literal('tool'),
-  tool_name: SummaryPlannerToolNameSchema,
-  args: JsonObjectSchema,
+export const SummaryPlannerToolCallSchema = PlannerToolActionEnvelopeSchema.extend({
+  toolName: SummaryPlannerToolNameSchema,
 });
 
 export const SummaryPlannerToolBatchActionSchema = z.strictObject({
   action: z.literal('tool_batch'),
-  tool_calls: z.array(SummaryPlannerToolCallSchema.omit({ action: true })).min(1),
+  calls: z.array(PlannerBatchCallSchema.extend({ toolName: SummaryPlannerToolNameSchema })).min(1),
 });
 
 export const NormalizedSummaryPlannerFinishActionSchema = z.strictObject({
@@ -74,6 +81,7 @@ export function buildSummaryPlannerFinishActionExample(output: string): string {
 
 export type SummaryPlannerProtocol = {
   actionNames: string[];
+  toolNames: string[];
   actionInstructions: string;
   finishSchema: typeof SummaryPlannerFinishActionSchema | typeof SupportedSummaryPlannerFinishActionSchema;
   finishJsonSchema: JsonObject;
@@ -95,21 +103,27 @@ export function buildSummaryPlannerProtocol(
   };
   const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
   const actionNames = [
-    ...toolNames,
-    ...(toolNames.length > 0 ? ['tool_batch'] : []),
+    ...(toolNames.length > 0 ? ['tool', 'tool_batch'] : []),
     finishAction.action,
   ];
   const classification = allowUnsupportedInput
     ? 'summary|command_failure|unsupported_input'
     : 'summary|command_failure';
-  const directTools = toolNames.length > 0 ? toolNames.join('|') : '(none)';
   const finishJsonSchema = JsonObjectSchema.parse(z.toJSONSchema(finishAction.schema, { io: 'input' }));
+  const batchTools = toolDefinitions.slice(0, 2);
+  const batchExample = JSON.stringify({
+    action: 'tool_batch',
+    calls: batchTools.map((tool) => ({ toolName: tool.function.name, args: tool.exampleArgs })),
+  });
   const toolInstructions = toolNames.length > 0 ? [
-    `Tool: {"action":"${directTools}", ...tool_arguments}`,
-    'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of direct tool actions.',
+    `Tool: {"action":"tool","toolName":"<tool>","args":{...}}. Allowed tools: ${toolNames.join('|')}.`,
+    ...toolDefinitions.map((tool) => `Example ${tool.function.name}: ${buildPlannerToolActionExample(tool)}`),
+    'Batch independent tool calls with action "tool_batch" and a non-empty "calls" array of {"toolName":"<tool>","args":{...}} entries.',
+    `Batch example: ${batchExample}`,
   ] : [];
   return {
     actionNames,
+    toolNames,
     finishSchema,
     finishJsonSchema,
     jsonSchema: buildPlannerActionJsonSchema(toolDefinitions, [finishJsonSchema]),
@@ -139,17 +153,17 @@ export function parseSummaryPlannerAction(
     });
   }
   if (action === 'tool_batch') {
-    const toolCalls = parsePlannerToolBatchAction(parsed, toolDefinitions).map(({ toolName, args }) => ({
-      tool_name: SummaryPlannerToolNameSchema.parse(toolName),
+    const calls = parsePlannerToolBatchAction(parsed, toolDefinitions).map(({ toolName, args }) => ({
+      toolName: SummaryPlannerToolNameSchema.parse(toolName),
       args,
     }));
-    return SummaryPlannerToolBatchActionSchema.parse({ action: 'tool_batch', tool_calls: toolCalls });
+    return SummaryPlannerToolBatchActionSchema.parse({ action: 'tool_batch', calls });
   }
   const direct = parsePlannerToolAction(parsed, toolDefinitions);
   if (direct) {
     return SummaryPlannerToolCallSchema.parse({
       action: 'tool',
-      tool_name: direct.toolName,
+      toolName: SummaryPlannerToolNameSchema.parse(direct.toolName),
       args: direct.args,
     });
   }

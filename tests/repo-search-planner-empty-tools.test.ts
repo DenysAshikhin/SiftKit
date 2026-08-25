@@ -78,8 +78,10 @@ test('planner prompt reserve mirrors backend-specific schema lowering', () => {
   });
 
   assert.match(llamaText, /"minItems":1/u);
-  assert.match(llamaText, /"required":\["action","pattern"\]/u);
+  assert.match(llamaText, /"required":\["action","toolName","args"\]/u);
+  assert.match(llamaText, /"required":\["pattern"\]/u);
   assert.doesNotMatch(exl3Text, /"minItems"/u);
   assert.match(exl3Text, /"path":\{"anyOf":\[\{"type":"string","description":/u);
-  assert.match(exl3Text, /"required":\["action","pattern","path","glob","ignoreCase","literal","context","limit"\]/u);
+  assert.match(exl3Text, /"required":\["action","toolName","args"\]/u);
+  assert.match(exl3Text, /"required":\["pattern","path","glob","ignoreCase","literal","context","limit"\]/u);
 });

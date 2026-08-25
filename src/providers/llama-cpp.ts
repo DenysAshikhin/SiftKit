@@ -78,7 +78,7 @@ export type LlamaCppStructuredOutput =
   | { kind: 'siftkit-planner-action-json'; tools?: PlannerToolDefinition[]; allowUnsupportedInput?: boolean };
 
 type PlannerStructuredToolCall = {
-  tool_name: string;
+  toolName: string;
   args: JsonObject;
 };
 
@@ -224,7 +224,7 @@ function parseStructuredPlannerToolCall(toolCall: LlamaCppToolCall | null | unde
     return null;
   }
   return {
-    tool_name: toolName,
+    toolName,
     args,
   };
 }
@@ -247,16 +247,17 @@ function getStructuredToolCallText(
 
   if (parsedToolCalls.length === 1) {
     return JSON.stringify({
-      action: parsedToolCalls[0].tool_name,
-      ...parsedToolCalls[0].args,
+      action: 'tool',
+      toolName: parsedToolCalls[0].toolName,
+      args: parsedToolCalls[0].args,
     });
   }
 
   return JSON.stringify({
     action: 'tool_batch',
     calls: parsedToolCalls.map((toolCall) => ({
-      action: toolCall.tool_name,
-      ...toolCall.args,
+      toolName: toolCall.toolName,
+      args: toolCall.args,
     })),
   });
 }

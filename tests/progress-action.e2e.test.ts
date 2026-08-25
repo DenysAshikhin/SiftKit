@@ -21,7 +21,7 @@ test('a progress action emits a progress_update event and the run continues to f
       progressWriter,
       mockResponses: [
         '{"action":"progress","output":"scanning scripts next"}',
-        "{\"action\":\"git\",\"operation\":\"status\"}",
+        '{"action":"tool","toolName":"git","args":{"operation":"status"}}',
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {

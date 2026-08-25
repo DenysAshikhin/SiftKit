@@ -15,6 +15,8 @@ import {
   buildSummaryPlannerProtocol,
   type SummaryPlannerToolCall as PlannerToolCall,
 } from '../../planner-protocol/summary.js';
+import { buildPlannerToolActionExample } from '../../planner-protocol/json-schema.js';
+import { buildPlannerToolDefinitions } from './tools.js';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the
@@ -98,7 +100,7 @@ export function buildPlannerSystemPrompt(options: {
     '- If the document profile or current tool results are already sufficient, finish immediately.',
     '- When multiple independent tool calls are genuinely useful, you may request them in the same response.',
     '- Return only a valid JSON object. No markdown fences.',
-    '- For tool calls, put the tool name directly in action and put tool arguments at the top level.',
+    '- For tool calls, use action "tool", put the allowed name in toolName, and put all tool arguments inside args.',
     '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
     '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
     '- When the document profile shows top_level=object with object_array_paths=..., use collectionPath to target that array and filter item fields relative to each array element.',
@@ -109,15 +111,6 @@ export function buildPlannerSystemPrompt(options: {
     '',
     'Available actions:',
     plannerProtocol.actionInstructions,
-    '',
-    'Example tool calls:',
-    '{"action":"find_text","query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}',
-    '{"action":"read_lines","startLine":1340,"endLine":1405}',
-    '{"action":"json_get","path":"states.0.state_json.steps.1.status"}',
-    'Bad read_lines progression example: {"action":"read_lines","startLine":1340,"endLine":1379} then {"action":"read_lines","startLine":1380,"endLine":1419}',
-    'Bad json_filter example: {"action":"json_filter","filters":[{"path":"from.worldX","op":"gte","value":{"gte":3200,"lte":3215}}]}',
-    '{"action":"json_filter","collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100}',
-    '{"action":"json_filter","filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215},{"path":"from.worldY","op":"gte","value":3210},{"path":"from.worldY","op":"lte","value":3225}],"select":["id","label","type","from","to","bidirectional"],"limit":20}',
     '',
     'Source handling:',
     getSourceInstructions(options.sourceKind, options.commandExitCode),
@@ -153,13 +146,14 @@ export function buildPlannerInputSection(options: {
 }
 
 export function buildPlannerInvalidResponseUserPrompt(message: string): string {
+  const examples = buildPlannerToolDefinitions(['find_text', 'read_lines'])
+    .map(buildPlannerToolActionExample);
   return [
     `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,
     'Reply with exactly one JSON object and nothing else — no markdown fences, no commentary.',
-    'Put the action name in "action" and tool arguments at the top level, using concrete literal values.',
+    'Use action "tool", put the allowed tool name in "toolName", and put concrete literal arguments inside "args".',
     'Valid examples:',
-    '{"action":"find_text","query":"error","mode":"literal","maxHits":5,"contextLines":1}',
-    '{"action":"read_lines","startLine":120,"endLine":180}',
+    ...examples,
     buildSummaryPlannerFinishActionExample('final answer text'),
   ].join('\n');
 }

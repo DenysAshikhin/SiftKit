@@ -11,7 +11,7 @@ import { comparePlacements, scoreRun } from '../scripts/approval-red-team/score.
 
 test('the shared assistant builder matches the batch transcript message', () => {
   const outcomes = [{
-    action: { tool_name: 'write', args: { path: 'a.ts', content: 'x' } },
+    action: { toolName: 'write', args: { path: 'a.ts', content: 'x' } },
     toolCallId: 't1_c0',
     toolContent: 'ok',
   }];

@@ -20,12 +20,12 @@ test('the pending message equals the appended message when every call is approve
     thinkingText: 'plan',
     toolActions: [{
       action: 'tool',
-      tool_name: 'write',
+      toolName: 'write',
       args: { path: 'a.ts', content: 'x' },
     }],
   });
   const appended = buildAssistantToolCallMessage([{
-    action: { tool_name: 'write', args: { path: 'a.ts', content: 'x' } },
+    action: { toolName: 'write', args: { path: 'a.ts', content: 'x' } },
     toolCallId: 't2_c0',
     toolContent: 'ok',
   }], 'plan');
@@ -34,7 +34,7 @@ test('the pending message equals the appended message when every call is approve
 });
 
 test('pending and validated typed Git tools share one normalized identity', () => {
-  const toolAction = { action: 'tool' as const, tool_name: 'git', args: { operation: 'status' } };
+  const toolAction = { action: 'tool' as const, toolName: 'git', args: { operation: 'status' } };
 
   assert.deepEqual(resolveToolActionIdentity(toolAction), {
     normalizedToolName: 'git',

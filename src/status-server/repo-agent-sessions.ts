@@ -1,7 +1,7 @@
 import { toError } from '../lib/errors.js';
 import { getAbortError } from '../lib/abort.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
-import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
+import { classifyRepoAgentExecutionResult } from '../repo-agent/run-output.js';
 import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.js';
 import {
   isTerminalStatus,
@@ -312,13 +312,13 @@ export class RepoAgentSession implements ApprovalGateObserver {
       });
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
       if (!isTerminalStatus(this.state.status)) {
+        const outcome = classifyRepoAgentExecutionResult(result);
         this.applyState(this.store.transition(this.runId, this.state.revision, {
           runId: this.runId,
           revision: this.state.revision + 1,
           updatedAtUtc: new Date().toISOString(),
-          status: 'completed',
           pid: process.pid,
-          output: formatRepoTaskOutput(result),
+          ...outcome,
         }));
       }
     } catch (error) {

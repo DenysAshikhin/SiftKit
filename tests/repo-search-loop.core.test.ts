@@ -138,7 +138,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
     maxTurns: 2,
     taskPrompt: 'find latest siftkit info',
     mockResponses: [
-      '{"action":"web_search","query":"siftkit"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"siftkit\"}}",
       '{"action":"finish","output":"done"}',
     ],
     mockCommandResults: {
@@ -186,7 +186,7 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
       mockResponses: [
         // The pattern carries both quote flavours; grep builds an rg argv directly,
         // so nothing re-quotes it on the way to the process.
-        JSON.stringify({ action: 'grep', pattern: 'from [\'"]\\.\\./', path: 'src' }),
+        JSON.stringify({ action: 'tool', toolName: 'grep', args: { pattern: 'from [\'"]\\.\\./', path: 'src' } }),
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -212,7 +212,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -253,7 +253,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -283,7 +283,7 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -323,7 +323,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       // written against: 10000 response reserve, then 5000 held back for compaction.
       totalContextTokens: 20000,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -401,7 +401,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
           message: {
             role: 'assistant',
             content: chatRequestCount === 1
-              ? "{\"action\":\"git\",\"operation\":\"status\"}"
+              ? "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}"
               : '{"action":"finish","output":"done"}',
           },
         }],
@@ -478,8 +478,8 @@ test('runTaskLoop executes find and read natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"find\",\"pattern\":\"*.ts\",\"path\":\"src\"}",
-          "{\"action\":\"read\",\"path\":\"src/sample.ts\",\"offset\":2,\"limit\":2}",
+          "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"*.ts\",\"path\":\"src\"}}",
+          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/sample.ts\",\"offset\":2,\"limit\":2}}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -529,7 +529,7 @@ test('runTaskLoop executes ls at repository root natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"ls\",\"path\":\".\"}",
+          "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{\"path\":\".\"}}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -577,7 +577,7 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"find\",\"pattern\":\"runner-*\",\"path\":\"logs\"}",
+          "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"runner-*\",\"path\":\"logs\"}}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -674,7 +674,7 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -710,7 +710,7 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"log\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\"}}",
         '{"action":"finish","output":"failed"}',
         '{"verdict":"pass","reason":"ok"}',
       ],
@@ -766,8 +766,8 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
         JSON.stringify({
           action: 'tool_batch',
           calls: [
-            { action: 'git', operation: 'grep', pattern: 'planner prompt', path: 'src' },
-            { action: 'git', operation: 'grep', pattern: 'prompt budget', path: 'src' },
+            { toolName: 'git', args: { operation: 'grep', pattern: 'planner prompt', path: 'src' } },
+            { toolName: 'git', args: { operation: 'grep', pattern: 'prompt budget', path: 'src' } },
           ],
         }),
         '{"action":"finish","output":"done"}',
@@ -809,8 +809,8 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"show\",\"ref\":\"HEAD\",\"path\":\"src/summary.ts\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"show\",\"ref\":\"HEAD\",\"path\":\"src/summary.ts\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -845,8 +845,8 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       maxTurns: 2,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
         'Synthesized best-effort answer referencing src\\summary.ts:907.',
       ],
       mockCommandResults: {
@@ -879,8 +879,8 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -927,7 +927,7 @@ test('runTaskLoop records line-read stats for read windows', async () => {
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"read","path":"summary.ts","offset":41,"limit":6}',
+          "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"summary.ts\",\"offset\":41,\"limit\":6}}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -973,12 +973,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
         const content = requestCount === 1
-          ? JSON.stringify({
-            action: 'git',
-            operation: 'grep',
-            pattern: 'planner',
-            path: 'src',
-          })
+          ? JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: 'planner', path: 'src' } })
           : JSON.stringify({
             action: 'finish',
             output: 'done',
@@ -1104,12 +1099,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
         const content = requestCount <= 5
-          ? JSON.stringify({
-            action: 'git',
-            operation: 'grep',
-            pattern: 'planner',
-            path: OVERSIZED_DUPLICATE_PATH,
-          })
+          ? JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: 'planner', path: OVERSIZED_DUPLICATE_PATH } })
           : JSON.stringify({
             action: 'finish',
             output: 'done',
@@ -1220,7 +1210,7 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"buildPlannerPrompt\",\"path\":\"src\\\\summary.ts\"}}",
         'best-effort answer with evidence',
       ],
       mockCommandResults: {
@@ -1341,7 +1331,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
 
   // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
   const config = mockConfig({
-    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 12000 } },
+    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 14000 } },
     Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
   });
 
@@ -1359,7 +1349,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         baseUrl,
         model: 'mock-model',
         config,
-        totalContextTokens: 12000,
+        totalContextTokens: 14000,
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -1374,7 +1364,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       Number(chatRequests[1].max_tokens),
       getDynamicMaxOutputTokens({
         config,
-        totalContextTokens: 12000,
+        totalContextTokens: 14000,
         promptTokenCount: estimateTokenCount(config, synthesisPrompt),
       })
     );
@@ -1471,8 +1461,8 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"prompt\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"prompt\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],

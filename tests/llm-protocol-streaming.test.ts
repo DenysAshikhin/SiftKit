@@ -312,7 +312,7 @@ test('llama streaming client detects a runaway completing after the last throttl
 
 test('llama streaming client stops on a planner action assembled across reasoning frames', async () => {
   const http = new StreamingHttpClient([
-    { choices: [{ delta: { reasoning_content: 'plan: {"action":"grep","args"' } }] },
+    { choices: [{ delta: { reasoning_content: 'plan: {"action":"tool","toolName":"grep","args"' } }] },
     { choices: [{ delta: { reasoning_content: ':{"pattern":"x{y}"' } }] },
     { choices: [{ delta: { reasoning_content: '}} trailing' } }] },
     { choices: [{ delta: { content: 'must not be read' } }] },
@@ -327,7 +327,7 @@ test('llama streaming client stops on a planner action assembled across reasonin
     allowedToolNames: [],
   });
 
-  assert.equal(response.text, '{"action":"grep","args":{"pattern":"x{y}"}}');
+  assert.equal(response.text, '{"action":"tool","toolName":"grep","args":{"pattern":"x{y}"}}');
   assert.equal(response.reasoningText, '');
   assert.equal(response.stoppedEarly, true);
   assert.equal(response.earlyStopReason, 'planner action completed in streamed reasoning');

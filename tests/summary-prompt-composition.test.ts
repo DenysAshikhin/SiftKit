@@ -118,6 +118,19 @@ test('planner summary request keeps composed system instructions before user inp
   assertOrderedOnce(request, [STARTUP, PRESET, BASE, ADDITIONAL, QUESTION, INPUT]);
 });
 
+test('summary planner prompt exposes no progress action or policy', () => {
+  const prompt = buildPlannerSystemPrompt({
+    presetPromptPrefix: PRESET,
+    additionalPromptPrefix: ADDITIONAL,
+    systemContext: SYSTEM_CONTEXT,
+    sourceKind: 'standalone',
+    rawReviewRequired: false,
+    toolDefinitions: buildPlannerToolDefinitions(),
+  });
+
+  assert.doesNotMatch(prompt, /"progress"|Progress is optional|meaningful phase change/u);
+});
+
 test('benchmark prompt label is fixture metadata rather than a fabricated model prompt', () => {
   assert.equal(getPromptLabel({
     fixture: {

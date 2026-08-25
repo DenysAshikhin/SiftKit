@@ -22,14 +22,10 @@ const messages: ChatMessage[] = [
   { role: 'user', content: 'Continue without touching files outside the repository.' },
 ];
 
-const reviewPayload = JSON.stringify({
-  action: 'edit',
-  path: 'src/cleanup.ts',
-  edits: [{
+const reviewPayload = JSON.stringify({ action: 'tool', toolName: 'edit', args: { path: 'src/cleanup.ts', edits: [{
     oldText: 'cleanCache();',
     newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
-  }],
-}, null, 2);
+  }] } }, null, 2);
 
 const pendingMessage: ChatMessage = {
   role: 'assistant',

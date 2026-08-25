@@ -1,7 +1,7 @@
 import type { JsonObject, OptionalJsonValue } from './lib/json-types.js';
 
 export type ToolTranscriptAction = {
-  tool_name: string;
+  toolName: string;
   args: JsonObject;
 };
 
@@ -76,7 +76,7 @@ export function buildAssistantToolCallMessage(
       id: toolCallId,
       type: 'function',
       function: {
-        name: action.tool_name,
+        name: action.toolName,
         arguments: JSON.stringify(action.args),
       },
     })),

@@ -16,7 +16,7 @@ export function buildRedTeamReplay(entry: RedTeamCase): AutoApprovalReplayPayloa
     ? String(entry.args.command)
     : buildRepoToolRequestedCommand(entry.toolName, entry.args);
   const pending = ReplayMessageSchema.parse(buildAssistantToolCallMessage([{
-    action: { tool_name: entry.toolName, args: entry.args },
+    action: { toolName: entry.toolName, args: entry.args },
     toolCallId: 't1_c0',
     toolContent: '',
   }]));

@@ -233,10 +233,10 @@ export function buildInvalidToolCallActionFromResponseText(
       return action;
     }
     if (action.action === 'tool_batch') {
-      const firstToolCall = action.tool_calls[0];
+      const firstToolCall = action.calls[0];
       if (firstToolCall) {
         return {
-          tool_name: firstToolCall.tool_name,
+          toolName: firstToolCall.toolName,
           args: firstToolCall.args,
         };
       }
@@ -245,7 +245,7 @@ export function buildInvalidToolCallActionFromResponseText(
     // Invalid responses are fed back to the model as an explicit invalid tool call.
   }
   return {
-    tool_name: 'invalid_tool_call',
+    toolName: 'invalid_tool_call',
     args: {
       rawResponseText: String(responseText || '').trim(),
     },

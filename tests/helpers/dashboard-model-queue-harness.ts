@@ -416,7 +416,7 @@ export class DashboardModelQueueHarness {
         simulateWorkMs: 80,
         availableModels: [LOCK_HOLDER_MODEL],
         mockResponses: [
-          '{"action":"git","operation":"grep","pattern":"x","path":"src"}',
+          '{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"x","path":"src"}}',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {

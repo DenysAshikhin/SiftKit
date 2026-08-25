@@ -97,7 +97,7 @@ test('repo-agent automatically trims noisy validation run output', async () => {
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
-        '{"action":"run","command":"npm test"}',
+        "{\"action\":\"tool\",\"toolName\":\"run\",\"args\":{\"command\":\"npm test\"}}",
         ...repoAgentFinishResponses('validation passed'),
       ],
       mockCommandResults: {},
@@ -161,7 +161,7 @@ test('repo-agent applies write content verbatim without an approval gate', async
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
-        JSON.stringify({ action: 'write', path: 'out.txt', content }),
+        JSON.stringify({ action: 'tool', toolName: 'write', args: { path: 'out.txt', content } }),
         ...repoAgentFinishResponses('created out.txt'),
       ],
       mockCommandResults: {},
@@ -192,8 +192,8 @@ test('repo-agent uses ExpandReads=false and still skips already-returned lines',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
-        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
-        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":100,\"limit\":20}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"a.ts\",\"offset\":110,\"limit\":20}}",
         ...repoAgentFinishResponses('done'),
         '{"verdict":"pass","reason":"supported"}',
       ],

@@ -16,7 +16,7 @@ test('summary planner tool execution rejects disallowed tools', () => {
   assert.throws(
     () => executePlannerTool('alpha\nbeta', {
       action: 'tool',
-      tool_name: 'read_lines',
+      toolName: 'read_lines',
       args: { startLine: 1, endLine: 1 },
     }, ['find_text']),
     /not allowed by the active preset/u,

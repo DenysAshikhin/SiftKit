@@ -22,6 +22,9 @@ import {
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
+import { classifyRepoAgentExecutionResult } from '../src/repo-agent/run-output.js';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { buildMockScorecard } from './_test-helpers.js';
 
 const TEMP_ROOT = join(
   process.cwd(),
@@ -36,6 +39,47 @@ before(() => {
 
 after(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });
+});
+
+function buildExecutionResult(
+  reason: string,
+  passed: boolean,
+  verdict: 'pass' | 'fail',
+): RepoSearchExecutionResult {
+  const scorecard = buildMockScorecard('Terminal synthesis output');
+  const task = scorecard.tasks[0];
+  if (!task) {
+    throw new Error('Expected mock scorecard task.');
+  }
+  task.reason = reason;
+  task.passed = passed;
+  scorecard.verdict = verdict;
+  return {
+    requestId: 'request-id',
+    transcriptPath: 'transcript.jsonl',
+    artifactPath: 'artifact.json',
+    scorecard,
+  };
+}
+
+test('repo-agent execution outcome requires a genuine passing finish', () => {
+  const cases = [
+    { reason: 'finish', passed: true, verdict: 'pass' as const, expected: 'completed' },
+    { reason: 'invalid_response_limit', passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'max_turns', passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'finish', passed: false, verdict: 'fail' as const, expected: 'failed' },
+  ];
+
+  for (const fixture of cases) {
+    const outcome = classifyRepoAgentExecutionResult(
+      buildExecutionResult(fixture.reason, fixture.passed, fixture.verdict),
+    );
+    assert.equal(outcome.status, fixture.expected);
+    assert.equal(outcome.output, 'Terminal synthesis output');
+    if (outcome.status === 'failed') {
+      assert.match(outcome.error, new RegExp(fixture.reason, 'u'));
+    }
+  }
 });
 
 function makeRunsRoot(): string {
@@ -132,7 +176,7 @@ test('state schema accepts all six states with durable fields', () => {
       pid: 123,
       output: 'done',
     },
-    { runId, revision: 3, updatedAtUtc, status: 'failed', pid: 123, error: 'failed' },
+    { runId, revision: 3, updatedAtUtc, status: 'failed', pid: 123, error: 'failed', output: 'terminal output' },
     { runId, revision: 3, updatedAtUtc, status: 'failed', error: 'launch failed' },
     { runId, revision: 3, updatedAtUtc, status: 'aborted', pid: 123 },
   ];
@@ -224,7 +268,7 @@ test('public result schema matches the exact four stdout variants', () => {
     false,
   );
   assert.equal(
-    RepoAgentRunResultSchema.safeParse({ status: 'failed', runId, error: 'failed' }).success,
+    RepoAgentRunResultSchema.safeParse({ status: 'failed', runId, error: 'failed', output: 'terminal output' }).success,
     true,
   );
   assert.equal(

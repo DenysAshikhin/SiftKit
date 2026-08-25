@@ -119,10 +119,10 @@ function buildPlannerInvalidToolAction(providerText: string, toolDefinitions: re
       return recoveredAction;
     }
     if (recoveredAction.action === 'tool_batch') {
-      const firstToolCall = recoveredAction.tool_calls[0];
+      const firstToolCall = recoveredAction.calls[0];
       if (firstToolCall) {
         return {
-          tool_name: firstToolCall.tool_name,
+          toolName: firstToolCall.toolName,
           args: firstToolCall.args,
         };
       }
@@ -131,7 +131,7 @@ function buildPlannerInvalidToolAction(providerText: string, toolDefinitions: re
     // Invalid responses are fed back to the model as an explicit invalid tool call.
   }
   return {
-    tool_name: 'invalid_tool_call',
+    toolName: 'invalid_tool_call',
     args: {
       rawResponseText: String(providerText || '').trim(),
     },
@@ -808,7 +808,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       }
       return {
         action: 'tool' as const,
-        tool_name: toolName,
+        toolName: toolName,
         args: JsonObjectSchema.parse(action.args),
       };
     });
@@ -970,11 +970,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private handleDuplicateToolAction(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction): boolean {
     const fingerprint = fingerprintToolCall({
-      toolName: toolAction.tool_name,
+      toolName: toolAction.toolName,
       args: toolAction.args,
     });
     const readLinesExactRepeat =
-      toolAction.tool_name === 'read_lines' && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
+      toolAction.toolName === 'read_lines' && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
     if (readLinesExactRepeat || this.transcriptState.lastSuccessfulFingerprint !== fingerprint) {
       return false;
     }
@@ -990,7 +990,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private recordDuplicateToolMessage(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction, isActiveDuplicate: boolean): void {
-    const duplicateSummary = buildRepeatedToolCallSummary(toolAction.tool_name, this.transcriptState.duplicateReplayCount);
+    const duplicateSummary = buildRepeatedToolCallSummary(toolAction.toolName, this.transcriptState.duplicateReplayCount);
     if (isActiveDuplicate) {
       const previousToolMessage = this.messages[this.transcriptState.duplicateReplayToolMessageIndex];
       this.messages[this.transcriptState.duplicateReplayToolMessageIndex] = {
@@ -1009,8 +1009,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private recordDuplicateToolStats(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction, fingerprint: string): void {
-    const duplicateToolStats = this.getToolStats(ctx, toolAction.tool_name);
-    ctx.toolStatsPayload![toolAction.tool_name] = {
+    const duplicateToolStats = this.getToolStats(ctx, toolAction.toolName);
+    ctx.toolStatsPayload![toolAction.toolName] = {
       ...duplicateToolStats,
       semanticRepeatRejects: duplicateToolStats.semanticRepeatRejects + 1,
     };
@@ -1027,15 +1027,15 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     ctx.pendingModeChangeUserMessages.push(
       buildPlannerForcedFinishUserPrompt('You repeated the same tool call too many times. Produce your final answer now.'),
     );
-    const currentToolStats = ctx.toolStatsPayload![toolAction.tool_name];
-    ctx.toolStatsPayload![toolAction.tool_name] = {
+    const currentToolStats = ctx.toolStatsPayload![toolAction.toolName];
+    ctx.toolStatsPayload![toolAction.toolName] = {
       ...currentToolStats,
       forcedFinishFromStagnation: currentToolStats.forcedFinishFromStagnation + 1,
     };
   }
 
   private resolveEffectiveToolAction(toolAction: SummaryPlannerToolAction): SummaryPlannerEffectiveToolAction {
-    if (toolAction.tool_name !== 'read_lines') {
+    if (toolAction.toolName !== 'read_lines') {
       return {
         toolAction,
         effectiveToolAction: toolAction,
@@ -1070,7 +1070,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private executeEffectivePlannerTool(input: SummaryPlannerEffectiveToolAction): PlannerToolResult {
-    if (input.effectiveToolAction.tool_name === 'read_lines' && input.readLinesNoUnread) {
+    if (input.effectiveToolAction.toolName === 'read_lines' && input.readLinesNoUnread) {
       return {
         tool: 'read_lines',
         startLine: input.effectiveToolAction.args.startLine,
@@ -1122,11 +1122,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   ): Promise<SummaryPlannerFormattedToolResult> {
     const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', {
       turn: ctx.turn,
-      toolName: toolAction.tool_name,
+      toolName: toolAction.toolName,
     });
     const rawFormattedResultText = formatPlannerResult(result);
     const formattedResultText = buildPromptToolResult({
-      toolName: effectiveToolAction.tool_name,
+      toolName: effectiveToolAction.toolName,
       output: rawFormattedResultText,
     });
     formatSpan?.end({
@@ -1163,7 +1163,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   ): Promise<number> {
     const rawTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_raw', {
       turn: ctx.turn,
-      toolName: toolAction.tool_name,
+      toolName: toolAction.toolName,
       inputChars: rawFormattedResultText.length,
     });
     const rawResultTokenCount =
@@ -1180,7 +1180,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   ): Promise<number | null> {
     const formattedTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_formatted', {
       turn: ctx.turn,
-      toolName: toolAction.tool_name,
+      toolName: toolAction.toolName,
       inputChars: formattedResultText.length,
     });
     const formattedTokenCountRaw = await countLlamaCppTokens(this.options.config, formattedResultText, this.tokenizeOptions);
@@ -1203,10 +1203,10 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const remainingPromptTokens = Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
     const headerText = formatPlannerToolResultHeader(result);
     const resultBodyText = typeof result.text === 'string' ? result.text : formattedResultText;
-    const unit: ToolOutputTruncationUnit = effectiveToolAction.tool_name === 'find_text' ? 'results' : 'lines';
-    const separator = effectiveToolAction.tool_name === 'find_text' ? '\n\n' : '\n';
+    const unit: ToolOutputTruncationUnit = effectiveToolAction.toolName === 'find_text' ? 'results' : 'lines';
+    const separator = effectiveToolAction.toolName === 'find_text' ? '\n\n' : '\n';
     const segments =
-      effectiveToolAction.tool_name === 'find_text'
+      effectiveToolAction.toolName === 'find_text'
         ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
         : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
     const fitter = new ToolOutputFitter(new SummaryPlannerToolOutputTokenCounter(this.options.config, this.tokenizeOptions));
@@ -1219,12 +1219,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       keep: 'head',
     });
     const promptResultText = buildPromptToolResult({
-      toolName: effectiveToolAction.tool_name,
+      toolName: effectiveToolAction.toolName,
       output: fitResult.visibleText,
     });
     const fitTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
       turn: ctx.turn,
-      toolName: effectiveToolAction.tool_name,
+      toolName: effectiveToolAction.toolName,
       inputChars: promptResultText.length,
     });
     const fitTokenCountRaw = await countLlamaCppTokens(this.options.config, promptResultText, this.tokenizeOptions);
@@ -1245,7 +1245,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.recordSuccessfulToolStats(ctx, toolAction, formatted);
     this.recordReadLinesRange(effectiveToolAction, formatted.result, formatted.promptResultText);
     const fingerprint = fingerprintToolCall({
-      toolName: toolAction.tool_name,
+      toolName: toolAction.toolName,
       args: toolAction.args,
     });
     const novelty = classifyToolOutputNovelty({
@@ -1254,13 +1254,13 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       recentEvidenceKeys: this.recentEvidenceKeys,
     });
     for (const evidenceKey of novelty.evidenceKeys) this.recentEvidenceKeys.add(evidenceKey);
-    ctx.toolStatsPayload![toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
-    ctx.toolStatsPayload![toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
+    ctx.toolStatsPayload![toolAction.toolName].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
+    ctx.toolStatsPayload![toolAction.toolName].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
     this.transcriptState.duplicateReplayFingerprint = null;
     this.transcriptState.duplicateReplayCount = 0;
     this.transcriptState.duplicateReplayToolMessageIndex = -1;
     this.transcriptState.lastSuccessfulFingerprint = fingerprint;
-    this.transcriptState.lastSuccessfulReadLinesArgsText = effectiveToolAction.tool_name === 'read_lines' ? JSON.stringify(toolAction.args) : null;
+    this.transcriptState.lastSuccessfulReadLinesArgsText = effectiveToolAction.toolName === 'read_lines' ? JSON.stringify(toolAction.args) : null;
     this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : this.transcriptState.consecutiveNoNewEvidence + 1;
     ctx.batchOutcomes.push({
       action: effectiveToolAction,
@@ -1268,7 +1268,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolContent: formatted.promptResultText,
     });
     this.toolResults.push({
-      toolName: effectiveToolAction.tool_name,
+      toolName: effectiveToolAction.toolName,
       args: effectiveToolAction.args,
       result: formatted.result,
       resultText: formatted.promptResultText,
@@ -1280,9 +1280,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     toolAction: SummaryPlannerToolAction,
     formatted: SummaryPlannerFormattedToolResult,
   ): void {
-    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite(formatted.result.lineCount) ? Number(formatted.result.lineCount) : 0;
-    const currentToolStats = this.getToolStats(ctx, toolAction.tool_name);
-    ctx.toolStatsPayload![toolAction.tool_name] = {
+    const readLineCount = toolAction.toolName === 'read_lines' && Number.isFinite(formatted.result.lineCount) ? Number(formatted.result.lineCount) : 0;
+    const currentToolStats = this.getToolStats(ctx, toolAction.toolName);
+    ctx.toolStatsPayload![toolAction.toolName] = {
       ...currentToolStats,
       calls: currentToolStats.calls + 1,
       outputCharsTotal: currentToolStats.outputCharsTotal + formatted.promptResultText.length,
@@ -1297,7 +1297,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private recordReadLinesRange(effectiveToolAction: SummaryPlannerToolAction, result: PlannerToolResult, promptResultText: string): void {
-    if (effectiveToolAction.tool_name !== 'read_lines') {
+    if (effectiveToolAction.toolName !== 'read_lines') {
       return;
     }
     const returnedLineCount = promptResultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length;
@@ -1317,7 +1317,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const effective = this.resolveEffectiveToolAction(toolAction);
     const toolExecutionSpan = this.options.timingRecorder?.start('summary.planner.tool.execute', {
       turn: ctx.turn,
-      toolName: effective.effectiveToolAction.tool_name,
+      toolName: effective.effectiveToolAction.toolName,
     });
     let result: PlannerToolResult;
     try {
@@ -1329,8 +1329,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     }
     this.debugRecorder.record({
       kind: 'planner_tool',
-      command: `${toolAction.tool_name} ${JSON.stringify(toolAction.args)}`,
-      toolName: toolAction.tool_name,
+      command: `${toolAction.toolName} ${JSON.stringify(toolAction.args)}`,
+      toolName: toolAction.toolName,
       args: toolAction.args,
       output: result,
     });

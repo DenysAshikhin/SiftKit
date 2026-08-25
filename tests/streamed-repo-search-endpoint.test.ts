@@ -11,7 +11,7 @@ const REPO_SEARCH_BODY = {
   maxTurns: 2,
   availableModels: ['mock-model'],
   mockResponses: [
-    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+    "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
     '{"action":"finish","output":"done"}',
   ],
   mockCommandResults: {
@@ -40,7 +40,7 @@ test('repo-search emits activity_summary after ten tool turns', async (t) => {
   const mockResponses: string[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string; delayMs: number }> = {};
   for (let i = 1; i <= 10; i++) {
-    mockResponses.push(`{"action":"git","operation":"grep","pattern":"x","path":"src${i}"}`);
+    mockResponses.push(`{"action":"tool","toolName":"git","args":{"operation":"grep","pattern":"x","path":"src${i}"}}`);
     mockCommandResults[`git operation="grep" path="src${i}" pattern="x"`] = { exitCode: 0, stdout: `src${i}/example.ts:1:x`, stderr: '', delayMs: 50 };
   }
   mockResponses.push('{"action":"finish","output":"done"}');
@@ -174,7 +174,7 @@ test('sanity-check failure surfaces as an error frame', async (t) => {
     maxTurns: 8,
     availableModels: ['mock-model'],
     mockResponses: [
-      ...terms.map((term) => JSON.stringify({ action: 'git', operation: 'grep', pattern: term, path: 'src' })),
+      ...terms.map((term) => JSON.stringify({ action: 'tool', toolName: 'git', args: { operation: 'grep', pattern: term, path: 'src' } })),
       JSON.stringify({ action: 'finish', output: [...duplicated, ...duplicated].join('\n') }),
     ],
     mockCommandResults: Object.fromEntries(terms.map((term, index) => [

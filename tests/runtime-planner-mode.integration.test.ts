@@ -48,12 +48,10 @@ test('planner writes a debug dump with thinking, tool calls, tool output, and fi
       },
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({ action: 'json_filter', filters: [
+          return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [
                 { path: 'from.worldX', op: 'gte', value: 3200 },
                 { path: 'from.worldX', op: 'lte', value: 3215 },
-              ],
-              select: ['id', 'label', 'from', 'to', 'bidirectional'],
-              limit: 20, });
+              ], select: ['id', 'label', 'from', 'to', 'bidirectional'], limit: 20 } });
         }
 
         return JSON.stringify({

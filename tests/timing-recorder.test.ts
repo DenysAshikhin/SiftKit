@@ -148,7 +148,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          "{\"action\":\"git\",\"operation\":\"status\"}",
+          "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
           '{"action":"finish","output":"Found scripts"}',
         ],
         mockCommandResults: {
@@ -199,8 +199,7 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
       }, {
         assistantContent(promptText, parsed, requestIndex) {
           if (requestIndex === 1) {
-            return JSON.stringify({ action: 'json_filter', filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }],
-                limit: 1, });
+            return JSON.stringify({ action: 'tool', toolName: 'json_filter', args: { filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }], limit: 1 } });
           }
           return JSON.stringify({
             action: 'finish',

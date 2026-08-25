@@ -1,5 +1,7 @@
 # Unified Planner Protocol Design
 
+> **Tool-envelope update:** `2026-08-24-canonical-planner-tool-envelope-design.md` supersedes this document's flattened direct-tool shape, batch-item shape, runtime tool result fields, and prompt-example design. The progress/finish ownership and repo-versus-summary action split remain applicable.
+
 ## Problem
 
 Planner actions are currently defined independently in four places:

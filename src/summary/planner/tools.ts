@@ -78,6 +78,7 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
   const definitions: PlannerToolDefinition[] = [
     {
       type: 'function',
+      exampleArgs: { query: 'ERROR', mode: 'literal', maxHits: 20, contextLines: 2 },
       function: {
         name: 'find_text',
         description: 'Search the input text for a literal string or regex and return matching lines with optional surrounding context. Regex patterns must be valid JavaScript regex source without surrounding slashes; do not escape ordinary quotes unless the regex itself requires it. Example: {"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}',
@@ -95,6 +96,7 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
     },
     {
       type: 'function',
+      exampleArgs: { startLine: 1, endLine: 120 },
       function: {
         name: 'read_lines',
         description: 'Read a specific 1-based line range from the input text. Prefer larger contiguous windows after a find_text anchor; avoid many tiny adjacent slices unless verifying one exact line or symbol. Example: {"startLine":1340,"endLine":1405}',
@@ -110,6 +112,11 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
     },
     {
       type: 'function',
+      exampleArgs: {
+        filters: [{ path: 'status', op: 'eq', value: 'failed' }],
+        select: ['name', 'status'],
+        limit: 20,
+      },
       function: {
         name: 'json_filter',
         description: 'Parse JSON, filter array items by field conditions, and project only the selected fields. Use collectionPath when the root JSON value is an object with an array under a child key; for example use {"collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100} for a root object with a states array. Use separate filters for gte/lte bounds; each filter value should be a single scalar value, not an object containing multiple operators. Do not use "value":{"gte":3200,"lte":3215}. Example: {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}',
@@ -143,6 +150,7 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
     },
     {
       type: 'function',
+      exampleArgs: { path: 'results.0' },
       function: {
         name: 'json_get',
         description: 'Parse JSON and return the value at one dot-path. Use this for nested object drill-down when you need one exact field rather than filtering an array. Dot paths may include array indexes. Example: {"path":"states.0.state_json"}',
@@ -156,7 +164,25 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
       },
     },
   ];
-  return definitions.filter((definition) => allowed.has(definition.function.name));
+  const selected = definitions.filter((definition) => {
+    const toolName = getPlannerToolName(definition.function.name);
+    return toolName !== null && allowed.has(toolName);
+  });
+  for (const definition of selected) {
+    const toolName = getPlannerToolName(definition.function.name);
+    if (toolName === null) {
+      throw new Error(`Invalid summary planner tool name: ${definition.function.name}`);
+    }
+    const validationInput = toolName === 'find_text'
+      ? 'ERROR'
+      : toolName === 'json_filter'
+        ? '[{"name":"task","status":"failed"}]'
+        : toolName === 'json_get'
+          ? '{"results":[1]}'
+          : 'line';
+    executePlannerTool(validationInput, { action: 'tool', toolName, args: definition.exampleArgs }, [toolName]);
+  }
+  return selected;
 }
 
 type JsonFilterCollectionCandidate = {
@@ -470,10 +496,10 @@ export function executePlannerTool(
   action: PlannerToolCall,
   allowedTools: readonly PlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES,
 ): PlannerToolResult {
-  if (!allowedTools.includes(action.tool_name)) {
-    throw new Error(`Planner tool is not allowed by the active preset: ${action.tool_name}`);
+  if (!allowedTools.includes(action.toolName)) {
+    throw new Error(`Planner tool is not allowed by the active preset: ${action.toolName}`);
   }
-  switch (action.tool_name) {
+  switch (action.toolName) {
     case 'find_text':
       return executeFindTextTool(inputText, action.args);
     case 'read_lines':
@@ -483,6 +509,6 @@ export function executePlannerTool(
     case 'json_get':
       return executeJsonGetTool(inputText, action.args);
     default:
-      throw new Error(`Unsupported planner tool: ${String(action.tool_name)}`);
+      throw new Error(`Unsupported planner tool: ${String(action.toolName)}`);
   }
 }

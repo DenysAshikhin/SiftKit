@@ -21,7 +21,7 @@ import { testHttpAgent } from './helpers/http-agent.js';
 import { requestJson } from './helpers/dashboard-http.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
-const NON_VERDICT_RESPONSE = "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}";
+const NON_VERDICT_RESPONSE = "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}";
 
 function runsRoot(): string {
   return path.join(process.cwd(), '.siftkit', 'repo-agent', 'runs');
@@ -62,7 +62,7 @@ test('POST /repo-agent (approval on): approves a write via the shared /repo-sear
       approval: 'interactive',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"agent-endpoint-out.txt","content":"approved"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"agent-endpoint-out.txt\",\"content\":\"approved\"}}",
         ...repoAgentFinishResponses('wrote it'),
       ],
       mockCommandResults: {},
@@ -98,7 +98,7 @@ test('POST /repo-agent (approval on): a denied write never runs and the run cont
       approval: 'interactive',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"denied.txt","content":"should never land"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"denied.txt\",\"content\":\"should never land\"}}",
         ...repoAgentFinishResponses('gave up'),
       ],
       mockCommandResults: {},
@@ -131,7 +131,7 @@ test('POST /repo-agent (approval on): an aborted write ends the run with an erro
       approval: 'interactive',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"aborted.txt","content":"should never land"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"aborted.txt\",\"content\":\"should never land\"}}",
         '{"action":"finish","output":"unreachable"}',
       ],
       mockCommandResults: {},
@@ -161,7 +161,7 @@ test('POST /repo-agent emits activity_summary after ten tool turns', async (t) =
     const readPath = `src${i}.ts`;
     readPaths.push(readPath);
     fs.writeFileSync(path.join(process.cwd(), readPath), `export const marker${i} = ${i};\n`, 'utf8');
-    mockResponses.push(`{"action":"read","path":"${readPath}"}`);
+    mockResponses.push(`{"action":"tool","toolName":"read","args":{"path":"${readPath}"}}`);
   }
   mockResponses.push(...repoAgentFinishResponses('done'));
   const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
@@ -200,7 +200,7 @@ test('POST /repo-agent defaults omitted approval to auto review', async (t) => {
       maxTurns: 4,
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"default-auto.txt","content":"safe"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"default-auto.txt\",\"content\":\"safe\"}}",
         '{"verdict":"approve","reason":"task-scoped write"}',
         ...repoAgentFinishResponses('done'),
       ],
@@ -242,7 +242,7 @@ test('POST /repo-agent with approval:"off" runs autonomously with no approval fr
       approval: 'off',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"agent-endpoint-auto.txt","content":"auto"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"agent-endpoint-auto.txt\",\"content\":\"auto\"}}",
         ...repoAgentFinishResponses('done'),
       ],
       mockCommandResults: {},
@@ -264,7 +264,7 @@ test('POST /repo-agent with approval:"auto": reviewer approves; no approval_requ
       approval: 'auto',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"agent-endpoint-llm-auto.txt","content":"auto"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"agent-endpoint-llm-auto.txt\",\"content\":\"auto\"}}",
         '{"verdict":"approve","reason":"task-scoped write"}',
         ...repoAgentFinishResponses('done'),
       ],
@@ -288,10 +288,10 @@ test('POST /repo-agent: read-only tools execute without approval frames', async 
       prompt: 'inspect files', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 8,
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"read","path":"package.json","offset":1,"limit":2}',
-        '{"action":"grep","pattern":"\\"name\\"","path":"package.json","literal":true,"limit":2}',
-        '{"action":"find","pattern":"package.json","path":".","limit":2}',
-        '{"action":"ls","path":".","limit":2}',
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"package.json\",\"offset\":1,\"limit\":2}}",
+        "{\"action\":\"tool\",\"toolName\":\"grep\",\"args\":{\"pattern\":\"\\\"name\\\"\",\"path\":\"package.json\",\"literal\":true,\"limit\":2}}",
+        "{\"action\":\"tool\",\"toolName\":\"find\",\"args\":{\"pattern\":\"package.json\",\"path\":\".\",\"limit\":2}}",
+        "{\"action\":\"tool\",\"toolName\":\"ls\",\"args\":{\"path\":\".\",\"limit\":2}}",
         ...repoAgentFinishResponses('inspected'),
       ],
       mockCommandResults: {},
@@ -413,7 +413,7 @@ test('POST /repo-agent (auto): an escalated approval parks the run and ends the 
       prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       approval: 'auto', availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"parked.txt","content":"needs approval"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"parked.txt\",\"content\":\"needs approval\"}}",
         NON_VERDICT_RESPONSE,
         NON_VERDICT_RESPONSE,
         ...repoAgentFinishResponses('done after approval'),
@@ -452,7 +452,7 @@ test('POST /repo-agent rejects a nested self-call owned by the active run', asyn
       prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       approval: 'auto', availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"self-call.txt","content":"approved later"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"self-call.txt\",\"content\":\"approved later\"}}",
         NON_VERDICT_RESPONSE,
         NON_VERDICT_RESPONSE,
         ...repoAgentFinishResponses('done after approval'),
@@ -489,7 +489,7 @@ test('POST /repo-agent: a client disconnect does not abort the run; it still par
     prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
     approval: 'auto', availableModels: ['mock-model'],
     mockResponses: [
-      '{"action":"write","path":"detached.txt","content":"still parked"}',
+      "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"detached.txt\",\"content\":\"still parked\"}}",
       NON_VERDICT_RESPONSE,
       NON_VERDICT_RESPONSE,
       ...repoAgentFinishResponses('finished later'),
@@ -630,7 +630,7 @@ test('status and decide return a retained failed session before reading corrupt 
       prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       approval: 'auto', availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"write","path":"retained-failure.txt","content":"never runs"}',
+        "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"retained-failure.txt\",\"content\":\"never runs\"}}",
         NON_VERDICT_RESPONSE,
         NON_VERDICT_RESPONSE,
         '{"action":"finish","output":"done"}',

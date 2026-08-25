@@ -1,6 +1,5 @@
 import { z } from '../lib/zod.js';
 import type { SiftConfig } from '../config/index.js';
-import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 import type { SummaryProgressEvent } from './progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 import {
@@ -112,22 +111,7 @@ export type StructuredModelDecision = {
   output: string;
 };
 
-// Planner tool parameters reuse the canonical wire schema type, so a PlannerToolDefinition
-// is structurally a LlamaCppToolDefinition and forwards into the agent loop with no cast.
-export type PlannerToolParameterSchema = LlamaCppToolParameterSchema;
-
-export type PlannerToolDefinition = {
-  type: 'function';
-  function: {
-    name: SummaryPlannerToolName;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, PlannerToolParameterSchema>;
-      required: string[];
-    };
-  };
-};
+export type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 
 export type PlannerPromptBudget = {
   numCtxTokens: number;

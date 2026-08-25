@@ -65,6 +65,7 @@ export const RepoAgentRunStateSchema = z.discriminatedUnion('status', [
     status: z.literal('failed'),
     pid: ProcessIdSchema.optional(),
     error: z.string().min(1),
+    output: z.string().optional(),
   }),
   z.strictObject({
     ...BaseStateFields,
@@ -99,6 +100,7 @@ export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
     status: z.literal('failed'),
     runId: RepoAgentRunIdSchema,
     error: z.string().min(1),
+    output: z.string().optional(),
   }),
   z.strictObject({
     status: z.literal('aborted'),
@@ -140,7 +142,12 @@ export function repoAgentStateToResult(state: RepoAgentRunState): RepoAgentRunRe
     case 'approval_timeout':
       return RepoAgentRunResultSchema.parse({ status: 'approval_timeout', runId: state.runId, approval: state.approval });
     case 'failed':
-      return RepoAgentRunResultSchema.parse({ status: 'failed', runId: state.runId, error: state.error });
+      return RepoAgentRunResultSchema.parse({
+        status: 'failed',
+        runId: state.runId,
+        error: state.error,
+        ...(state.output === undefined ? {} : { output: state.output }),
+      });
     case 'aborted':
       return RepoAgentRunResultSchema.parse({ status: 'aborted', runId: state.runId });
     default:

@@ -3,12 +3,21 @@ import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 export type PlannerToolDefinition = {
   type: 'function';
+  exampleArgs: JsonObject;
   function: {
     name: string;
-    description?: string;
-    parameters?: LlamaCppToolParameterSchema;
+    description: string;
+    parameters: LlamaCppToolParameterSchema;
   };
 };
+
+export function buildPlannerToolActionExample(tool: PlannerToolDefinition): string {
+  return JSON.stringify({
+    action: 'tool',
+    toolName: tool.function.name,
+    args: tool.exampleArgs,
+  });
+}
 
 type JsonSchemaObject = {
   type: 'object';
@@ -21,35 +30,30 @@ function getObject(value: LlamaCppToolParameterSchema | OptionalJsonValue): Json
   return value && typeof value === 'object' && !Array.isArray(value) ? JsonObjectSchema.parse(value) : {};
 }
 
-function getRequired(value: OptionalJsonValue): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    : [];
-}
-
 function buildAnyOf(values: JsonObject[]): JsonObject {
   return values.length === 1 ? values[0] : { anyOf: values };
 }
 
-function buildToolCallSchema(toolName: string, parameters: JsonObject): JsonSchemaObject {
+function buildToolCallSchema(toolName: string, parameters: JsonObject, includeAction: boolean): JsonSchemaObject {
   return {
     type: 'object',
     properties: {
-      action: { const: toolName },
-      ...getObject(parameters.properties),
+      ...(includeAction ? { action: { const: 'tool' } } : {}),
+      toolName: { const: toolName },
+      args: parameters,
     },
-    required: ['action', ...getRequired(parameters.required)],
+    required: [...(includeAction ? ['action'] : []), 'toolName', 'args'],
     additionalProperties: false,
   };
 }
 
-function buildToolCallSchemas(tool: PlannerToolDefinition): JsonSchemaObject[] {
+function buildToolCallSchemas(tool: PlannerToolDefinition, includeAction: boolean): JsonSchemaObject[] {
   const parameters = getObject(tool.function.parameters);
   const variants = Array.isArray(parameters.anyOf)
     ? parameters.anyOf.map(getObject).filter((variant) => Object.keys(variant).length > 0)
     : [];
   return (variants.length > 0 ? variants : [parameters])
-    .map((variant) => buildToolCallSchema(tool.function.name, variant));
+    .map((variant) => buildToolCallSchema(tool.function.name, variant, includeAction));
 }
 
 function buildToolBatchSchema(toolDefinitions: readonly PlannerToolDefinition[]): JsonSchemaObject {
@@ -60,7 +64,7 @@ function buildToolBatchSchema(toolDefinitions: readonly PlannerToolDefinition[])
       calls: {
         type: 'array',
         minItems: 1,
-        items: buildAnyOf(toolDefinitions.flatMap(buildToolCallSchemas)),
+        items: buildAnyOf(toolDefinitions.flatMap((tool) => buildToolCallSchemas(tool, false))),
       },
     },
     required: ['action', 'calls'],
@@ -75,7 +79,7 @@ export function buildPlannerActionJsonSchema(
   const actions = [...nonToolActionSchemas];
   if (toolDefinitions.length > 0) {
     actions.unshift(
-      ...toolDefinitions.flatMap(buildToolCallSchemas),
+      ...toolDefinitions.flatMap((tool) => buildToolCallSchemas(tool, true)),
       buildToolBatchSchema(toolDefinitions),
     );
   }

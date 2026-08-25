@@ -76,7 +76,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\".\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\".\"}}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -156,7 +156,7 @@ test('tool token totals sum command output tokens', async () => {
       maxTurns: 2,
       maxInvalidResponses: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {

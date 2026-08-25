@@ -116,7 +116,7 @@ test('the verdict question directs the reviewer to the pending tool call', () =>
   const input = {
     toolName: 'write',
     command: 'write path="a.ts" bytes=1 sha=abc',
-    reviewPayload: '{"action":"write","path":"a.ts","content":"x"}',
+    reviewPayload: "{\"action\":\"tool\",\"toolName\":\"write\",\"args\":{\"path\":\"a.ts\",\"content\":\"x\"}}",
   };
   const question = buildApprovalVerdictQuestion(input);
 

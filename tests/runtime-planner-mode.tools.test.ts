@@ -19,13 +19,16 @@ import type { SummaryPlannerToolName as PlannerToolName } from '../src/planner-p
 import { asObject } from './helpers/dashboard-http.js';
 
 const TOOL_STEP_ACTION_TEXT = JSON.stringify({
-  action: 'json_filter',
-  filters: [
-    { path: 'from.worldX', op: 'gte', value: 3200 },
-    { path: 'from.worldX', op: 'lte', value: 3215 },
-  ],
-  select: ['id', 'label'],
-  limit: 20,
+  action: 'tool',
+  toolName: 'json_filter',
+  args: {
+    filters: [
+      { path: 'from.worldX', op: 'gte', value: 3200 },
+      { path: 'from.worldX', op: 'lte', value: 3215 },
+    ],
+    select: ['id', 'label'],
+    limit: 20,
+  },
 });
 const FINISH_ACTION_TEXT = JSON.stringify({
   action: 'finish',
@@ -66,7 +69,7 @@ test('json_filter auto-selects sole top-level array when collectionPath is omitt
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_filter',
+    toolName: 'json_filter',
     args: {
       filters: [{ path: 'failed_request_json', op: 'exists' }],
       select: ['request_id', 'failed_request_json'],
@@ -92,7 +95,7 @@ test('json_filter picks the best matching top-level array when collectionPath is
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_filter',
+    toolName: 'json_filter',
     args: {
       filters: [{ path: 'groupId', op: 'eq', value: 12 }],
       select: ['id', 'groupId', 'childIndex', 'text'],
@@ -115,7 +118,7 @@ test('json_filter unwraps exact nested value scalar wrappers', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_filter',
+    toolName: 'json_filter',
     args: {
       filters: [{ path: 'groupId', op: 'eq', value: { value: 12 } }],
       select: ['id', 'groupId', 'childIndex', 'text'],
@@ -138,7 +141,7 @@ test('json_filter honors requested limits above the old safety cap', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_filter',
+    toolName: 'json_filter',
     args: {
       collectionPath: 'testResults',
       filters: [{ path: 'status', op: 'eq', value: 'failed' }],
@@ -162,7 +165,7 @@ test('find_text counts all hits even when maxHits truncates rendered blocks', ()
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'find_text',
+    toolName: 'find_text',
     args: {
       query: 'Lumbridge Castle',
       mode: 'literal',
@@ -185,7 +188,7 @@ test('find_text honors requested maxHits above the old safety cap', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'find_text',
+    toolName: 'find_text',
     args: {
       query: 'needle',
       mode: 'literal',
@@ -210,7 +213,7 @@ test('find_text literal matching is case insensitive', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'find_text',
+    toolName: 'find_text',
     args: {
       query: 'SKILL',
       mode: 'literal',
@@ -234,7 +237,7 @@ test('find_text regex matching is case insensitive', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'find_text',
+    toolName: 'find_text',
     args: {
       query: 'SKILL|ACTIVITY|LOADOUT|SAVEFILE',
       mode: 'regex',
@@ -268,7 +271,7 @@ test('json_get resolves nested paths from embedded json fallback sections', () =
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_get',
+    toolName: 'json_get',
     args: {
       path: 'states.0.state_json.steps.1.status',
     },
@@ -287,7 +290,7 @@ test('json_get reports missing paths explicitly', () => {
 
   const result = executePlannerTool(inputText, {
     action: 'tool',
-    tool_name: 'json_get',
+    toolName: 'json_get',
     args: {
       path: 'states.1.id',
     },
@@ -314,7 +317,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
         },
       });
 
-      assert.equal(summary.text, '{"action":"json_filter","filters":[{"path":"from.worldX","op":"gte","value":3200}]}');
+      assert.equal(summary.text, '{"action":"tool","toolName":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}}');
     }, {
       chatResponse() {
         return {
@@ -368,7 +371,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       assert.equal(
         summary.text,
-        '{"action":"tool_batch","calls":[{"action":"find_text","query":"Lumbridge","mode":"literal"},{"action":"read_lines","startLine":10,"endLine":20}]}',
+        '{"action":"tool_batch","calls":[{"toolName":"find_text","args":{"query":"Lumbridge","mode":"literal"}},{"toolName":"read_lines","args":{"startLine":10,"endLine":20}}]}',
       );
     }, {
       chatResponse() {
@@ -634,7 +637,7 @@ test('summary below planner threshold disables thinking for fully ingested one-s
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
       assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
       assert.match(firstResponseFormatText, /classification/u);
-      assert.doesNotMatch(firstResponseFormatText, /tool_name/u);
+      assert.doesNotMatch(firstResponseFormatText, /toolName/u);
     });
   });
 });
@@ -672,7 +675,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
-      assert.doesNotMatch(firstResponseFormatText, /tool_name/u);
+      assert.match(firstResponseFormatText, /toolName/u);
       assert.match(firstResponseFormatText, /find_text/u);
     }, {
       assistantContent(promptText, parsed) {
@@ -711,7 +714,7 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
 
   const findText = getToolDefinition(toolDefinitions, 'find_text');
   assert.deepEqual(findText.function.parameters.required, ['query', 'mode']);
-  assert.deepEqual(findText.function.parameters.properties.mode.enum, ['literal', 'regex']);
+  assert.deepEqual(findText.function.parameters.properties?.mode?.enum, ['literal', 'regex']);
   assert.match(findText.function.description, /valid javascript regex/i);
   assert.match(findText.function.description, /do not escape ordinary quotes/i);
   assert.match(findText.function.description, /example:/i);
@@ -724,7 +727,7 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
 
   const jsonFilter = getToolDefinition(toolDefinitions, 'json_filter');
   assert.deepEqual(jsonFilter.function.parameters.required, ['filters']);
-  assert.equal(jsonFilter.function.parameters.properties.filters.type, 'array');
+  assert.equal(jsonFilter.function.parameters.properties?.filters?.type, 'array');
   assert.match(jsonFilter.function.description, /use separate filters/i);
   assert.match(jsonFilter.function.description, /scalar value/i);
   assert.match(jsonFilter.function.description, /example:/i);
@@ -740,7 +743,7 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
 
   const jsonGet = getToolDefinition(toolDefinitions, 'json_get');
   assert.deepEqual(jsonGet.function.parameters.required, ['path']);
-  assert.equal(jsonGet.function.parameters.properties.path.type, 'string');
+  assert.equal(jsonGet.function.parameters.properties?.path?.type, 'string');
   assert.match(jsonGet.function.description, /dot-path/i);
   assert.match(jsonGet.function.description, /example:/i);
   assert.match(jsonGet.function.description, /"path":"states\.0\.state_json"/i);
@@ -788,27 +791,27 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window/u);
       assert.match(firstPrompt, /avoid many tiny adjacent slices unless verifying one exact line or symbol/u);
       assert.match(firstPrompt, /If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice/u);
-      assert.match(firstPrompt, /Example tool calls:/u);
-      assert.match(firstPrompt, /"action":"find_text"/u);
-      assert.match(firstPrompt, /"action":"read_lines"/u);
-      assert.match(firstPrompt, /"action":"json_filter"/u);
-      assert.match(firstPrompt, /Bad read_lines progression example:/u);
-      assert.match(firstPrompt, /"startLine":1340,"endLine":1379/u);
-      assert.match(firstPrompt, /"startLine":1380,"endLine":1419/u);
+      assert.match(firstPrompt, /Example find_text: \{"action":"tool","toolName":"find_text","args":/u);
+      assert.match(firstPrompt, /Example read_lines: \{"action":"tool","toolName":"read_lines","args":/u);
+      assert.match(firstPrompt, /Example json_filter: \{"action":"tool","toolName":"json_filter","args":/u);
+      assert.doesNotMatch(firstPrompt, /"action":"find_text"|"action":"read_lines"|"action":"json_filter"/u);
       assert.equal(/parameters=/u.test(firstPrompt), false);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
           return JSON.stringify({
-            action: 'json_filter',
-            filters: [
-              { path: 'from.worldX', op: 'gte', value: 3200 },
-              { path: 'from.worldX', op: 'lte', value: 3215 },
-              { path: 'from.worldY', op: 'gte', value: 3210 },
-              { path: 'from.worldY', op: 'lte', value: 3225 },
-            ],
-            select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
-            limit: 20,
+            action: 'tool',
+            toolName: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+                { path: 'from.worldY', op: 'gte', value: 3210 },
+                { path: 'from.worldY', op: 'lte', value: 3225 },
+              ],
+              select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
+              limit: 20,
+            },
           });
         }
 

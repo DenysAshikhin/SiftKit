@@ -42,7 +42,7 @@ test('agent loop action parser expands tool batches into explicit tool actions',
   const parser = new AgentLoopActionParser();
 
   const actions = parser.parseRepoSearchActions(
-    '{"action":"tool_batch","calls":[{"action":"grep","pattern":"AgentLoop"},{"action":"read","path":"src/x.ts"}]}',
+    '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"AgentLoop"}},{"toolName":"read","args":{"path":"src/x.ts"}}]}',
     ['grep', 'read'],
   );
 
@@ -271,12 +271,12 @@ test('agent loop action parser covers single-tool repo and summary batches', () 
   const parser = new AgentLoopActionParser();
 
   const repoTool = parser.parseRepoSearchAction(
-    '{"action":"read","path":"src/agent-loop/agent-loop.ts"}',
+    '{"action":"tool","toolName":"read","args":{"path":"src/agent-loop/agent-loop.ts"}}',
     ['read'],
   );
-  const summaryTool = parser.parseSummaryPlannerAction('{"action":"find_text","query":"needle"}');
+  const summaryTool = parser.parseSummaryPlannerAction('{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}');
   const summaryBatch = parser.parseSummaryPlannerActions(
-    '{"action":"tool_batch","calls":[{"action":"find_text","query":"needle"},{"action":"read_lines","start_line":1,"end_line":2}]}',
+    '{"action":"tool_batch","calls":[{"toolName":"find_text","args":{"query":"needle","mode":"literal"}},{"toolName":"read_lines","args":{"startLine":1,"endLine":2}}]}',
   );
 
   assert.equal(repoTool.kind, 'tool');

@@ -30,10 +30,10 @@ export class AgentLoopActionParser {
       ];
     }
     if (parsed.action === 'tool_batch') {
-      return parsed.tool_calls.map((toolCall, index) => ({
+      return parsed.calls.map((toolCall, index) => ({
         kind: 'tool',
         callId: `call_${index + 1}`,
-        toolName: toolCall.tool_name,
+        toolName: toolCall.toolName,
         args: toolCall.args,
       }));
     }
@@ -41,7 +41,7 @@ export class AgentLoopActionParser {
       {
         kind: 'tool',
         callId: 'call_1',
-        toolName: parsed.tool_name,
+        toolName: parsed.toolName,
         args: parsed.args,
       },
     ];
@@ -72,10 +72,10 @@ export class AgentLoopActionParser {
       ];
     }
     if (parsed.action === 'tool_batch') {
-      return parsed.tool_calls.map((toolCall, index) => ({
+      return parsed.calls.map((toolCall, index) => ({
         kind: 'tool',
         callId: `call_${index + 1}`,
-        toolName: toolCall.tool_name,
+        toolName: toolCall.toolName,
         args: toolCall.args,
       }));
     }
@@ -83,7 +83,7 @@ export class AgentLoopActionParser {
       {
         kind: 'tool',
         callId: 'call_1',
-        toolName: parsed.tool_name,
+        toolName: parsed.toolName,
         args: parsed.args,
       },
     ];

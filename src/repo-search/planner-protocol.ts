@@ -25,7 +25,7 @@ import { InferenceRequestBuilder } from '../llm-protocol/inference-request-build
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
-import { GitToolArgsSchema, RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
+import { GitToolArgsSchema, RepoNativeToolCallSchema, RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
 import { z } from '../lib/zod.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 import type {
@@ -90,6 +90,7 @@ function buildVisionReadDescription(textOnlyDescription: string): string {
 const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   read: {
     type: 'function',
+    exampleArgs: { path: 'src/app.ts', offset: 1, limit: 120 },
     function: {
       name: 'read',
       description: TEXT_ONLY_READ_DESCRIPTION,
@@ -106,6 +107,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   grep: {
     type: 'function',
+    exampleArgs: { pattern: 'buildPlanner', path: 'src', glob: '*.ts', context: 2 },
     function: {
       name: 'grep',
       description: 'Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignored paths are excluded automatically. Output is capped at limit matches (default 100).',
@@ -126,6 +128,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   find: {
     type: 'function',
+    exampleArgs: { pattern: '**/*.test.ts', path: '.' },
     function: {
       name: 'find',
       description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
@@ -142,6 +145,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   ls: {
     type: 'function',
+    exampleArgs: { path: 'src' },
     function: {
       name: 'ls',
       description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500).",
@@ -157,6 +161,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   write: {
     type: 'function',
+    exampleArgs: { path: 'src/new-file.ts', content: 'export const value = 1;\n' },
     function: {
       name: 'write',
       description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
@@ -172,6 +177,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   edit: {
     type: 'function',
+    exampleArgs: { path: 'src/app.ts', edits: [{ oldText: 'before', newText: 'after' }] },
     function: {
       name: 'edit',
       description: 'Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits.',
@@ -198,6 +204,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   run: {
     type: 'function',
+    exampleArgs: { command: 'npm test', outputMode: 'auto' },
     function: {
       name: 'run',
       description: 'Execute a shell command in the repository root. Returns stdout and stderr.',
@@ -222,6 +229,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   git: {
     type: 'function',
+    exampleArgs: { operation: 'status' },
     function: {
       name: 'git',
       description: 'Inspect repository state with one typed read-only operation: status, log, show, diff, blame, grep, or ls_files.',
@@ -230,6 +238,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   web_search: {
     type: 'function',
+    exampleArgs: { query: 'current TypeScript documentation' },
     function: {
       name: 'web_search',
       description: 'Search the public web and return concise result titles, URLs, and snippets. Use only when external/current information is needed.',
@@ -245,6 +254,7 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   },
   web_fetch: {
     type: 'function',
+    exampleArgs: { url: 'https://example.com/' },
     function: {
       name: 'web_fetch',
       description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
@@ -312,15 +322,20 @@ export function resolveRepoSearchPlannerToolDefinitions(
     }
     seen.add(toolName);
     const definition = REPO_TOOL_REGISTRY[toolName];
+    const example = RepoNativeToolCallSchema.safeParse({ toolName, args: definition.exampleArgs });
+    if (!example.success) {
+      throw new Error(`Invalid exampleArgs for repo planner tool "${toolName}": ${example.error.issues[0]?.message ?? 'schema validation failed'}`);
+    }
+    const validatedDefinition = { ...definition, exampleArgs: example.data.args };
     definitions.push(visionEnabled && toolName === 'read'
       ? {
-        ...definition,
+        ...validatedDefinition,
         function: {
-          ...definition.function,
-          description: buildVisionReadDescription(definition.function.description ?? TEXT_ONLY_READ_DESCRIPTION),
+          ...validatedDefinition.function,
+          description: buildVisionReadDescription(validatedDefinition.function.description ?? TEXT_ONLY_READ_DESCRIPTION),
         },
       }
-      : definition);
+      : validatedDefinition);
   }
   return definitions;
 }
@@ -524,8 +539,9 @@ function actionFromProtocolToolCalls(
       if (!args) return null;
       try {
         const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
-          action: toolCall.function.name,
-          ...args,
+          action: 'tool',
+          toolName: toolCall.function.name,
+          args,
         }), { toolDefinitions });
         return action.action === 'tool' ? action : null;
       } catch {
@@ -538,8 +554,8 @@ function actionFromProtocolToolCalls(
   return JSON.stringify({
     action: 'tool_batch',
     calls: parsedToolCalls.map((toolCall) => ({
-      action: toolCall.tool_name,
-      ...toolCall.args,
+      toolName: toolCall.toolName,
+      args: toolCall.args,
     })),
   });
 }

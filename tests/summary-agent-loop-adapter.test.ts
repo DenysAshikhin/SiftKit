@@ -33,7 +33,7 @@ const controller: SummaryPlannerLoopController = {
 test('summary planner action adapter parses planner tool and finish actions', () => {
   const adapter = new SummaryPlannerActionAdapter(controller);
   const tool = adapter.parseActions({
-    text: '{"action":"find_text","query":"needle"}',
+    text: '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
     reasoningText: '',
     toolCalls: [],
     usage,

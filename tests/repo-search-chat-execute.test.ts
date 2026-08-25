@@ -90,8 +90,8 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     }),
     mockResponses: [
-      '{"action":"web_search","query":"iron bar GE price"}',
-      '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"iron bar GE price\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://prices.runescape.wiki/iron-bar\"}}",
       '{"action":"finish","output":"About 150 gp per bar."}',
     ],
     mockCommandResults: {
@@ -128,9 +128,9 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
     model: 'mock',
     maxTurns: 4,
     mockResponses: [
-      '{"action":"web_search","query":"OSRS F2P ironman fastest iron ore milestones"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS F2P ironman fastest iron ore milestones\"}}",
       '{"action":"finish","output":"Use the Mining Guild at level 30 after Doric\'s Quest."}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Mining_Guild"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Mining_Guild\"}}",
       '{"action":"finish","output":"Fetched evidence says the Mining Guild requires 60 Mining, so level 60 is the relevant milestone."}',
     ],
     mockCommandResults: {
@@ -170,8 +170,8 @@ test('chat with web tools rejects finish before web_search and requires fetched 
     maxTurns: 5,
     mockResponses: [
       '{"action":"finish","output":"Iron bars make kiteshields and random quest rewards."}',
-      '{"action":"web_search","query":"OSRS iron bar uses"}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bar uses\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
       '{"action":"finish","output":"Fetched evidence says iron bars are used as Smithing material and in Construction items."}',
     ],
     mockCommandResults: {
@@ -210,9 +210,9 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
     model: 'mock',
     maxTurns: 6,
     mockResponses: [
-      '{"action":"web_search","query":"OSRS F2P ironman fastest iron ore mining methods milestones"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS F2P ironman fastest iron ore mining methods milestones\"}}",
       '{"action":"finish","output":"Move to the Mining Guild at level 30 after Doric\'s Quest."}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Mining_Guild"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Mining_Guild\"}}",
       '{"action":"finish","output":"For F2P ironman iron ore milestones, the fetched source says Mining Guild access requires 60 Mining, so the iron ore milestone is 60 Mining rather than 30."}',
     ],
     mockCommandResults: {
@@ -252,9 +252,9 @@ test('chat with web tools does not force finish after duplicate web_search', asy
     model: 'mock',
     maxTurns: 5,
     mockResponses: [
-      '{"action":"web_search","query":"osrs iron bar"}',
-      '{"action":"web_search","query":"osrs iron bar"}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs iron bar\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs iron bar\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
       '{"action":"finish","output":"Fetched evidence says iron bars require 15 Smithing and iron ore."}',
     ],
     mockCommandResults: {
@@ -292,10 +292,10 @@ test('chat with web tools rejects repeated search and fetch calls across the ret
     model: 'mock',
     maxTurns: 5,
     mockResponses: [
-      '{"action":"web_search","query":"OSRS iron bars"}',
-      '{"action":"web_search","query":"osrs   IRON bars"}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
-      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar#Uses"}',
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"OSRS iron bars\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_search\",\"args\":{\"query\":\"osrs   IRON bars\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar\"}}",
+      "{\"action\":\"tool\",\"toolName\":\"web_fetch\",\"args\":{\"url\":\"https://oldschool.runescape.wiki/w/Iron_bar#Uses\"}}",
       '{"action":"finish","output":"Iron bars are used for Smithing."}',
     ],
     mockCommandResults: {

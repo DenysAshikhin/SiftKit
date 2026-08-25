@@ -27,11 +27,17 @@ import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchP
 import type { ApprovalGate, ApprovalMode } from '../src/repo-search/engine/approval-gate.js';
 
 function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
+  const scorecard = buildMockScorecard(finalOutput);
+  const task = scorecard.tasks[0];
+  if (!task) {
+    throw new Error('Expected mock scorecard task.');
+  }
+  task.reason = 'finish';
   return {
     requestId: 'request-session-test',
     transcriptPath: 'db://repo-search/request_test.jsonl',
     artifactPath: 'db://repo-search/request_test.json',
-    scorecard: buildMockScorecard(finalOutput),
+    scorecard,
   };
 }
 
@@ -46,6 +52,20 @@ class ImmediateLockAdapter implements RepoAgentModelLockAdapter {
 class CompletingEngine implements RepoAgentEngine {
   async executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     return makeEngineResult('done');
+  }
+}
+
+class NonFinishEngine implements RepoAgentEngine {
+  async executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    const result = makeEngineResult('best-effort terminal synthesis');
+    const task = result.scorecard.tasks[0];
+    if (!task) {
+      throw new Error('Expected mock scorecard task.');
+    }
+    task.reason = 'invalid_response_limit';
+    task.passed = false;
+    result.scorecard.verdict = 'fail';
+    return result;
   }
 }
 
@@ -577,6 +597,27 @@ test('Completion: engine returns immediately, boundary resolves completed, lock 
     assert.equal(harness.lockReleaseCount, 1);
     const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'completed');
+});
+
+test('Non-finish engine result resolves failed and preserves terminal synthesis', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new NonFinishEngine(),
+    approvalMode: 'off',
+  }, t);
+  const session = harness.start();
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'failed');
+  if (boundary.status === 'failed') {
+    assert.match(boundary.error, /invalid_response_limit/u);
+    assert.equal(boundary.output, 'best-effort terminal synthesis');
+  }
+  await session.settled;
+  const state = harness.store.readState(harness.runId);
+  assert.equal(state.status, 'failed');
+  if (state.status === 'failed') {
+    assert.equal(state.output, 'best-effort terminal synthesis');
+  }
 });
 
 test('Park boundary: ParkingEngine parks at approval_required with populated decide commands', async (t) => {

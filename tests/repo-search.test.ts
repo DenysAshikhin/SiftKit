@@ -395,7 +395,7 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"status\"}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
@@ -518,8 +518,8 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       repoRoot: tempRoot,
       maxTurns: 3,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"status\"}",
-        '{"action":"git","operation":"log","limit":1}',
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"log\",\"limit\":1}}",
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
@@ -554,8 +554,8 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       repoRoot: tempRoot,
       maxTurns: 4,
       mockResponses: [
-        "{\"action\":\"git\",\"operation\":\"status\"}",
-        '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
+        "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"status\"}}",
+        "{\"action\":\"tool\",\"toolName\":\"read\",\"args\":{\"path\":\"src/big.ts\",\"offset\":300,\"limit\":601}}",
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
@@ -598,7 +598,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       });
       if (requestCount === 1) {
         setTimeout(() => {
-          res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"git\\\",\\\"operation\\\":\\\"status\\\"}\"}}]}\n\n");
+          res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"tool\\\",\\\"toolName\\\":\\\"git\\\",\\\"args\\\":{\\\"operation\\\":\\\"status\\\"}}\"}}]}\n\n");
           setTimeout(() => {
             res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\n");
             res.write('data: [DONE]\n\n');

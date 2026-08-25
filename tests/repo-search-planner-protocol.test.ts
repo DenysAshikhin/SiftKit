@@ -91,8 +91,8 @@ test('ModelJson parses repo-search tool batches', () => {
     JSON.stringify({
       action: 'tool_batch',
       calls: [
-        { action: 'grep', pattern: 'plan' },
-        { action: 'grep', pattern: 'repo-search' },
+        { toolName: 'grep', args: { pattern: 'plan' } },
+        { toolName: 'grep', args: { pattern: 'repo-search' } },
       ],
     }),
     getRepoSearchToolNamesForParsing(),
@@ -100,9 +100,9 @@ test('ModelJson parses repo-search tool batches', () => {
 
   assert.deepEqual(action, {
     action: 'tool_batch',
-    tool_calls: [
-      { tool_name: 'grep', args: { pattern: 'plan' } },
-      { tool_name: 'grep', args: { pattern: 'repo-search' } },
+    calls: [
+      { toolName: 'grep', args: { pattern: 'plan' } },
+      { toolName: 'grep', args: { pattern: 'repo-search' } },
     ],
   });
 });
@@ -167,22 +167,22 @@ test('getRepoSearchToolNamesForParsing excludes web tools so forged web actions 
   assert.equal(names.includes('web_fetch'), false);
 });
 
-test('ModelJson rejects web tools unless allowed and normalizes their args when allowed', () => {
+test('ModelJson rejects web tools unless allowed and preserves canonical args when allowed', () => {
   assert.throws(() => parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', ['grep']), /unknown|invalid/i);
 
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', ['web_search']), {
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_search","args":{"query":"x"}}', ['web_search']), {
     action: 'tool',
-    tool_name: 'web_search',
+    toolName: 'web_search',
     args: { query: 'x' },
   });
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"web_search","query":"x","timeFilter":"week"}', ['web_search']), {
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_search","args":{"query":"x","timeFilter":"week"}}', ['web_search']), {
     action: 'tool',
-    tool_name: 'web_search',
+    toolName: 'web_search',
     args: { query: 'x', timeFilter: 'week' },
   });
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"web_fetch","url":"https://example.com"}', ['web_fetch']), {
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"tool","toolName":"web_fetch","args":{"url":"https://example.com"}}', ['web_fetch']), {
     action: 'tool',
-    tool_name: 'web_fetch',
+    toolName: 'web_fetch',
     args: { url: 'https://example.com' },
   });
 });
@@ -270,9 +270,9 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from mult
       assert.equal(result.mockExhausted, false);
       assert.deepEqual(parseRepoSearchPlannerAction(result.text, getRepoSearchToolNamesForParsing()), {
         action: 'tool_batch',
-        tool_calls: [
-          { tool_name: 'grep', args: { pattern: 'plan' } },
-          { tool_name: 'grep', args: { pattern: 'repo-search' } },
+        calls: [
+          { toolName: 'grep', args: { pattern: 'plan' } },
+          { toolName: 'grep', args: { pattern: 'repo-search' } },
         ],
       });
     },
@@ -310,9 +310,9 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
 
       assert.deepEqual(parseRepoSearchPlannerAction(result.text, getRepoSearchToolNamesForParsing()), {
         action: 'tool_batch',
-        tool_calls: [
-          { tool_name: 'grep', args: { pattern: 'plan' } },
-          { tool_name: 'grep', args: { pattern: 'repo-search' } },
+        calls: [
+          { toolName: 'grep', args: { pattern: 'plan' } },
+          { toolName: 'grep', args: { pattern: 'repo-search' } },
         ],
       });
     },
@@ -320,7 +320,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
 });
 
 test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a complete planner action', async () => {
-  const actionText = '{"action":"tool_batch","calls":[{"action":"grep","pattern":"planner"}]}';
+  const actionText = '{"action":"tool_batch","calls":[{"toolName":"grep","args":{"pattern":"planner"}}]}';
   let writeCount = 0;
 
   await withServer(
@@ -638,6 +638,7 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
         toolDefinitions: [
           {
             type: 'function',
+            exampleArgs: { symbol: 'buildPlanner' },
             function: {
               name: 'search_symbol',
               description: 'search symbols',
@@ -655,7 +656,9 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
       const schemaText = JSON.stringify(captured.response_format || {});
       assert.match(schemaText, /search_symbol/u);
       assert.doesNotMatch(schemaText, /run_repo_cmd/u);
-      assert.doesNotMatch(schemaText, /tool_name/u);
+      assert.match(schemaText, /"action":\{"const":"tool"\}/u);
+      assert.match(schemaText, /"toolName":\{"const":"search_symbol"\}/u);
+      assert.match(schemaText, /"args":\{"type":"object"/u);
       assert.equal('tools' in captured, false);
     },
   );

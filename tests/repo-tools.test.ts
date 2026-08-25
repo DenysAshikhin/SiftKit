@@ -140,7 +140,7 @@ test('buildEffectiveTranscriptAction re-parses the executed read window', () => 
     rawArgs: { path: 'src/a.ts', offset: 1, limit: 99 },
     commandToRun: 'read path="src/a.ts" offset=1 limit=2',
   });
-  assert.deepEqual(action, { tool_name: 'read', args: { path: 'src/a.ts', offset: 1, limit: 2 } });
+  assert.deepEqual(action, { toolName: 'read', args: { path: 'src/a.ts', offset: 1, limit: 2 } });
 });
 
 test('buildEffectiveTranscriptAction preserves typed Git arguments', () => {
@@ -149,7 +149,7 @@ test('buildEffectiveTranscriptAction preserves typed Git arguments', () => {
     rawArgs: { operation: 'status' },
     commandToRun: 'git operation="status"',
   });
-  assert.deepEqual(action, { tool_name: 'git', args: { operation: 'status' } });
+  assert.deepEqual(action, { toolName: 'git', args: { operation: 'status' } });
 });
 
 test('buildRejectedTranscriptAction keeps small argument payloads intact', () => {
@@ -158,7 +158,7 @@ test('buildRejectedTranscriptAction keeps small argument payloads intact', () =>
     rawArgs: { operation: 'status' },
     commandToRun: 'git operation="status"',
   });
-  assert.deepEqual(action, { tool_name: 'git', args: { operation: 'status' } });
+  assert.deepEqual(action, { toolName: 'git', args: { operation: 'status' } });
 });
 
 test('buildRejectedTranscriptAction elides an oversized argument payload', () => {
@@ -169,7 +169,7 @@ test('buildRejectedTranscriptAction elides an oversized argument payload', () =>
     rawArgs: { path: 'src/summary/core-runner.ts', oldText, newText },
     commandToRun: 'edit path="src/summary/core-runner.ts"',
   });
-  assert.equal(action.tool_name, 'edit');
+  assert.equal(action.toolName, 'edit');
   assert.deepEqual(Object.keys(action.args), ['elided']);
   assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded$/u);
   assert.ok(JSON.stringify(action.args).length < REJECTED_ARGS_ELISION_LIMIT);

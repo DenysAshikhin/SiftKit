@@ -47,7 +47,7 @@ export function buildApprovalReviewPayload(input: {
   args: JsonObject;
 }): string | null {
   if (input.toolName !== 'edit' && input.toolName !== 'write') return null;
-  return JSON.stringify({ action: input.toolName, ...input.args }, null, 2);
+  return JSON.stringify({ action: 'tool', toolName: input.toolName, args: input.args }, null, 2);
 }
 
 const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([

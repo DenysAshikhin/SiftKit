@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ModelJson, StreamingFinishOutputExtractor } from '../src/lib/model-json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
 import {
   getRepoSearchToolNamesForParsing,
@@ -24,6 +25,14 @@ function parseRepoSearchPlannerAction(
   return ModelJson.parseRepoSearchPlannerAction(text, {
     toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
   });
+}
+
+function plannerToolAction(toolName: string, args: JsonObject): JsonObject {
+  return { action: 'tool', toolName, args };
+}
+
+function plannerToolJson(toolName: string, args: JsonObject): string {
+  return JSON.stringify(plannerToolAction(toolName, args));
 }
 
 test('ModelJson parses valid summary decisions without repair', () => {
@@ -210,8 +219,7 @@ test('ModelJson rejects invalid summary shape after repair', () => {
 
 test('ModelJson parses direct summary planner tool actions', () => {
   const action = parseSummaryPlannerAction(
-    JSON.stringify({
-      action: 'read_lines',
+    plannerToolJson('read_lines', {
       startLine: 10,
       endLine: 25,
     }),
@@ -219,7 +227,7 @@ test('ModelJson parses direct summary planner tool actions', () => {
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'read_lines',
+    toolName: 'read_lines',
     args: {
       startLine: 10,
       endLine: 25,
@@ -227,10 +235,9 @@ test('ModelJson parses direct summary planner tool actions', () => {
   });
 });
 
-test('ModelJson omits explicit null placeholders from summary planner tool arguments', () => {
+test('ModelJson preserves explicit nulls inside canonical summary args', () => {
   const action = parseSummaryPlannerAction(
-    JSON.stringify({
-      action: 'find_text',
+    plannerToolJson('find_text', {
       query: 'needle',
       mode: 'literal',
       maxHits: null,
@@ -239,15 +246,14 @@ test('ModelJson omits explicit null placeholders from summary planner tool argum
   );
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'find_text',
-    args: { query: 'needle', mode: 'literal' },
+    toolName: 'find_text',
+    args: { query: 'needle', mode: 'literal', maxHits: null, contextLines: null },
   });
 });
 
-test('ModelJson preserves nested null data while omitting top-level null placeholders', () => {
+test('ModelJson preserves nested and top-level null data inside canonical summary args', () => {
   const action = parseSummaryPlannerAction(
-    JSON.stringify({
-      action: 'json_filter',
+    plannerToolJson('json_filter', {
       collectionPath: null,
       filters: [{ path: 'deletedAt', op: 'eq', value: null }],
       select: null,
@@ -256,8 +262,13 @@ test('ModelJson preserves nested null data while omitting top-level null placeho
   );
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'json_filter',
-    args: { filters: [{ path: 'deletedAt', op: 'eq', value: null }] },
+    toolName: 'json_filter',
+    args: {
+      collectionPath: null,
+      filters: [{ path: 'deletedAt', op: 'eq', value: null }],
+      select: null,
+      limit: null,
+    },
   });
 });
 
@@ -267,29 +278,28 @@ test('ModelJson rejects tool-argument repairs that synthesize missing values', (
 
 test('ModelJson rejects planner repairs that synthesize missing values', () => {
   assert.throws(
-    () => parseSummaryPlannerAction('{"action":"find_text","query":"needle","mode":"literal","maxHits":}'),
+    () => parseSummaryPlannerAction('{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal","maxHits":}}'),
     /invalid planner payload/u,
   );
   assert.throws(
-    () => parseSummaryPlannerAction('{"action":"find_text","query":"needle","mode":"literal","maxHits":/* null */}'),
+    () => parseSummaryPlannerAction('{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal","maxHits":/* null */}}'),
     /invalid planner payload/u,
   );
 });
 
-test('ModelJson permits safe planner repair while omitting an explicit optional null', () => {
-  const action = parseSummaryPlannerAction("{'action':'find_text','query':'needle','mode':'literal','maxHits':null,}");
+test('ModelJson permits safe planner repair within canonical args', () => {
+  const action = parseSummaryPlannerAction("{'action':'tool','toolName':'find_text','args':{'query':'needle','mode':'literal','maxHits':null,}}");
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'find_text',
-    args: { query: 'needle', mode: 'literal' },
+    toolName: 'find_text',
+    args: { query: 'needle', mode: 'literal', maxHits: null },
   });
 });
 
 test('ModelJson preserves top-level nulls that are not schema-declared omission fields', () => {
   const action = parseSummaryPlannerAction(
-    JSON.stringify({
-      action: 'json_filter',
+    plannerToolJson('json_filter', {
       filters: null,
       undeclared: null,
     }),
@@ -297,7 +307,7 @@ test('ModelJson preserves top-level nulls that are not schema-declared omission 
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'json_filter',
+    toolName: 'json_filter',
     args: { filters: null, undeclared: null },
   });
 });
@@ -315,14 +325,13 @@ test('ModelJson rejects wrapped summary planner tool actions', () => {
           },
         }),
       ),
-    /unknown planner action/u,
+    /invalid planner tool action/u,
   );
 });
 
 test('ModelJson parses direct repo-search planner tool actions', () => {
   const action = parseRepoSearchPlannerAction(
-    JSON.stringify({
-      action: 'grep',
+    plannerToolJson('grep', {
       pattern: 'plan',
       glob: '*.ts',
     }),
@@ -331,7 +340,7 @@ test('ModelJson parses direct repo-search planner tool actions', () => {
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'grep',
+    toolName: 'grep',
     args: {
       pattern: 'plan',
       glob: '*.ts',
@@ -342,19 +351,19 @@ test('ModelJson parses direct repo-search planner tool actions', () => {
 test('ModelJson accepts typed run output modes and rejects invalid values', () => {
   assert.deepEqual(
     parseRepoSearchPlannerAction(
-      '{"action":"run","command":"npm test","outputMode":"full"}',
+      '{"action":"tool","toolName":"run","args":{"command":"npm test","outputMode":"full"}}',
       ['run'],
     ),
     {
       action: 'tool',
-      tool_name: 'run',
+      toolName: 'run',
       args: { command: 'npm test', outputMode: 'full' },
     },
   );
 
   assert.throws(
     () => parseRepoSearchPlannerAction(
-      '{"action":"run","command":"npm test","outputMode":"verbose"}',
+      '{"action":"tool","toolName":"run","args":{"command":"npm test","outputMode":"verbose"}}',
       ['run'],
     ),
     /invalid planner tool action/u,
@@ -364,12 +373,12 @@ test('ModelJson accepts typed run output modes and rejects invalid values', () =
 test('ModelJson passes the advertised run timeoutMs through to the engine', () => {
   assert.deepEqual(
     parseRepoSearchPlannerAction(
-      '{"action":"run","command":"npm test","timeoutMs":300000}',
+      '{"action":"tool","toolName":"run","args":{"command":"npm test","timeoutMs":300000}}',
       ['run'],
     ),
     {
       action: 'tool',
-      tool_name: 'run',
+      toolName: 'run',
       args: { command: 'npm test', timeoutMs: 300000 },
     },
   );
@@ -378,7 +387,7 @@ test('ModelJson passes the advertised run timeoutMs through to the engine', () =
 test('ModelJson rejects the removed run timeout key at the model boundary', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(
-      '{"action":"run","command":"npm test","timeout":300000}',
+      '{"action":"tool","toolName":"run","args":{"command":"npm test","timeout":300000}}',
       ['run'],
     ),
     /invalid planner tool action/u,
@@ -386,54 +395,48 @@ test('ModelJson rejects the removed run timeout key at the model boundary', () =
 });
 
 test('ModelJson applies canonical validation to native optional values and extra keys', () => {
-  const invalidPayloads = [
-    { allowed: ['grep'], payload: { action: 'grep', pattern: 'x', limit: 'ten' } },
-    { allowed: ['edit'], payload: { action: 'edit', path: 'x.ts', edits: [] } },
-    { allowed: ['write'], payload: { action: 'write', path: 'x.ts', content: '', extra: true } },
-    { allowed: ['run'], payload: { action: 'run', command: 'npm test', timeoutMs: 0 } },
-    { allowed: ['run'], payload: { action: 'run', command: 'npm test', timeoutMs: MAX_RUN_TIMEOUT_MS + 1 } },
+  const invalidPayloads: Array<{ allowed: string[]; toolName: string; args: JsonObject }> = [
+    { allowed: ['grep'], toolName: 'grep', args: { pattern: 'x', limit: 'ten' } },
+    { allowed: ['edit'], toolName: 'edit', args: { path: 'x.ts', edits: [] } },
+    { allowed: ['write'], toolName: 'write', args: { path: 'x.ts', content: '', extra: true } },
+    { allowed: ['run'], toolName: 'run', args: { command: 'npm test', timeoutMs: 0 } },
+    { allowed: ['run'], toolName: 'run', args: { command: 'npm test', timeoutMs: MAX_RUN_TIMEOUT_MS + 1 } },
   ];
 
   for (const fixture of invalidPayloads) {
     assert.throws(
-      () => parseRepoSearchPlannerAction(JSON.stringify(fixture.payload), fixture.allowed),
+      () => parseRepoSearchPlannerAction(plannerToolJson(fixture.toolName, fixture.args), fixture.allowed),
       /invalid planner tool action/u,
     );
   }
 });
 
-test('ModelJson omits explicit null placeholders from repo-search tool batches', () => {
+test('ModelJson parses canonical repo-search tool batches', () => {
   const action = parseRepoSearchPlannerAction(
     JSON.stringify({
       action: 'tool_batch',
       calls: [
         {
-          action: 'grep',
-          pattern: 'planner',
-          path: null,
-          glob: null,
-          ignoreCase: null,
-          literal: null,
-          context: null,
-          limit: null,
+          toolName: 'grep',
+          args: { pattern: 'planner' },
         },
-        { action: 'ls', path: '.', limit: null },
+        { toolName: 'ls', args: { path: '.' } },
       ],
     }),
     ['grep', 'ls'],
   );
   assert.deepEqual(action, {
     action: 'tool_batch',
-    tool_calls: [
-      { tool_name: 'grep', args: { pattern: 'planner' } },
-      { tool_name: 'ls', args: { path: '.' } },
+    calls: [
+      { toolName: 'grep', args: { pattern: 'planner' } },
+      { toolName: 'ls', args: { path: '.' } },
     ],
   });
 });
 
 test('ModelJson rejects null required repo-search arguments and empty batches', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', pattern: null }), ['grep']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('grep', { pattern: null }), ['grep']),
     /invalid planner tool action/u,
   );
   assert.throws(
@@ -444,7 +447,7 @@ test('ModelJson rejects null required repo-search arguments and empty batches', 
 
 test('ModelJson rejects a native repo tool call missing its required argument', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('grep', { glob: '*.ts' }), ['grep']),
     /invalid planner tool action/u,
   );
 });
@@ -462,7 +465,7 @@ test('ModelJson rejects wrapped repo-search planner tool actions', () => {
         }),
         ['grep'],
       ),
-    /unknown planner action/u,
+    /invalid planner tool action/u,
   );
 });
 
@@ -481,18 +484,22 @@ test('ModelJson rejects unrecoverable model JSON', () => {
 });
 
 test('ModelJson parses valid repo-search tool action', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"git","operation":"status"}');
+  const action = parseRepoSearchPlannerAction(plannerToolJson('git', { operation: 'status' }));
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'git',
+    toolName: 'git',
     args: { operation: 'status' },
   });
 });
 
 test('ModelJson parses operation-specific typed Git arguments', () => {
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","operation":"grep","pattern":"needle","path":"src"}'), {
+  assert.deepEqual(parseRepoSearchPlannerAction(plannerToolJson('git', {
+    operation: 'grep',
+    pattern: 'needle',
+    path: 'src',
+  })), {
     action: 'tool',
-    tool_name: 'git',
+    toolName: 'git',
     args: { operation: 'grep', pattern: 'needle', path: 'src' },
   });
 });
@@ -500,19 +507,19 @@ test('ModelJson parses operation-specific typed Git arguments', () => {
 test('ModelJson rejects the removed Git command-string contract', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"git","command":"git status"}'),
-    /invalid planner tool action:.*operation/u,
+    /unknown planner action/u,
   );
 });
 
 test('ModelJson passes a non-empty required array through untouched', () => {
   assert.deepEqual(
     parseRepoSearchPlannerAction(
-      JSON.stringify({ action: 'edit', path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] }),
+      plannerToolJson('edit', { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] }),
       ['edit'],
     ),
     {
       action: 'tool',
-      tool_name: 'edit',
+      toolName: 'edit',
       args: { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] },
     },
   );
@@ -520,15 +527,15 @@ test('ModelJson passes a non-empty required array through untouched', () => {
 
 test('ModelJson reports a distinct reason for each tool-argument rejection path', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('grep', { glob: '*.ts' }), ['grep']),
     /invalid planner tool action:.*pattern/u,
   );
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'edit', path: 'a.ts', edits: [] }), ['edit']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('edit', { path: 'a.ts', edits: [] }), ['edit']),
     /invalid planner tool action:.*edits/u,
   );
   assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"run","command":"npm test","outputMode":"verbose"}', ['run']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('run', { command: 'npm test', outputMode: 'verbose' }), ['run']),
     /invalid planner tool action:.*outputMode/u,
   );
 });
@@ -537,7 +544,7 @@ test('ModelJson reports a distinct reason for each tool-argument rejection path'
 // message carrying its own trailing period produces a double period in the transcript.
 test('ModelJson thrown planner messages do not end in a period', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('grep', { glob: '*.ts' }), ['grep']),
     /invalid planner tool action:.*[^.]$/u,
   );
 });
@@ -565,7 +572,7 @@ test('ModelJson rejects invalid repo-search planner payloads', () => {
   );
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
-    /unknown planner action/u,
+    /invalid planner tool action/u,
   );
 });
 
@@ -586,18 +593,18 @@ test('ModelJson reports canonical schema rejection for an empty finish output', 
 test('ModelJson names the action and the valid alternatives for an unknown action', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"read_lines","command":"rg x"}', ['ls', 'grep']),
-    /unknown planner action "read_lines"; valid actions: finish, grep, ls, progress, tool_batch/u,
+    /unknown planner action "read_lines"; valid actions: finish, progress, tool, tool_batch/u,
   );
 });
 
 test('ModelJson explains an empty or malformed tool batch', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'tool_batch', calls: [] }), ['grep']),
-    /invalid planner tool batch action: "calls" must be a non-empty array/u,
+    /invalid planner tool batch action/u,
   );
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'tool_batch', calls: ['grep'] }), ['grep']),
-    /invalid planner tool batch action: call 1 is not a JSON object/u,
+    /invalid planner tool batch action/u,
   );
 });
 
@@ -605,15 +612,21 @@ test('ModelJson names the offending call when a batch entry is unavailable or ma
   assert.throws(
     () =>
       parseRepoSearchPlannerAction(
-        JSON.stringify({ action: 'tool_batch', calls: [{ action: 'grep', pattern: 'x' }, { action: 'ls', path: '.' }] }),
+        JSON.stringify({
+          action: 'tool_batch',
+          calls: [
+            { toolName: 'grep', args: { pattern: 'x' } },
+            { toolName: 'ls', args: { path: '.' } },
+          ],
+        }),
         ['grep'],
       ),
-    /invalid planner tool batch action: call 2 uses unavailable tool "ls"/u,
+    /invalid planner tool batch action: call 2 uses unavailable planner tool "ls"/u,
   );
   assert.throws(
     () =>
       parseRepoSearchPlannerAction(
-        JSON.stringify({ action: 'tool_batch', calls: [{ action: 'grep', glob: '*.ts' }] }),
+        JSON.stringify({ action: 'tool_batch', calls: [{ toolName: 'grep', args: { glob: '*.ts' } }] }),
         ['grep'],
       ),
     /invalid planner tool batch action: call 1.*pattern/u,
@@ -624,12 +637,12 @@ test('ModelJson restores Windows path separators eaten by JSON escapes in run co
   // Regression: the model emitted `dashboard\tests\test\test.ts` inside a JSON string, so JSON.parse
   // consumed each `\t` as a TAB and PowerShell saw `dashboard<TAB>ests<TAB>est<TAB>est.ts`.
   const action = parseRepoSearchPlannerAction(
-    String.raw`{"action":"run","command":"Select-String -Path dashboard\tests\test\test.ts, dashboard\test\test.tsx -Pattern 'readImageFiles' | Select-Object -Property Path, LineNumber, Line","timeoutMs":30000,"outputMode":"auto"}`,
+    String.raw`{"action":"tool","toolName":"run","args":{"command":"Select-String -Path dashboard\tests\test\test.ts, dashboard\test\test.tsx -Pattern 'readImageFiles' | Select-Object -Property Path, LineNumber, Line","timeoutMs":30000,"outputMode":"auto"}}`,
     ['run'],
   );
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: {
       command: String.raw`Select-String -Path dashboard\tests\test\test.ts, dashboard\test\test.tsx -Pattern 'readImageFiles' | Select-Object -Property Path, LineNumber, Line`,
       timeoutMs: 30000,
@@ -639,52 +652,52 @@ test('ModelJson restores Windows path separators eaten by JSON escapes in run co
 });
 
 test('ModelJson restores Windows path separators eaten by JSON escapes in path arguments', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"read","path":"dashboard\\tests\\react-env.ts"}');
+  const action = parseRepoSearchPlannerAction('{"action":"tool","toolName":"read","args":{"path":"dashboard\\tests\\react-env.ts"}}');
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'read',
+    toolName: 'read',
     args: { path: String.raw`dashboard\tests\react-env.ts` },
   });
 });
 
 test('ModelJson restores every control-character escape inside a path argument', () => {
   // \n, \r, \b and \f are as silently destructive as \t for `\node_modules`, `\reports`, `\bin`, `\fixtures`.
-  const action = parseRepoSearchPlannerAction('{"action":"read","path":"a\\node_modules\\reports\\bin\\fixtures"}');
+  const action = parseRepoSearchPlannerAction('{"action":"tool","toolName":"read","args":{"path":"a\\node_modules\\reports\\bin\\fixtures"}}');
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'read',
+    toolName: 'read',
     args: { path: String.raw`a\node_modules\reports\bin\fixtures` },
   });
 });
 
 test('ModelJson keeps deliberate newlines in run commands', () => {
   const action = parseRepoSearchPlannerAction(
-    JSON.stringify({ action: 'run', command: 'Get-Content a.txt\nSelect-String foo' }),
+    plannerToolJson('run', { command: 'Get-Content a.txt\nSelect-String foo' }),
     ['run'],
   );
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'Get-Content a.txt\nSelect-String foo' },
   });
 });
 
 test('ModelJson never rewrites write content or edit payloads', () => {
   const content = 'line1\n\tindented\nline3';
-  const writeAction = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content }), [
+  const writeAction = parseRepoSearchPlannerAction(plannerToolJson('write', { path: 'a.ts', content }), [
     'write',
   ]);
   assert.deepEqual(writeAction, {
     action: 'tool',
-    tool_name: 'write',
+    toolName: 'write',
     args: { path: 'a.ts', content },
   });
 
   const edits = [{ oldText: 'const a = 1;\n\tconst b = 2;', newText: 'const a = 3;\n\tconst b = 4;' }];
-  const editAction = parseRepoSearchPlannerAction(JSON.stringify({ action: 'edit', path: 'a.ts', edits }), ['edit']);
+  const editAction = parseRepoSearchPlannerAction(plannerToolJson('edit', { path: 'a.ts', edits }), ['edit']);
   assert.deepEqual(editAction, {
     action: 'tool',
-    tool_name: 'edit',
+    toolName: 'edit',
     args: { path: 'a.ts', edits },
   });
 });
@@ -693,76 +706,76 @@ test('ModelJson never rewrites write content or edit payloads', () => {
 // CRLF re-application in executeWrite, which can only convert newlines that still exist.
 test('ModelJson preserves leading and trailing whitespace in write content', () => {
   const content = '\n  leading blank line kept\nlast line\n';
-  const action = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content }), [
+  const action = parseRepoSearchPlannerAction(plannerToolJson('write', { path: 'a.ts', content }), [
     'write',
   ]);
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'write',
+    toolName: 'write',
     args: { path: 'a.ts', content },
   });
 });
 
 test('ModelJson accepts whitespace-only write content but still rejects an empty string', () => {
-  const action = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content: '\n' }), [
+  const action = parseRepoSearchPlannerAction(plannerToolJson('write', { path: 'a.ts', content: '\n' }), [
     'write',
   ]);
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'write',
+    toolName: 'write',
     args: { path: 'a.ts', content: '\n' },
   });
 
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content: '' }), ['write']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('write', { path: 'a.ts', content: '' }), ['write']),
     /invalid planner tool action:.*content/u,
   );
   assert.throws(
-    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts' }), ['write']),
+    () => parseRepoSearchPlannerAction(plannerToolJson('write', { path: 'a.ts' }), ['write']),
     /invalid planner tool action:.*content/u,
   );
 });
 
 test('ModelJson still trims surrounding whitespace from path and command arguments', () => {
   const writeAction = parseRepoSearchPlannerAction(
-    JSON.stringify({ action: 'write', path: '  a.ts  ', content: 'body' }),
+    plannerToolJson('write', { path: '  a.ts  ', content: 'body' }),
     ['write'],
   );
   assert.deepEqual(writeAction, {
     action: 'tool',
-    tool_name: 'write',
+    toolName: 'write',
     args: { path: 'a.ts', content: 'body' },
   });
 
   const runAction = parseRepoSearchPlannerAction(
-    JSON.stringify({ action: 'run', command: '  npm run lint  ' }),
+    plannerToolJson('run', { command: '  npm run lint  ' }),
     ['run'],
   );
   assert.deepEqual(runAction, {
     action: 'tool',
-    tool_name: 'run',
+    toolName: 'run',
     args: { command: 'npm run lint' },
   });
 });
 
 test('ModelJson restores Windows path separators eaten by JSON escapes in typed Git paths', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"git","operation":"log","path":"dashboard\\tests"}');
+  const action = parseRepoSearchPlannerAction('{"action":"tool","toolName":"git","args":{"operation":"log","path":"dashboard\\tests"}}');
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'git',
+    toolName: 'git',
     args: { operation: 'log', path: String.raw`dashboard\tests` },
   });
 });
 
 test('ModelJson repairs malformed escaped command payloads', () => {
   const malformed =
-    '{"action":"grep","pattern":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
+    '{"action":"tool","toolName":"grep","args":{"pattern":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
   const action = parseRepoSearchPlannerAction(malformed);
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'grep',
+    toolName: 'grep',
     args: {
       pattern: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30',
     },

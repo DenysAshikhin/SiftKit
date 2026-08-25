@@ -538,7 +538,7 @@ export class TaskLoop {
     const response = getRepoSearchModelData(context).plannerResponse;
     const toolActions: RepoSearchToolAction[] = actions.map((action) => ({
       action: 'tool',
-      tool_name: action.toolName,
+      toolName: action.toolName,
       args: JsonObjectSchema.parse(action.args),
     }));
     const outcome = await this.toolActions.executeBatch(
