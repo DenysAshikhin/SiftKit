@@ -155,7 +155,7 @@ export class ChatRepoOperationRunner {
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
         config: effectiveConfig,
-        allowedTools: this.getAllowedTools(request.config, selected.preset, session),
+        allowedTools: this.getAllowedTools(request.config, selected.preset),
         webToolsEnabled: session.webSearchEnabled === true,
         maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
         logFile: request.logFile,
@@ -233,15 +233,13 @@ export class ChatRepoOperationRunner {
   private getAllowedTools(
     config: SiftConfig,
     preset: SiftPreset,
-    session: ChatSession,
   ): SiftPreset['allowedTools'] {
     const allowedTools = resolvePresetAllowedTools(
       preset,
       normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
     );
-    if (session.webSearchEnabled !== true) {
-      return allowedTools;
-    }
+    // Web tools are always part of the surface; the web tool policy reading
+    // `webToolsEnabled` decides whether they are actually offered.
     return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
   }
 

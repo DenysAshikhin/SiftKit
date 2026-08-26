@@ -222,8 +222,11 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
         throw new Error('Expected the engine request to carry a config.');
       }
       assert.equal(getConfiguredModel(engineRequest.config), 'test-model');
-      assert.equal(engineRequest.allowedTools?.includes('web_search'), operation === 'repo-search');
-      assert.equal(engineRequest.allowedTools?.includes('web_fetch'), operation === 'repo-search');
+      // Web tools are always in the surface; per-session intent travels on webToolsEnabled
+      // and the web tool policy decides whether they are actually offered.
+      assert.equal(engineRequest.allowedTools?.includes('web_search'), true);
+      assert.equal(engineRequest.allowedTools?.includes('web_fetch'), true);
+      assert.equal(engineRequest.webToolsEnabled, operation === 'repo-search');
       assert.match(engineRequest.prompt, operation === 'plan' ? /implementation plan/u : /^find target$/u);
       assert.equal(result.updatedSession.presetId, operation);
       assert.equal(result.updatedSession.mode, operation);
