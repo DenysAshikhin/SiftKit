@@ -107,10 +107,25 @@ export function evaluateTaskSignals(
 // Task result type
 // ---------------------------------------------------------------------------
 
+/**
+ * Every way a task loop can stop. Only `finish` is a genuine completion — the rest are aborts, and
+ * the scorecard must not report them as passes. Closed so a new stop condition fails to compile
+ * rather than silently scoring as a pass.
+ */
+export const TASK_END_REASONS = [
+  'finish',
+  'max_turns',
+  'invalid_response_limit',
+  'forced_finish_attempt_limit',
+  'mock_responses_exhausted',
+] as const;
+export const TaskEndReasonSchema = z.enum(TASK_END_REASONS);
+export type TaskEndReason = z.infer<typeof TaskEndReasonSchema>;
+
 export const TaskResultSchema = z.object({
   id: z.string(),
   question: z.string(),
-  reason: z.string(),
+  reason: TaskEndReasonSchema,
   turnsUsed: z.number(),
   safetyRejects: z.number(),
   invalidResponses: z.number(),
@@ -231,7 +246,7 @@ export type LoopCounters = {
   invalidResponses: number;
   commandFailures: number;
   safetyRejects: number;
-  reason: string;
+  reason: TaskEndReason;
 };
 
 /**

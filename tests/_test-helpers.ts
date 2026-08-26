@@ -36,7 +36,7 @@ export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResu
     tasks: [{
       id: 'repo-search',
       question: 'mock question',
-      reason: 'completed',
+      reason: 'finish',
       turnsUsed: 1,
       safetyRejects: 0,
       invalidResponses: 0,

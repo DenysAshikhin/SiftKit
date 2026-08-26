@@ -20,6 +20,7 @@ import { parseLoggedEvent } from './logged-events.js';
 import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.js';
 import { makeTestPreset } from './model-presets.js';
 import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
+import type { LoopCounters } from '../../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchTaskKind } from '../../src/repo-search/task-kind.js';
 
 export function makeProcessor(
@@ -36,14 +37,14 @@ export function makeProcessor(
 ): {
   processor: ToolActionProcessor;
   commands: TaskCommand[];
-  counters: { invalidResponses: number; commandFailures: number; safetyRejects: number; reason: string };
+  counters: LoopCounters;
   tokenUsage: TokenUsageTracker;
   budget: TurnBudget;
   events: JsonObject[];
   transcript: TranscriptManager;
 } {
   const commands: TaskCommand[] = [];
-  const counters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' };
+  const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
   const tokenUsage = new TokenUsageTracker(undefined, true);
   const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5, config: null });
   const events: JsonObject[] = [];

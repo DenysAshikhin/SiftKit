@@ -8,7 +8,7 @@ import { TaskCommandSchema } from '../src/repo-search/prompts.js';
 import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import { decayInvalidResponses } from '../src/repo-search/engine/task-loop-support.js';
+import { decayInvalidResponses, type LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
@@ -195,7 +195,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
 });
 
 test('decayInvalidResponses steps the counter down and floors at zero', () => {
-  const counters = { invalidResponses: 2, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
+  const counters: LoopCounters = { invalidResponses: 2, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
 
   decayInvalidResponses(counters);
   assert.equal(counters.invalidResponses, 1);

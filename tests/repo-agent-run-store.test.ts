@@ -24,6 +24,7 @@ import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { classifyRepoAgentExecutionResult } from '../src/repo-agent/run-output.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import type { TaskEndReason } from '../src/repo-search/engine/task-loop-support.js';
 import { buildMockScorecard } from './_test-helpers.js';
 
 const TEMP_ROOT = join(
@@ -42,7 +43,7 @@ after(() => {
 });
 
 function buildExecutionResult(
-  reason: string,
+  reason: TaskEndReason,
   passed: boolean,
   verdict: 'pass' | 'fail',
 ): RepoSearchExecutionResult {
@@ -64,10 +65,10 @@ function buildExecutionResult(
 
 test('repo-agent execution outcome requires a genuine passing finish', () => {
   const cases = [
-    { reason: 'finish', passed: true, verdict: 'pass' as const, expected: 'completed' },
-    { reason: 'invalid_response_limit', passed: false, verdict: 'fail' as const, expected: 'failed' },
-    { reason: 'max_turns', passed: false, verdict: 'fail' as const, expected: 'failed' },
-    { reason: 'finish', passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'finish' as const, passed: true, verdict: 'pass' as const, expected: 'completed' },
+    { reason: 'invalid_response_limit' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'max_turns' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'finish' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
   ];
 
   for (const fixture of cases) {
