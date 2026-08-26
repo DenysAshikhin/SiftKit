@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { hasUsableWebSearchProvider } from '../src/web-search/web-search-provider.js';
+import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
 import type { WebSearchConfig } from '../src/web-search/types.js';
 
 function buildWebSearchConfig(overrides: Partial<WebSearchConfig> = {}): WebSearchConfig {
@@ -53,4 +54,57 @@ test('hasUsableWebSearchProvider ignores providers missing from ProviderOrder', 
     },
   });
   assert.equal(hasUsableWebSearchProvider(config), false);
+});
+
+test('resolveWebToolPolicy denies both web tools when EnabledDefault is false', () => {
+  const policy = resolveWebToolPolicy(buildWebSearchConfig({ EnabledDefault: false }), undefined);
+  assert.deepEqual(policy, { webSearch: false, webFetch: false });
+});
+
+test('resolveWebToolPolicy denies web_search when enabled but no provider is usable', () => {
+  const policy = resolveWebToolPolicy(buildWebSearchConfig({ EnabledDefault: true }), undefined);
+  assert.deepEqual(policy, { webSearch: false, webFetch: true });
+});
+
+test('resolveWebToolPolicy allows both when enabled with a usable provider', () => {
+  const config = buildWebSearchConfig({
+    EnabledDefault: true,
+    Providers: {
+      tavily: { Enabled: true, ApiKey: 'tvly-key' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+  });
+  assert.deepEqual(resolveWebToolPolicy(config, undefined), { webSearch: true, webFetch: true });
+});
+
+test('an explicit false overrides EnabledDefault true', () => {
+  const config = buildWebSearchConfig({
+    EnabledDefault: true,
+    Providers: {
+      tavily: { Enabled: true, ApiKey: 'tvly-key' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+  });
+  assert.deepEqual(resolveWebToolPolicy(config, false), { webSearch: false, webFetch: false });
+});
+
+test('an explicit true overrides EnabledDefault false but still needs a provider for web_search', () => {
+  const policy = resolveWebToolPolicy(buildWebSearchConfig({ EnabledDefault: false }), true);
+  assert.deepEqual(policy, { webSearch: false, webFetch: true });
+});
+
+test('applyWebToolPolicy strips only the denied web tools and preserves order', () => {
+  const names = ['read', 'grep', 'web_search', 'find', 'web_fetch', 'git'];
+  assert.deepEqual(
+    applyWebToolPolicy(names, { webSearch: false, webFetch: false }),
+    ['read', 'grep', 'find', 'git'],
+  );
+  assert.deepEqual(
+    applyWebToolPolicy(names, { webSearch: false, webFetch: true }),
+    ['read', 'grep', 'find', 'web_fetch', 'git'],
+  );
+  assert.deepEqual(
+    applyWebToolPolicy(names, { webSearch: true, webFetch: true }),
+    names,
+  );
 });
