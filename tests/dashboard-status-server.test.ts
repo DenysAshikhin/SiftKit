@@ -101,7 +101,7 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const config = getDefaultConfig();
   config.WebSearch = buildWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeConfig(configPath, config);
+  writeConfig(getConfigPath(), config);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -2077,8 +2077,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const config = getDefaultConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
-  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
+  writeConfig(getConfigPath(), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -2222,8 +2221,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   const config = getDefaultConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
-  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
+  writeConfig(getConfigPath(), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -2322,8 +2320,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
   const config = getDefaultConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
-  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
+  writeConfig(getConfigPath(), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
