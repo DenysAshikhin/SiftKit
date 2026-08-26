@@ -64,6 +64,7 @@ import {
   allocateLlamaCppSlotId,
   buildAssistantReplayMessage,
   buildWebToolsForTaskLoop,
+  countExecutedCommandFailures,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
   evaluateTaskSignals,
@@ -759,10 +760,11 @@ export class TaskLoop {
 
     const evidenceParts = [this.finalOutput, ...this.commands.map((item) => item.output)];
     const signalCheck = evaluateTaskSignals(this.task, evidenceParts.join('\n'));
-    const hasExecutedCommandFailure = this.commands.some(
-      (command) => command.safe && command.exitCode !== null && command.exitCode !== 0,
-    );
-    const passed = signalCheck.passed && !hasExecutedCommandFailure;
+    const hasExecutedCommandFailure = countExecutedCommandFailures(this.commands) > 0;
+    // A run that stopped on a turn, invalid-response or forced-finish limit did not answer the
+    // question. Scoring it as a pass is how run 100b487d reported verdict=pass while its own
+    // terminal synthesis said "Incomplete".
+    const passed = this.counters.reason === 'finish' && signalCheck.passed && !hasExecutedCommandFailure;
 
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,

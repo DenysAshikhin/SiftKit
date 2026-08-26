@@ -122,6 +122,16 @@ export const TASK_END_REASONS = [
 export const TaskEndReasonSchema = z.enum(TASK_END_REASONS);
 export type TaskEndReason = z.infer<typeof TaskEndReasonSchema>;
 
+/**
+ * A rejected call (`safe: false`, `exitCode: null`) is a screening decision, not an executed
+ * failure — only a command that actually ran and exited non-zero counts here.
+ */
+export function countExecutedCommandFailures(
+  commands: readonly { safe: boolean; exitCode: number | null }[],
+): number {
+  return commands.filter((command) => command.safe && command.exitCode !== null && command.exitCode !== 0).length;
+}
+
 export const TaskResultSchema = z.object({
   id: z.string(),
   question: z.string(),

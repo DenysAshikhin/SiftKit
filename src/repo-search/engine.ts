@@ -19,7 +19,7 @@ import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
-import { TaskResultSchema } from './engine/task-loop-support.js';
+import { countExecutedCommandFailures, TaskResultSchema } from './engine/task-loop-support.js';
 import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -100,9 +100,11 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
   const failureReasons: string[] = [];
   for (const task of options.tasks) {
     if (task.passed) continue;
+    if (task.reason !== 'finish') failureReasons.push(`${task.id}: ended with reason ${task.reason}`);
     if (task.missingSignals.length > 0) failureReasons.push(`${task.id}: missing signals [${task.missingSignals.join(', ')}]`);
     if (Number(task.commandFailures || 0) > 0) failureReasons.push(`${task.id}: command failures ${Number(task.commandFailures || 0)}`);
-    if (task.missingSignals.length === 0 && Number(task.commandFailures || 0) === 0) failureReasons.push(`${task.id}: task failed`);
+    const exitFailures = countExecutedCommandFailures(task.commands);
+    if (exitFailures > 0) failureReasons.push(`${task.id}: commands exited non-zero ${exitFailures}`);
   }
 
   return {
