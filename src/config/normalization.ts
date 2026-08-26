@@ -260,6 +260,10 @@ function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number
   return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+function getBooleanWithDefault(value: JsonValue, fallback: JsonValue): boolean {
+  return value === null || value === undefined ? Boolean(fallback) : Boolean(value);
+}
+
 export function getManagedStartupTimeoutMs(value: JsonValue, fallback: number): number {
   return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
 }
@@ -517,9 +521,7 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     GpuLayers: getFiniteInteger(input.GpuLayers, Number(defaults.GpuLayers ?? SIFT_DEFAULT_LLAMA_GPU_LAYERS)),
     Threads: getFiniteInteger(input.Threads, Number(defaults.Threads ?? -1)),
     NcpuMoe: getFiniteInteger(input.NcpuMoe, Number(defaults.NcpuMoe ?? 0)),
-    FlashAttention: input.FlashAttention === null || input.FlashAttention === undefined
-      ? Boolean(defaults.FlashAttention)
-      : Boolean(input.FlashAttention),
+    FlashAttention: getBooleanWithDefault(input.FlashAttention, defaults.FlashAttention),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
     BatchSize: getFinitePositiveInteger(input.BatchSize, Number(defaults.BatchSize ?? SIFT_DEFAULT_LLAMA_BATCH_SIZE)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_LLAMA_UBATCH_SIZE)),
@@ -559,9 +561,7 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     SpeculativeNgramModNMax: getSpeculativeInteger(input.SpeculativeNgramModNMax, Number(defaults.SpeculativeNgramModNMax ?? 16), true),
     SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
     SpeculativeDraftMin: getSpeculativeInteger(input.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
-    SpeculativeDynamic: input.SpeculativeDynamic === null || input.SpeculativeDynamic === undefined
-      ? Boolean(defaults.SpeculativeDynamic)
-      : Boolean(input.SpeculativeDynamic),
+    SpeculativeDynamic: getBooleanWithDefault(input.SpeculativeDynamic, defaults.SpeculativeDynamic),
     ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_LLAMA_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)
@@ -572,9 +572,8 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     SleepIdleSeconds: getFinitePositiveInteger(input.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
     IdleAction: getModelIdleAction(input.IdleAction),
     VerboseLogging: Boolean(input.VerboseLogging),
-    VisionEnabled: input.VisionEnabled === null || input.VisionEnabled === undefined
-      ? Boolean(defaults.VisionEnabled)
-      : Boolean(input.VisionEnabled),
+    VisionEnabled: getBooleanWithDefault(input.VisionEnabled, defaults.VisionEnabled),
+    VisionOffload: getBooleanWithDefault(input.VisionOffload, defaults.VisionOffload),
     VisionImageRetention: getVisionImageRetention(input.VisionImageRetention),
     VisionMaxImagePixels: getFiniteNonNegativeInteger(
       input.VisionMaxImagePixels,

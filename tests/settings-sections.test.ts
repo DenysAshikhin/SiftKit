@@ -101,6 +101,7 @@ test('settings tooltip labels include the documented fields', () => {
       'SleepIdleSeconds',
       'Verbose logging',
       'Vision enabled',
+      'Keep vision weights in RAM',
       'Max image size (MP)',
       'Vision image retention',
       'Export memory',

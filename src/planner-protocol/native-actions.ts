@@ -1,5 +1,5 @@
 import type { AgentLoopAction } from '../agent-loop/types.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type OptionalJsonValue } from '../lib/json-types.js';
 import { ModelJson } from '../lib/model-json.js';
 import { z } from '../lib/zod.js';
 import { LlamaCppToolCallParser } from '../llm-protocol/tool-call-parser.js';
@@ -52,12 +52,78 @@ function formatIssuePath(path: PropertyKey[]): string {
   return path.map(String).join('.') || 'arguments';
 }
 
+// Models occasionally JSON-stringify a nested array or object argument (the whole
+// arguments string already gets the same treatment in ModelJson.parseToolArguments).
+// Bounded so a pathological response cannot loop; each round must repair at least
+// one field or the original validation error is surfaced.
+const MAX_STRINGIFIED_ARGUMENT_REPAIRS = 4;
+
+function readJsonPath(root: JsonObject, path: readonly PropertyKey[]): OptionalJsonValue {
+  let current: OptionalJsonValue = root;
+  for (const key of path) {
+    if (Array.isArray(current) && typeof key === 'number') {
+      current = current[key];
+    } else if (isJsonObject(current) && typeof key === 'string') {
+      current = current[key];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function writeJsonPath(root: JsonObject, path: readonly PropertyKey[], value: JsonValue): void {
+  const parent = readJsonPath(root, path.slice(0, -1));
+  const key = path[path.length - 1];
+  if (Array.isArray(parent) && typeof key === 'number') {
+    parent[key] = value;
+  } else if (isJsonObject(parent) && typeof key === 'string') {
+    parent[key] = value;
+  }
+}
+
+function repairStringifiedArguments(args: JsonObject, issues: readonly z.core.$ZodIssue[]): JsonObject | null {
+  let repaired: JsonObject | null = null;
+  for (const issue of issues) {
+    if (issue.code !== 'invalid_type' || (issue.expected !== 'array' && issue.expected !== 'object')) {
+      continue;
+    }
+    const target: JsonObject = repaired ?? structuredClone(args);
+    const current = readJsonPath(target, issue.path);
+    if (typeof current !== 'string') {
+      continue;
+    }
+    let parsed: JsonValue;
+    try {
+      parsed = JsonValueSchema.parse(JSON.parse(current));
+    } catch {
+      continue;
+    }
+    const matchesExpected = issue.expected === 'array' ? Array.isArray(parsed) : isJsonObject(parsed);
+    if (!matchesExpected) {
+      continue;
+    }
+    writeJsonPath(target, issue.path, parsed);
+    repaired = target;
+  }
+  return repaired;
+}
+
 function parseDefinitionArguments<T>(
   toolCall: LlamaCppToolCall,
   args: JsonObject,
   argumentSchema: z.ZodType<T>,
 ): T {
-  const validated = argumentSchema.safeParse(args);
+  let candidate = args;
+  let validated = argumentSchema.safeParse(candidate);
+  for (let repairs = 0; !validated.success && repairs < MAX_STRINGIFIED_ARGUMENT_REPAIRS; repairs += 1) {
+    const repaired = repairStringifiedArguments(candidate, validated.error.issues);
+    if (repaired === null) {
+      break;
+    }
+    candidate = repaired;
+    validated = argumentSchema.safeParse(candidate);
+  }
   if (validated.success) {
     return validated.data;
   }

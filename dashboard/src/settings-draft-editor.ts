@@ -84,7 +84,8 @@ export type ModelBooleanField =
   | 'SpeculativeMtpEnabled'
   | 'SpeculativeDynamic'
   | 'VerboseLogging'
-  | 'VisionEnabled';
+  | 'VisionEnabled'
+  | 'VisionOffload';
 
 export type DashboardSettingsDraftAction =
   | { type: 'set-assistant'; value: AssistantConfig }
@@ -257,9 +258,14 @@ export class DashboardSettingsDraftEditor {
       case 'set-model-float':
         this.requireModelPreset(action.presetId)[action.field] = action.value;
         return;
-      case 'set-model-boolean':
-        this.requireModelPreset(action.presetId)[action.field] = action.value;
+      case 'set-model-boolean': {
+        const preset = this.requireModelPreset(action.presetId);
+        preset[action.field] = action.value;
+        if (action.field === 'VisionEnabled' && !action.value) {
+          preset.VisionOffload = false;
+        }
         return;
+      }
       case 'set-model-backend':
         this.setModelBackend(action.presetId, action.value);
         return;

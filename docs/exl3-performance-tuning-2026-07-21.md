@@ -165,3 +165,30 @@ validation rather than letting TabbyAPI log a warning and run with vision silent
 Prompt budgeting cannot derive image tokens from a data URI without decoding the image, so
 each attachment is charged a flat `SIFT_IMAGE_TOKEN_ESTIMATE` (2048) pre-flight; the engine's
 reported prompt token count remains authoritative after the request.
+
+## `TABBY_MODEL_VISION_OFFLOAD` — vision tower in host RAM
+
+Set from the preset field `VisionOffload` (EXL3-managed only, same reasoning as `VisionEnabled`).
+It maps to TabbyAPI's `model.vision_offload`, which sets `config.infer_params.vision_pinned`
+before the vision component loads: the tower lives in pinned host memory and is streamed to the
+GPU per encode. Tabby ignores it while vision is off, so the field is emitted unconditionally and
+only surfaced in the dashboard once `VisionEnabled` is on. Startup confirmation is the log line
+`Keeping vision model weights in system RAM (vision_offload).`
+
+Measured 2026-08-26 on an RTX 4090 against `D:\personal\models\elx3\3.8_27b_4.4bpw`, total board
+memory from `nvidia-smi` (a fresh process each time, no image encoded before the reading):
+
+- **Resident VRAM 21,294 MiB on / 22,062–22,084 MiB off** — ~780 MiB freed, matching the tower's
+  BF16 footprint. Pinned host memory counts as shared GPU memory on Windows, same caveat as the
+  sysmem KV cache.
+- **Text decode unchanged**: 82.5 T/s on vs 81.6 T/s off (3 greedy 200-token runs each), inside
+  run-to-run noise.
+- **Image latency unchanged at 2.1 MP**: 4,008 ms on vs 4,148 ms off for the same screenshot and
+  prompt. The streaming cost is small next to encode plus generation at this size; expect it to
+  matter more for back-to-back image requests.
+- **Freeze/restore keeps the pinning.** With `IdleAction: freeze`, a vision-pinned model froze to
+  1,006 MiB and restored to 21,058 MiB — the tower does not come back into VRAM, and an image
+  request after restore still captions correctly.
+
+Reading total board memory right after an image request overstates residency by roughly a
+gigabyte: the allocator retains the encode blocks. Compare fresh-process readings only.

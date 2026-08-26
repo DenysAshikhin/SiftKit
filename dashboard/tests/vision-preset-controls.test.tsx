@@ -4,6 +4,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, cleanup } from './react-test-environment.js';
 import { VisionPresetControls } from '../src/tabs/settings/VisionPresetControls.js';
+import { VISION_OFFLOAD_LABEL } from '../src/settings-sections.js';
 import { MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures.js';
 import type { DashboardModelRuntimePreset } from '../src/types.js';
 
@@ -51,6 +52,24 @@ test('enabling vision reveals the max image size field, labelled in MP', () => {
   render(<ModelPresetsSection {...visionProps()} />);
   assert.ok(screen.getByLabelText(MAX_IMAGE_SIZE_LABEL));
   assert.ok(screen.getByLabelText(RETENTION_LABEL));
+});
+
+test('the vision offload toggle only appears once vision is enabled', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false })} />);
+  assert.equal(screen.queryByLabelText(VISION_OFFLOAD_LABEL), null);
+
+  cleanup();
+  render(<ModelPresetsSection {...visionProps({ VisionOffload: true })} />);
+  assert.ok(screen.getByLabelText(VISION_OFFLOAD_LABEL));
+});
+
+test('toggling vision offload writes the preset field', () => {
+  const calls: Array<[string, boolean]> = [];
+  render(<ModelPresetsSection {...visionProps({ VisionOffload: false })} modelPresetActions={{ ...MODEL_PRESET_ACTIONS, setBoolean: (field, value) => calls.push([field, value]) }} />);
+
+  fireEvent.click(screen.getByLabelText(VISION_OFFLOAD_LABEL));
+
+  assert.deepEqual(calls, [['VisionOffload', true]]);
 });
 
 test('toggling VisionEnabled on preserves zero as the model-ceiling sentinel', () => {

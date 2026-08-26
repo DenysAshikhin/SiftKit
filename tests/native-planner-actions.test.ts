@@ -64,8 +64,20 @@ function finishDefinition(
   };
 }
 
+const EditArgumentsSchema = z.strictObject({
+  path: z.string().min(1),
+  edits: z.array(z.strictObject({
+    oldText: z.string().min(1),
+    newText: z.string(),
+  })).min(1),
+}).transform((value) => JsonObjectSchema.parse(value));
+
 const toolDefinitions = [
   definition('git', GitStatusArgumentsSchema, { operation: 'status' }),
+  definition('edit', EditArgumentsSchema, {
+    path: 'README.md',
+    edits: [{ oldText: 'a', newText: 'b' }],
+  }),
 ];
 const summaryToolDefinitions = [
   ...toolDefinitions,
@@ -299,6 +311,73 @@ test('summary bare malformed markup is rejected without finish guidance', () => 
     (error) => error instanceof NativePlannerResponseError
       && /malformed tool-call markup/u.test(error.message)
       && !/finish by returning/u.test(error.message),
+  );
+});
+
+test('JSON-stringified array argument is repaired to a real array', () => {
+  const edits = [
+    { oldText: 'Verified: 161/161 unit tests', newText: 'Verified: 167/167 unit tests' },
+    { oldText: 'TabbyAPI: 161/161 tests', newText: 'TabbyAPI: 167/167 tests' },
+  ];
+  assert.deepEqual(
+    parseNativePlannerActions(
+      {
+        text: '',
+        toolCalls: [call('edit-1', 'edit', { path: 'docs/handoff.md', edits: JSON.stringify(edits) })],
+      },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'tool', callId: 'edit-1', toolName: 'edit', args: { path: 'docs/handoff.md', edits } }],
+  );
+});
+
+test('JSON-stringified object argument is repaired to a real object', () => {
+  const inner = { oldText: 'a', newText: 'b' };
+  assert.deepEqual(
+    parseNativePlannerActions(
+      {
+        text: '',
+        toolCalls: [call('edit-2', 'edit', { path: 'README.md', edits: [JSON.stringify(inner)] })],
+      },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'tool', callId: 'edit-2', toolName: 'edit', args: { path: 'README.md', edits: [inner] } }],
+  );
+});
+
+test('non-JSON string where an array is expected still fails on the field', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      {
+        text: '',
+        toolCalls: [call('edit-3', 'edit', { path: 'README.md', edits: 'replace 161 with 167' })],
+      },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerToolCallError
+      && error.callId === 'edit-3'
+      && /edits/u.test(error.message),
+  );
+});
+
+test('JSON-looking text in a string-typed argument is left untouched', () => {
+  assert.deepEqual(
+    parseNativePlannerActions(
+      {
+        text: '',
+        toolCalls: [call('edit-4', 'edit', {
+          path: '[not-json].md',
+          edits: [{ oldText: '["x"]', newText: '{"y":1}' }],
+        })],
+      },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{
+      kind: 'tool',
+      callId: 'edit-4',
+      toolName: 'edit',
+      args: { path: '[not-json].md', edits: [{ oldText: '["x"]', newText: '{"y":1}' }] },
+    }],
   );
 });
 

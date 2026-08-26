@@ -64,6 +64,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
     TABBY_MODEL_VISION: 'false',
+    TABBY_MODEL_VISION_OFFLOAD: 'false',
     EXL3_QC_ATTN: '0',
   });
   assert.equal('gpu_layers' in translated, false);
@@ -101,6 +102,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'false',
     TABBY_MODEL_VISION: 'false',
+    TABBY_MODEL_VISION_OFFLOAD: 'false',
     EXL3_QC_ATTN: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
@@ -138,6 +140,44 @@ test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => 
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
   }
+});
+
+test('EXL3 adapter emits TABBY_MODEL_VISION_OFFLOAD true when the preset offloads the vision tower', () => {
+  const baseDir = createManagedTempDir('exl3-vision-offload-');
+  try {
+    const modelDir = join(baseDir, '3.6_27B');
+    mkdirSync(modelDir, { recursive: true });
+    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ vision_config: {} }), { encoding: 'utf8' });
+    const preset = createModelPreset({
+      Backend: 'exl3',
+      ModelPath: modelDir,
+      KvCacheQuantization: 'q8_0/q4_0',
+      VisionEnabled: true,
+      VisionOffload: true,
+    });
+    const adapter = new Exl3PresetAdapter(baseDir);
+
+    const env = adapter.buildLaunchEnvironment(preset);
+    assert.equal(env.TABBY_MODEL_VISION, 'true');
+    assert.equal(env.TABBY_MODEL_VISION_OFFLOAD, 'true');
+  } finally {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('EXL3 adapter rejects vision offload when vision is disabled', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    VisionEnabled: false,
+    VisionOffload: true,
+  });
+
+  assert.throws(
+    () => adapter.validatePreset(preset),
+    /VisionOffload=true requires VisionEnabled=true/u,
+  );
 });
 
 test('EXL3 preset validation rejects MTP with a draft cache quantization Tabby cannot express', () => {
@@ -323,6 +363,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   IdleAction: ON_BOTH_BACKENDS,
   VerboseLogging: LLAMA_ONLY,
   VisionEnabled: EXL3_ONLY,
+  VisionOffload: EXL3_ONLY,
   VisionImageRetention: EXL3_ONLY,
   VisionMaxImagePixels: EXL3_ONLY,
 } satisfies Record<ModelPresetField, PresetFieldExpectation>;

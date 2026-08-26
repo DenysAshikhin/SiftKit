@@ -183,6 +183,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
         TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
         TABBY_MODEL_VISION: 'false',
+        TABBY_MODEL_VISION_OFFLOAD: 'false',
         EXL3_QC_ATTN: '0',
     });
     assert.equal(fs.existsSync(fixture.loadRequestsPath), false);

@@ -7,8 +7,8 @@ import type {
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkSession,
-  DashboardModelRuntimePreset,
 } from '../src/types';
+import { MANAGED_PRESET } from './fixtures.js';
 
 const PROMPT = {
   id: 'prompt-1', title: 'Trace repo-search', taskKind: 'repo-search',
@@ -33,19 +33,6 @@ const ATTEMPT = {
   outputQualityScore: null, toolUseQualityScore: 8, reviewNotes: null, reviewedBy: null, reviewedAtUtc: null,
   startedAtUtc: '2026-05-13T12:00:00.000Z', completedAtUtc: '2026-05-13T12:00:02.000Z', updatedAtUtc: '2026-05-13T12:00:02.000Z',
 } satisfies DashboardBenchmarkAttempt;
-
-const MANAGED_PRESET = {
-  id: 'managed', label: 'Managed', Backend: 'llama', Model: 'test-model',
-  ExternalServerEnabled: false, ExecutablePath: null, BaseUrl: 'http://127.0.0.1:8080', BindHost: '127.0.0.1', Port: 8080, ModelPath: null,
-  NumCtx: 4096, GpuLayers: 0, Threads: 4, NcpuMoe: 0, FlashAttention: false, VisionEnabled: false, VisionImageRetention: 8, VisionMaxImagePixels: 0, ParallelSlots: 1, BatchSize: 512, UBatchSize: 512, CacheRam: 2048, CacheRecurrentRam: 4096,
-  KvCacheQuantization: 'f16', MaxTokens: 512, Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
-  Reasoning: 'off', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
-  SpeculativeEnabled: false, SpeculativeType: 'ngram-map-k', SpeculativeMtpEnabled: false,
-  SpeculativeNgramSizeN: 8, SpeculativeNgramSizeM: 16, SpeculativeNgramMinHits: 2,
-  SpeculativeNgramModNMatch: 24, SpeculativeNgramModNMin: 4, SpeculativeNgramModNMax: 16,
-  SpeculativeDraftMax: 16, SpeculativeDraftMin: 4, SpeculativeDynamic: true, ReasoningBudget: 128, ReasoningBudgetMessage: '',
-  StartupTimeoutMs: 1000, HealthcheckTimeoutMs: 1000, HealthcheckIntervalMs: 500, SleepIdleSeconds: 600, VerboseLogging: false,
-} satisfies DashboardModelRuntimePreset;
 
 test('benchmark tab renders stat tiles above the run builder, logs, and results', () => {
   const markup = renderToStaticMarkup(

@@ -143,6 +143,7 @@ const PRESET_FIELD_SUPPORT = {
   IdleAction: 'both',
   VerboseLogging: 'llama-only',
   VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
+  VisionOffload: 'exl3-managed-only-unsupported-by-llama',
   VisionImageRetention: 'exl3-managed-only-unsupported-by-llama',
   VisionMaxImagePixels: 'exl3-managed-only-unsupported-by-llama',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;

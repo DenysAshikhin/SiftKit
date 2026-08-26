@@ -43,6 +43,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
    */
   EXL3_QC_ATTN: z.literal('0'),
   TABBY_MODEL_VISION: z.enum(['true', 'false']),
+  /** Pins the vision tower in host RAM and streams it per request; Tabby ignores it while vision is off. */
+  TABBY_MODEL_VISION_OFFLOAD: z.enum(['true', 'false']),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -57,6 +59,9 @@ export class Exl3PresetAdapter {
     }
     const relativeModelPath = this.getRelativeModelPath(preset);
     this.getCacheModes(preset);
+    if (preset.VisionOffload && !preset.VisionEnabled) {
+      throw new Error(`preset=${preset.id} backend=exl3 VisionOffload=true requires VisionEnabled=true`);
+    }
     if (preset.VisionEnabled) {
       const modelDirectory = win32.resolve(this.modelRoot, relativeModelPath);
       if (!this.capabilities.hasVisionTower(modelDirectory)) {
@@ -102,6 +107,7 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: preset.SpeculativeEnabled && preset.SpeculativeDynamic ? 'true' : 'false',
       EXL3_QC_ATTN: '0',
       TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
+      TABBY_MODEL_VISION_OFFLOAD: preset.VisionOffload ? 'true' : 'false',
     });
   }
 

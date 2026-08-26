@@ -11,6 +11,7 @@ import {
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
 import { SettingsSectionField } from '../../settings/SettingsFields';
+import { VISION_OFFLOAD_LABEL } from '../../settings-sections';
 import type { DashboardModelRuntimePreset, ModelPresetField } from '../../types';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups';
 
@@ -111,86 +112,103 @@ export function VisionPresetControls({
           <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
         </label>
       </ModelPresetControl>
-      {preset.VisionEnabled && imageTokenBudget && effectivePixels !== null && imageTokens !== null ? (
+      {preset.VisionEnabled ? (
         <>
-          <ModelPresetControl preset={preset} field="VisionMaxImagePixels" label="Max image size (MP)">
-            <div className="settings-inline-readout">
+          <ModelPresetControl preset={preset} field="VisionOffload" label={VISION_OFFLOAD_LABEL}>
+            <label className="settings-live-toggle-control">
               <input
-                type="number"
-                aria-label="Max image size (MP)"
-                min={0}
-                max={displayMegapixels(imageTokenBudget.maxPixels)}
-                step={0.1}
-                value={displayMegapixels(preset.VisionMaxImagePixels)}
+                type="checkbox"
+                aria-label={VISION_OFFLOAD_LABEL}
+                checked={preset.VisionOffload}
                 onChange={(event) => {
-                  const configuredMegapixels = displayMegapixels(preset.VisionMaxImagePixels);
-                  const inputMegapixels = parseFloatInput(event.target.value, configuredMegapixels);
-                  const boundedMegapixels = clamp(inputMegapixels, 0, displayMegapixels(imageTokenBudget.maxPixels));
-                  modelPresetActions.setInteger(
-                    'VisionMaxImagePixels',
-                    Math.min(imageTokenBudget.maxPixels, fromMegapixels(boundedMegapixels)),
-                  );
+                  modelPresetActions.setBoolean('VisionOffload', event.target.checked);
                 }}
               />
-              <span className="unit" title="Megapixels (one million pixels)">MP</span>
-              <span className="vram-estimate">
-                {`≈${formatVramEstimate(estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder))} free VRAM`}
-                {` · ${imageTokens.toLocaleString('en-US')} image tokens`}
-              </span>
-            </div>
+              <span>{preset.VisionOffload ? 'System RAM' : 'VRAM'}</span>
+            </label>
           </ModelPresetControl>
-          <p className="field-hint">
-            Set 0 to use the model ceiling. Any image larger than this is downscaled to fit, at the highest quality the resize
-            can produce (Lanczos3), keeping its aspect ratio. Only total area matters, not shape — a wide panorama and a square of
-            the same MP cost the same.
-          </p>
-          <p className="field-hint">
-            Lowering this spends fewer context tokens per image and shrinks the encode spike below. It does not
-            reduce the VRAM needed to load the model — weights and the KV cache are allocated at startup and do not depend on
-            image size. Use context length for that.
-          </p>
-          <details className="field-reference">
-            <summary>What does MP mean here?</summary>
-            <table>
-              <tbody>
-                {IMAGE_SIZE_REFERENCE.map((entry) => (
-                  <tr key={entry.label} className={entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}>
-                    <td>{entry.label}</td>
-                    <td>{`${toMegapixels(entry.pixels).toFixed(2)} MP`}</td>
-                    <td>{`${Math.ceil(entry.pixels / imageTokenBudget.pixelsPerToken).toLocaleString('en-US')} tok`}</td>
-                    <td>{entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
-          {headroomFinding ? (
-            <p className={`field-hint headroom ${headroomFinding.level}`} role="status" aria-label="GPU memory headroom">
-              {headroomFinding.message}
-            </p>
+          {imageTokenBudget && effectivePixels !== null && imageTokens !== null ? (
+            <>
+              <ModelPresetControl preset={preset} field="VisionMaxImagePixels" label="Max image size (MP)">
+                <div className="settings-inline-readout">
+                  <input
+                    type="number"
+                    aria-label="Max image size (MP)"
+                    min={0}
+                    max={displayMegapixels(imageTokenBudget.maxPixels)}
+                    step={0.1}
+                    value={displayMegapixels(preset.VisionMaxImagePixels)}
+                    onChange={(event) => {
+                      const configuredMegapixels = displayMegapixels(preset.VisionMaxImagePixels);
+                      const inputMegapixels = parseFloatInput(event.target.value, configuredMegapixels);
+                      const boundedMegapixels = clamp(inputMegapixels, 0, displayMegapixels(imageTokenBudget.maxPixels));
+                      modelPresetActions.setInteger(
+                        'VisionMaxImagePixels',
+                        Math.min(imageTokenBudget.maxPixels, fromMegapixels(boundedMegapixels)),
+                      );
+                    }}
+                  />
+                  <span className="unit" title="Megapixels (one million pixels)">MP</span>
+                  <span className="vram-estimate">
+                    {`≈${formatVramEstimate(estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder))} free VRAM`}
+                    {` · ${imageTokens.toLocaleString('en-US')} image tokens`}
+                  </span>
+                </div>
+              </ModelPresetControl>
+              <p className="field-hint">
+                Set 0 to use the model ceiling. Any image larger than this is downscaled to fit, at the highest quality the resize
+                can produce (Lanczos3), keeping its aspect ratio. Only total area matters, not shape — a wide panorama and a square of
+                the same MP cost the same.
+              </p>
+              <p className="field-hint">
+                Lowering this spends fewer context tokens per image and shrinks the encode spike below. It does not
+                reduce the VRAM needed to load the model — weights and the KV cache are allocated at startup and do not depend on
+                image size. Use context length for that.
+              </p>
+              <details className="field-reference">
+                <summary>What does MP mean here?</summary>
+                <table>
+                  <tbody>
+                    {IMAGE_SIZE_REFERENCE.map((entry) => (
+                      <tr key={entry.label} className={entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}>
+                        <td>{entry.label}</td>
+                        <td>{`${toMegapixels(entry.pixels).toFixed(2)} MP`}</td>
+                        <td>{`${Math.ceil(entry.pixels / imageTokenBudget.pixelsPerToken).toLocaleString('en-US')} tok`}</td>
+                        <td>{entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+              {headroomFinding ? (
+                <p className={`field-hint headroom ${headroomFinding.level}`} role="status" aria-label="GPU memory headroom">
+                  {headroomFinding.message}
+                </p>
+              ) : null}
+              <p className="field-hint">
+                {`Model ceiling ${toMegapixels(imageTokenBudget.maxPixels).toFixed(1)} MP `}
+                {`(≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
+                {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
+              </p>
+              <p className="field-hint">
+                The VRAM figure is the estimated peak while one image is encoded — transient headroom to keep free on top of the loaded model,
+                released once the image is encoded. It is not steady-state usage and not part of startup allocation.
+              </p>
+              <ModelPresetControl preset={preset} field="VisionImageRetention" label="Vision image retention">
+                <input
+                  type="number"
+                  aria-label="Vision image retention"
+                  min={-1}
+                  step={1}
+                  value={preset.VisionImageRetention}
+                  onChange={(event) => modelPresetActions.setInteger('VisionImageRetention', parseIntegerInput(event.target.value, preset.VisionImageRetention))}
+                />
+              </ModelPresetControl>
+              <p className="field-hint">
+                Images kept live in context. -1 keeps every image; 0 refuses images entirely; positive values keep that many recent images.
+              </p>
+            </>
           ) : null}
-          <p className="field-hint">
-            {`Model ceiling ${toMegapixels(imageTokenBudget.maxPixels).toFixed(1)} MP `}
-            {`(≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
-            {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
-          </p>
-          <p className="field-hint">
-            The VRAM figure is the estimated peak while one image is encoded — transient headroom to keep free on top of the loaded model,
-            released once the image is encoded. It is not steady-state usage and not part of startup allocation.
-          </p>
-          <ModelPresetControl preset={preset} field="VisionImageRetention" label="Vision image retention">
-            <input
-              type="number"
-              aria-label="Vision image retention"
-              min={-1}
-              step={1}
-              value={preset.VisionImageRetention}
-              onChange={(event) => modelPresetActions.setInteger('VisionImageRetention', parseIntegerInput(event.target.value, preset.VisionImageRetention))}
-            />
-          </ModelPresetControl>
-          <p className="field-hint">
-            Images kept live in context. -1 keeps every image; 0 refuses images entirely; positive values keep that many recent images.
-          </p>
         </>
       ) : null}
     </>

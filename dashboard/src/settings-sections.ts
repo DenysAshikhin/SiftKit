@@ -24,6 +24,7 @@ export type SettingsSectionDescriptor = {
 };
 
 export const POLICY_MODE_OPTIONS = ['conservative', 'aggressive'] as const;
+export const VISION_OFFLOAD_LABEL = 'Keep vision weights in RAM';
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
@@ -170,6 +171,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'SleepIdleSeconds', layout: 'quarter', helpText: 'Seconds of idleness before the configured action runs. Ignored while the model stays resident.' },
       { label: 'Verbose logging', layout: 'quarter', helpText: 'Enables extra backend launcher logging when supported.' },
       { label: 'Vision enabled', layout: 'quarter', helpText: 'Enables image input for this model preset when the selected model exposes a supported vision encoder.' },
+      { label: VISION_OFFLOAD_LABEL, layout: 'quarter', helpText: 'Stores the vision tower in pinned system RAM instead of VRAM and streams it to the GPU per image. Frees VRAM at the cost of slower image requests; text-only requests are unaffected.' },
       { label: 'Max image size (MP)', layout: 'quarter', helpText: 'Maximum image area before downscaling, in megapixels. Set `0` to use the model ceiling.' },
       { label: 'Vision image retention', layout: 'quarter', helpText: 'Number of recent images kept in context. Use `-1` for all images or `0` to refuse images.' },
     ],

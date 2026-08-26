@@ -15,64 +15,13 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
 
 function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): DashboardModelRuntimePreset {
+  const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!defaultPreset) throw new Error('Default model preset is missing');
   return {
-    id: 'default',
-    label: 'Default',
-    Backend: 'llama',
+    ...defaultPreset,
     Model: 'default.gguf',
-    ExternalServerEnabled: false,
-    ExecutablePath: null,
-    BaseUrl: 'http://127.0.0.1:8097',
-    BindHost: '127.0.0.1',
-    Port: 8097,
-    ModelPath: null,
-    NumCtx: 150000,
-    GpuLayers: 999,
-    Threads: -1,
-    NcpuMoe: 0,
-    FlashAttention: true,
-    ParallelSlots: 1,
-    BatchSize: 512,
-    UBatchSize: 512,
-    CacheRam: 8192,
-    CacheRecurrentRam: 4096,
-    KvCacheQuantization: 'f16',
-    MaxTokens: 15000,
-    Temperature: 0.7,
-    TopP: 0.8,
-    TopK: 20,
-    MinP: 0,
-    PresencePenalty: 1.5,
-    RepetitionPenalty: 1,
-    Reasoning: 'off',
-    ReasoningEffort: 'xhigh',
-    ReasoningContent: false,
-    PreserveThinking: false,
-    MaintainPerStepThinking: false,
-    SpeculativeEnabled: false,
-    SpeculativeType: 'ngram-map-k',
-    SpeculativeMtpEnabled: false,
-    SpeculativeNgramSizeN: 8,
-    SpeculativeNgramSizeM: 16,
-    SpeculativeNgramMinHits: 2,
-    SpeculativeNgramModNMatch: 24,
-    SpeculativeNgramModNMin: 4,
-    SpeculativeNgramModNMax: 16,
-    SpeculativeDraftMax: 16,
-    SpeculativeDraftMin: 4,
-    SpeculativeDynamic: true,
-    ReasoningBudget: 10000,
-    ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-    StartupTimeoutMs: 600000,
-    HealthcheckTimeoutMs: 2000,
-    HealthcheckIntervalMs: 1000,
-    SleepIdleSeconds: 600,
-    VerboseLogging: false,
+    NumCtx: 150_000,
     ...overrides,
-    IdleAction: overrides.IdleAction ?? 'unload',
-    VisionEnabled: overrides.VisionEnabled ?? false,
-    VisionImageRetention: overrides.VisionImageRetention ?? 8,
-    VisionMaxImagePixels: overrides.VisionMaxImagePixels ?? 0,
   };
 }
 
@@ -307,4 +256,17 @@ test('set-model-boolean VisionEnabled toggles the targeted preset and leaves oth
   const qwenPreset = result.Server.ModelPresets.Presets.find((p) => p.id === 'qwen-27b');
   assert.equal(defaultPreset?.VisionEnabled, false);
   assert.equal(qwenPreset?.VisionEnabled, true);
+});
+
+test('disabling vision clears vision offload on the targeted preset', () => {
+  const config = createConfig();
+  const editor = new DashboardSettingsDraftEditor(config);
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'VisionEnabled', value: true });
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'VisionOffload', value: true });
+
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'VisionEnabled', value: false });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets.find((candidate) => candidate.id === 'qwen-27b');
+  assert.equal(preset?.VisionEnabled, false);
+  assert.equal(preset?.VisionOffload, false);
 });

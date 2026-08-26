@@ -32,7 +32,7 @@ Four conflicts, all resolved to the pre-agreed outcomes:
   `test_exl3_env_overrides.py` guarding the env-string → typed-config contract for
   the two renamed vars, since SiftKit launches Tabby purely via `TABBY_*` overrides.
 
-Verified: 161/161 unit tests, `compileall` clean, grammar import smoke test OK,
+Verified: 167/167 unit tests, `compileall` clean, grammar import smoke test OK,
 whole-repo grep shows zero references to any dropped name.
 
 Remaining custom surface vs upstream (10 files, +1387/−89): freeze/restore residency
@@ -102,7 +102,7 @@ output should be aware.
 
 ## Validation snapshot
 
-- TabbyAPI: 161/161 tests, compileall clean, live server exercised heavily by §3.
+- TabbyAPI: 167/167 tests, compileall clean, live server exercised heavily by §3.
 - SiftKit: 3316 pass / 0 fail / 1 pre-existing skip; `npm run typecheck` (chains
   lint) exit 0. `timing-recorder.test.ts` flaked once under full-suite load,
   passed 4/4 in isolation and the full-suite rerun — unrelated, timing-based.
@@ -117,3 +117,7 @@ None from this work. Notes for whoever is next:
 - The exllamav3 pin comment in `pyproject.toml` still points at the editable
   install in `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench`; keep
   `+unified.N` in sync with `exllamav3/version.py` there when that tree moves.
+- Upstream now exposes `vision_offload` (pins vision-tower weights in system RAM). Both
+  exl3 presets run vision-capable models with `VisionEnabled: true`, so the tower sits in
+  VRAM while repo-search/repo-agent traffic is text-only. Candidate flag to adopt in the
+  EXL3 preset adapter if VRAM pressure appears.

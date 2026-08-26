@@ -349,6 +349,22 @@ test('VisionEnabled defaults to false and schema accepts true', () => {
   assert.equal(truthy.VisionEnabled, true);
 });
 
+test('VisionOffload defaults to false and schema accepts true', () => {
+  const normalized = normalizeConfig(getDefaultConfig());
+  assert.equal(activePreset(normalized).VisionOffload, false);
+
+  const config = defaultConfigObject();
+  activePresetObject(config).VisionOffload = true;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).VisionOffload, true);
+});
+
+test('VisionOffload defaults to false when omitted from a persisted preset', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).VisionOffload;
+
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).VisionOffload, false);
+});
+
 test('VisionImageRetention defaults to 8 when omitted from a persisted preset', () => {
   const config = defaultConfigObject();
   delete activePresetObject(config).VisionImageRetention;
