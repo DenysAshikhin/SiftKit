@@ -106,15 +106,25 @@ export function parseNativePlannerActions(
   options: NativePlannerActionOptions,
 ): AgentLoopAction[] {
   const content = response.text.trim();
-  const fallbackToolCalls = response.toolCalls.length === 0 && content
-    ? new LlamaCppToolCallParser().parseFromText(content)
-    : [];
-  const toolCalls = response.toolCalls.length > 0 ? response.toolCalls : fallbackToolCalls;
+  const fallbackScan = response.toolCalls.length === 0 && content
+    ? new LlamaCppToolCallParser().scanFromText(content)
+    : null;
+  const toolCalls = response.toolCalls.length > 0
+    ? response.toolCalls
+    : fallbackScan === null ? [] : fallbackScan.calls;
   if (toolCalls.length === 0) {
     if (!content) {
       throw new NativePlannerResponseError('Planner returned neither content nor tool calls.');
     }
-    if (options.contentWithoutTools === 'invalid' || content.includes('<tool_call>')) {
+    if (fallbackScan !== null && fallbackScan.sawBareMarkup) {
+      const rejection = 'Planner returned malformed tool-call markup that could not be parsed. Re-emit the tool call as valid markup';
+      throw new NativePlannerResponseError(
+        options.contentWithoutTools === 'finish'
+          ? `${rejection}, or finish by returning the answer with any markup examples quoted in backticks.`
+          : `${rejection}.`,
+      );
+    }
+    if (options.contentWithoutTools === 'invalid') {
       throw new NativePlannerResponseError('Planner returned content without a valid tool call.');
     }
     return [{ kind: 'finish', text: content }];

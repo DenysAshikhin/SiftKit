@@ -501,7 +501,7 @@ export class LlamaCppClient {
         function: { name: toolCall.name, arguments: toolCall.argumentsText },
       }))
       .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null);
-    const dialectToolCalls = protocolToolCalls.length === 0 ? parser.parseFromText(contentText) : [];
+    const dialectToolCalls = protocolToolCalls.length === 0 ? parser.scanFromText(contentText).calls : [];
     const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : dialectToolCalls;
     const promptEvalDuration = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
     const generationDuration = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));

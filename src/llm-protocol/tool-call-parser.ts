@@ -1,9 +1,41 @@
 import type { MutableJsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import type { LlamaCppToolCall } from './types.js';
 
-const QWEN_TOOL_CALL_PATTERN = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gu;
+const TOOL_CALL_OPEN_TAG = '<tool_call>';
+const TOOL_CALL_CLOSE_TAG = '</tool_call>';
+const QWEN_TOOL_CALL_PATTERN = new RegExp(`${TOOL_CALL_OPEN_TAG}\\s*([\\s\\S]*?)\\s*${TOOL_CALL_CLOSE_TAG}`, 'gu');
 const QWEN_FUNCTION_PATTERN = /<function=([^>\s]+)>\s*([\s\S]*?)\s*<\/function>/u;
 const QWEN_PARAMETER_PATTERN = /<parameter=([^>\s]+)>\s*([\s\S]*?)\s*<\/parameter>/gu;
+/** Fenced blocks first so their backtick pairs cannot be consumed as inline code. */
+const MARKDOWN_CODE_REGION_PATTERN = /```[\s\S]*?```|`[^`\n]*`/gu;
+
+type CodeRegion = { start: number; end: number };
+
+function findMarkdownCodeRegions(text: string): CodeRegion[] {
+  const regions: CodeRegion[] = [];
+  for (const match of text.matchAll(MARKDOWN_CODE_REGION_PATTERN)) {
+    if (typeof match.index !== 'number') continue;
+    regions.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return regions;
+}
+
+function isInsideCodeRegion(regions: readonly CodeRegion[], index: number): boolean {
+  return regions.some((region) => index >= region.start && index < region.end);
+}
+
+function hasBareOpenTag(text: string, regions: readonly CodeRegion[]): boolean {
+  for (let index = text.indexOf(TOOL_CALL_OPEN_TAG); index !== -1; index = text.indexOf(TOOL_CALL_OPEN_TAG, index + 1)) {
+    if (!isInsideCodeRegion(regions, index)) return true;
+  }
+  return false;
+}
+
+export type TextToolCallScan = {
+  calls: LlamaCppToolCall[];
+  /** True when the opener tag appears outside markdown code — evidence of a textual tool-call attempt. */
+  sawBareMarkup: boolean;
+};
 
 type RawFunctionCall = {
   name?: OptionalJsonValue;
@@ -59,9 +91,16 @@ export class LlamaCppToolCallParser {
     return calls;
   }
 
-  parseFromText(text: string): LlamaCppToolCall[] {
+  /**
+   * Textual (Qwen-dialect) tool calls are emitted bare; markup inside markdown code regions
+   * is a quoted example, not an attempt. Regions are honoured by position rather than by
+   * stripping so parameter values containing backticks survive intact.
+   */
+  scanFromText(text: string): TextToolCallScan {
+    const codeRegions = findMarkdownCodeRegions(text);
     const calls: LlamaCppToolCall[] = [];
     for (const blockMatch of text.matchAll(QWEN_TOOL_CALL_PATTERN)) {
+      if (typeof blockMatch.index !== 'number' || isInsideCodeRegion(codeRegions, blockMatch.index)) continue;
       const functionMatch = QWEN_FUNCTION_PATTERN.exec(blockMatch[1] || '');
       const name = functionMatch?.[1]?.trim() || '';
       if (!name) continue;
@@ -77,7 +116,7 @@ export class LlamaCppToolCallParser {
         function: { name, arguments: JSON.stringify(parameters) },
       });
     }
-    return calls;
+    return { calls, sawBareMarkup: hasBareOpenTag(text, codeRegions) };
   }
 
   parseToolCall(raw: RawToolCall): LlamaCppToolCall | null {

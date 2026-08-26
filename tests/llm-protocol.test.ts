@@ -354,7 +354,7 @@ test('llama client covers streamed request and response normalization branches',
 
 test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
   const parser = new LlamaCppToolCallParser();
-  const calls = parser.parseFromText(`
+  const { calls, sawBareMarkup } = parser.scanFromText(`
 <tool_call>
 <function=find_text>
 <parameter=pattern>InferenceRequestBuilder</parameter>
@@ -367,6 +367,7 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
 </function>
 </tool_call>`);
 
+  assert.equal(sawBareMarkup, true);
   assert.deepEqual(calls.map((call) => call.function.name), ['find_text', 'read_lines']);
   const firstArguments = calls[0]?.function.arguments;
   const secondArguments = calls[1]?.function.arguments;
@@ -689,4 +690,47 @@ test('chat requests omit reasoning effort when the preset has reasoning off', as
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
   assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
+});
+
+test('tool-call scan treats markup inside markdown code regions as a mention', () => {
+  const parser = new LlamaCppToolCallParser();
+  const { calls, sawBareMarkup } = parser.scanFromText([
+    'The dialect looks like `<tool_call>` and a full example is:',
+    '```',
+    '<tool_call>',
+    '<function=find_text>',
+    '<parameter=pattern>x</parameter>',
+    '</function>',
+    '</tool_call>',
+    '```',
+  ].join('\n'));
+
+  assert.deepEqual(calls, []);
+  assert.equal(sawBareMarkup, false);
+});
+
+test('tool-call scan flags a bare unclosed opener as markup evidence', () => {
+  const parser = new LlamaCppToolCallParser();
+  const { calls, sawBareMarkup } = parser.scanFromText('Let me call <tool_call><function=git>');
+
+  assert.deepEqual(calls, []);
+  assert.equal(sawBareMarkup, true);
+});
+
+test('tool-call scan preserves fenced content inside parameter values', () => {
+  const parser = new LlamaCppToolCallParser();
+  const { calls } = parser.scanFromText([
+    '<tool_call>',
+    '<function=write_file>',
+    '<parameter=content>```js',
+    'const x = 1;',
+    '```</parameter>',
+    '</function>',
+    '</tool_call>',
+  ].join('\n'));
+
+  assert.deepEqual(calls.map((call) => call.function.name), ['write_file']);
+  const argumentsText = calls[0]?.function.arguments;
+  assert.ok(typeof argumentsText === 'string');
+  assert.deepEqual(JSON.parse(argumentsText), { content: '```js\nconst x = 1;\n```' });
 });

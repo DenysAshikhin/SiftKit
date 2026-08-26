@@ -266,7 +266,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
     });
     res.write(
       `data: ${JSON.stringify({
-        choices: [{ delta: { content: 'done' } }],
+        choices: [{ delta: { content: 'done — the fallback parses `<tool_call>` markup from text.' } }],
       })}\n\n`
     );
     res.write('data: [DONE]\n\n');
@@ -316,8 +316,8 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
     assert.equal(requestCount, 2);
     assert.equal(firstStreamClosed, true);
     assert.equal(assistantMessage?.tool_calls, undefined);
-    assert.match(String(userMessage?.content || ''), /content without a valid tool call/u);
-    assert.match(String(invalidEvent?.error || ''), /content without a valid tool call/u);
+    assert.match(String(userMessage?.content || ''), /malformed tool-call markup/u);
+    assert.match(String(invalidEvent?.error || ''), /malformed tool-call markup/u);
     assert.equal(progressEvents.some((event) => event.kind === 'thinking' && event.thinkingText.includes('}'.repeat(220))), false);
   } finally {
     controller.abort(new Error('test cleanup'));

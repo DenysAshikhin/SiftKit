@@ -221,3 +221,100 @@ test('summary content without a finish tool is invalid', () => {
     NativePlannerResponseError,
   );
 });
+
+test('finish content quoting the tool-call opener in inline code finishes', () => {
+  const text = 'Fallback parses `<tool_call>` markup from text.';
+  assert.deepEqual(
+    parseNativePlannerActions(
+      { text, toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'finish', text }],
+  );
+});
+
+test('finish content quoting partial markup in a fenced block finishes', () => {
+  const text = 'The textual dialect looks like:\n```\n<tool_call><function=read>\n```\nand is parsed as a fallback.';
+  assert.deepEqual(
+    parseNativePlannerActions(
+      { text, toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'finish', text }],
+  );
+});
+
+test('finish content mentioning function and parameter tags without the opener finishes', () => {
+  const text = 'Markup uses <function=name> and <parameter=key> tags inside the call block.';
+  assert.deepEqual(
+    parseNativePlannerActions(
+      { text, toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'finish', text }],
+  );
+});
+
+test('bare unclosed tool-call opener is rejected as malformed markup with finish guidance', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: 'Let me call <tool_call><function=git>', toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerResponseError
+      && /malformed tool-call markup/u.test(error.message)
+      && /finish by returning/u.test(error.message),
+  );
+});
+
+test('bare tool-call block without a function tag is rejected as malformed markup', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '<tool_call>not a function</tool_call>', toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerResponseError
+      && /malformed tool-call markup/u.test(error.message)
+      && /finish by returning/u.test(error.message),
+  );
+});
+
+test('summary content quoting the opener in inline code keeps the content-without-tools message', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: 'The fallback scans for `<tool_call>` markers.', toolCalls: [] },
+      { toolDefinitions: summaryToolDefinitions, contentWithoutTools: 'invalid' },
+    ),
+    (error) => error instanceof NativePlannerResponseError
+      && /content without a valid tool call/u.test(error.message),
+  );
+});
+
+test('summary bare malformed markup is rejected without finish guidance', () => {
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '<tool_call>not a function</tool_call>', toolCalls: [] },
+      { toolDefinitions: summaryToolDefinitions, contentWithoutTools: 'invalid' },
+    ),
+    (error) => error instanceof NativePlannerResponseError
+      && /malformed tool-call markup/u.test(error.message)
+      && !/finish by returning/u.test(error.message),
+  );
+});
+
+test('finish content quoting a complete tool-call example in a fenced block finishes', () => {
+  const text = [
+    'A full example of the textual dialect:',
+    '```',
+    '<tool_call><function=git><parameter=operation>status</parameter></function></tool_call>',
+    '```',
+    'It is parsed as a fallback.',
+  ].join('\n');
+  assert.deepEqual(
+    parseNativePlannerActions(
+      { text, toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    [{ kind: 'finish', text }],
+  );
+});
