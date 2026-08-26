@@ -15,8 +15,21 @@ function buildProvider(id: WebSearchProviderId, apiKey: string): WebSearchProvid
   throw new Error(`Unsupported web search provider: ${String(id)}`);
 }
 
+function usableProviderIds(config: WebSearchConfig): WebSearchProviderId[] {
+  return config.ProviderOrder.filter((id) => {
+    const provider = config.Providers[id];
+    return provider !== undefined && provider.Enabled && provider.ApiKey.trim() !== '';
+  });
+}
+
+/**
+ * The single definition of "this provider can actually run a search". The planner tool surface and
+ * WebSearchService both read it, so `web_search` is never advertised to a model that cannot run it.
+ */
+export function hasUsableWebSearchProvider(config: WebSearchConfig): boolean {
+  return usableProviderIds(config).length > 0;
+}
+
 export function createWebSearchProviders(config: WebSearchConfig): WebSearchProvider[] {
-  return config.ProviderOrder
-    .filter((id) => config.Providers[id]?.Enabled && config.Providers[id].ApiKey.trim())
-    .map((id) => buildProvider(id, config.Providers[id].ApiKey));
+  return usableProviderIds(config).map((id) => buildProvider(id, config.Providers[id].ApiKey));
 }
