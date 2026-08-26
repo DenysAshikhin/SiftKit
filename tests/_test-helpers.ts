@@ -9,6 +9,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { normalizeModelRuntimePresetArray } from '../src/config/normalization.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import type { TaskResult } from '../src/repo-search/engine/task-loop-support.js';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { EnvBackup } from './helpers/env-backup.js';
@@ -26,6 +27,43 @@ const EMPTY_READ_OVERLAP = {
   overlapRatePct: 0,
 };
 
+// The single hand-maintained copy of the full TaskResult field list. Every mock that
+// needs a schema-valid task builds on it so a schema change breaks one literal, not five.
+export function buildMockTaskResult(overrides: Partial<TaskResult> = {}): TaskResult {
+  return {
+    id: 'repo-search',
+    question: 'mock question',
+    reason: 'finish',
+    turnsUsed: 1,
+    safetyRejects: 0,
+    invalidResponses: 0,
+    commandFailures: 0,
+    finishChallenges: 0,
+    mutatedPaths: [],
+    commands: [],
+    turnThinking: {},
+    finalOutput: 'mock final output',
+    compactionSummary: '',
+    passed: true,
+    missingSignals: [],
+    promptTokens: 0,
+    outputTokens: 0,
+    toolTokens: 0,
+    thinkingTokens: 0,
+    outputTokensEstimatedCount: 0,
+    thinkingTokensEstimatedCount: 0,
+    promptCacheTokens: 0,
+    promptEvalTokens: 0,
+    promptEvalDurationMs: 0,
+    generationDurationMs: 0,
+    speculativeAcceptedTokens: 0,
+    speculativeGeneratedTokens: 0,
+    toolStats: {},
+    readOverlapSummary: EMPTY_READ_OVERLAP,
+    ...overrides,
+  };
+}
+
 // A complete, schema-valid Scorecard for repo-search mocks. The status-server
 // api-client now strictly parses /repo-search responses, so mocks must return
 // every required field rather than a partial object.
@@ -33,37 +71,7 @@ export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResu
   return {
     runId: 'mock-run',
     model: 'mock-model',
-    tasks: [{
-      id: 'repo-search',
-      question: 'mock question',
-      reason: 'finish',
-      turnsUsed: 1,
-      safetyRejects: 0,
-      invalidResponses: 0,
-      commandFailures: 0,
-      finishChallenges: 0,
-      mutatedPaths: [],
-      commands: [],
-      turnThinking: {},
-      finalOutput,
-      compactionSummary: '',
-      passed: true,
-      missingSignals: [],
-      promptTokens: 0,
-      outputTokens: 0,
-      toolTokens: 0,
-      thinkingTokens: 0,
-      outputTokensEstimatedCount: 0,
-      thinkingTokensEstimatedCount: 0,
-      promptCacheTokens: 0,
-      promptEvalTokens: 0,
-      promptEvalDurationMs: 0,
-      generationDurationMs: 0,
-      speculativeAcceptedTokens: 0,
-      speculativeGeneratedTokens: 0,
-      toolStats: {},
-      readOverlapSummary: EMPTY_READ_OVERLAP,
-    }],
+    tasks: [buildMockTaskResult({ finalOutput })],
     totals: { tasks: 1, passed: 1, failed: 0, commandsExecuted: 0, safetyRejects: 0, invalidResponses: 0 },
     toolStats: {},
     readOverlapSummary: EMPTY_READ_OVERLAP,
