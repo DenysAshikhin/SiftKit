@@ -5,23 +5,7 @@ import { hasUsableWebSearchProvider } from '../src/web-search/web-search-provide
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
 import { EXPOSED_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { WebSearchConfig } from '../src/web-search/types.js';
-
-function buildWebSearchConfig(overrides: Partial<WebSearchConfig> = {}): WebSearchConfig {
-  return {
-    EnabledDefault: true,
-    Providers: {
-      tavily: { Enabled: false, ApiKey: '' },
-      firecrawl: { Enabled: false, ApiKey: '' },
-    },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-    ...overrides,
-  };
-}
+import { buildWebSearchConfig } from './helpers/mock-config.js';
 
 test('hasUsableWebSearchProvider is false when every provider is disabled', () => {
   assert.equal(hasUsableWebSearchProvider(buildWebSearchConfig()), false);

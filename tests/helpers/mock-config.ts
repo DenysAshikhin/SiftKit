@@ -1,6 +1,7 @@
 import { z } from '../../src/lib/zod.js';
 import { JsonValueSchema, type OptionalJsonValue } from '../../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
+import type { WebSearchConfig } from '../../src/web-search/types.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
 import { DEAD_BASE_URL } from './dead-endpoints.js';
@@ -42,4 +43,32 @@ export function mockModelPreset(overrides: Partial<ModelRuntimePreset> = {}): Mo
 // Accepts any JSON value; the schema predicate rejects non-objects at runtime.
 export function asRuntimeSiftConfig(value: OptionalJsonValue): SiftConfig {
   return MockSiftConfigSchema.parse(value);
+}
+
+// The single copies of the WebSearch fixture shapes: enabled-but-providerless by
+// default, and the tavily-usable variant web-exercising fixtures need to clear the
+// web tool policy.
+export function buildWebSearchConfig(overrides: Partial<WebSearchConfig> = {}): WebSearchConfig {
+  return {
+    EnabledDefault: true,
+    Providers: {
+      tavily: { Enabled: false, ApiKey: '' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+    ProviderOrder: ['tavily', 'firecrawl'],
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+    ...overrides,
+  };
+}
+
+export function usableWebSearchConfig(): WebSearchConfig {
+  return buildWebSearchConfig({
+    Providers: {
+      tavily: { Enabled: true, ApiKey: 'test-key' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+  });
 }

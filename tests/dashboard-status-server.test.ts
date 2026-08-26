@@ -35,7 +35,7 @@ import {
   type SseResponse,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { buildWebSearchConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import {
@@ -99,15 +99,7 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultConfig();
-  config.WebSearch = {
-    EnabledDefault: true,
-    Providers: { tavily: { Enabled: false, ApiKey: '' }, firecrawl: { Enabled: false, ApiKey: '' } },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-  };
+  config.WebSearch = buildWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(configPath, config);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -2083,15 +2075,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultConfig();
-  config.WebSearch = {
-    EnabledDefault: true,
-    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-  };
+  config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
   writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
@@ -2236,15 +2220,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
   const config = getDefaultConfig();
-  config.WebSearch = {
-    EnabledDefault: true,
-    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-  };
+  config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
   writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
@@ -2344,15 +2320,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultConfig();
-  config.WebSearch = {
-    EnabledDefault: true,
-    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-  };
+  config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
   writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);

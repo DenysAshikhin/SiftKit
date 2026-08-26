@@ -4,7 +4,7 @@ import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockSiftConfig, usableWebSearchConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
 
@@ -28,7 +28,7 @@ const MOCK_CONFIG = mockSiftConfig({
 const WEB_MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
   Presets: CONTEXT_FREE_PRESETS,
-  WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+  WebSearch: usableWebSearchConfig(),
 });
 
 class DisabledCollectingProgressWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
@@ -94,7 +94,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     config: mockSiftConfig({
       Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
       Presets: CONTEXT_FREE_PRESETS,
-      WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+      WebSearch: usableWebSearchConfig(),
     }),
     mockResponses: [
       { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
