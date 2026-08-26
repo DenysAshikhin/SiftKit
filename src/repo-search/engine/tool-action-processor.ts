@@ -399,6 +399,34 @@ export class ToolActionProcessor {
     return this.deps.runtimeProfile.beginRun(nativeCall.args);
   }
 
+  /**
+   * A rejection is a completed tool attempt: the model asked, the run answered, and the answer went
+   * into the transcript. Emitting it as a `turn_command_result` with a null exit code keeps a single
+   * event kind as the complete record of tool outcomes — an audit keyed on `turn_command_result`
+   * that misses rejections silently under-counts failures.
+   */
+  private logRejectedCommand(options: {
+    turn: number;
+    toolName: string;
+    command: string;
+    reason: string | null;
+    output: string;
+  }): void {
+    this.deps.logger?.write({
+      kind: 'turn_command_result',
+      taskId: this.deps.task.id,
+      turn: options.turn,
+      toolName: options.toolName,
+      command: options.command,
+      requestedCommand: options.command,
+      executedCommand: options.command,
+      exitCode: null,
+      output: options.output,
+      rejected: true,
+      rejectionReason: options.reason,
+    });
+  }
+
   /** Records a rejected tool call: a safe:false command entry plus its transcript outcome. */
   private recordRejectedToolCall(
     turn: number,
@@ -419,6 +447,13 @@ export class ToolActionProcessor {
       safe: false,
       reason: rejection.reason,
       exitCode: null,
+      output: rejection.output,
+    });
+    this.logRejectedCommand({
+      turn,
+      toolName: rejection.toolName,
+      command: rejection.transcriptCommand,
+      reason: rejection.reason,
       output: rejection.output,
     });
     state.batchOutcomes.push({
@@ -567,6 +602,13 @@ export class ToolActionProcessor {
     counters.commandFailures += 1;
     commands.push({
       command, turn, safe: false, reason, exitCode: null,
+      output: `Rejected: ${duplicateMessage}`,
+    });
+    this.logRejectedCommand({
+      turn,
+      toolName: normalizedToolName,
+      command,
+      reason,
       output: `Rejected: ${duplicateMessage}`,
     });
     if (registration.activeReplayMessageIndex !== null) {

@@ -624,8 +624,10 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
   );
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  // The first read executes and logs a result; the rejected second read never does.
-  assert.equal(commandEvents.length, 1);
+  // The first read executes and logs a result; the rejected second read logs one too, flagged rejected.
+  assert.equal(commandEvents.length, 2);
+  assert.equal(commandEvents[1].rejected, true);
+  assert.equal(commandEvents[1].exitCode, null);
   assert.equal(result.commandFailures, 1);
   assert.equal(result.passed, true);
   const rejected = result.commands.filter((command) => command.safe === false);
@@ -2189,7 +2191,9 @@ test('runTaskLoop keeps read history across a typed read-only Git call', async (
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 1);
-  assert.equal(commandEvents.length, 2);
+  // Two executed results (read, git) plus the rejected exhausted read's result event.
+  assert.equal(commandEvents.length, 3);
+  assert.equal(commandEvents[2].rejected, true);
   assert.equal(result.commands[2]?.reason, 'exhausted read');
 });
 
