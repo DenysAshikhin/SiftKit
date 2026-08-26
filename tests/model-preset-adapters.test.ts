@@ -57,12 +57,12 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_CACHE_MODE: '8,4',
     TABBY_MODEL_MAX_BATCH_SIZE: '4',
     TABBY_MODEL_CHUNK_SIZE: '1024',
-    TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
+    TABBY_MEMORY_SYSMEM_KV_CACHE: String(preset.CacheRam),
     TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
-    TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'true',
+    TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
   });
@@ -95,11 +95,11 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_CACHE_MODE: 'FP16',
     TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
-    TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
+    TABBY_MEMORY_SYSMEM_KV_CACHE: String(preset.CacheRam),
     TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
-    TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'false',
+    TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'false',
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
   });
@@ -116,7 +116,7 @@ test('EXL3 adapter disables dynamic drafting when the preset opts out', () => {
     SpeculativeDynamic: false,
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
-  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DRAFT_DYNAMIC, 'false');
+  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DYNAMIC_DRAFT, 'false');
 });
 
 test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {

@@ -134,7 +134,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'ParallelSlots', layout: 'quarter', helpText: 'Concurrent generation lanes; maps to llama.cpp parallel slots or EXL3 maximum batch size.' },
       { label: 'BatchSize', layout: 'quarter', helpText: 'Prompt-processing batch size used for managed llama.cpp startup.' },
       { label: 'UBatchSize', layout: 'quarter', helpText: 'Prompt ingestion chunk size; maps to llama.cpp UBatch size or EXL3 chunk size.' },
-      { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the KV cache, in MiB; maps to the llama.cpp `--cache-ram` budget or the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_PAGE_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the exllamav3 tier is page-locked.' },
+      { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the KV cache, in MiB; maps to the llama.cpp `--cache-ram` budget or the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_KV_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the exllamav3 tier is page-locked.' },
       { label: 'CacheRecurrentRam', layout: 'quarter', helpText: 'Host RAM for exllamav3 recurrent (linear-attention) states, in MiB; maps to `TABBY_MEMORY_SYSMEM_RECURRENT_CACHE`. Only allocated for hybrid/linear-attention models, which need one state per ParallelSlots lane, so raise it alongside ParallelSlots.' },
       { label: 'KV cache quant', layout: 'quarter', helpText: 'Applies `--cache-type-k` and `--cache-type-v` for the managed llama.cpp KV cache.' },
       { label: 'MaxTokens', layout: 'quarter', helpText: 'Maximum generated tokens per response.' },
