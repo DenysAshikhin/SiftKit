@@ -7,22 +7,43 @@ test('renders known progress kinds as single stderr lines', () => {
   const stderr = makeCaptureStream();
   const renderer = new CliProgressRenderer(stderr.stream, 'repo-search');
   renderer.render({ kind: 'lock_wait', queueLength: 1, elapsedMs: 4_200 });
-  renderer.render({ kind: 'llm_start', turn: 3, maxTurns: 24, promptTokenCount: 1_234 });
+  renderer.render({
+    kind: 'llm_start', turn: 3, maxTurns: 24, promptTokenCount: 1_234, thinkingTokenCount: 56, elapsedMs: 1_500,
+  });
   renderer.render({ kind: 'tool_start', turn: 3, maxTurns: 24, command: 'git grep -n "x" src' });
   renderer.render({
     kind: 'tool_result',
+    toolCallId: 'tc_0',
     turn: 3,
     maxTurns: 24,
     command: 'git grep -n "x" src',
     exitCode: 0,
+    outputSnippet: 'x',
     outputTokens: 57,
+    outputTokensEstimated: false,
+    promptTokenCount: 1_234,
+    thinkingTokenCount: 56,
+    elapsedMs: 2_000,
   });
   const lines = stderr.read().trim().split('\n');
   assert.equal(lines.length, 4);
   assert.match(lines[0] ?? '', /repo-search waiting for model lock \(1 queued, 4s\)/u);
-  assert.match(lines[1] ?? '', /repo-search t3\/24 llm_start prompt=1,234tok/u);
+  assert.match(lines[1] ?? '', /repo-search t3\/24 llm_start prompt=1,234tok \(56 thinking\)/u);
   assert.match(lines[2] ?? '', /repo-search t3\/24 git grep -n "x" src/u);
   assert.match(lines[3] ?? '', /repo-search t3\/24 done exit=0 57tok/u);
+});
+
+test('token-bearing events that fail validation render as a bare kind line, never as n/a counts', () => {
+  const stderr = makeCaptureStream();
+  const renderer = new CliProgressRenderer(stderr.stream, 'repo-search');
+  renderer.render({ kind: 'llm_start', turn: 3, maxTurns: 24, promptTokenCount: 1_234 });
+  renderer.render({ kind: 'tool_result', turn: 3, maxTurns: 24, command: 'git grep', exitCode: 0 });
+  const output = stderr.read();
+  const lines = output.trim().split('\n');
+  assert.equal(lines.length, 2);
+  assert.match(lines[0] ?? '', /repo-search t3\/24 llm_start$/u);
+  assert.match(lines[1] ?? '', /repo-search t3\/24 tool_result$/u);
+  assert.equal(output.includes('n/a'), false);
 });
 
 test('skips thinking and answer events and renders unknown kinds by name', () => {

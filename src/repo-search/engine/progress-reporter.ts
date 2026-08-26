@@ -78,12 +78,12 @@ export class ProgressReporter {
     this.emit({ kind: 'preflight_done', taskId: this.taskId, turn, maxTurns: this.maxTurns, promptChars, promptTokenCount, elapsedMs: this.elapsedMs() });
   }
 
-  llmStart(turn: number, promptTokenCount: number): void {
-    this.emit({ kind: 'llm_start', turn, maxTurns: this.maxTurns, promptTokenCount, elapsedMs: this.elapsedMs() });
+  llmStart(turn: number, promptTokenCount: number, thinkingTokenCount: number): void {
+    this.emit({ kind: 'llm_start', turn, maxTurns: this.maxTurns, promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs() });
   }
 
-  llmEnd(turn: number, promptTokenCount: number): void {
-    this.emit({ kind: 'llm_end', turn, maxTurns: this.maxTurns, promptTokenCount, elapsedMs: this.elapsedMs() });
+  llmEnd(turn: number, promptTokenCount: number, thinkingTokenCount: number): void {
+    this.emit({ kind: 'llm_end', turn, maxTurns: this.maxTurns, promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs() });
   }
 
   thinking(turn: number, thinkingText: string): void {
@@ -98,8 +98,11 @@ export class ProgressReporter {
     this.emit({ kind: 'progress_update', taskId: this.taskId, turn, maxTurns: this.maxTurns, progressText, elapsedMs: this.elapsedMs() });
   }
 
-  toolStart(toolCallId: string, turn: number, command: string, promptTokenCount: number): void {
-    this.emit({ kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, command, promptTokenCount, elapsedMs: this.elapsedMs() });
+  toolStart(toolCallId: string, turn: number, command: string, promptTokenCount: number, thinkingTokenCount: number): void {
+    this.emit({
+      kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, command,
+      promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs(),
+    });
   }
 
   toolResult(options: {
@@ -111,6 +114,7 @@ export class ProgressReporter {
     outputTokens: number;
     outputTokensEstimated: boolean;
     promptTokenCount: number;
+    thinkingTokenCount: number;
   }): void {
     this.emit({ kind: 'tool_result', ...options, maxTurns: this.maxTurns, elapsedMs: this.elapsedMs() });
   }

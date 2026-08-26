@@ -84,7 +84,7 @@ class RepoAgentTestServer {
       }
       if (this.mode === 'approval') {
         this.writeEvent(response, 'progress', {
-          kind: 'llm_start', turn: 1, maxTurns: 4, promptTokenCount: 100,
+          kind: 'llm_start', turn: 1, maxTurns: 4, promptTokenCount: 100, thinkingTokenCount: 25, elapsedMs: 1_000,
         });
         this.writeEvent(response, 'progress', {
           kind: 'tool_start', turn: 1, maxTurns: 4, command: 'npm install left-pad',
@@ -206,7 +206,7 @@ test('non-TTY start with --progress prints progress to stderr and a complete app
     const boundary = RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout));
     assert.equal(boundary.status, 'approval_required');
     assert.match(result.stderr, /Exiting: approval required/u);
-    assert.match(result.stderr, /llm_start prompt=100tok/u);
+    assert.match(result.stderr, /llm_start prompt=100tok \(25 thinking\)$/mu);
     assert.match(result.stderr, /npm install left-pad/u);
   } finally {
     await server.close();

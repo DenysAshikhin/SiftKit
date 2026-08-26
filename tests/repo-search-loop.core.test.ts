@@ -201,6 +201,68 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
   assert.equal(result.passed, true);
 });
 
+const TOKEN_BEARING_KINDS = ['llm_start', 'llm_end', 'tool_start', 'tool_result'] as const;
+type TokenBearingProgressEvent = Extract<RepoSearchProgressEvent, { kind: (typeof TOKEN_BEARING_KINDS)[number] }>;
+
+function isTokenBearing(event: RepoSearchProgressEvent): event is TokenBearingProgressEvent {
+  return TOKEN_BEARING_KINDS.some((kind) => kind === event.kind);
+}
+
+test('runTaskLoop accumulates thinking tokens across turns on every token-bearing progress event', async () => {
+  const progress = new CollectingProgressWriter<RepoSearchProgressEvent>();
+  await runTaskLoop(
+    {
+      id: 'task-thinking-token-accumulation',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        {
+          thinking: 'first turn reasoning '.repeat(20),
+          toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'planner', path: 'src' } }],
+        },
+        { thinking: 'second turn reasoning '.repeat(20), content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {
+        'git operation="grep" path="src" pattern="planner"': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+      },
+      progressWriter: progress,
+    }
+  );
+
+  const tokenBearing = progress.events.filter(isTokenBearing);
+  assert.equal(tokenBearing.length > 0, true);
+  for (const event of tokenBearing) {
+    assert.equal(Number.isFinite(event.thinkingTokenCount), true, `${event.kind} must carry a thinking total`);
+  }
+
+  // The running total only ever grows, so the stream stays readable top to bottom.
+  const totals = tokenBearing.map((event) => event.thinkingTokenCount);
+  for (let index = 1; index < totals.length; index += 1) {
+    assert.equal(totals[index] >= totals[index - 1], true, `thinking total fell at index ${index}: ${totals.join(',')}`);
+  }
+
+  // llm_end closes the turn it names, so it must already include that turn's own thinking.
+  const firstStart = progress.ofKind('llm_start').find((event) => event.turn === 1);
+  const firstEnd = progress.ofKind('llm_end').find((event) => event.turn === 1);
+  assert.equal(firstStart?.thinkingTokenCount, 0);
+  assert.equal(
+    Number(firstEnd?.thinkingTokenCount) > 0,
+    true,
+    `llm_end for turn 1 reported ${String(firstEnd?.thinkingTokenCount)} thinking tokens`,
+  );
+
+  // A later turn's lines carry every earlier turn's thinking, not just their own.
+  const secondStart = progress.ofKind('llm_start').find((event) => event.turn === 2);
+  assert.equal(Number(secondStart?.thinkingTokenCount) >= Number(firstEnd?.thinkingTokenCount), true);
+});
+
 test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
   const progressEvents: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(

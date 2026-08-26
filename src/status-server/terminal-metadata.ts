@@ -143,6 +143,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     elapsedMs: job.elapsedMs,
     totalElapsedMs: job.totalElapsedMs,
     outputTokens: metadata.outputTokens,
+    thinkingTokens: metadata.thinkingTokens,
     toolTokens: metadata.toolTokens,
     totalOutputTokens: metadata.totalOutputTokens ?? null,
   });

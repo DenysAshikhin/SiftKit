@@ -1,13 +1,18 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
-import { formatTimestamp } from '../lib/text-format.js';
+import { z } from '../lib/zod.js';
+import { formatInteger, formatPromptTokensField, formatTimestamp } from '../lib/text-format.js';
 import { ActivitySummaryProgressEventSchema } from '../repo-search/engine/activity-summary-collector.js';
+import {
+  LlmEndProgressEventSchema,
+  LlmStartProgressEventSchema,
+  ToolResultProgressEventSchema,
+} from '../repo-search/types.js';
 
 const SKIPPED_KINDS = new Set(['thinking', 'answer']);
 
-function formatTokens(value: number | null): string {
-  return value === null ? '' : `${value.toLocaleString('en-US')}tok`;
-}
+/** Token counts are only rendered off a parsed event, so a missing field falls back to the bare kind line. */
+const LlmProgressEventSchema = z.union([LlmStartProgressEventSchema, LlmEndProgressEventSchema]);
 
 /** Renders one concise stderr line for each visible operation progress event. */
 export class CliProgressRenderer {
@@ -51,15 +56,22 @@ export class CliProgressRenderer {
       return `${turnPrefix}${reader.optionalString('command') || ''}`.trim();
     }
     if (kind === 'tool_result') {
-      const exitCode = reader.number('exitCode');
-      const outputTokens = reader.number('outputTokens');
-      return `${turnPrefix}done exit=${exitCode ?? '?'} ${formatTokens(outputTokens)}`.trim();
+      const result = ToolResultProgressEventSchema.safeParse(event);
+      if (result.success) {
+        return `${turnPrefix}done exit=${result.data.exitCode} ${formatInteger(result.data.outputTokens)}tok`.trim();
+      }
+      return `${turnPrefix}${kind}`.trim();
     }
     if (kind === 'progress_update') {
       return `${turnPrefix}progress "${reader.optionalString('progressText') || ''}"`.trim();
     }
     if (kind === 'llm_start' || kind === 'llm_end') {
-      return `${turnPrefix}${kind} prompt=${formatTokens(reader.number('promptTokenCount'))}`.trim();
+      const result = LlmProgressEventSchema.safeParse(event);
+      if (result.success) {
+        const promptField = formatPromptTokensField(result.data.promptTokenCount, result.data.thinkingTokenCount);
+        return `${turnPrefix}${kind} ${promptField}`.trim();
+      }
+      return `${turnPrefix}${kind}`.trim();
     }
     if (kind === 'approval_auto') {
       const verdict = reader.optionalString('verdict') || '';

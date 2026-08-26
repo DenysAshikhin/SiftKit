@@ -25,7 +25,7 @@ test('enabled reflects writer behavior; silent writer emits nothing', () => {
     taskStartedAt: Date.now(),
   });
   assert.equal(disabled.enabled, false);
-  disabled.llmStart(1, 100);
+  disabled.llmStart(1, 100, 0);
   disabled.thinking(1, 'x');
   const { reporter } = collect();
   assert.equal(reporter.enabled, true);
@@ -35,8 +35,8 @@ test('preflightStart/preflightDone/llmStart/llmEnd carry task fields and elapsed
   const { writer, events, reporter } = collect();
   reporter.preflightStart(2, 1234);
   reporter.preflightDone(2, 1234, 567);
-  reporter.llmStart(2, 567);
-  reporter.llmEnd(2, 567);
+  reporter.llmStart(2, 567, 42);
+  reporter.llmEnd(2, 567, 42);
   assert.deepEqual(events.map((event) => event.kind), ['preflight_start', 'preflight_done', 'llm_start', 'llm_end']);
   const start = writer.ofKind('preflight_start')[0];
   assert.ok(start);
@@ -82,10 +82,11 @@ test('thinking/answer/toolStart/toolResult pass payloads through unchanged', () 
   const { events, reporter } = collect();
   reporter.thinking(3, 'partial thought');
   reporter.answer(3, 'final answer');
-  reporter.toolStart('tc_0', 3, 'rg -n foo', 500);
+  reporter.toolStart('tc_0', 3, 'rg -n foo', 500, 77);
   reporter.toolResult({
     toolCallId: 'tc_0', turn: 3, command: 'rg -n foo', exitCode: 0,
-    outputSnippet: 'snippet', outputTokens: 12, outputTokensEstimated: false, promptTokenCount: 500,
+    outputSnippet: 'snippet', outputTokens: 12, outputTokensEstimated: false,
+    promptTokenCount: 500, thinkingTokenCount: 77,
   });
   assert.deepEqual(events.map((event) => event.kind), ['thinking', 'answer', 'tool_start', 'tool_result']);
 });

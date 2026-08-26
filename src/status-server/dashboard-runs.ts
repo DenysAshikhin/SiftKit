@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { formatElapsed, formatInteger } from '../lib/text-format.js';
+import { formatElapsed, formatInteger, formatPromptTokensField } from '../lib/text-format.js';
 import { type Metrics } from './metrics.js';
 import {
   buildIdleSummarySnapshotMessage,
@@ -79,6 +79,7 @@ export type StatusRequestLogInput = {
   elapsedMs?: number | null;
   totalElapsedMs?: number | null;
   outputTokens?: number | null;
+  thinkingTokens?: number | null;
   toolTokens?: number | null;
   totalOutputTokens?: number | null;
 };
@@ -112,6 +113,19 @@ function buildStatusPromptParts(
   return parts;
 }
 
+/** The trailing `thinking_tokens` / `tool_tokens` group shared by the done and failed lines. */
+function buildStatusTokenTotalsParts(input: StatusRequestLogInput): string[] {
+  const { thinkingTokens = null, toolTokens = null } = input;
+  const parts: string[] = [];
+  if (thinkingTokens !== null) {
+    parts.push(`thinking_tokens=${formatInteger(thinkingTokens)}`);
+  }
+  if (toolTokens !== null) {
+    parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
+  }
+  return parts;
+}
+
 export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerLogBody {
   const {
     running,
@@ -123,7 +137,6 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
     elapsedMs = null,
     totalElapsedMs = null,
     outputTokens = null,
-    toolTokens = null,
     totalOutputTokens = null,
   } = input;
   const parts: string[] = [];
@@ -143,9 +156,7 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
     if (errorMessage) {
       parts.push(`error=${String(errorMessage)}`);
     }
-    if (toolTokens !== null) {
-      parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
-    }
+    parts.push(...buildStatusTokenTotalsParts(input));
     return { event: 'failed', fields: parts.join(' '), severity: 'error' };
   }
   if (totalElapsedMs !== null) {
@@ -159,8 +170,8 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
       parts.push(`output_tokens=${formatInteger(outputTokens)}`);
     }
   }
-  if (toolTokens !== null && (totalElapsedMs !== null || elapsedMs !== null)) {
-    parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
+  if (totalElapsedMs !== null || elapsedMs !== null) {
+    parts.push(...buildStatusTokenTotalsParts(input));
   }
   return { event: 'done', fields: parts.join(' '), severity: 'ok' };
 }
@@ -222,7 +233,8 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent): 
   if (event.kind === 'llm_start' || event.kind === 'llm_end') {
     return {
       event: event.kind,
-      fields: `${turnLabel(event)}  prompt=${formatInteger(event.promptTokenCount)}tok  elapsed=${formatElapsed(event.elapsedMs)}`,
+      fields: `${turnLabel(event)}  ${formatPromptTokensField(event.promptTokenCount, event.thinkingTokenCount)}`
+        + `  elapsed=${formatElapsed(event.elapsedMs)}`,
       severity: 'normal',
     };
   }
@@ -233,7 +245,8 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent): 
     }
     return {
       event: 'command',
-      fields: `${turnLabel(event)}  prompt=${formatInteger(event.promptTokenCount)}tok  elapsed=${formatElapsed(event.elapsedMs)}  ${commandText}`,
+      fields: `${turnLabel(event)}  ${formatPromptTokensField(event.promptTokenCount, event.thinkingTokenCount)}`
+        + `  elapsed=${formatElapsed(event.elapsedMs)}  ${commandText}`,
       severity: 'normal',
     };
   }

@@ -55,6 +55,11 @@ export function formatInteger(value?: number | null): string {
   return formatGroupedNumber(Math.trunc(Number(value)));
 }
 
+/** The shared `prompt=<size> (<thinking> thinking)` field used by every per-turn progress line. */
+export function formatPromptTokensField(promptTokenCount: number, thinkingTokenCount: number): string {
+  return `prompt=${formatInteger(promptTokenCount)}tok (${formatInteger(thinkingTokenCount)} thinking)`;
+}
+
 export function formatMilliseconds(milliseconds?: number | null): string {
   if (!Number.isFinite(milliseconds) || Number(milliseconds) < 0) {
     return 'n/a';

@@ -60,6 +60,7 @@ class StubStatusEngineService extends StatusEngineService {
       maxTurns: 7,
       command: 'rg -n "target" src',
       promptTokenCount: 1_200,
+      thinkingTokenCount: 0,
       elapsedMs: 10,
     });
     request.progressWriter?.write({
@@ -73,6 +74,7 @@ class StubStatusEngineService extends StatusEngineService {
       outputTokens: 8,
       outputTokensEstimated: false,
       promptTokenCount: 1_200,
+      thinkingTokenCount: 0,
       elapsedMs: 20,
     });
     if (this.failure) {

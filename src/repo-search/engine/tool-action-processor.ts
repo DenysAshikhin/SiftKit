@@ -781,7 +781,9 @@ export class ToolActionProcessor {
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
-    this.deps.progress.toolStart(progressToolCallId, turn, context.command, promptTokens.reported);
+    this.deps.progress.toolStart(
+      progressToolCallId, turn, context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
+    );
     this.deps.logger?.write({
       kind: 'turn_command_start',
       taskId: this.deps.task.id,
@@ -1002,6 +1004,7 @@ export class ToolActionProcessor {
         outputTokens: resultTokenCount,
         outputTokensEstimated: resultTokenCountEstimated,
         promptTokenCount: promptTokens.reported,
+        thinkingTokenCount: tokenUsage.snapshot().thinkingTokens,
       });
     }
     const commandOutputText = resultText;

@@ -763,10 +763,15 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       turn: 2,
       maxTurns: 9,
       promptTokenCount: 1234,
+      thinkingTokenCount: 560,
       elapsedMs: 2500,
       command: "git operation=\"grep\" path=\"src\" pattern=\"planner\"",
     }),
-    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git operation="grep" path="src" pattern="planner"', severity: 'normal' },
+    {
+      event: 'command',
+      fields: 't2/9  prompt=1,234tok (560 thinking)  elapsed=2s  git operation="grep" path="src" pattern="planner"',
+      severity: 'normal',
+    },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -775,6 +780,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       turn: 1,
       maxTurns: 2,
       promptTokenCount: 88,
+      thinkingTokenCount: 0,
       elapsedMs: 0,
       command: "git operation=\"grep\" path=\".\" pattern=\"dashboard\"",
       exitCode: 0,
@@ -782,7 +788,11 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       outputTokens: 3,
       outputTokensEstimated: false,
     }),
-    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git operation="grep" path="." pattern="dashboard"', severity: 'normal' },
+    {
+      event: 'command',
+      fields: 't1/2  prompt=88tok (0 thinking)  elapsed=0s  git operation="grep" path="." pattern="dashboard"',
+      severity: 'normal',
+    },
   );
   // An approval park is never server-logged, so it has no line at all and cannot leak its payload.
   const approvalLogBody = buildRepoSearchProgressLogBody({
@@ -805,9 +815,10 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       turn: 18,
       maxTurns: 45,
       promptTokenCount: 312345,
+      thinkingTokenCount: 41_205,
       elapsedMs: 4200,
     }),
-    { event: 'llm_start', fields: 't18/45  prompt=312,345tok  elapsed=4s', severity: 'normal' },
+    { event: 'llm_start', fields: 't18/45  prompt=312,345tok (41,205 thinking)  elapsed=4s', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -815,9 +826,10 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       turn: 18,
       maxTurns: 45,
       promptTokenCount: 312345,
+      thinkingTokenCount: 41_205,
       elapsedMs: 7800,
     }),
-    { event: 'llm_end', fields: 't18/45  prompt=312,345tok  elapsed=7s', severity: 'normal' },
+    { event: 'llm_end', fields: 't18/45  prompt=312,345tok (41,205 thinking)  elapsed=7s', severity: 'normal' },
   );
   // A blank command has nothing to log.
   assert.equal(
@@ -827,6 +839,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       turn: 1,
       maxTurns: 2,
       promptTokenCount: 0,
+      thinkingTokenCount: 0,
       elapsedMs: 0,
       command: '   ',
     }),

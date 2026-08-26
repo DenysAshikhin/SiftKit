@@ -562,6 +562,7 @@ class StatusPostRequestHandler {
       elapsedMs: timing.elapsedMs,
       totalElapsedMs: timing.totalElapsedMs,
       outputTokens: metadata.outputTokens,
+      thinkingTokens: metadata.thinkingTokens,
       toolTokens: metadata.toolTokens,
       totalOutputTokens: metadata.totalOutputTokens ?? null,
     });

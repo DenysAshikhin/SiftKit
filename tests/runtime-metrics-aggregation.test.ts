@@ -481,6 +481,37 @@ test('request status log groups large running counts and uses colon elapsed dura
     buildStatusRequestLogBody({ running: false, taskKind: 'summary', elapsedMs: 12_000, toolTokens: 5 }),
     { event: 'done', fields: 'task=summary elapsed=12s tool_tokens=5', severity: 'ok' },
   );
+  // The completion line carries the run's total thinking tokens between output and tool tokens.
+  assert.deepEqual(
+    buildStatusRequestLogBody({
+      running: false,
+      taskKind: 'repo-search',
+      totalElapsedMs: 122_000,
+      totalOutputTokens: 1_397,
+      thinkingTokens: 8_412,
+      toolTokens: 23_469,
+    }),
+    {
+      event: 'done',
+      fields: 'task=repo-search total_elapsed=2:02 output_tokens=1,397 thinking_tokens=8,412 tool_tokens=23,469',
+      severity: 'ok',
+    },
+  );
+  assert.deepEqual(
+    buildStatusRequestLogBody({ running: false, elapsedMs: 12_000, outputTokens: 7, thinkingTokens: 0 }),
+    { event: 'done', fields: 'elapsed=12s output_tokens=7 thinking_tokens=0', severity: 'ok' },
+  );
+  assert.deepEqual(
+    buildStatusRequestLogBody({
+      running: false,
+      terminalState: 'failed',
+      elapsedMs: 91_000,
+      errorMessage: 'boom',
+      thinkingTokens: 12,
+      toolTokens: 5,
+    }),
+    { event: 'failed', fields: 'elapsed=1:31 error=boom thinking_tokens=12 tool_tokens=5', severity: 'error' },
+  );
   assert.deepEqual(
     buildStatusRequestLogBody({
       running: false,

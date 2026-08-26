@@ -411,7 +411,7 @@ export class TaskLoop {
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
-    this.progress.llmStart(turn, prepared.promptTokens.reported);
+    this.progress.llmStart(turn, prepared.promptTokens.reported, this.tokenUsage.snapshot().thinkingTokens);
     const newMessages = this.transcript.takeNewMessagesForLogging();
     this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokens.reported });
 
@@ -430,12 +430,13 @@ export class TaskLoop {
     const turn = prepared.turnNumber;
     const response = await this.requestPlanner(turn, prepared);
 
-    this.progress.llmEnd(turn, prepared.promptTokens.reported);
     if (typeof response.nextMockResponseIndex === 'number') {
       this.mockResponseIndex = response.nextMockResponseIndex;
     }
 
     const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokens.reported);
+    // Emitted after the response is tallied so the line closing a turn already counts that turn's thinking.
+    this.progress.llmEnd(turn, prepared.promptTokens.reported, this.tokenUsage.snapshot().thinkingTokens);
 
     this.options.logger?.write({
       kind: 'turn_model_response', taskId: this.task.id, turn,

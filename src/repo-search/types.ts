@@ -50,6 +50,29 @@ export const ApprovalRequestProgressEventSchema = z.object({
 });
 export type ApprovalRequestProgressEvent = z.infer<typeof ApprovalRequestProgressEventSchema>;
 
+/** The token-bearing turn events, named so renderers can parse them instead of reading raw fields. */
+export const LlmStartProgressEventSchema = z.object({
+  ...turnScopedFields,
+  kind: z.literal('llm_start'),
+  promptTokenCount: z.number(),
+  thinkingTokenCount: z.number(),
+  elapsedMs: z.number(),
+});
+export const LlmEndProgressEventSchema = LlmStartProgressEventSchema.extend({ kind: z.literal('llm_end') });
+export const ToolResultProgressEventSchema = z.object({
+  ...turnScopedFields,
+  kind: z.literal('tool_result'),
+  toolCallId: z.string(),
+  command: z.string(),
+  exitCode: z.number(),
+  outputSnippet: z.string(),
+  outputTokens: z.number(),
+  outputTokensEstimated: z.boolean(),
+  promptTokenCount: z.number(),
+  thinkingTokenCount: z.number(),
+  elapsedMs: z.number(),
+});
+
 export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('model_inventory_start'), elapsedMs: z.number() }),
   z.object({ kind: z.literal('model_inventory_done'), modelCount: z.number(), elapsedMs: z.number() }),
@@ -77,8 +100,8 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
     errorMessage: z.string().optional(),
   }),
   z.object({ ...taskScopedFields, kind: z.literal('preflight_done'), promptChars: z.number(), promptTokenCount: z.number() }),
-  z.object({ ...turnScopedFields, kind: z.literal('llm_start'), promptTokenCount: z.number(), elapsedMs: z.number() }),
-  z.object({ ...turnScopedFields, kind: z.literal('llm_end'), promptTokenCount: z.number(), elapsedMs: z.number() }),
+  LlmStartProgressEventSchema,
+  LlmEndProgressEventSchema,
   z.object({ ...turnScopedFields, kind: z.literal('thinking'), thinkingText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
   z.object({ ...taskScopedFields, kind: z.literal('progress_update'), progressText: z.string() }),
@@ -88,20 +111,10 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
     toolCallId: z.string(),
     command: z.string(),
     promptTokenCount: z.number(),
+    thinkingTokenCount: z.number(),
     elapsedMs: z.number(),
   }),
-  z.object({
-    ...turnScopedFields,
-    kind: z.literal('tool_result'),
-    toolCallId: z.string(),
-    command: z.string(),
-    exitCode: z.number(),
-    outputSnippet: z.string(),
-    outputTokens: z.number(),
-    outputTokensEstimated: z.boolean(),
-    promptTokenCount: z.number(),
-    elapsedMs: z.number(),
-  }),
+  ToolResultProgressEventSchema,
   ApprovalRequestProgressEventSchema,
   z.object({
     kind: z.literal('approval_auto'),
