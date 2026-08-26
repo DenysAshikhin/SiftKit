@@ -1,6 +1,5 @@
 import type { InferenceChatRequest, InferenceRequestInput } from './inference-backend.js';
 import { getInferenceRequestCompatibility } from '../inference-presets/request-compatibility.js';
-import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
 
 export class InferenceRequestBuilder {
   build(input: InferenceRequestInput): InferenceChatRequest {
@@ -46,11 +45,7 @@ export class InferenceRequestBuilder {
       stream: true,
       stream_options: { include_usage: true },
       ...(input.tools.length > 0 ? { tools: input.tools, parallel_tool_calls: true } : {}),
-      ...(input.responseFormat
-        ? {
-            response_format: lowerResponseFormatForBackend(input.backend, input.responseFormat),
-          }
-        : {}),
+      ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
       ...(input.responsePrefix ? { response_prefix: input.responsePrefix } : {}),
     };
   }

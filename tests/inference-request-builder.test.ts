@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
-import { isJsonObject, type JsonObject, type OptionalJsonValue } from '../src/lib/json-types.js';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
 const tools = [
@@ -33,27 +32,6 @@ const defaults = {
   preserveThinking: false,
   maintainPerStepThinking: false,
 } as const;
-
-function requireObject(value: OptionalJsonValue): JsonObject {
-  if (!isJsonObject(value)) {
-    throw new Error('Expected JSON object in inference request builder test.');
-  }
-  return value;
-}
-
-function getModeVariant(schema: JsonObject, mode: string): JsonObject {
-  if (!Array.isArray(schema.anyOf)) {
-    throw new Error('Expected schema variants.');
-  }
-  for (const candidate of schema.anyOf) {
-    const variant = requireObject(candidate);
-    const modeSchema = requireObject(requireObject(variant.properties).mode);
-    if (modeSchema.const === mode) {
-      return variant;
-    }
-  }
-  throw new Error(`Missing mode variant: ${mode}`);
-}
 
 test('llama request includes llama-only cache and slot controls', () => {
   const request = new InferenceRequestBuilder().build({
@@ -273,7 +251,10 @@ test('request builder preserves the canonical planner schema for llama', () => {
   }
 });
 
-test('request builder lowers optional structured-output properties for EXL3', () => {
+test('request builder passes the structured-output schema through unchanged for EXL3', () => {
+  // Tabby's LLGuidance grammar backend handles optional properties natively, so
+  // the canonical schema must reach the server untouched (no forced required
+  // list, no null-wrapped optionals).
   const direct = {
     type: 'object',
     properties: {
@@ -317,18 +298,7 @@ test('request builder lowers optional structured-output properties for EXL3', ()
   if (request.response_format?.type !== 'json_schema') {
     throw new Error('Expected EXL3 JSON Schema response format.');
   }
-  const loweredSchema = requireObject(request.response_format.json_schema.schema);
-  const loweredDirect = getModeVariant(loweredSchema, 'inspect');
-  assert.deepEqual(loweredDirect.required, ['mode', 'requiredText', 'optionalLimit']);
-  assert.deepEqual(requireObject(requireObject(loweredDirect.properties).optionalLimit), {
-    anyOf: [{ type: 'integer' }, { type: 'null' }],
-  });
-  const collection = getModeVariant(loweredSchema, 'collect');
-  const records = requireObject(requireObject(collection.properties).records);
-  assert.equal(records.minItems, 1);
-  assert.deepEqual(requireObject(records.items), loweredDirect);
-  assert.equal(requireObject(requireObject(direct.properties).optionalLimit).type, 'integer');
-  assert.equal(requireObject(requireObject(requireObject(schema.anyOf[1]).properties).records).minItems, 1);
+  assert.deepEqual(request.response_format.json_schema.schema, schema);
 });
 
 test('thinking requests carry the preset reasoning effort', () => {
