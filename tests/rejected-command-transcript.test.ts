@@ -84,4 +84,7 @@ test('a rejected read writes a turn_command_result with rejected=true', async ()
   assert.equal(results[0].exitCode, null);
   assert.equal(results[0].toolName, 'read');
   assert.equal(String(results[0].output).startsWith('Rejected command: '), true);
+  // Nothing executed: rejection events must not fake the executed-event mirror fields.
+  assert.equal('requestedCommand' in results[0], false);
+  assert.equal('executedCommand' in results[0], false);
 });

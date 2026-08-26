@@ -418,8 +418,6 @@ export class ToolActionProcessor {
       turn: options.turn,
       toolName: options.toolName,
       command: options.command,
-      requestedCommand: options.command,
-      executedCommand: options.command,
       exitCode: null,
       output: options.output,
       rejected: true,
