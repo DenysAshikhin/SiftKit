@@ -139,7 +139,7 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
     tasks: [{
       id: 'caption',
       question: 'caption',
-      reason: 'mock',
+      reason: 'finish',
       turnsUsed: 1,
       safetyRejects: 0,
       invalidResponses: 0,

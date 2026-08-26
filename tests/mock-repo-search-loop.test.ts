@@ -1942,6 +1942,7 @@ test('buildScorecard aggregates totals and verdict', () => {
     tasks: [
       mockTaskResult({
         id: 'a',
+        reason: 'finish',
         passed: true,
         safetyRejects: 1,
         invalidResponses: 0,
@@ -1951,6 +1952,7 @@ test('buildScorecard aggregates totals and verdict', () => {
       }),
       mockTaskResult({
         id: 'b',
+        reason: 'finish',
         passed: false,
         safetyRejects: 2,
         invalidResponses: 1,

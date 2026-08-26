@@ -2082,6 +2082,19 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  config.WebSearch = {
+    EnabledDefault: true,
+    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
+    ProviderOrder: ['tavily', 'firecrawl'],
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
+  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -2233,7 +2246,8 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     FetchMaxCharacters: 12000,
   };
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeConfig(configPath, config);
+  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
+  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -2340,7 +2354,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
     FetchMaxCharacters: 12000,
   };
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeConfig(configPath, config);
+  // Chat routes read config from the repo runtime database, not SIFTKIT_CONFIG_PATH.
+  writeConfig(path.join(tempRoot, '.siftkit', 'runtime.sqlite'), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
