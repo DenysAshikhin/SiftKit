@@ -156,6 +156,7 @@ export class ChatRepoOperationRunner {
         statusBackendUrl: request.statusBackendUrl,
         config: effectiveConfig,
         allowedTools: this.getAllowedTools(request.config, selected.preset, session),
+        webToolsEnabled: session.webSearchEnabled === true,
         maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
         logFile: request.logFile,
         availableModels: request.availableModels,

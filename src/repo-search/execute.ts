@@ -40,6 +40,8 @@ import { PresetCatalog } from '../preset-catalog.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import { normalizeRepoSearchTaskKind } from './task-kind.js';
 import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
+import { EXPOSED_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.js';
+import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -369,8 +371,9 @@ export async function executeRepoSearchRequest(
       .map((image) => image.dataUrl);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
+    const webToolPolicy = resolveWebToolPolicy(config.WebSearch, request.webToolsEnabled);
     const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
-      request.allowedTools,
+      applyWebToolPolicy(request.allowedTools ?? [...EXPOSED_REPO_TOOL_NAMES], webToolPolicy),
       activeVisionPreset.VisionEnabled === true,
     );
     const progressWriter = new RepoSearchLifecycleWriter(

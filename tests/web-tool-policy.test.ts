@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { hasUsableWebSearchProvider } from '../src/web-search/web-search-provider.js';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
+import { EXPOSED_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { WebSearchConfig } from '../src/web-search/types.js';
 
 function buildWebSearchConfig(overrides: Partial<WebSearchConfig> = {}): WebSearchConfig {
@@ -107,4 +109,23 @@ test('applyWebToolPolicy strips only the denied web tools and preserves order', 
     applyWebToolPolicy(names, { webSearch: true, webFetch: true }),
     names,
   );
+});
+
+test('the exposed repo tool surface still lists both web tools before any policy runs', () => {
+  assert.equal(EXPOSED_REPO_TOOL_NAMES.includes('web_search'), true);
+  assert.equal(EXPOSED_REPO_TOOL_NAMES.includes('web_fetch'), true);
+});
+
+test('a disabled web config resolves the default surface without either web tool', () => {
+  const policy = resolveWebToolPolicy(buildWebSearchConfig({ EnabledDefault: false }), undefined);
+  const allowed = applyWebToolPolicy([...EXPOSED_REPO_TOOL_NAMES], policy);
+  const names = resolveRepoSearchPlannerToolDefinitions(allowed).map((d) => d.function.name);
+  assert.deepEqual(names, ['read', 'grep', 'find', 'ls', 'git']);
+});
+
+test('an enabled web config without providers keeps web_fetch and drops web_search', () => {
+  const policy = resolveWebToolPolicy(buildWebSearchConfig({ EnabledDefault: true }), undefined);
+  const allowed = applyWebToolPolicy([...EXPOSED_REPO_TOOL_NAMES], policy);
+  const names = resolveRepoSearchPlannerToolDefinitions(allowed).map((d) => d.function.name);
+  assert.deepEqual(names, ['read', 'grep', 'find', 'ls', 'git', 'web_fetch']);
 });

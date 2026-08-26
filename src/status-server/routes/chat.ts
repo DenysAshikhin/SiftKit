@@ -1046,6 +1046,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         history: buildChatHistoryMessages(selectedImages.effectiveConfig, selectedSession),
         thinkingEnabled: selectedSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
+        webToolsEnabled: webEnabled,
         retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selectedSession) : [],
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         availableModels: readRouteStringArray(reader, 'availableModels'),

@@ -143,6 +143,11 @@ export type RepoSearchExecutionRequest = {
   model?: string;
   additionalPromptPrefix?: string;
   allowedTools?: string[];
+  /**
+   * Explicit per-run web-tool intent. Unset means "use `config.WebSearch.EnabledDefault`".
+   * Chat sets it from the session toggle; repo-search and repo-agent leave it unset.
+   */
+  webToolsEnabled?: boolean;
   history?: ChatMessage[];
   systemPrompt?: string;
   thinkingEnabled?: boolean;
