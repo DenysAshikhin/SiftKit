@@ -178,9 +178,12 @@ export const TurnCommandStartEventSchema = z.object({
 export const TurnCommandResultEventSchema = z.object({
   turn: z.number(),
   command: z.string(),
+  toolName: OptionalString,
   exitCode: OptionalNumber,
   output: OptionalString,
   resultTokenCount: OptionalNumber,
+  rejected: z.boolean().optional(),
+  rejectionReason: OptionalString,
 });
 
 export const ApprovalVerdictEventSchema = z.object({

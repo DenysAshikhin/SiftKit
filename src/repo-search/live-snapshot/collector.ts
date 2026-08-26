@@ -457,7 +457,7 @@ export class LiveRunSnapshotCollector {
     const exitCode = optionalNumber(parsed.data.exitCode);
     const existing = turn.tool;
     turn.tool = {
-      toolName: existing?.toolName ?? 'unknown',
+      toolName: existing?.toolName ?? parsed.data.toolName ?? 'unknown',
       command: existing?.command ?? truncateCommand(parsed.data.command),
       startedAtMs: existing?.startedAtMs ?? Date.now(),
       durationMs: existing === null ? null : Math.max(0, Date.now() - existing.startedAtMs),
