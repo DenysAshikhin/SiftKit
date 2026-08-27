@@ -21,6 +21,8 @@ export async function* toRuntimeTransitions(
         if (thinkingEnabled) {
           yield { kind: 'thinking', sessionId, delta: event.delta };
         }
+      } else if (event.kind === 'narration') {
+        yield { kind: 'narration', sessionId, delta: event.delta };
       } else if (event.kind === 'warning') {
         yield { kind: 'warning', sessionId, text: event.text };
       } else if (event.kind === 'tool') {

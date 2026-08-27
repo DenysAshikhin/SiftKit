@@ -78,19 +78,21 @@ test('activitySummary preserves the typed payload', () => {
   assert.equal(emitted.entries?.[1]?.failed, true);
 });
 
-test('thinking/answer/toolStart/toolResult pass payloads through unchanged', () => {
+test('thinking/narration/answer/toolStart/toolResult pass payloads through unchanged', () => {
   const { events, reporter } = collect();
   reporter.thinking(3, 'partial thought');
+  reporter.narration(3, 'reading files');
   reporter.answer(3, 'final answer');
-  reporter.toolStart('tc_0', 3, 'search', 'rg -n foo', 500, 77);
+  reporter.toolStart('tc_0', 3, 'search', { kind: 'none' }, 'rg -n foo', 500, 77);
   reporter.toolResult({
-    toolCallId: 'tc_0', turn: 3, activityKind: 'search', command: 'rg -n foo', exitCode: 0,
+    toolCallId: 'tc_0', turn: 3, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg -n foo', exitCode: 0,
     outputSnippet: 'snippet', outputTokens: 12, outputTokensEstimated: false,
     promptTokenCount: 500, thinkingTokenCount: 77,
   });
-  assert.deepEqual(events.map((event) => event.kind), ['thinking', 'answer', 'tool_start', 'tool_result']);
-  assert.match(JSON.stringify(events[2]), /"activityKind":"search"/u);
+  assert.deepEqual(events.map((event) => event.kind), ['thinking', 'narration', 'answer', 'tool_start', 'tool_result']);
+  assert.equal(events[1].kind === 'narration' ? events[1].narrationText : null, 'reading files');
   assert.match(JSON.stringify(events[3]), /"activityKind":"search"/u);
+  assert.match(JSON.stringify(events[4]), /"activityKind":"search"/u);
 });
 
 test('tokenizeStart/tokenizeDone mirror the preflight tokenize event shape', () => {

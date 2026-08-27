@@ -33,9 +33,11 @@ test('content alongside a native tool call emits progress and the run continues 
 
     assert.equal(result.scorecard.verdict, 'pass');
     const progressEvents = progressWriter.events.filter((event) => event.kind === 'progress_update');
-    assert.equal(progressEvents.length, 1);
+    assert.equal(progressEvents.length, 2);
     assert.equal(progressEvents[0]?.progressText, 'scanning scripts next');
     assert.equal(progressEvents[0]?.turn, 1);
+    assert.equal(progressEvents[1]?.progressText, 'Found scripts');
+    assert.equal(progressEvents[1]?.turn, 2);
   });
 });
 

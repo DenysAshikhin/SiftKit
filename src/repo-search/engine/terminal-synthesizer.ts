@@ -72,9 +72,9 @@ export class TerminalSynthesizer {
           maxTokens: synthesisMaxTokens,
           ...this.options.thinking,
           logger: this.options.logger,
-          onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
-            ? (answerText: string) => { this.options.progress.answer(input.turnsUsed, answerText); }
-            : undefined,
+      onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
+        ? (snapshot) => { this.options.progress.answer(input.turnsUsed, snapshot.narrationText); }
+        : undefined,
         });
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;

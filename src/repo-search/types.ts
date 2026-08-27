@@ -1,5 +1,5 @@
 import { TokenCountSourceSchema } from './prompt-budget.js';
-import { ToolActivityKindSchema } from '@siftkit/contracts';
+import { ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/index.js';
@@ -65,6 +65,7 @@ export const ToolResultProgressEventSchema = z.object({
   kind: z.literal('tool_result'),
   toolCallId: z.string(),
   activityKind: ToolActivityKindSchema,
+  activitySubject: ToolActivitySubjectSchema,
   command: z.string(),
   exitCode: z.number(),
   outputSnippet: z.string(),
@@ -105,6 +106,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   LlmStartProgressEventSchema,
   LlmEndProgressEventSchema,
   z.object({ ...turnScopedFields, kind: z.literal('thinking'), thinkingText: z.string() }),
+  z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
   z.object({ ...taskScopedFields, kind: z.literal('progress_update'), progressText: z.string() }),
   z.object({
@@ -112,6 +114,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
     kind: z.literal('tool_start'),
     toolCallId: z.string(),
     activityKind: ToolActivityKindSchema,
+    activitySubject: ToolActivitySubjectSchema,
     command: z.string(),
     promptTokenCount: z.number(),
     thinkingTokenCount: z.number(),

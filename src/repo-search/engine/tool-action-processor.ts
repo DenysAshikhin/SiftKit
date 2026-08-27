@@ -1,5 +1,5 @@
 import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
-import type { ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
+import type { ImageMetadata, ImageTokenBudget, ToolActivity } from '@siftkit/contracts';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
@@ -38,7 +38,7 @@ import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishCon
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
 import { ImageRetentionPolicy } from '../../image-retention-policy.js';
 import { ProgressReporter } from './progress-reporter.js';
-import { getToolActivityKind } from '../tool-activity.js';
+import { getToolActivity } from '../tool-activity.js';
 import { buildReadPathKey } from './read-overlap.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
@@ -92,6 +92,7 @@ type TurnBatchState = {
 type ValidatedToolAction = {
   normalizedToolName: string;
   nativeCall: RepoNativeToolCall;
+  activity: ToolActivity;
   command: string;
 };
 
@@ -390,7 +391,7 @@ export class ToolActionProcessor {
     }
     const nativeCall = nativeCallResult.data;
     const command = buildNativeToolRequestedCommand(nativeCall);
-    return { normalizedToolName, nativeCall, command };
+    return { normalizedToolName, nativeCall, activity: getToolActivity(nativeCall), command };
   }
 
   private beginRun(nativeCall: RepoNativeToolCall | null): RunOutputDecision | null {
@@ -443,6 +444,7 @@ export class ToolActionProcessor {
     commands.push({
       command: rejection.recordedCommand,
       activityKind: 'command',
+      activitySubject: { kind: 'none' },
       turn,
       safe: false,
       reason: rejection.reason,
@@ -502,6 +504,7 @@ export class ToolActionProcessor {
     commands.push({
       command: displayToolName,
       activityKind: 'command',
+      activitySubject: { kind: 'none' },
       turn,
       safe: false,
       reason: 'invalid action',
@@ -602,7 +605,10 @@ export class ToolActionProcessor {
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.commandFailures += 1;
     commands.push({
-      command, activityKind: getToolActivityKind(context.nativeCall), turn, safe: false, reason, exitCode: null,
+      command,
+      activityKind: context.activity.activityKind,
+      activitySubject: context.activity.activitySubject,
+      turn, safe: false, reason, exitCode: null,
       output: `Rejected: ${duplicateMessage}`,
     });
     this.logRejectedCommand({
@@ -781,12 +787,13 @@ export class ToolActionProcessor {
   ): Promise<ToolActionOutcome> {
     const { normalizedToolName } = context;
     const { counters, forcedFinish } = this.deps;
-    const activityKind = getToolActivityKind(context.nativeCall);
+    const activity = context.activity;
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
     this.deps.progress.toolStart(
-      progressToolCallId, turn, activityKind, context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
+      progressToolCallId, turn, activity.activityKind, activity.activitySubject,
+      context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
     );
     this.deps.logger?.write({
       kind: 'turn_command_start',
@@ -967,7 +974,7 @@ export class ToolActionProcessor {
       toolAction, normalizedToolName, fingerprint, normalizedKey,
       requestedCommand, executed, baseOutput, progressToolCallId, nativeExecution,
     } = context;
-    const activityKind = getToolActivityKind(context.nativeCall);
+    const activity = context.activity;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
     const fittedOutcome = await this.fitToolResult(turn, context, state, promptTokens);
@@ -1003,7 +1010,8 @@ export class ToolActionProcessor {
       progress.toolResult({
         toolCallId: progressToolCallId,
         turn,
-        activityKind,
+        activityKind: activity.activityKind,
+        activitySubject: activity.activitySubject,
         command: commandToRun,
         exitCode: executed.exitCode,
         outputSnippet: snippet,
@@ -1033,7 +1041,8 @@ export class ToolActionProcessor {
       : undefined;
     commands.push({
       command: commandToRun,
-      activityKind,
+      activityKind: activity.activityKind,
+      activitySubject: activity.activitySubject,
       turn,
       modelVisibleCommand: commandToRun,
       safe: true,

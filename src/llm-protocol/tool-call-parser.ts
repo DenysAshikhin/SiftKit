@@ -25,16 +25,36 @@ function isInsideCodeRegion(regions: readonly CodeRegion[], index: number): bool
 }
 
 function hasBareOpenTag(text: string, regions: readonly CodeRegion[]): boolean {
+  return findBareOpenTag(text, regions) >= 0;
+}
+
+function findBareOpenTag(text: string, regions: readonly CodeRegion[]): number {
   for (let index = text.indexOf(TOOL_CALL_OPEN_TAG); index !== -1; index = text.indexOf(TOOL_CALL_OPEN_TAG, index + 1)) {
-    if (!isInsideCodeRegion(regions, index)) return true;
+    if (!isInsideCodeRegion(regions, index)) return index;
   }
-  return false;
+  return -1;
+}
+
+function getTrailingOpenTagPrefixLength(text: string, regions: readonly CodeRegion[]): number {
+  const maxLength = Math.min(text.length, TOOL_CALL_OPEN_TAG.length - 1);
+  for (let length = maxLength; length > 0; length -= 1) {
+    const start = text.length - length;
+    if (!isInsideCodeRegion(regions, start) && TOOL_CALL_OPEN_TAG.startsWith(text.slice(start))) {
+      return length;
+    }
+  }
+  return 0;
 }
 
 export type TextToolCallScan = {
   calls: LlamaCppToolCall[];
   /** True when the opener tag appears outside markdown code — evidence of a textual tool-call attempt. */
   sawBareMarkup: boolean;
+};
+
+export type TextToolCallProjection = {
+  classification: 'undecided' | 'narration' | 'tool_control';
+  narrationText: string;
 };
 
 type RawFunctionCall = {
@@ -117,6 +137,26 @@ export class LlamaCppToolCallParser {
       });
     }
     return { calls, sawBareMarkup: hasBareOpenTag(text, codeRegions) };
+  }
+
+  projectStreamText(text: string): TextToolCallProjection {
+    if (!text) return { classification: 'undecided', narrationText: '' };
+    const codeRegions = findMarkdownCodeRegions(text);
+    const bareOpenTagIndex = findBareOpenTag(text, codeRegions);
+    if (bareOpenTagIndex >= 0) {
+      return {
+        classification: 'tool_control',
+        narrationText: text.slice(0, bareOpenTagIndex),
+      };
+    }
+    const prefixLength = getTrailingOpenTagPrefixLength(text, codeRegions);
+    if (prefixLength > 0) {
+      return {
+        classification: 'undecided',
+        narrationText: text.slice(0, -prefixLength),
+      };
+    }
+    return { classification: 'narration', narrationText: text };
   }
 
   parseToolCall(raw: RawToolCall): LlamaCppToolCall | null {

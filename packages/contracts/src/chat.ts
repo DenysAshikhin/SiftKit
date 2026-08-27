@@ -13,11 +13,25 @@ export const ToolActivityKindSchema = z.enum([
 ]);
 export type ToolActivityKind = z.infer<typeof ToolActivityKindSchema>;
 
+export const ToolActivitySubjectSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('file'), value: z.string().trim().min(1) }),
+  z.strictObject({ kind: z.literal('host'), value: z.string().trim().min(1) }),
+  z.strictObject({ kind: z.literal('none') }),
+]);
+export type ToolActivitySubject = z.infer<typeof ToolActivitySubjectSchema>;
+
+export const ToolActivitySchema = z.strictObject({
+  activityKind: ToolActivityKindSchema,
+  activitySubject: ToolActivitySubjectSchema,
+});
+export type ToolActivity = z.infer<typeof ToolActivitySchema>;
+
 const ChatStreamToolCommonFields = {
   toolCallId: z.string().trim().min(1),
   turn: z.number().int().positive(),
   maxTurns: z.number().int().positive(),
   activityKind: ToolActivityKindSchema,
+  activitySubject: ToolActivitySubjectSchema,
   command: z.string().trim().min(1),
   promptTokenCount: z.number().int().nonnegative(),
 } as const;
@@ -50,7 +64,7 @@ const ChatMessageBaseSchema = z.object({
   answerStartedAtUtc: z.string().nullable().optional(), answerEndedAtUtc: z.string().nullable().optional(),
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
   associatedToolTokens: z.number().nullable().optional(), thinkingContent: z.string().nullable().optional(),
-  toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallTurn: z.number().nullable().optional(),
+  toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
@@ -66,6 +80,7 @@ export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.literal('assistant_tool_call'),
   toolCallCommand: z.string().trim().min(1),
   toolCallActivityKind: ToolActivityKindSchema,
+  toolCallActivitySubject: ToolActivitySubjectSchema,
   toolCallTurn: z.number().int().positive(),
   toolCallMaxTurns: z.number().int().positive(),
   toolCallExitCode: z.number().int().nullable(),
@@ -77,6 +92,7 @@ const ChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum([
     'user_text',
     'assistant_answer',
+    'assistant_narration',
     'assistant_thinking',
     'assistant_progress',
     'tool_image',

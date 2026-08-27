@@ -43,6 +43,12 @@
 }
 .recent-activity-meta { letter-spacing: 0; text-transform: none; }
 .recent-activity-list { display: grid; gap: 4px; margin-top: 3px; }
+.tool-activity-row {
+  min-height: 24px; padding: 3px 5px; color: var(--dim);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem;
+}
+.tool-activity-neutral { color: var(--dim); }
+.tool-activity-failed { color: var(--bad); opacity: 0.82; }
 .tcall { border-radius: 6px; background: none; color: var(--dim); font-size: 0.7rem; overflow: hidden; }
 .tcall-summary {
   display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 5px;
@@ -52,9 +58,8 @@
 .tcall summary.tcall-summary { cursor: pointer; }
 .tcall summary.tcall-summary::-webkit-details-marker { display: none; }
 .tcall summary.tcall-summary:hover { background: var(--panel2); }
-.tcall .tstatus { color: var(--ink); }
-.tcall .tok { color: var(--ok); }
-.tcall .tbad { color: var(--bad); }
+.tcall .tstatus { color: var(--dim); }
+.tcall .tbad { color: var(--bad); opacity: 0.82; }
 .tcall-expand { margin-left: auto; color: var(--dim); }
 .tcall-details {
   display: grid; gap: 6px; margin: 3px 5px 7px 27px; padding: 8px 10px;

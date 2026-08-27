@@ -28,6 +28,7 @@ test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
     content: 'read path="src/index.ts"',
     toolCallCommand: 'read path="src/index.ts"',
     toolCallActivityKind: 'read',
+    toolCallActivitySubject: { kind: 'file', value: 'index.ts' },
     toolCallTurn: 1,
     toolCallMaxTurns: 45,
     toolCallExitCode: null,
@@ -36,6 +37,7 @@ test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
 
   assert.equal(ChatMessageSchema.parse(toolMessage).kind, 'assistant_tool_call');
   assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
+  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
   assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
   assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
 });

@@ -3,6 +3,7 @@ import { getActiveInferenceBackend, getActiveModelPreset } from '../config/index
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import { LiveContentClassifier, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition } from '../llm-protocol/types.js';
 import { LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -319,7 +320,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   timeoutMs: number;
   maxTokens: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
-  onContentDelta?: (accumulatedContent: string) => void;
+  onContentDelta?: (snapshot: LiveContentSnapshot) => void;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
@@ -426,9 +427,18 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     const inline = !mock.thinking && mock.content.includes(THINK_OPEN_TAG)
       ? extractInlineThinking(mock.content)
       : null;
+    const text = inline?.text ?? mock.content;
+    const thinkingText = inline?.thinkingText ?? mock.thinking;
+    if (thinkingText) options.onThinkingDelta?.(thinkingText);
+    if (text) {
+      const classifier = new LiveContentClassifier();
+      classifier.observeContent(text);
+      if (mock.toolCalls.length > 0) classifier.observeNativeToolCall();
+      options.onContentDelta?.(classifier.finish());
+    }
     return {
-      text: inline?.text ?? mock.content,
-      thinkingText: inline?.thinkingText ?? mock.thinking,
+      text,
+      thinkingText,
       toolCalls: mock.toolCalls,
       mockExhausted: false,
       nextMockResponseIndex: index + 1,
@@ -685,7 +695,7 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
-  onContentDelta?: (accumulatedContent: string) => void;
+  onContentDelta?: (snapshot: LiveContentSnapshot) => void;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,

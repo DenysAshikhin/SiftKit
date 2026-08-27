@@ -33,6 +33,7 @@ test('buildAppendedLiveToolMessage marks the tool message as running with prompt
     turn: 1,
     maxTurns: 4,
     activityKind: 'search',
+    activitySubject: { kind: 'none' },
     command: 'rg foo',
     promptTokenCount: 100,
   };
@@ -53,6 +54,7 @@ test('buildCompletedLiveToolMessage marks the tool message as done with output s
     turn: 1,
     maxTurns: 4,
     activityKind: 'search',
+    activitySubject: { kind: 'none' },
     command: 'rg foo',
     promptTokenCount: 100,
     exitCode: 0,
@@ -77,6 +79,7 @@ test('buildCompletedLiveToolMessage preserves estimated token metadata', () => {
     turn: 1,
     maxTurns: 4,
     activityKind: 'validate',
+    activitySubject: { kind: 'none' },
     command: 'rg foo',
     promptTokenCount: 100,
     exitCode: 0,

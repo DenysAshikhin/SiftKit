@@ -2,7 +2,7 @@ import type { ActivitySummaryProgressEvent } from '../types.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { TokenCountSource } from '../prompt-budget.js';
-import type { ToolActivityKind } from '@siftkit/contracts';
+import type { ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 
 export type TokenizeDoneInfo = {
   promptTokenCount: number;
@@ -91,6 +91,10 @@ export class ProgressReporter {
     this.emit({ kind: 'thinking', turn, maxTurns: this.maxTurns, thinkingText });
   }
 
+  narration(turn: number, narrationText: string): void {
+    this.emit({ kind: 'narration', turn, maxTurns: this.maxTurns, narrationText });
+  }
+
   answer(turn: number, answerText: string): void {
     this.emit({ kind: 'answer', turn, maxTurns: this.maxTurns, answerText });
   }
@@ -103,12 +107,13 @@ export class ProgressReporter {
     toolCallId: string,
     turn: number,
     activityKind: ToolActivityKind,
+    activitySubject: ToolActivitySubject,
     command: string,
     promptTokenCount: number,
     thinkingTokenCount: number,
   ): void {
     this.emit({
-      kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, activityKind, command,
+      kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, activityKind, activitySubject, command,
       promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs(),
     });
   }
@@ -117,6 +122,7 @@ export class ProgressReporter {
     toolCallId: string;
     turn: number;
     activityKind: ToolActivityKind;
+    activitySubject: ToolActivitySubject;
     command: string;
     exitCode: number;
     outputSnippet: string;

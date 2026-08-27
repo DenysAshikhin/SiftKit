@@ -133,6 +133,7 @@ test('TaskCommandSchema rejects a negative or fractional promptTokenCount', () =
   const base = {
     command: 'ls .',
     activityKind: 'search',
+    activitySubject: { kind: 'none' },
     turn: 1,
     safe: true,
     reason: null,
@@ -352,7 +353,7 @@ test('every member of a batch is capped at the same share regardless of position
   const { processor, commands, events, budget } = makeProcessor(root, ['grep']);
   // Put the run far enough along that the progress term, not the floor, sets the share.
   for (let index = 0; index < 3; index += 1) {
-    commands.push({ command: `ls prior-${index}`, activityKind: 'search', turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
+    commands.push({ command: `ls prior-${index}`, activityKind: 'search', activitySubject: { kind: 'none' }, turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
   }
 
   await processor.executeBatch(

@@ -334,16 +334,17 @@ test('selected session alone supplies errors and warnings', () => {
   assert.match(selectedA, /error-a/u);
 });
 
-test('a running tool message renders a ToolCallCard with spinner', () => {
+test('a running tool message renders a neutral friendly activity row', () => {
   const store = buildDefaultStore('session-a')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
     .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
-      activityKind: 'search', command: 'rg x', promptTokenCount: 0,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
-  assert.match(markup, /class="tcall"/);
-  assert.match(markup, /class="sp"/);
+  const recentActivity = /<section class="recent-activity"[\s\S]*?<\/section>/u.exec(markup)?.[0] ?? '';
+  assert.match(markup, /tool-activity-row tool-activity-neutral/u);
+  assert.doesNotMatch(recentActivity, /class="sp"/u);
   assert.match(markup, /Searching code…/u);
   assert.doesNotMatch(markup, /rg x/u);
 });
@@ -357,11 +358,11 @@ test('live recent activity renders only the newest three tools with latest turn 
       toolEvent: index === 3
         ? {
             kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45,
-            activityKind: 'search', command: `rg marker-${index}`, promptTokenCount: 0,
+            activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
           }
         : {
             kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45,
-            activityKind: 'search', command: `rg marker-${index}`, promptTokenCount: 0,
+            activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
             exitCode: 0, outputSnippet: `result-${index}`, outputTokens: 0, outputTokensEstimated: false,
           },
     });
@@ -372,12 +373,9 @@ test('live recent activity renders only the newest three tools with latest turn 
     sessionRuntimes: store.getAll(),
   });
   assert.match(markup, /Recent activity/u);
-  assert.match(markup, /Turn 4 \/ 45/u);
-  assert.equal(markup.match(/class="tcall"/gu)?.length, 3);
-  assert.doesNotMatch(markup, /rg marker-0/u);
-  assert.match(markup, /rg marker-1/u);
-  assert.match(markup, /rg marker-2/u);
-  assert.doesNotMatch(markup, /rg marker-3/u);
+  assert.match(markup, />4\/45</u);
+  assert.equal(markup.match(/class="tool-activity-row tool-activity-neutral"/gu)?.length, 3);
+  assert.doesNotMatch(markup, /rg marker-/u);
   assert.doesNotMatch(markup, /assistant tool/u, 'recent activity must use compact rows, not nested message bubbles');
 });
 
@@ -810,7 +808,7 @@ test('a live turn with a running tool call renders recent activity and the think
       sessionId: SESSION_B.id,
       toolEvent: {
         kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', command: 'TOOL_MARKER', promptTokenCount: 0,
+        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     });
   const html = render({
@@ -831,7 +829,7 @@ test('the activity ring disappears into Internal Logic when final answer streami
       sessionId: SESSION_B.id,
       toolEvent: {
         kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
+        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
       },
     })
     .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 2, offset: 0, text: 'FINAL_ANSWER_MARKER' } });
@@ -857,7 +855,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
       sessionId: SESSION_B.id,
       toolEvent: {
         kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', command: 'TOOL_MARKER', promptTokenCount: 0,
+        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     })
     .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } });

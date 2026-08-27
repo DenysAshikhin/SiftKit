@@ -1,9 +1,8 @@
 import type { ChatMessage, ChatToolCallMessage } from '../types';
+import { buildToolActivityRing, type ToolActivityGroup } from './tool-activity-ring';
 
 /** How many recent thinking blocks a live turn keeps on screen, newest last. */
 export const LIVE_THINKING_STACK_DEPTH = 3;
-/** How many recent tool calls a live turn keeps in Recent activity, newest last. */
-export const LIVE_TOOL_RING_DEPTH = 3;
 
 export type ChatTurn = {
   key: string;
@@ -12,8 +11,8 @@ export type ChatTurn = {
   steps: ChatMessage[];
   /** Live-only: the newest thinking blocks, oldest first. Always empty once settled. */
   liveThinking: ChatMessage[];
-  /** Live-only: the newest tool calls, oldest first. Settled tools remain in steps. */
-  recentTools: ChatToolCallMessage[];
+  /** Live-only: the newest grouped tool activities, oldest first. */
+  recentActivities: ToolActivityGroup[];
   main: ChatMessage | null;
 };
 
@@ -66,20 +65,20 @@ function pickLiveThinking(turn: ChatTurn): ChatMessage[] {
   return turn.messages.filter(isThinkingMessage).slice(-LIVE_THINKING_STACK_DEPTH);
 }
 
-function pickRecentTools(turn: ChatTurn): ChatToolCallMessage[] {
+function pickRecentActivities(turn: ChatTurn): ToolActivityGroup[] {
   if (!turn.isLive) return [];
   if (turn.messages.some(isAnswerMessage)) return [];
-  return turn.messages.filter(isToolCallMessage).slice(-LIVE_TOOL_RING_DEPTH);
+  return buildToolActivityRing(turn.messages.filter(isToolCallMessage));
 }
 
 function finalizeTurn(turn: ChatTurn): void {
   const main = pickMainMessage(turn);
   const liveThinking = pickLiveThinking(turn);
-  const recentTools = pickRecentTools(turn);
+  const recentActivities = pickRecentActivities(turn);
   const hideLiveTools = turn.isLive && !turn.messages.some(isAnswerMessage);
   turn.main = main;
   turn.liveThinking = liveThinking;
-  turn.recentTools = recentTools;
+  turn.recentActivities = recentActivities;
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot, thinking stack, or progress bar stays in Internal Logic.
   turn.steps = turn.messages.filter((message) => (
@@ -98,7 +97,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
     if (lastTurn && lastTurn.key === key) {
       lastTurn.messages.push(message);
     } else {
-      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], recentTools: [], main: null });
+      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], recentActivities: [], main: null });
     }
   }
   for (const turn of turns) {

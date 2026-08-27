@@ -19,6 +19,7 @@ import { getContextBarFillTone } from '../lib/context-bar-tone';
 import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
+import { ToolActivityRow } from '../components/ToolActivityRow';
 import { PendingImageStrip } from '../components/PendingImageStrip';
 import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
@@ -35,7 +36,7 @@ import type {
   DashboardPreset,
   DashboardPresetExecutionFamily,
 } from '../types';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ChatToolCallMessage } from '../types';
 
 const GROUNDING_STATUS_LABELS: Record<'ungrounded' | 'snippet_only' | 'fetched', string> = {
   ungrounded: 'No web evidence',
@@ -379,7 +380,7 @@ export function ChatTab({
                 </article>
               ) : null}
               {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
-                if (turn.steps.length === 0 && turn.liveThinking.length === 0 && turn.recentTools.length === 0) {
+                if (turn.steps.length === 0 && turn.liveThinking.length === 0 && turn.recentActivities.length === 0) {
                   const message = turn.main;
                   if (!message) { return null; }
                   return (
@@ -772,10 +773,9 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
     : aggregateTokens.exact
       ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
-  const latestTool = turn.recentTools[turn.recentTools.length - 1] ?? null;
-  const toolProgress = latestTool
-    ? `Turn ${latestTool.toolCallTurn} / ${latestTool.toolCallMaxTurns}`
-    : null;
+  const toolMessages = turn.messages.filter((message): message is ChatToolCallMessage => message.kind === 'assistant_tool_call');
+  const latestTool = toolMessages[toolMessages.length - 1] ?? null;
+  const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallMaxTurns}` : null;
   const renderTurnMessage = (message: ChatMessage, extraClass?: string) => (
     <MessageBubble
       key={message.id}
@@ -823,14 +823,14 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           {turn.liveThinking.map((thinking) => renderTurnMessage(thinking))}
         </div>
       ) : null}
-      {turn.recentTools.length > 0 ? (
+      {turn.recentActivities.length > 0 ? (
         <section className="recent-activity" aria-label="Recent activity">
           <div className="recent-activity-header">
             <span>Recent activity</span>
             {toolProgress ? <span className="recent-activity-meta">{toolProgress}</span> : null}
           </div>
           <div className="recent-activity-list">
-            {turn.recentTools.map((tool) => <ToolCallCard key={tool.id} message={tool} />)}
+            {turn.recentActivities.map((activity) => <ToolActivityRow key={activity.key} group={activity} />)}
           </div>
         </section>
       ) : null}

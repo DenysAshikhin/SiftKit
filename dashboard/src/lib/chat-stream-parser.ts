@@ -14,6 +14,7 @@ export type { ChatStreamToolEvent } from '@siftkit/contracts';
 
 export type ChatStreamEvent =
   | { kind: 'thinking'; delta: ChatStreamTextDelta }
+  | { kind: 'narration'; delta: ChatStreamTextDelta }
   | { kind: 'warning'; text: string }
   | { kind: 'tool'; tool: ChatStreamToolEvent }
   | { kind: 'progress'; progress: ChatStreamProgress }
@@ -48,6 +49,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     case 'thinking': {
       const result = ChatStreamTextDeltaSchema.safeParse(record);
       return result.success ? { kind: 'thinking', delta: result.data } : null;
+    }
+    case 'narration': {
+      const result = ChatStreamTextDeltaSchema.safeParse(record);
+      return result.success ? { kind: 'narration', delta: result.data } : null;
     }
     case 'warning':
       return { kind: 'warning', text: String(record.warning ?? '') };

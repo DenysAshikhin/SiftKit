@@ -11,6 +11,7 @@ import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.js';
 
 class StreamingHttpClient {
   readonly requests: SseStreamOptions[] = [];
@@ -65,7 +66,7 @@ const streamingConfig = buildStreamingConfig();
 
 test('llama streaming client assembles reasoning, content, timings, and native tool chunks', async () => {
   const thinkingUpdates: string[] = [];
-  const contentUpdates: string[] = [];
+  const contentUpdates: LiveContentSnapshot[] = [];
   const http = new StreamingHttpClient([
     {
       usage: {
@@ -104,7 +105,11 @@ test('llama streaming client assembles reasoning, content, timings, and native t
   assert.equal(response.usage.promptCacheTokens, 3);
   assert.equal(response.usage.thinkingTokens, 1);
   assert.deepEqual(thinkingUpdates, ['thinking ']);
-  assert.deepEqual(contentUpdates, ['answer ']);
+  assert.deepEqual(contentUpdates, [{
+    classification: 'narration',
+    rawText: 'answer ',
+    narrationText: 'answer ',
+  }]);
 });
 
 test('streaming client requests include_usage and captures a final usage-only chunk', async () => {
@@ -159,6 +164,24 @@ test('llama streaming client does not reinterpret JSON in reasoning as an action
   assert.equal(response.reasoningText, 'prefix {"action":"finish","output":"done"} suffix');
   assert.equal(response.stoppedEarly, false);
   assert.equal(response.earlyStopReason, undefined);
+});
+
+test('llama streaming client retains malformed control text for planner rejection', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { content: 'Visible prefix <tool_call><function=>broken' } }] },
+  ]);
+
+  const response = await new LlamaCppClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+  });
+
+  assert.equal(response.text, 'Visible prefix <tool_call><function=>broken');
+  assert.deepEqual(response.toolCalls, []);
 });
 
 test('llama streaming client converts transient HTTP stream errors', async () => {
@@ -254,7 +277,7 @@ test('llama streaming client wraps non-error stream failures', async () => {
 });
 
 test('llama streaming client throttles runaway checks to the 256-char stride', async () => {
-  const contentUpdates: string[] = [];
+  const contentUpdates: LiveContentSnapshot[] = [];
   // Frame 1 is 15 chars; each brace frame adds 8. Per-frame checking would
   // stop at 111 chars (96 trailing braces, 13 callbacks). The throttled check
   // first runs at 263 chars: 31 normal callbacks, then the stop callback.
@@ -281,7 +304,7 @@ test('llama streaming client throttles runaway checks to the 256-char stride', a
 });
 
 test('llama streaming client detects a runaway completing after the last throttled check', async () => {
-  const contentUpdates: string[] = [];
+  const contentUpdates: LiveContentSnapshot[] = [];
   // 'prefix ' (7 chars) + 48 tag frames (12 chars each) = 583 chars total.
   // Throttled checks run at 259 chars (21 tags) and 523 chars (43 tags) —
   // both below the 48-tag trigger. The final 60 chars arrive unchecked, so

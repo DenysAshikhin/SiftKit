@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema } from '@siftkit/contracts';
-import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind } from '@siftkit/contracts';
+import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
@@ -451,6 +451,7 @@ export type PersistToolMessage = {
   content: string;
   toolCallCommand: string;
   toolCallActivityKind: ToolActivityKind;
+  toolCallActivitySubject: ToolActivitySubject;
   toolCallTurn: number;
   toolCallMaxTurns: number;
   toolCallExitCode: number | null;
@@ -631,6 +632,7 @@ export function appendChatMessagesWithUsage(
         associatedToolTokens: toolOutputTokens,
         toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
         toolCallActivityKind: ToolActivityKindSchema.parse(toolMessage.toolCallActivityKind),
+        toolCallActivitySubject: ToolActivitySubjectSchema.parse(toolMessage.toolCallActivitySubject),
         toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
         toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
         toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
@@ -892,6 +894,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     content: commandText,
     toolCallCommand: commandText,
     toolCallActivityKind: ToolActivityKindSchema.parse(command.activityKind),
+    toolCallActivitySubject: ToolActivitySubjectSchema.parse(command.activitySubject),
     toolCallTurn: turn,
     toolCallMaxTurns: turnsUsed,
     toolCallExitCode: command.exitCode,

@@ -21,6 +21,14 @@ test('parses a thinking delta payload', () => {
   });
 });
 
+test('parses a narration delta payload independently from answers', () => {
+  const packet = 'event: narration\ndata: {"turn":2,"offset":5,"text":" more"}';
+  assert.deepEqual(parseChatStreamPacket(packet), {
+    kind: 'narration',
+    delta: { turn: 2, offset: 5, text: ' more' },
+  });
+});
+
 test('parses an answer delta payload', () => {
   const packet = 'event: answer\ndata: {"turn":3,"offset":0,"text":"Answer start"}';
   assert.deepEqual(parseChatStreamPacket(packet), {
@@ -43,7 +51,7 @@ test('parseChatStreamPacket parses warning events', () => {
 
 test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', () => {
   const start = parseChatStreamPacket(
-    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","command":"rg foo","promptTokenCount":42}'
+    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","promptTokenCount":42}'
   );
   assert.deepEqual(start, {
     kind: 'tool',
@@ -53,12 +61,13 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
       turn: 1,
       maxTurns: 5,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       promptTokenCount: 42,
     },
   });
   const result = parseChatStreamPacket(
-    'event: tool_result\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","command":"rg foo","exitCode":0,"outputSnippet":"hit","outputTokens":4915,"outputTokensEstimated":false,"promptTokenCount":42}'
+    'event: tool_result\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","exitCode":0,"outputSnippet":"hit","outputTokens":4915,"outputTokensEstimated":false,"promptTokenCount":42}'
   );
   assert.deepEqual(result, {
     kind: 'tool',
@@ -68,6 +77,7 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
       turn: 1,
       maxTurns: 5,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: 'hit',
@@ -81,12 +91,12 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
 test('parseChatStreamPacket rejects malformed tool events instead of coercing them', () => {
   const invalidBodies = [
     { turn: 1, maxTurns: 5, activityKind: 'search', command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: '1', maxTurns: 5, activityKind: 'search', command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 0, maxTurns: 5, activityKind: 'search', command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 0, activityKind: 'search', command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', command: '', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'invalid', command: 'rg foo', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: '1', maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: 0, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: 1, maxTurns: 0, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: '', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
+    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'invalid', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
   ];
   for (const body of invalidBodies) {
     assert.equal(parseChatStreamPacket(`event: tool_start\ndata: ${JSON.stringify(body)}`), null);
@@ -95,7 +105,7 @@ test('parseChatStreamPacket rejects malformed tool events instead of coercing th
 
 test('parseChatStreamPacket requires complete tool result metadata', () => {
   const base = {
-    toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', command: 'rg foo', promptTokenCount: 42,
+    toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42,
   };
   assert.equal(parseChatStreamPacket(`event: tool_result\ndata: ${JSON.stringify(base)}`), null);
 });
@@ -164,7 +174,7 @@ test('ChatStreamReader yields events split across chunks', async () => {
   const doneFrame = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`;
   const chunks = [
     'event: thinking\ndata: {"turn":1,"offset":0,"text":"a"}\n\nevent: too',
-    'l_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"activityKind":"command","command":"x","promptTokenCount":0}\n\n',
+    'l_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"activityKind":"command","activitySubject":{"kind":"none"},"command":"x","promptTokenCount":0}\n\n',
     doneFrame,
   ].map((chunk) => encoder.encode(chunk));
   let chunkIndex = 0;

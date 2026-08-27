@@ -5,6 +5,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ChatMessageSchema,
+  ChatStreamTextDeltaSchema,
   type ChatMessage as WireChatMessage,
   type ChatSession as WireChatSession,
   type ChatSessionResponse,
@@ -147,6 +148,7 @@ function forwardRepoSearchToolEvent(
       turn: event.turn,
       maxTurns: event.maxTurns,
       activityKind: event.activityKind,
+      activitySubject: event.activitySubject,
       command: event.command,
       promptTokenCount: event.promptTokenCount,
     });
@@ -158,6 +160,7 @@ function forwardRepoSearchToolEvent(
       turn: event.turn,
       maxTurns: event.maxTurns,
       activityKind: event.activityKind,
+      activitySubject: event.activitySubject,
       command: event.command,
       exitCode: event.exitCode,
       outputSnippet: event.outputSnippet,
@@ -318,6 +321,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   }
 
   private readonly thinkingDeltas = new LiveTextDeltaTracker();
+  private readonly narrationDeltas = new LiveTextDeltaTracker();
   private readonly answerDeltas = new LiveTextDeltaTracker();
   private flushTimer: NodeJS.Timeout | null = null;
 
@@ -325,6 +329,11 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     if (event.kind === 'thinking') {
       this.phaseTracker?.observeThinking(event.thinkingText);
       this.thinkingDeltas.pushSnapshot(event.turn, event.thinkingText, Date.now());
+      this.emitDueDeltas(false);
+      return;
+    }
+    if (event.kind === 'narration') {
+      this.narrationDeltas.pushSnapshot(event.turn, event.narrationText, Date.now());
       this.emitDueDeltas(false);
       return;
     }
@@ -359,12 +368,13 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private emitDueDeltas(force: boolean): void {
     const now = Date.now();
     this.emitTrackerDeltas(this.thinkingDeltas, 'thinking', now, force);
+    this.emitTrackerDeltas(this.narrationDeltas, 'narration', now, force);
     this.emitTrackerDeltas(this.answerDeltas, 'answer', now, force);
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    if (this.thinkingDeltas.hasPending() || this.answerDeltas.hasPending()) {
+    if (this.thinkingDeltas.hasPending() || this.narrationDeltas.hasPending() || this.answerDeltas.hasPending()) {
       this.flushTimer = setTimeout(() => {
         this.flushTimer = null;
         this.emitDueDeltas(true);
@@ -374,7 +384,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   private emitTrackerDeltas(
     tracker: LiveTextDeltaTracker,
-    event: 'thinking' | 'answer',
+    event: 'thinking' | 'narration' | 'answer',
     now: number,
     force: boolean,
   ): void {
@@ -383,7 +393,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
       delta !== null;
       delta = tracker.takeDue(now, force)
     ) {
-      this.writer.writeEvent(event, delta);
+      this.writer.writeEvent(event, ChatStreamTextDeltaSchema.parse(delta));
     }
   }
 }

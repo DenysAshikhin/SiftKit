@@ -171,7 +171,7 @@ test('tool token totals sum command output tokens', async () => {
   assert.equal(result.toolTokens, commandOutputTokens);
 });
 
-test('chat streams native content as progress before classifying it as the final answer', async () => {
+test('chat streams native content as raw progress and safe narration before the final answer', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -220,8 +220,12 @@ test('chat streams native content as progress before classifying it as the final
     const progressTexts = events
       .filter((event) => event.kind === 'progress_update')
       .map((event) => String(event.progressText || ''));
+    const narrationTexts = events
+      .filter((event) => event.kind === 'narration')
+      .map((event) => event.narrationText);
     assert.equal(result.finalOutput, 'Hello there!');
     assert.deepEqual(progressTexts, ['Hello', 'Hello there!']);
+    assert.deepEqual(narrationTexts, ['Hello', 'Hello there!']);
     assert.deepEqual(answerTexts, ['Hello there!']);
   } finally {
     await closeServer(server);

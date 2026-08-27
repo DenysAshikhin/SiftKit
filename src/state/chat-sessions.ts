@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
-import { ImageMetadataSchema, ModelRuntimePresetSchema, ToolActivityKindSchema } from '@siftkit/contracts';
-import type { ImageMetadata, ToolActivityKind } from '@siftkit/contracts';
+import { ImageMetadataSchema, ModelRuntimePresetSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import type { ImageMetadata, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -55,6 +55,7 @@ export type ChatMessage = {
   thinkingContent?: string | null;
   toolCallCommand?: string | null;
   toolCallActivityKind?: ToolActivityKind;
+  toolCallActivitySubject?: ToolActivitySubject;
   toolCallTurn?: number | null;
   toolCallMaxTurns?: number | null;
   toolCallExitCode?: number | null;
@@ -133,6 +134,8 @@ const MessageRowSchema = z.object({
   thinking_content: z.string().nullable(),
   tool_call_command: z.string().nullable(),
   tool_call_activity_kind: z.string().nullable(),
+  tool_call_activity_subject_kind: z.string().nullable(),
+  tool_call_activity_subject_value: z.string().nullable(),
   tool_call_turn: z.number().nullable(),
   tool_call_max_turns: z.number().nullable(),
   tool_call_exit_code: z.number().nullable(),
@@ -271,6 +274,16 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     toolCallActivityKind: kind === 'assistant_tool_call'
       ? ToolActivityKindSchema.parse(row.tool_call_activity_kind)
       : undefined,
+    toolCallActivitySubject: kind === 'assistant_tool_call'
+      ? ToolActivitySubjectSchema.parse(
+        row.tool_call_activity_subject_kind === 'none'
+          ? { kind: row.tool_call_activity_subject_kind }
+          : {
+              kind: row.tool_call_activity_subject_kind,
+              value: row.tool_call_activity_subject_value,
+            },
+      )
+      : undefined,
     toolCallTurn: row.tool_call_turn,
     toolCallMaxTurns: row.tool_call_max_turns,
     toolCallExitCode: row.tool_call_exit_code,
@@ -372,6 +385,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       thinking_content,
       tool_call_command,
       tool_call_activity_kind,
+      tool_call_activity_subject_kind,
+      tool_call_activity_subject_value,
       tool_call_turn,
       tool_call_max_turns,
       tool_call_exit_code,
@@ -674,6 +689,8 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         thinking_content,
         tool_call_command,
         tool_call_activity_kind,
+        tool_call_activity_subject_kind,
+        tool_call_activity_subject_value,
         tool_call_turn,
         tool_call_max_turns,
         tool_call_exit_code,
@@ -688,12 +705,15 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         image_meta,
         removed_image_count,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
       const messageKind = normalizeMessageKind(message.kind, message.role);
+      const activitySubject = messageKind === 'assistant_tool_call'
+        ? ToolActivitySubjectSchema.parse(message.toolCallActivitySubject)
+        : null;
       insertMessage.run(
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
@@ -725,6 +745,10 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
         messageKind === 'assistant_tool_call'
           ? ToolActivityKindSchema.parse(message.toolCallActivityKind)
+          : null,
+        activitySubject?.kind ?? null,
+        activitySubject?.kind === 'file' || activitySubject?.kind === 'host'
+          ? activitySubject.value
           : null,
         toNullableNonNegativeInteger(message.toolCallTurn),
         toNullableNonNegativeInteger(message.toolCallMaxTurns),

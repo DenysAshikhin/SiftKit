@@ -22,6 +22,7 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     return ChatMessageSchema.parse({
       toolCallCommand: 'run command="true"',
       toolCallActivityKind: 'command',
+      toolCallActivitySubject: { kind: 'none' },
       toolCallTurn: 1,
       toolCallMaxTurns: 45,
       toolCallExitCode: null,
@@ -117,7 +118,7 @@ test('all live messages collapse into one live turn with tools in the recent act
   assert.equal(turns[0].isLive, true);
   assert.deepEqual(turns[0].steps, []);
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['lt']);
-  assert.deepEqual(turns[0].recentTools.map((tool) => tool.id), ['lc']);
+  assert.deepEqual(turns[0].recentActivities.flatMap((group) => group.messages.map((tool) => tool.id)), ['lc']);
   assert.equal(turns[0].main, null);
 });
 
@@ -156,7 +157,8 @@ test('a live turn keeps the newest thinking blocks and tools in separate live st
   assert.equal(turns[0].isLive, true);
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['th1', 'th2']);
   assert.equal(turns[0].main, null);
-  assert.deepEqual(turns[0].recentTools.map((tool) => tool.id), ['tc1', 'tc2']);
+  assert.deepEqual(turns[0].recentActivities.map((group) => group.key), ['1:command']);
+  assert.deepEqual(turns[0].recentActivities[0]?.messages.map((tool) => tool.id), ['tc1', 'tc2']);
   assert.deepEqual(turns[0].steps, []);
 });
 
@@ -171,7 +173,7 @@ test('a live tool ring exposes only the newest three tools and drops older tools
     toolCallMaxTurns: 45,
   }));
   const turns = groupMessagesIntoTurns(messages, new Set(ids));
-  assert.deepEqual(turns[0]?.recentTools.map((tool) => tool.id), ['tc2', 'tc3', 'tc4']);
+  assert.deepEqual(turns[0]?.recentActivities.map((group) => group.key), ['2:command', '3:command', '4:command']);
   assert.deepEqual(turns[0]?.steps, []);
   assert.equal(turns[0]?.main, null);
 });
@@ -206,7 +208,7 @@ test('once the live answer arrives thinking and tools move into Internal Logic',
   assert.deepEqual(turns[0].liveThinking, []);
   assert.equal(turns[0].main?.id, 'ans');
   assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1', 'tc1']);
-  assert.deepEqual(turns[0].recentTools, []);
+  assert.deepEqual(turns[0].recentActivities, []);
 });
 
 test('settled turns never populate liveThinking', () => {

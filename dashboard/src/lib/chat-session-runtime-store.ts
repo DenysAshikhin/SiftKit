@@ -1,5 +1,11 @@
 import { applyLiveThinkingDelta } from './live-thinking-message';
 import {
+  applyNarrationDelta,
+  demoteNarrationForTurn,
+  liveNarrationMessageId,
+  promoteNarrationToAnswer,
+} from './live-narration-message';
+import {
   buildAppendedLiveToolMessage,
   buildCompletedLiveToolMessage,
   buildLiveUserMessage,
@@ -38,6 +44,7 @@ export type ChatSessionRuntime = {
 export type ChatSessionRuntimeTransition =
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind }
   | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
+  | { kind: 'narration'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
   | { kind: 'progress'; sessionId: string; progress: ChatStreamProgress }
   | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
@@ -76,12 +83,25 @@ function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEv
   return {
     ...runtime,
     awaitingResponse: false,
-    liveMessages: upsertLiveMessageInto(runtime.liveMessages, toolMessage),
+    liveMessages: upsertLiveMessageInto(
+      toolEvent.kind === 'tool_start'
+        ? demoteNarrationForTurn(runtime.liveMessages, toolEvent.turn)
+        : runtime.liveMessages,
+      toolMessage,
+    ),
     liveToolPromptTokenCount: toolEvent.promptTokenCount,
   };
 }
 
 function applyAnswer(runtime: ChatSessionRuntime, delta: ChatStreamTextDelta): ChatSessionRuntime {
+  const narrationId = liveNarrationMessageId(delta.turn);
+  if (runtime.liveMessages.some((message) => message.id === narrationId)) {
+    return {
+      ...runtime,
+      awaitingResponse: false,
+      liveMessages: promoteNarrationToAnswer(runtime.liveMessages, delta),
+    };
+  }
   const existing = runtime.liveMessages.find((message) => message.id === 'live-answer');
   const text = applyTextDelta(existing?.content ?? '', delta);
   const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
@@ -105,6 +125,12 @@ function applyTransition(
         ...runtime,
         awaitingResponse: false,
         liveMessages: applyLiveThinkingDelta(runtime.liveMessages, transition.delta, true),
+      };
+    case 'narration':
+      return {
+        ...runtime,
+        awaitingResponse: false,
+        liveMessages: applyNarrationDelta(runtime.liveMessages, transition.delta),
       };
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);

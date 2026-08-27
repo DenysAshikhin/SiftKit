@@ -59,6 +59,7 @@ class StubStatusEngineService extends StatusEngineService {
       turn: 1,
       maxTurns: 7,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg -n "target" src',
       promptTokenCount: 1_200,
       thinkingTokenCount: 0,
@@ -70,6 +71,7 @@ class StubStatusEngineService extends StatusEngineService {
       turn: 1,
       maxTurns: 7,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg -n "target" src',
       exitCode: 0,
       outputSnippet: 'src/main.ts:4:target',
@@ -96,6 +98,7 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
   task.commands = [{
     command: 'rg -n "target" src',
     activityKind: 'search',
+    activitySubject: { kind: 'none' },
     turn: 1,
     modelVisibleCommand: 'rg -n "target" src',
     safe: true,

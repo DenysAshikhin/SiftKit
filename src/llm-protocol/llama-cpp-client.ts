@@ -32,6 +32,7 @@ import type {
 } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
 import { InferenceRequestBuilder } from './inference-request-builder.js';
+import { LiveContentClassifier, type LiveContentSnapshot } from './live-content-classifier.js';
 
 type LlamaCppHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
@@ -123,7 +124,7 @@ export type LlamaCppChatOptions = {
   /** Spliced into the closed think block of a budget continuation in place of the preset message. */
   reasoningBudgetMessage?: string;
   onThinkingDelta?: (accumulatedThinking: string) => void;
-  onContentDelta?: (accumulatedContent: string) => void;
+  onContentDelta?: (snapshot: LiveContentSnapshot) => void;
 };
 
 /**
@@ -334,6 +335,7 @@ export class LlamaCppClient {
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
     const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix));
     const parser = new LlamaCppToolCallParser();
+    const contentClassifier = new LiveContentClassifier();
     const toolChunks = new Map<number, { id: string; name: string; argumentsText: string }>();
     let contentText = '';
     let reasoningText = '';
@@ -361,7 +363,8 @@ export class LlamaCppClient {
       if (!runaway) return false;
       earlyStopReason = runaway.reason;
       if (contentText) contentText = runaway.truncatedText;
-      options.onContentDelta?.(contentText);
+      const snapshot = contentClassifier.observeContent(contentText);
+      options.onContentDelta?.(snapshot);
       return true;
     };
     const budgetPreset = getActiveModelPreset(options.config);
@@ -436,8 +439,10 @@ export class LlamaCppClient {
           }
           if (deltaContent) {
             contentText += deltaContent;
+            contentClassifier.observeContent(contentText);
           }
           if (Array.isArray(delta.tool_calls)) {
+            contentClassifier.observeNativeToolCall();
             for (const rawToolCall of delta.tool_calls) {
               if (!isRecord(rawToolCall)) continue;
               const index = Number.isInteger(rawToolCall.index) ? Number(rawToolCall.index) : toolChunks.size;
@@ -459,7 +464,7 @@ export class LlamaCppClient {
             }
           }
           if (deltaContent) {
-            options.onContentDelta?.(contentText);
+            options.onContentDelta?.(contentClassifier.observeContent(contentText));
           }
       }
       if (!earlyStopReason) {
@@ -503,12 +508,16 @@ export class LlamaCppClient {
         function: { name: toolCall.name, arguments: toolCall.argumentsText },
       }))
       .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null);
-    const dialectToolCalls = protocolToolCalls.length === 0 ? parser.scanFromText(contentText).calls : [];
+    const finalContent = contentClassifier.finish();
+    const dialectToolCalls = protocolToolCalls.length === 0 ? parser.scanFromText(finalContent.rawText).calls : [];
     const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : dialectToolCalls;
+    const responseText = finalContent.classification === 'tool_control' && toolCalls.length === 0
+      ? finalContent.rawText
+      : finalContent.narrationText;
     const promptEvalDuration = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
     const generationDuration = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
     return {
-      text: dialectToolCalls.length > 0 ? '' : contentText,
+      text: responseText,
       reasoningText,
       toolCalls,
       usage: {

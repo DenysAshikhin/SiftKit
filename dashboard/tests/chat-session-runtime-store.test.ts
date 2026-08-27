@@ -141,6 +141,39 @@ test('answer deltas assemble on the live answer message', () => {
   assert.equal(answer?.content, 'Answer body');
 });
 
+test('narration deltas assemble in one turn-scoped live message', () => {
+  const store = new ChatSessionRuntimeStore()
+    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Reading' } })
+    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 7, text: ' files' } });
+
+  assert.deepEqual(store.get('s1').liveMessages.map((message) => ({
+    id: message.id,
+    kind: message.kind,
+    content: message.content,
+  })), [{
+    id: 'assistant-narration-turn-4',
+    kind: 'assistant_narration',
+    content: 'Reading files',
+  }]);
+});
+
+test('tool start demotes narration and answer promotes the same message identity', () => {
+  const store = new ChatSessionRuntimeStore()
+    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Candidate draft' } })
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 0,
+    }});
+  const demoted = store.get('s1').liveMessages.find((message) => message.id === 'assistant-narration-turn-2');
+  assert.equal(demoted?.kind, 'assistant_progress');
+
+  const promoted = store
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Authoritative answer' } })
+    .get('s1').liveMessages.find((message) => message.id === 'assistant-narration-turn-2');
+  assert.equal(promoted?.kind, 'assistant_answer');
+  assert.equal(promoted?.content, 'Authoritative answer');
+});
+
 test('applyToolEvent appends running tool message on tool_start', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
@@ -150,6 +183,7 @@ test('applyToolEvent appends running tool message on tool_start', () => {
       turn: 1,
       maxTurns: 4,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       promptTokenCount: 0,
     }});
@@ -167,6 +201,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
       turn: 1,
       maxTurns: 4,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       promptTokenCount: 0,
     }})
@@ -176,6 +211,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
       turn: 1,
       maxTurns: 4,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: 'hit',
@@ -317,6 +353,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCo
       turn: 1,
       maxTurns: 4,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       promptTokenCount: 42,
     }});
@@ -332,6 +369,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
       turn: 1,
       maxTurns: 4,
       activityKind: 'search',
+      activitySubject: { kind: 'none' },
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: '',
@@ -457,6 +495,7 @@ test('any streamed evidence ends the awaiting state, whatever arrives first', ()
     turn: 1,
     maxTurns: 4,
     activityKind: 'search',
+    activitySubject: { kind: 'none' },
     command: 'rg foo',
     promptTokenCount: 0,
   }});

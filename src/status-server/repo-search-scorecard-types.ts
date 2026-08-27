@@ -1,7 +1,7 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
-import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema } from '@siftkit/contracts';
-import type { ImageDataUrl, ImageMetadata, ToolActivityKind } from '@siftkit/contracts';
+import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import type { ImageDataUrl, ImageMetadata, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
@@ -9,6 +9,7 @@ export type RepoSearchCommandResult = {
   turn: number | null;
   command: string;
   activityKind: ToolActivityKind;
+  activitySubject: ToolActivitySubject;
   displayCommand: string;
   output: string;
   outputSnippet: string;
@@ -73,6 +74,7 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
     turn: reader.nullableNonNegativeInteger('turn'),
     command: reader.string('command'),
     activityKind: ToolActivityKindSchema.parse(reader.value('activityKind')),
+    activitySubject: ToolActivitySubjectSchema.parse(reader.value('activitySubject')),
     displayCommand: reader.string('displayCommand') || reader.string('modelVisibleCommand'),
     output: reader.string('promptOutput') || reader.string('output'),
     outputSnippet: reader.string('outputSnippet'),

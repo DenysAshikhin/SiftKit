@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { RepoSearchProgressEvent, RepoSearchExecutionRequest } from '../src/repo-search/types.js';
+import { RepoSearchProgressEventSchema, type RepoSearchProgressEvent, type RepoSearchExecutionRequest } from '../src/repo-search/types.js';
 import type { RepoSearchProgressEvent as RouteProgressEvent } from '../src/status-server/dashboard-runs.js';
 import {
   normalizeRepoSearchResult,
@@ -11,6 +11,22 @@ import {
 test('loop RepoSearchProgressEvent carries answerText', () => {
   const event: RepoSearchProgressEvent = { kind: 'answer', answerText: 'hello', turn: 1, maxTurns: 45 };
   assert.equal(event.kind === 'answer' ? event.answerText : null, 'hello');
+});
+
+test('loop RepoSearchProgressEvent validates narration independently from answers', () => {
+  const event = RepoSearchProgressEventSchema.parse({
+    kind: 'narration',
+    narrationText: 'Reading the relevant files…',
+    turn: 1,
+    maxTurns: 45,
+  });
+  assert.equal(event.kind === 'narration' ? event.narrationText : null, 'Reading the relevant files…');
+  assert.throws(() => RepoSearchProgressEventSchema.parse({
+    kind: 'narration',
+    answerText: 'wrong field',
+    turn: 1,
+    maxTurns: 45,
+  }));
 });
 
 test('route RepoSearchProgressEvent carries answerText', () => {
@@ -42,7 +58,7 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
         finalOutput: 'answer',
         turnsUsed: 2,
         groundingStatus: 'fetched',
-        commands: [{ turn: 1, activityKind: 'search', command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
+        commands: [{ turn: 1, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
         turnThinking: { 1: 'thinking' },
       }],
     },
@@ -69,7 +85,7 @@ test('normalizeRepoSearchResult yields null promptTokenCount when absent', () =>
       tasks: [{
         finalOutput: 'answer',
         turnsUsed: 1,
-        commands: [{ turn: 1, activityKind: 'search', command: 'rg Dict', output: 'hit', exitCode: 0 }],
+        commands: [{ turn: 1, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg Dict', output: 'hit', exitCode: 0 }],
         turnThinking: {},
       }],
     },

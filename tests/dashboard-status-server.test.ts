@@ -1958,14 +1958,18 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
     assert.equal(sse.statusCode, 200);
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
     const thinkingEvents = sse.events.filter((event) => event.event === 'thinking');
+    const narrationEvents = sse.events.filter((event) => event.event === 'narration');
     const answerEvents = sse.events.filter((event) => event.event === 'answer');
     assert.equal(thinkingEvents.length, 3, JSON.stringify(sse.events));
+    assert.equal(narrationEvents.length, 1, JSON.stringify(sse.events));
     assert.equal(answerEvents.length, 1, JSON.stringify(sse.events));
     const thinkingDeltas = thinkingEvents.map(parseTextDeltaEvent);
+    const narrationDeltas = narrationEvents.map(parseTextDeltaEvent);
     const answerDeltas = answerEvents.map(parseTextDeltaEvent);
     assert.deepEqual(thinkingDeltas.map((delta) => delta.text.length), [1024, 1024, 17]);
     assert.deepEqual(thinkingDeltas.map((delta) => delta.offset), [0, 1024, 2048]);
     assert.equal(assembleTextDeltas(thinkingDeltas), thinkingText);
+    assert.equal(assembleTextDeltas(narrationDeltas), answerText);
     assert.equal(assembleTextDeltas(answerDeltas), answerText);
 
     const latencyTail = thinkingEvents[2];
@@ -1977,7 +1981,9 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
       true,
     );
     const firstAnswerIndex = sse.events.findIndex((event) => event.event === 'answer');
+    const firstNarrationIndex = sse.events.findIndex((event) => event.event === 'narration');
     const doneIndex = sse.events.findIndex((event) => event.event === 'done');
+    assert.equal(firstNarrationIndex < firstAnswerIndex, true);
     assert.equal(firstAnswerIndex > sse.events.lastIndexOf(latencyTail), true);
     assert.equal(doneIndex > firstAnswerIndex, true);
   } finally {

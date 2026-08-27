@@ -603,4 +603,24 @@ export const MIGRATIONS: readonly Migration[] = [
       }
     },
   },
+  {
+    version: 52,
+    up: (database) => {
+      if (!tableHasColumn(database, 'chat_messages', 'tool_call_activity_subject_kind')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_activity_subject_kind TEXT;');
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'tool_call_activity_subject_value')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_activity_subject_value TEXT;');
+      }
+      if (tableHasColumn(database, 'chat_messages', 'kind')) {
+        database.exec(`
+          UPDATE chat_messages
+          SET tool_call_activity_subject_kind = 'none',
+              tool_call_activity_subject_value = NULL
+          WHERE kind = 'assistant_tool_call'
+            AND tool_call_activity_subject_kind IS NULL;
+        `);
+      }
+    },
+  },
 ];

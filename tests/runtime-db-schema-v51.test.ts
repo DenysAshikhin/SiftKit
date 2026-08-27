@@ -9,7 +9,12 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
-const ActivityRowsSchema = z.array(z.object({ id: z.string(), tool_call_activity_kind: z.string().nullable() }));
+const ActivityRowsSchema = z.array(z.object({
+  id: z.string(),
+  tool_call_activity_kind: z.string().nullable(),
+  tool_call_activity_subject_kind: z.string().nullable(),
+  tool_call_activity_subject_value: z.string().nullable(),
+}));
 
 test('v51 adds activity kind and explicitly marks historical tool rows as command activity', () => {
   const dbPath = path.join(createManagedTempDir('sk-v51-tool-activity-'), 'runtime.sqlite');
@@ -43,17 +48,32 @@ test('v51 adds activity kind and explicitly marks historical tool rows as comman
     const readonly = new Database(dbPath, { readonly: true });
     try {
       const rows = ActivityRowsSchema.parse(
-        readonly.prepare('SELECT id, tool_call_activity_kind FROM chat_messages ORDER BY position').all(),
+        readonly.prepare(`
+          SELECT id, tool_call_activity_kind,
+                 tool_call_activity_subject_kind,
+                 tool_call_activity_subject_value
+          FROM chat_messages ORDER BY position
+        `).all(),
       );
       assert.deepEqual(rows, [
-        { id: 'tool', tool_call_activity_kind: 'command' },
-        { id: 'answer', tool_call_activity_kind: null },
+        {
+          id: 'tool',
+          tool_call_activity_kind: 'command',
+          tool_call_activity_subject_kind: 'none',
+          tool_call_activity_subject_value: null,
+        },
+        {
+          id: 'answer',
+          tool_call_activity_kind: null,
+          tool_call_activity_subject_kind: null,
+          tool_call_activity_subject_value: null,
+        },
       ]);
       const version = z.object({ version: z.number() }).parse(
         readonly.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
       );
       assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-      assert.equal(CURRENT_SCHEMA_VERSION, 51);
+      assert.equal(CURRENT_SCHEMA_VERSION, 52);
     } finally {
       readonly.close();
     }

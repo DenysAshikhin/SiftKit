@@ -12,6 +12,7 @@ function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
     createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: null,
     toolCallCommand: 'run command="true"',
     toolCallActivityKind: 'command',
+    toolCallActivitySubject: { kind: 'none' },
     toolCallTurn: 1,
     toolCallMaxTurns: 45,
     toolCallExitCode: null,
@@ -20,34 +21,40 @@ function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
   };
 }
 
-test('running tool call shows a spinner and no raw command or result', () => {
+test('running tool details use present tense and keep diagnostics collapsed', () => {
   const command = 'web_fetch url="https://x.dev"';
   const markup = renderToStaticMarkup(
-    <ToolCallCard message={msg({ toolCallCommand: command, toolCallActivityKind: 'web_fetch', toolCallStatus: 'running', toolCallOutput: 'PRIVATE_OUTPUT' })} />,
+    <ToolCallCard message={msg({
+      toolCallCommand: command,
+      toolCallActivityKind: 'web_fetch',
+      toolCallActivitySubject: { kind: 'host', value: 'x.dev' },
+      toolCallOutput: 'PRIVATE_OUTPUT',
+    })} />,
   );
-  assert.match(markup, /class="tcall"/);
-  assert.match(markup, /class="sp"/);
   assert.match(markup, /Loading x\.dev…/u);
-  assert.doesNotMatch(markup, /web_fetch url=/u);
-  assert.doesNotMatch(markup, /PRIVATE_OUTPUT/u);
-  assert.doesNotMatch(markup, /<pre/);
-});
-
-test('completed tool call shows friendly summary and closed inspectable details', () => {
-  const command = 'grep "SECRET_MARKER"';
-  const markup = renderToStaticMarkup(
-    <ToolCallCard message={msg({ toolCallCommand: command, toolCallActivityKind: 'search', toolCallStatus: 'done', toolCallExitCode: 0, toolCallOutput: 'line1\nline2', toolCallPromptTokenCount: 8200 })} />,
-  );
-  assert.match(markup, /Searched code/u);
-  assert.match(markup, /8k tok/);
   assert.match(markup, /<details>/u);
   assert.doesNotMatch(markup, /<details open>/u);
-  assert.match(markup, /<summary[^>]*>.*Searched code.*<\/summary>/u);
-  assert.match(markup, /command:.*SECRET_MARKER/u);
-  assert.match(markup, /line1/);
+  assert.match(markup, /web_fetch url=/u);
+  assert.match(markup, /PRIVATE_OUTPUT/u);
 });
 
-test('failed tool call shows a friendly failure status and keeps diagnostics collapsed', () => {
+test('successful details omit success icons tokens and completion wording', () => {
+  const markup = renderToStaticMarkup(
+    <ToolCallCard message={msg({
+      toolCallCommand: 'grep "SECRET_MARKER"',
+      toolCallActivityKind: 'search',
+      toolCallStatus: 'done',
+      toolCallExitCode: 0,
+      toolCallOutput: 'line1\nline2',
+      toolCallPromptTokenCount: 8200,
+    })} />,
+  );
+  assert.match(markup, /Searching code…/u);
+  assert.doesNotMatch(markup, /✓|8k tok|complete|Searched/u);
+  assert.match(markup, /command:.*SECRET_MARKER/u);
+});
+
+test('failed details use subtle failure copy and remain closed', () => {
   const markup = renderToStaticMarkup(
     <ToolCallCard message={msg({
       toolCallCommand: 'npm test -- chat-tab',
@@ -58,8 +65,7 @@ test('failed tool call shows a friendly failure status and keeps diagnostics col
     })} />,
   );
   assert.match(markup, /class="tbad"/u);
-  assert.match(markup, /Validation failed/u);
-  assert.match(markup, /<details>/u);
+  assert.match(markup, /Validating project… failed/u);
   assert.doesNotMatch(markup, /<details open>/u);
   assert.match(markup, /PRIVATE_FAILURE/u);
 });

@@ -484,7 +484,6 @@ export class TaskLoop {
     }
     const narration = context.response.text.trim();
     if (narration && context.response.toolCalls.length > 0) {
-      this.progress.progressUpdate(context.turnNumber, narration);
       this.options.logger?.write({
         kind: 'turn_progress',
         taskId: this.task.id,
@@ -620,9 +619,14 @@ export class TaskLoop {
         onThinkingDelta: this.progress.liveTextEnabled
           ? (accThinking) => { this.progress.thinking(turn, accThinking); }
           : undefined,
-        onContentDelta: this.progress.liveTextEnabled
-          ? (accContent) => { this.progress.progressUpdate(turn, accContent); }
-          : undefined,
+    onContentDelta: this.progress.liveTextEnabled
+      ? (snapshot) => {
+        if (snapshot.rawText) this.progress.progressUpdate(turn, snapshot.rawText);
+        if (snapshot.classification === 'narration' && snapshot.narrationText) {
+          this.progress.narration(turn, snapshot.narrationText);
+        }
+      }
+      : undefined,
         mockResponses: this.options.mockResponses,
         mockResponseIndex: this.mockResponseIndex,
         abortSignal: this.options.abortSignal,

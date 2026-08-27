@@ -115,6 +115,14 @@ test('thinking events are dropped when thinking is disabled', async () => {
   assert.deepEqual(await collect(thinkingStream(), true), ['begin', 'thinking', 'done']);
 });
 
+test('narration events always become narration transitions', async () => {
+  async function* narrationStream(): AsyncGenerator<ChatStreamEvent> {
+    yield { kind: 'narration', delta: { turn: 1, offset: 0, text: 'Reading files' } };
+    yield { kind: 'done', payload: response('session-a') };
+  }
+  assert.deepEqual(await collect(narrationStream(), false), ['begin', 'narration', 'done']);
+});
+
 test('two streams complete out of order without crossing session state', async () => {
   const drain = new StoreDrain();
   const gateA = new Gate();
