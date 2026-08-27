@@ -9,7 +9,7 @@ import {
   type ChatMessage,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
-import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
+import type { LlamaCppToolDefinition } from '../../llm-protocol/types.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
 import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
@@ -18,7 +18,6 @@ import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor, type CompactionRetention } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
-import { toProtocolTools } from '../../providers/llama-cpp.js';
 
 /** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
 function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
@@ -52,7 +51,7 @@ export class PromptPreparer {
       config: SiftConfig;
       useEstimatedTokensOnly: boolean;
       budget: TurnBudget;
-      plannerToolDefinitions: readonly PlannerToolDefinition[];
+      plannerTools: readonly LlamaCppToolDefinition[];
       thinking: PlannerThinkingFlags;
       transcript: TranscriptManager;
       runtimeProfile: RepoSearchRuntimeProfile;
@@ -69,11 +68,11 @@ export class PromptPreparer {
   private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number): string {
     return buildPlannerRequestPromptReserveText({
       config: this.options.config,
-      stage: 'planner_action',
       model: String(this.options.model || ''),
       messageRoles,
-      tools: toProtocolTools(this.options.plannerToolDefinitions),
+      tools: this.options.plannerTools,
       maxTokens,
+      responseSchema: null,
       ...this.options.thinking,
     });
   }

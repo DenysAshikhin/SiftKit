@@ -79,6 +79,7 @@ async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<
     thinkingEnabled: true,
     stage: 'planner_action',
     tools: [],
+    responseSchema: null,
     onThinkingDelta: () => {},
   });
 }

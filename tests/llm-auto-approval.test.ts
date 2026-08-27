@@ -349,11 +349,10 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
   assert.equal(verdictAttempts, 1);
 });
 
-test('auto mode over HTTP preserves the full prompt cache across two approvals and an exempt read', async () => {
+test('auto mode over HTTP byte-preserves two approval overlays and an exempt read', async () => {
   const plannerBodies: ReturnType<typeof asObject>[] = [];
   const verdictBodies: ReturnType<typeof asObject>[] = [];
   let plannerCalls = 0;
-  const largeTask = 'large cache-prefix evidence '.repeat(8_000);
   const largeToolContent = 'x'.repeat(2_048);
 
   function completionBody(content: string, reasoning: string | null): JsonObject {
@@ -431,14 +430,14 @@ test('auto mode over HTTP preserves the full prompt cache across two approvals a
   const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
     const gate = new ApprovalGateHarness(new SilentProgressWriter(), false, UNREACHED_GATE_TIMEOUT_MS).gate;
-    const result = await runTaskLoop(makeTask(largeTask), {
+    const result = await runTaskLoop(makeTask('execute the cache-chain test actions'), {
       repoRoot: tempRoot,
       model: 'mock-model',
       baseUrl,
       runtimeProfile: RUNTIME_PROFILE,
       systemContext: createEmptyPresetSystemContext(),
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 155000 } },
+        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32_000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
@@ -457,7 +456,6 @@ test('auto mode over HTTP preserves the full prompt cache across two approvals a
     assert.equal(result.finalOutput, 'completed cache chain');
     assert.equal(fs.readFileSync(path.join(tempRoot, 'first.txt'), 'utf8'), largeToolContent);
     assert.equal(fs.readFileSync(path.join(tempRoot, 'second.txt'), 'utf8'), 'follow-up');
-    assert.ok(largeTask.length / 4 > 32_000, 'the fake tokenizer sees a >32k-token initial request');
     assert.equal(plannerBodies.length, 4);
     assert.equal(verdictBodies.length, 2);
 

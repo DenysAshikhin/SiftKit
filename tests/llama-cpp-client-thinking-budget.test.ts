@@ -119,6 +119,7 @@ async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise
     thinkingEnabled: true,
     stage: 'planner_action',
     tools: [],
+    responseSchema: null,
     onThinkingDelta: () => {},
   });
 }
@@ -182,6 +183,7 @@ test('planner reasoningBudgetMessage overrides the preset message in the continu
       thinkingEnabled: true,
       stage: 'planner_action',
       tools: [],
+      responseSchema: null,
       onThinkingDelta: () => {},
       reasoningBudgetMessage: 'Emit the next action.',
     });

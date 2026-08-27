@@ -115,17 +115,13 @@ export default tseslint.config(
   // error-response.ts) and the JSON-object validator (json-record-reader.ts)
   // take arbitrary runtime values that are immediately normalized/validated into
   // a concrete type (an Error via toError, or a JsonObject via asObject).
-  // llm-protocol/types.ts's LlamaCppToolParameterSchema carries a
-  // `[key: string]: unknown` index so a JSON-schema fragment can hold arbitrary
-  // schema keywords while still exposing typed `.enum`/`.properties` accessors
-  // and staying a structural supertype of JsonObject for dynamic construction.
   // better-sqlite3.d.ts is the third-party driver's type surface: bind params
   // are arbitrary JS values and .get()/.all() return unparsed rows that callers
   // immediately validate with a zod row schema, so `unknown` is the honest type.
   // `unknown` is the only honest input for these parse/fragment boundaries;
   // namespace-import and JsonValue-union bans stay in force here.
   {
-    files: ['src/lib/errors.ts', 'src/lib/json-record-reader.ts', 'src/status-server/error-response.ts', 'src/llm-protocol/types.ts', 'src/types/better-sqlite3.d.ts', 'dashboard/src/ambient.d.ts'],
+    files: ['src/lib/errors.ts', 'src/lib/json-record-reader.ts', 'src/status-server/error-response.ts', 'src/types/better-sqlite3.d.ts', 'dashboard/src/ambient.d.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',

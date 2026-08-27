@@ -1,8 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeRepoSearchMockCommandResults } from '../src/status-server/repo-search-request-normalizers.js';
-import { buildPlannerRequestPromptReserveText } from '../src/repo-search/planner-protocol.js';
+import {
+  buildPlannerRequestPromptReserveText,
+  type PlannerResponseConstraint,
+} from '../src/repo-search/planner-protocol.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+
+const FREE_FORM_RESPONSE = {
+  responseSchema: null,
+} satisfies PlannerResponseConstraint;
 
 test('returns undefined for non-object inputs', () => {
   assert.equal(normalizeRepoSearchMockCommandResults(null), undefined);
@@ -41,8 +48,8 @@ test('the planner prompt reserve reflects the preset reasoning effort', () => {
 
   const reserve = buildPlannerRequestPromptReserveText({
     config,
-    stage: 'planner_action',
     tools: [],
+    ...FREE_FORM_RESPONSE,
     model: '3.8_27b_4.6bpw',
     messageRoles: ['system', 'user'],
     maxTokens: 512,
@@ -57,8 +64,8 @@ test('the planner prompt reserve reflects the preset reasoning effort', () => {
 test('the planner prompt reserve carries the streaming envelope of the real request', () => {
   const reserve = buildPlannerRequestPromptReserveText({
     config: getDefaultConfigObject(),
-    stage: 'planner_action',
     tools: [],
+    ...FREE_FORM_RESPONSE,
     model: '3.8_27b_4.6bpw',
     messageRoles: ['system', 'user'],
     maxTokens: 512,

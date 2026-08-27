@@ -128,7 +128,6 @@ export class TranscriptCompactor {
     );
     const providerPromptReserveText = buildPlannerRequestPromptReserveText({
       config: this.options.config,
-      stage: 'context_compaction',
       model: this.options.model,
       messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
       tools: [],

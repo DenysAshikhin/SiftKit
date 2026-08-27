@@ -268,7 +268,7 @@ export class TaskLoop {
       config: options.config,
       useEstimatedTokensOnly: this.useEstimatedTokensOnly,
       budget: this.budget,
-      plannerToolDefinitions: this.plannerToolDefinitions,
+      plannerTools: this.plannerProtocolTools,
       thinking: this.plannerThinking,
       transcript: this.transcript,
       runtimeProfile: options.runtimeProfile,
@@ -629,6 +629,7 @@ export class TaskLoop {
         logger: this.options.logger || null,
         stage: 'planner_action',
         tools: this.plannerProtocolTools,
+        responseSchema: null,
       });
     } finally {
       providerSpan?.end();

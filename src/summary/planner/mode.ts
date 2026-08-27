@@ -14,7 +14,7 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
-import type { LlamaCppToolCall, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { LlamaCppToolCall, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
@@ -293,6 +293,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private prompt = '';
   private promptTokenCount = 0;
   private readonly tokenizeOptions: CountLlamaCppTokensOptions | undefined;
+  private readonly protocolToolDefinitions: readonly LlamaCppToolDefinition[];
 
   static computeReadLinesRange(input: {
     startLine: number;
@@ -318,6 +319,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     private readonly completionState: SummaryPlannerCompletionState,
   ) {
     this.tokenizeOptions = getPlannerTokenizeOptions(this.options.requestTimeoutSeconds);
+    this.protocolToolDefinitions = toProtocolTools(this.requestContext.toolDefinitions);
   }
 
   private get options(): InvokePlannerModeOptions {
@@ -364,7 +366,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokens: { reported: 0, budgeted: 0 },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
-        toolDefinitions: toProtocolTools(this.toolDefinitions),
+        toolDefinitions: [...this.protocolToolDefinitions],
         inForcedFinishMode: false,
       };
     }
@@ -402,7 +404,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
-        toolDefinitions: toProtocolTools(this.toolDefinitions),
+        toolDefinitions: [...this.protocolToolDefinitions],
         inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
       };
     }
@@ -412,7 +414,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
       maxOutputTokens: 0,
       messages: toProtocolMessages(this.messages),
-      toolDefinitions: toProtocolTools(this.toolDefinitions),
+      toolDefinitions: [...this.protocolToolDefinitions],
       inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
     };
   }

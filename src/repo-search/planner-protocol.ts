@@ -239,27 +239,31 @@ export type PlannerRequestStage =
   | 'terminal_synthesis'
   | 'context_compaction';
 
-export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
+export type PlannerResponseConstraint =
+  | { responseSchema: null; responseSchemaName?: never }
+  | { responseSchema: JsonObject; responseSchemaName: string };
+
+type PlannerPromptReserveOptions = PlannerThinkingFlags & {
   config: SiftConfig;
-  stage: PlannerRequestStage;
   model: string;
   messageRoles: readonly string[];
   tools: readonly LlamaCppToolDefinition[];
   maxTokens: number;
-  responseSchema?: JsonObject | null;
-  responseSchemaName?: string;
-}): string {
+} & PlannerResponseConstraint;
+
+function buildPlannerResponseFormat(constraint: PlannerResponseConstraint) {
+  return constraint.responseSchema === null
+    ? null
+    : buildLlamaJsonSchemaResponseFormat({
+      name: constraint.responseSchemaName,
+      schema: constraint.responseSchema,
+    });
+}
+
+export function buildPlannerRequestPromptReserveText(options: PlannerPromptReserveOptions): string {
   const backend = getActiveInferenceBackend(options.config);
   const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
-  const stage = options.stage;
-  const defaultResponseSchema = stage === 'finish_validation'
-      ? buildFinishValidationJsonSchema()
-      : null;
-  const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
-  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
-    name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
-    schema: responseSchema,
-  });
+  const responseFormat = buildPlannerResponseFormat(options);
 
   // Derive the request shape from the real request builder so the reserve estimate
   // cannot drift from what is actually sent; message contents are counted
@@ -282,7 +286,6 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   });
   return JSON.stringify({
     ...requestShape,
-    stage,
     message_template_reserve: options.messageRoles.map((role) => ({
       role: String(role || 'unknown'),
       template: '<|im_start|>role\\ncontent<|im_end|>',
@@ -322,12 +325,10 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   stage: PlannerRequestStage;
-  responseSchema?: JsonObject | null;
-  responseSchemaName?: string;
   tools: readonly LlamaCppToolDefinition[];
   toolChoice?: LlamaCppChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
-};
+} & PlannerResponseConstraint;
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
   const thinkingParts: string[] = [];
@@ -436,14 +437,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 
   const stage = options.stage;
   const allowedToolNames = options.tools.map((toolDefinition) => toolDefinition.function.name);
-  const defaultResponseSchema = stage === 'finish_validation'
-      ? buildFinishValidationJsonSchema()
-      : null;
-  const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
-  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
-    name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
-    schema: responseSchema,
-  });
+  const responseFormat = buildPlannerResponseFormat(options);
   const requestUrlForLog = `${options.baseUrl.replace(/\/$/u, '')}/v1` + '/chat/completions';
   const requestPathForLog = new URL(requestUrlForLog).pathname;
   const startedAt = Date.now();

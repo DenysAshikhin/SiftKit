@@ -711,7 +711,10 @@ test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas'
 
   const findText = getToolDefinition(toolDefinitions, 'find_text');
   assert.deepEqual(findText.function.parameters.required, ['query', 'mode']);
-  assert.deepEqual(findText.function.parameters.properties?.mode?.enum, ['literal', 'regex']);
+  assert.deepEqual(
+    asObject(asObject(findText.function.parameters.properties).mode).enum,
+    ['literal', 'regex'],
+  );
   assert.match(findText.function.description, /valid javascript regex/i);
   assert.match(findText.function.description, /do not escape ordinary quotes/i);
   assert.match(findText.function.description, /example:/i);
@@ -724,7 +727,7 @@ test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas'
 
   const jsonFilter = getToolDefinition(toolDefinitions, 'json_filter');
   assert.deepEqual(jsonFilter.function.parameters.required, ['filters']);
-  assert.equal(jsonFilter.function.parameters.properties?.filters?.type, 'array');
+  assert.equal(asObject(asObject(jsonFilter.function.parameters.properties).filters).type, 'array');
   assert.match(jsonFilter.function.description, /use separate filters/i);
   assert.match(jsonFilter.function.description, /scalar value/i);
   assert.match(jsonFilter.function.description, /example:/i);
@@ -740,7 +743,7 @@ test('buildSummaryPlannerToolDefinitions returns qwen-friendly function schemas'
 
   const jsonGet = getToolDefinition(toolDefinitions, 'json_get');
   assert.deepEqual(jsonGet.function.parameters.required, ['path']);
-  assert.equal(jsonGet.function.parameters.properties?.path?.type, 'string');
+  assert.equal(asObject(asObject(jsonGet.function.parameters.properties).path).type, 'string');
   assert.match(jsonGet.function.description, /dot-path/i);
   assert.match(jsonGet.function.description, /example:/i);
   assert.match(jsonGet.function.description, /"path":"states\.0\.state_json"/i);

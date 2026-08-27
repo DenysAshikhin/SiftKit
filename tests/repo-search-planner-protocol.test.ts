@@ -22,12 +22,14 @@ import {
   TOOL_DEFINITIONS,
   type ChatMessage,
   type PlannerActionResponse,
+  type PlannerRequestStage,
 } from '../src/repo-search/planner-protocol.js';
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
 const PLANNER_REQUEST_DEFAULTS = {
   stage: 'planner_action',
   tools: toProtocolTools(TOOL_DEFINITIONS),
+  responseSchema: null,
 } as const;
 
 function readDescription(
@@ -132,11 +134,11 @@ test('the vision read description names every supported extension from the MIME 
 test('run output-mode guidance is readable ASCII text', () => {
   const run = resolveRepoSearchPlannerToolDefinitions(['run'])
     .find((tool) => tool.function.name === 'run');
-  const description = run?.function.parameters?.properties?.outputMode?.description;
+  const description = asObject(asObject(run?.function.parameters.properties).outputMode).description;
 
-  assert.equal(typeof description, 'string');
-  assert.match(description ?? '', /commands - use it for those/u);
-  assert.doesNotMatch(description ?? '', /[^\x00-\x7F]/u);
+  if (typeof description !== 'string') throw new Error('run outputMode description must be a string');
+  assert.match(description, /commands - use it for those/u);
+  assert.doesNotMatch(description, /[^\x00-\x7F]/u);
 });
 
 test('repo-search tool registry exposes the pi tool surface and withholds the mutating tools', () => {
@@ -148,22 +150,24 @@ test('repo-search tool registry exposes the pi tool surface and withholds the mu
 
   const definitions = resolveRepoSearchPlannerToolDefinitions();
   const read = definitions.find((tool) => tool.function.name === 'read');
-  assert.deepEqual(read?.function?.parameters?.required, ['path']);
-  assert.equal(read?.function?.parameters?.properties?.offset?.type, 'integer');
-  assert.equal(read?.function?.parameters?.properties?.limit?.type, 'integer');
+  assert.deepEqual(read?.function.parameters.required, ['path']);
+  const readProperties = asObject(read?.function.parameters.properties);
+  assert.equal(asObject(readProperties.offset).type, 'integer');
+  assert.equal(asObject(readProperties.limit).type, 'integer');
 
   const grep = definitions.find((tool) => tool.function.name === 'grep');
-  assert.deepEqual(grep?.function?.parameters?.required, ['pattern']);
-  assert.equal(grep?.function?.parameters?.properties?.glob?.type, 'string');
-  assert.equal(grep?.function?.parameters?.properties?.literal?.type, 'boolean');
+  assert.deepEqual(grep?.function.parameters.required, ['pattern']);
+  const grepProperties = asObject(grep?.function.parameters.properties);
+  assert.equal(asObject(grepProperties.glob).type, 'string');
+  assert.equal(asObject(grepProperties.literal).type, 'boolean');
 
   const find = definitions.find((tool) => tool.function.name === 'find');
-  assert.deepEqual(find?.function?.parameters?.required, ['pattern']);
+  assert.deepEqual(find?.function.parameters.required, ['pattern']);
 
   const ls = definitions.find((tool) => tool.function.name === 'ls');
   // Every ls argument is optional, so the generated schema omits `required` entirely.
-  assert.equal(ls?.function?.parameters?.required, undefined);
-  assert.equal(ls?.function?.parameters?.properties?.path?.type, 'string');
+  assert.equal(ls?.function.parameters.required, undefined);
+  assert.equal(asObject(asObject(ls?.function.parameters.properties).path).type, 'string');
 
   const git = definitions.find((tool) => tool.function.name === 'git');
   const gitParameters = git?.function?.parameters;
@@ -616,6 +620,26 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   assert.equal(captured.min_p, 0.05);
   assert.equal(captured.presence_penalty, 0.7);
   assert.equal(captured.max_tokens, 2048);
+});
+
+test('planner stage is telemetry only and does not change the request body', async () => {
+  async function captureStage(stage: PlannerRequestStage): Promise<JsonObject> {
+    return captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
+      ...PLANNER_REQUEST_DEFAULTS,
+      stage,
+      config: buildTestConfig(),
+      baseUrl,
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'same request' }],
+      timeoutMs: 5_000,
+      maxTokens: 128,
+    }));
+  }
+
+  assert.deepEqual(
+    await captureStage('finish_validation'),
+    await captureStage('planner_action'),
+  );
 });
 
 

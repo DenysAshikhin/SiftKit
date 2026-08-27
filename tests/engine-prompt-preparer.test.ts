@@ -19,6 +19,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
+import { toProtocolTools } from '../src/providers/llama-cpp.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
@@ -44,7 +45,7 @@ function makePreparer(
     config,
     useEstimatedTokensOnly: true,
     budget,
-    plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
+    plannerTools: toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
     thinking,
     transcript,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),

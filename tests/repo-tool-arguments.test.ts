@@ -14,6 +14,7 @@ import {
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
+import { asObject } from './helpers/dashboard-http.js';
 
 test('git schema accepts all supported typed read-only operations', () => {
   const cases = [
@@ -211,14 +212,12 @@ test('run planner metadata uses canonical modes and line limit', () => {
   if (!parameters) {
     throw new Error('Expected run tool parameters.');
   }
-  const outputMode = parameters.properties?.outputMode;
-  if (!outputMode) {
-    throw new Error('Expected run outputMode metadata.');
-  }
+  const outputMode = asObject(asObject(parameters.properties).outputMode);
+  const outputModeDescription = z.string().parse(outputMode.description);
 
   assert.deepEqual(outputMode.enum, RUN_OUTPUT_MODES);
   assert.match(
-    outputMode.description ?? '',
+    outputModeDescription,
     new RegExp(`final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines`, 'u'),
   );
 });
