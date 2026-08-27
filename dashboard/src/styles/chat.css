@@ -34,17 +34,6 @@
 .thinking-box > summary, .system-context-bubble > summary, .internal-logic > summary { cursor: pointer; color: var(--dim); }
 .internal-logic-steps, .live-thinking-stack { display: grid; gap: 8px; margin-top: 8px; }
 
-/* ---- live progress status bar (wraps fully, never clips) ---- */
-.turn-progress-bar {
-  margin-top: 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  border: 1px solid var(--line); border-left: 3px solid var(--acc); border-radius: 8px;
-  padding: 6px 10px; font-size: 0.76rem;
-}
-.turn-progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--run); flex: none; align-self: center; animation: pulse 1.6s ease-in-out infinite; }
-.turn-progress-label { font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--acc); flex: none; }
-.turn-progress-text { flex: 1 1 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.turn-progress-meta { margin-left: auto; flex: none; font-family: ui-monospace, Consolas, monospace; font-size: 0.64rem; color: var(--dim); }
-
 /* ---- recent tool activity ---- */
 .recent-activity { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
 .recent-activity-header {

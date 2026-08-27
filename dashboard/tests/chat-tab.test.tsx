@@ -824,7 +824,32 @@ test('a live turn with a running tool call renders recent activity and the think
   assert.ok(html.includes('THINK_MARKER_TOOL'), 'the thinking that led to the tool call must render');
 });
 
-test('a live progress note renders one status bar between the thinking stack and the main slot', () => {
+test('the activity ring disappears into Internal Logic when final answer streaming begins', () => {
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_ANSWER' })
+    .apply({
+      kind: 'tool',
+      sessionId: SESSION_B.id,
+      toolEvent: {
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        activityKind: 'command', command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
+      },
+    })
+    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 2, offset: 0, text: 'FINAL_ANSWER_MARKER' } });
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  const logicStart = html.indexOf('<details class="internal-logic">');
+  const logicEnd = html.indexOf('</details>', logicStart);
+  const logic = html.slice(logicStart, logicEnd);
+  assert.ok(logicStart >= 0, 'Internal Logic must contain the completed live activity');
+  assert.match(logic, /Running command\u2026/u, 'the friendly tool status moves into Internal Logic');
+  assert.ok(!html.includes('Recent activity'), 'the visible activity ring ends when answer streaming begins');
+  assert.ok(html.includes('FINAL_ANSWER_MARKER'), 'the final answer remains visible');
+});
+
+test('raw streamed model progress renders only inside closed Internal Logic', () => {
   const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_PROGRESS' })
     .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 1, text: 'PROGRESS_MARKER_ONE', elapsedMs: 500 } })
     .apply({
@@ -843,10 +868,11 @@ test('a live progress note renders one status bar between the thinking stack and
   });
   assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous bar text');
   assert.ok(html.includes('PROGRESS_MARKER_TWO'), 'the latest progress text must render');
-  assert.equal(html.match(/turn-progress-bar/gu)?.length, 1, 'exactly one progress bar renders');
-  const stackIndex = html.indexOf('live-thinking-stack');
-  const barIndex = html.indexOf('turn-progress-bar');
-  const activityIndex = html.indexOf('Recent activity');
-  assert.ok(stackIndex !== -1 && barIndex !== -1 && activityIndex !== -1, 'stack, bar, and activity must all render');
-  assert.ok(stackIndex < barIndex && barIndex < activityIndex, 'bar renders after the thinking stack and before recent activity');
+  assert.ok(!html.includes('turn-progress-bar'), 'raw model progress must not render as an exposed block');
+  const logicStart = html.indexOf('<details class="internal-logic">');
+  const logicEnd = html.indexOf('</details>', logicStart);
+  const logic = html.slice(logicStart, logicEnd);
+  assert.ok(logicStart >= 0, 'Internal Logic must render');
+  assert.ok(logic.includes('PROGRESS_MARKER_TWO'), 'raw model progress must stay inside Internal Logic');
+  assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
 });

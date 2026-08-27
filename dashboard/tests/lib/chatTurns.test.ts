@@ -196,7 +196,7 @@ test('a live turn that is only thinking has no main and an empty steps list', ()
   assert.equal(turns[0].main, null);
 });
 
-test('once the live answer arrives the stack empties while live tools stay in Recent activity', () => {
+test('once the live answer arrives thinking and tools move into Internal Logic', () => {
   const messages = [
     message({ id: 'th1', kind: 'assistant_thinking', sourceRunId: null }),
     message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: null }),
@@ -205,8 +205,8 @@ test('once the live answer arrives the stack empties while live tools stay in Re
   const turns = groupMessagesIntoTurns(messages, new Set(['th1', 'tc1', 'ans']));
   assert.deepEqual(turns[0].liveThinking, []);
   assert.equal(turns[0].main?.id, 'ans');
-  assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1']);
-  assert.deepEqual(turns[0].recentTools.map((m) => m.id), ['tc1']);
+  assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1', 'tc1']);
+  assert.deepEqual(turns[0].recentTools, []);
 });
 
 test('settled turns never populate liveThinking', () => {
@@ -245,7 +245,7 @@ test('a live user bubble alone owns the main slot instead of Internal Logic', ()
   assert.deepEqual(turns[0]?.steps, []);
 });
 
-test('an assistant_progress message lands on turn.progress, not steps/stack/main', () => {
+test('an assistant_progress message lands only in collapsed Internal Logic steps', () => {
   const liveIds = new Set(['t1', 't2', 't3', 'live-progress']);
   const messages = [
     message({ id: 't1', kind: 'assistant_thinking' }),
@@ -260,10 +260,8 @@ test('an assistant_progress message lands on turn.progress, not steps/stack/main
   const turn = turns[0];
   assert.ok(turn);
   assert.equal(turn.isLive, true);
-  const progress = turn.progress;
-  assert.ok(progress);
-  assert.equal(progress.id, 'live-progress');
   assert.deepEqual(turn.liveThinking.map((m) => m.id), ['t1', 't2', 't3']);
-  assert.equal(turn.steps.includes(progress), false);
+  assert.deepEqual(turn.steps.map((message) => message.id), ['live-progress']);
+  assert.equal('progress' in turn, false);
   assert.equal(turn.main, null);
 });

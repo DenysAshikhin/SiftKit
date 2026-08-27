@@ -14,8 +14,6 @@ export type ChatTurn = {
   liveThinking: ChatMessage[];
   /** Live-only: the newest tool calls, oldest first. Settled tools remain in steps. */
   recentTools: ChatToolCallMessage[];
-  /** Live-only status bar note; never part of steps, the thinking stack, or main. */
-  progress: ChatMessage | null;
   main: ChatMessage | null;
 };
 
@@ -29,7 +27,7 @@ function isAnswerMessage(message: ChatMessage): boolean {
 
 function isStepMessage(message: ChatMessage): boolean {
   const kind = normalizeMessageKind(message);
-  return kind === 'assistant_thinking' || kind === 'assistant_tool_call';
+  return kind === 'assistant_thinking' || kind === 'assistant_tool_call' || kind === 'assistant_progress';
 }
 
 function isThinkingMessage(message: ChatMessage): boolean {
@@ -38,10 +36,6 @@ function isThinkingMessage(message: ChatMessage): boolean {
 
 function isToolCallMessage(message: ChatMessage): message is ChatToolCallMessage {
   return message.kind === 'assistant_tool_call';
-}
-
-function isProgressMessage(message: ChatMessage): boolean {
-  return normalizeMessageKind(message) === 'assistant_progress';
 }
 
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
@@ -60,7 +54,7 @@ function pickMainMessage(turn: ChatTurn): ChatMessage | null {
   // No answer: surface the last non-step message (e.g. a lone user_text message,
   // or the live user bubble before the assistant side starts). A run that is
   // only thinking/tool steps has no main slot.
-  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message) && !isProgressMessage(message));
+  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }
 
@@ -74,6 +68,7 @@ function pickLiveThinking(turn: ChatTurn): ChatMessage[] {
 
 function pickRecentTools(turn: ChatTurn): ChatToolCallMessage[] {
   if (!turn.isLive) return [];
+  if (turn.messages.some(isAnswerMessage)) return [];
   return turn.messages.filter(isToolCallMessage).slice(-LIVE_TOOL_RING_DEPTH);
 }
 
@@ -81,18 +76,16 @@ function finalizeTurn(turn: ChatTurn): void {
   const main = pickMainMessage(turn);
   const liveThinking = pickLiveThinking(turn);
   const recentTools = pickRecentTools(turn);
-  const progressMessages = turn.messages.filter(isProgressMessage);
+  const hideLiveTools = turn.isLive && !turn.messages.some(isAnswerMessage);
   turn.main = main;
   turn.liveThinking = liveThinking;
   turn.recentTools = recentTools;
-  turn.progress = progressMessages[progressMessages.length - 1] ?? null;
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot, thinking stack, or progress bar stays in Internal Logic.
   turn.steps = turn.messages.filter((message) => (
     message !== main
     && !liveThinking.includes(message)
-    && !isProgressMessage(message)
-    && !(turn.isLive && isToolCallMessage(message))
+    && !(hideLiveTools && isToolCallMessage(message))
   ));
 }
 
@@ -105,7 +98,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
     if (lastTurn && lastTurn.key === key) {
       lastTurn.messages.push(message);
     } else {
-      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], recentTools: [], progress: null, main: null });
+      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], recentTools: [], main: null });
     }
   }
   for (const turn of turns) {

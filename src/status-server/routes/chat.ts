@@ -308,7 +308,6 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     private readonly phaseTracker: ChatTurnPhaseTracker | null,
     private readonly scope: 'plan' | 'rs',
     private readonly requestId: string,
-    private readonly thinkingEvent: 'thinking' | 'answer',
     private readonly streamAnswer: boolean,
   ) {
     super();
@@ -359,7 +358,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   private emitDueDeltas(force: boolean): void {
     const now = Date.now();
-    this.emitTrackerDeltas(this.thinkingDeltas, this.thinkingEvent, now, force);
+    this.emitTrackerDeltas(this.thinkingDeltas, 'thinking', now, force);
     this.emitTrackerDeltas(this.answerDeltas, 'answer', now, force);
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -1012,7 +1011,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, 'thinking', true);
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, true);
     let selectedImagesForError: { images: string[]; visionMaxImagePixels: number } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
@@ -1236,7 +1235,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'plan', engineRequestId, 'thinking', false);
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'plan', engineRequestId, false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
@@ -1374,7 +1373,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'rs', engineRequestId, 'answer', false);
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'rs', engineRequestId, false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);

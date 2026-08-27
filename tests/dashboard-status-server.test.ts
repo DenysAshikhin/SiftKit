@@ -1221,12 +1221,13 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.deepEqual(
       repoSse.events
         .map((event) => event.event)
-        .filter((event) => ['warning', 'answer', 'tool_start', 'tool_result', 'done'].includes(event)),
-      ['warning', 'answer', 'tool_start', 'tool_result', 'answer', 'done'],
+        .filter((event) => ['warning', 'thinking', 'answer', 'tool_start', 'tool_result', 'done'].includes(event)),
+      ['warning', 'thinking', 'tool_start', 'tool_result', 'thinking', 'done'],
     );
-    const repoAnswerEvents = repoSse.events.filter((event) => event.event === 'answer');
-    assert.equal(repoAnswerEvents.length, 2);
-    for (const event of repoAnswerEvents) {
+    const repoThinkingEvents = repoSse.events.filter((event) => event.event === 'thinking');
+    assert.equal(repoThinkingEvents.length, 2);
+    assert.equal(repoSse.events.some((event) => event.event === 'answer'), false);
+    for (const event of repoThinkingEvents) {
       parseTextDeltaEvent(event);
     }
     assert.match(
