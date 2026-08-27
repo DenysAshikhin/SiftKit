@@ -123,3 +123,17 @@ test('the verdict question directs the reviewer to the pending tool call', () =>
   assert.ok(question.includes(APPROVAL_PAYLOAD_LOCATOR_LINE));
   assert.equal(question.includes('"content":"x"'), false);
 });
+
+test('the verdict question forbids tool calls and allows only the verdict schema', () => {
+  const question = buildApprovalVerdictQuestion({
+    toolName: 'run',
+    command: 'run command="npm test"',
+    reviewPayload: null,
+  });
+
+  assert.match(question, /Do not call tools/u);
+  assert.match(
+    question,
+    /return only JSON:\n\{"verdict":"approve"\|"deny"\|"unsure","reason":"<one sentence>"\}/u,
+  );
+});

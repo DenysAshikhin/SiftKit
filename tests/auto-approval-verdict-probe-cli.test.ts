@@ -9,11 +9,23 @@ import {
 import { parseJsonText } from '../src/lib/json.js';
 import { z } from '../src/lib/zod.js';
 import { ReplayMessageSchema } from '../src/repo-search/approval-verdict-probe.js';
+import { LlamaCppToolDefinitionsSchema } from '../src/llm-protocol/types.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 
 const ApprovalRequestSchema = z.object({
   messages: z.array(ReplayMessageSchema),
+  tools: LlamaCppToolDefinitionsSchema,
+  tool_choice: z.literal('none'),
 });
+
+const replayTools = [{
+  type: 'function',
+  function: {
+    name: 'persisted_review_tool',
+    description: 'Persisted schema from the executing request.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+}] as const;
 
 test('rejects missing --payload without contacting a model', async () => {
   const stdout = makeCaptureStream();
@@ -76,6 +88,7 @@ test('sends full history to the approval endpoint and prints deny', async () => 
         { role: 'assistant', content: 'I inspected the existing parser tests.' },
         { role: 'user', content: 'Do not touch files outside the repository.' },
       ],
+      tools: replayTools,
       action: {
         turn: 2,
         toolName: 'shell_command',
@@ -105,10 +118,9 @@ test('sends full history to the approval endpoint and prints deny', async () => 
     assert.equal(stub.state.chatRequests.length, 1);
     const [request] = stub.state.chatRequests;
     assert.ok(request);
-    assert.deepEqual(
-      ApprovalRequestSchema.parse(request).messages,
-      output.submittedMessages,
-    );
+    const approvalRequest = ApprovalRequestSchema.parse(request);
+    assert.deepEqual(approvalRequest.messages, output.submittedMessages);
+    assert.deepEqual(approvalRequest.tools, replayTools);
   }, {
     assistantContent: JSON.stringify({
       verdict: 'deny',

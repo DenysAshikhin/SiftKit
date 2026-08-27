@@ -41,6 +41,8 @@ test('the planner prompt reserve reflects the preset reasoning effort', () => {
 
   const reserve = buildPlannerRequestPromptReserveText({
     config,
+    stage: 'planner_action',
+    tools: [],
     model: '3.8_27b_4.6bpw',
     messageRoles: ['system', 'user'],
     maxTokens: 512,
@@ -55,6 +57,8 @@ test('the planner prompt reserve reflects the preset reasoning effort', () => {
 test('the planner prompt reserve carries the streaming envelope of the real request', () => {
   const reserve = buildPlannerRequestPromptReserveText({
     config: getDefaultConfigObject(),
+    stage: 'planner_action',
+    tools: [],
     model: '3.8_27b_4.6bpw',
     messageRoles: ['system', 'user'],
     maxTokens: 512,

@@ -9,6 +9,8 @@ import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import {
   buildContextCompactionPromptMessages,
   captureExecutingPlannerRequest,
@@ -23,6 +25,10 @@ import {
 } from '../src/repo-search/planner-protocol.js';
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
+const PLANNER_REQUEST_DEFAULTS = {
+  stage: 'planner_action',
+  tools: toProtocolTools(TOOL_DEFINITIONS),
+} as const;
 
 function readDescription(
   definitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>,
@@ -53,7 +59,7 @@ async function captureChatRequestBody(
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JSON.parse(body || '{}');
+        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         sendChatCompletionSse(res, { choices: [{ message: { content: responseContent } }] });
       });
     },
@@ -206,6 +212,7 @@ test('requestRepoSearchPlannerProtocolAction preserves a native batch from multi
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -248,6 +255,7 @@ test('requestRepoSearchPlannerProtocolAction preserves a native batch from strea
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -288,6 +296,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -297,7 +306,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
         logger: {
           path: 'memory',
           write(event) {
-            events.push(JSON.parse(JSON.stringify(event)));
+            events.push(JsonObjectSchema.parse(parseJsonValueText(JSON.stringify(event))));
           },
         },
       });
@@ -334,6 +343,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -343,7 +353,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
         logger: {
           path: 'memory',
           write(event) {
-            events.push(JSON.parse(JSON.stringify(event)));
+            events.push(JsonObjectSchema.parse(parseJsonValueText(JSON.stringify(event))));
           },
         },
       });
@@ -381,6 +391,7 @@ test('requestRepoSearchPlannerProtocolAction uses llama timings from the final s
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -418,6 +429,7 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
         await assert.rejects(
           () =>
             requestRepoSearchPlannerProtocolAction({
+              ...PLANNER_REQUEST_DEFAULTS,
               config: buildTestConfig(),
               baseUrl,
               model: 'mock-model',
@@ -450,7 +462,7 @@ test('requestRepoSearchPlannerProtocolAction sends native tools without response
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JSON.parse(body || '{}');
+        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         sendChatCompletionSse(res, {
             choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
           });
@@ -458,6 +470,7 @@ test('requestRepoSearchPlannerProtocolAction sends native tools without response
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
@@ -485,7 +498,7 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 tools without 
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JSON.parse(body || '{}');
+        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         sendChatCompletionSse(res, {
             choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
           });
@@ -493,6 +506,7 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 tools without 
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
@@ -526,7 +540,7 @@ test('requestRepoSearchPlannerProtocolAction sends and returns provided native t
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JSON.parse(body || '{}');
+        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         sendChatCompletionSse(res, {
           choices: [{ message: { content: '<tool_call><function=search_symbol><parameter=symbol>buildPlanner</parameter></function></tool_call>' } }],
         });
@@ -534,13 +548,14 @@ test('requestRepoSearchPlannerProtocolAction sends and returns provided native t
     },
     async (baseUrl) => {
       plannerResponse = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find symbol' }],
         timeoutMs: 5000,
         maxTokens: 512,
-        toolDefinitions: [
+        tools: toProtocolTools([
           {
             kind: 'tool',
             type: 'function',
@@ -556,7 +571,7 @@ test('requestRepoSearchPlannerProtocolAction sends and returns provided native t
               },
             },
           },
-        ],
+        ]),
       });
 
       const captured = asObject(capturedBody);
@@ -583,6 +598,7 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   });
 
   const captured = await captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
+    ...PLANNER_REQUEST_DEFAULTS,
     config,
     baseUrl,
     model: 'test-model',
@@ -617,7 +633,7 @@ test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxToken
       thinkingEnabled: false,
       reasoningContentEnabled: false,
       preserveThinking: false,
-    }),
+    }, toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run']))),
     timeoutMs: 5000,
   }), '{"verdict":"approve","reason":"ok"}');
 
@@ -639,7 +655,7 @@ test('requestContextCompactionSummary sends the unchanged history prefix plus it
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JSON.parse(body || '{}');
+        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -707,6 +723,7 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
       await assert.rejects(
         () =>
           requestRepoSearchPlannerProtocolAction({
+            ...PLANNER_REQUEST_DEFAULTS,
             config: buildTestConfig(),
             baseUrl,
             model: 'mock-model',

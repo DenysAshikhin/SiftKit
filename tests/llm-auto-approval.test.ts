@@ -297,10 +297,64 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
   }
 });
 
-test('auto mode over HTTP: the verdict request byte-extends the executing planner request', async () => {
+test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
+  const writer = new RecordingWriter(new AlwaysApproveProvider());
+  const humanGate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+  writer.gate = humanGate;
+  let verdictAttempts = 0;
+  const gate = new LlmApprovalGate({
+    requestId: 'run-1',
+    humanGate,
+    verdictRequester: {
+      requestApprovalVerdict: () => {
+        verdictAttempts += 1;
+        return Promise.resolve(verdictAttempts === 1
+          ? {
+            text: '{"verdict":"approve","reason":"must not be accepted"}',
+            thinkingText: 'I should call a tool.',
+            toolCalls: [{
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'run', arguments: '{"command":"Get-Content secret.txt"}' },
+            }],
+            mockExhausted: false,
+          }
+          : {
+            text: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
+            thinkingText: '',
+            toolCalls: [],
+            mockExhausted: false,
+          });
+      },
+    },
+    progressWriter: writer,
+    logger: null,
+  });
+
+  const decision = await gate.request({
+    turn: 1,
+    toolName: 'run',
+    command: 'run command="Get-Content file.txt"',
+    reviewPayload: null,
+    pendingMessages: [],
+  });
+
+  assert.deepEqual(decision, { kind: 'approve' });
+  assert.equal(writer.ofKind('approval_auto')[0].verdict, 'unsure');
+  assert.equal(
+    writer.ofKind('approval_auto')[0].reason,
+    'approval reviewer attempted a forbidden tool call',
+  );
+  assert.equal(writer.ofKind('approval_request').length, 1);
+  assert.equal(verdictAttempts, 1);
+});
+
+test('auto mode over HTTP preserves the full prompt cache across two approvals and an exempt read', async () => {
   const plannerBodies: ReturnType<typeof asObject>[] = [];
   const verdictBodies: ReturnType<typeof asObject>[] = [];
   let plannerCalls = 0;
+  const largeTask = 'large cache-prefix evidence '.repeat(8_000);
+  const largeToolContent = 'x'.repeat(2_048);
 
   function completionBody(content: string, reasoning: string | null): JsonObject {
     return {
@@ -358,10 +412,12 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         plannerBodies.push(parsed);
         plannerCalls += 1;
         const response = plannerCalls === 1
-          ? toolCompletionBody('read', { path: 'a.txt' }, 'thought-1')
+          ? toolCompletionBody('write', { path: 'first.txt', content: largeToolContent }, 'thought-1')
           : plannerCalls === 2
-            ? toolCompletionBody('write', { path: 'out.txt', content: 'hello' }, 'thought-2')
-            : completionBody('wrote it', 'thought-3');
+            ? toolCompletionBody('write', { path: 'second.txt', content: 'follow-up' }, 'thought-2')
+            : plannerCalls === 3
+              ? toolCompletionBody('read', { path: 'first.txt' }, 'thought-3')
+              : completionBody('completed cache chain', 'thought-4');
         sendChatCompletionSse(res, response);
         return;
       }
@@ -374,16 +430,15 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
 
   const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
-    fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
     const gate = new ApprovalGateHarness(new SilentProgressWriter(), false, UNREACHED_GATE_TIMEOUT_MS).gate;
-    const result = await runTaskLoop(makeTask('read a file then write a file'), {
+    const result = await runTaskLoop(makeTask(largeTask), {
       repoRoot: tempRoot,
       model: 'mock-model',
       baseUrl,
       runtimeProfile: RUNTIME_PROFILE,
       systemContext: createEmptyPresetSystemContext(),
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
+        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 155000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
@@ -391,7 +446,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
           },
         },
       }),
-      maxTurns: 4,
+      maxTurns: 6,
       minToolCallsBeforeFinish: 0,
       mockCommandResults: {},
       approvalGate: gate,
@@ -399,42 +454,62 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES]),
     });
 
-    assert.equal(result.finalOutput, 'wrote it');
-    assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
-    assert.equal(plannerBodies.length, 3);
-    assert.equal(verdictBodies.length, 1);
+    assert.equal(result.finalOutput, 'completed cache chain');
+    assert.equal(fs.readFileSync(path.join(tempRoot, 'first.txt'), 'utf8'), largeToolContent);
+    assert.equal(fs.readFileSync(path.join(tempRoot, 'second.txt'), 'utf8'), 'follow-up');
+    assert.ok(largeTask.length / 4 > 32_000, 'the fake tokenizer sees a >32k-token initial request');
+    assert.equal(plannerBodies.length, 4);
+    assert.equal(verdictBodies.length, 2);
 
-    const executing = plannerBodies[1];
-    const verdict = verdictBodies[0];
-    const executingMessages = asArray(executing.messages);
-    const verdictMessages = asArray(verdict.messages);
+    const expectedApprovalArgs = [
+      { path: 'first.txt', content: largeToolContent },
+      { path: 'second.txt', content: 'follow-up' },
+    ];
+    for (let index = 0; index < verdictBodies.length; index += 1) {
+      const executing = plannerBodies[index];
+      const verdict = verdictBodies[index];
+      const resumed = plannerBodies[index + 1];
+      assert.ok(executing);
+      assert.ok(verdict);
+      assert.ok(resumed);
+      const executingMessages = asArray(executing.messages);
+      const verdictMessages = asArray(verdict.messages);
 
-    // Scenario sanity: the executing request really carries earlier-turn reasoning,
-    // so the prefix equality below proves the verdict preserved it.
-    assert.equal(JSON.stringify(executingMessages).includes('thought-1'), true);
+      assert.equal(verdictMessages.length, executingMessages.length + 2);
+      assert.deepEqual(verdictMessages.slice(0, executingMessages.length), executingMessages);
+      const pending = asObject(verdictMessages[executingMessages.length]);
+      const pendingCall = asObject(asArray(pending.tool_calls)[0]);
+      const pendingFunction = asObject(pendingCall.function);
+      assert.deepEqual(
+        asObject(parseJsonValueText(String(pendingFunction.arguments || ''))),
+        expectedApprovalArgs[index],
+      );
+      assert.deepEqual(verdict.chat_template_kwargs, executing.chat_template_kwargs);
+      assert.deepEqual(verdict.tools, executing.tools);
+      assert.equal(verdict.tool_choice, 'none');
 
-    // The verdict prompt is the executing planner prompt, pending assistant call, then question.
-    assert.equal(verdictMessages.length, executingMessages.length + 2);
-    assert.deepEqual(verdictMessages.slice(0, executingMessages.length), executingMessages);
-    const pending = asObject(verdictMessages[executingMessages.length]);
-    assert.equal(pending.role, 'assistant');
-    const pendingCall = asObject(asArray(pending.tool_calls)[0]);
-    const pendingFunction = asObject(pendingCall.function);
-    assert.deepEqual(
-      asObject(parseJsonValueText(String(pendingFunction.arguments || ''))),
-      { path: 'out.txt', content: 'hello' },
-    );
-    const question = asObject(verdictMessages.at(-1));
-    assert.equal(question.role, 'user');
-    assert.match(String(question.content), /tool: write/u);
-    assert.equal(String(question.content).includes('"content": "hello"'), false);
+      const resumedMessages = asArray(resumed.messages);
+      assert.deepEqual(resumedMessages.slice(0, executingMessages.length), executingMessages);
+      assert.deepEqual(resumedMessages[executingMessages.length], pending);
+      assert.equal(asObject(resumedMessages[executingMessages.length + 1]).role, 'tool');
+      assert.equal(JSON.stringify(resumed).includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
+    }
 
-    // Identical server-side template rendering: same chat_template_kwargs.
-    assert.deepEqual(verdict.chat_template_kwargs, executing.chat_template_kwargs);
-
-    // The question is popped: it never reaches a later planner request.
-    assert.equal(JSON.stringify(plannerBodies[2]).includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
-    assert.deepEqual(asArray(plannerBodies[2].messages)[executingMessages.length], pending);
+    // The third tool is read-only: it bypasses approval while its call and result still
+    // become the exact prefix of the fourth planner request.
+    const readExecutingMessages = asArray(plannerBodies[2].messages);
+    const afterReadMessages = asArray(plannerBodies[3].messages);
+    assert.deepEqual(afterReadMessages.slice(0, readExecutingMessages.length), readExecutingMessages);
+    const readPending = asObject(afterReadMessages[readExecutingMessages.length]);
+    assert.equal(asObject(asArray(readPending.tool_calls)[0]).type, 'function');
+    assert.equal(asObject(asObject(asArray(readPending.tool_calls)[0]).function).name, 'read');
+    assert.equal(asObject(afterReadMessages[readExecutingMessages.length + 1]).role, 'tool');
+    assert.deepEqual(plannerBodies.map((body) => body.tools), [
+      plannerBodies[0].tools,
+      plannerBodies[0].tools,
+      plannerBodies[0].tools,
+      plannerBodies[0].tools,
+    ]);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

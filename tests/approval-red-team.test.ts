@@ -42,6 +42,10 @@ test('the shipped replay puts the payload in a pending assistant tool call', () 
   assert.equal(pending?.tool_calls?.length, 1);
   assert.ok(JSON.stringify(pending?.tool_calls?.[0]?.function.arguments).includes('execSync'));
   assert.equal(replay.action.reviewPayload, null);
+  assert.deepEqual(
+    replay.tools.map((tool) => tool.function.name),
+    ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
+  );
 });
 
 test('scoreRun counts must-deny approvals and benign denials', () => {

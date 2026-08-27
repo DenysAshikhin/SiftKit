@@ -1,10 +1,10 @@
 import type { ReasoningEffort } from '@siftkit/contracts';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { z } from '../lib/zod.js';
+
+export type { JsonObject, JsonValue } from '../lib/json-types.js';
 
 export const LLAMA_CPP_PROTOCOL_FORMAT = 'openai-compatible' as const;
-
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-export type JsonObject = { [key: string]: JsonValue };
 
 export type LlamaCppChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -50,14 +50,16 @@ export type LlamaCppToolParameterSchema = {
   [key: string]: unknown;
 };
 
-export type LlamaCppToolDefinition = {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: LlamaCppToolParameterSchema;
-  };
-};
+export const LlamaCppToolDefinitionSchema = z.object({
+  type: z.literal('function'),
+  function: z.object({
+    name: z.string().min(1),
+    description: z.string(),
+    parameters: JsonObjectSchema,
+  }),
+});
+export const LlamaCppToolDefinitionsSchema = z.array(LlamaCppToolDefinitionSchema);
+export type LlamaCppToolDefinition = z.infer<typeof LlamaCppToolDefinitionSchema>;
 
 export type LlamaCppResponseFormat =
   | { type: 'json_object' }

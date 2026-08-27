@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync, rmSync } from 'node:fs';
+import http from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   AutoApprovalReplayPayloadSchema,
   AutoApprovalVerdictProbe,
+  ConfiguredApprovalVerdictModelClient,
   type ApprovalVerdictModelClient,
 } from '../src/repo-search/approval-verdict-probe.js';
 import {
@@ -13,7 +15,12 @@ import {
 } from '../src/repo-search/approval-review-policy.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import type { ChatMessage, PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
 
 const messages: ChatMessage[] = [
   { role: 'system', content: 'Work only inside C:\\repo.' },
@@ -54,6 +61,20 @@ const action = {
   pendingMessages: [pendingMessage],
 };
 
+const replayTools = [{
+  type: 'function',
+  function: {
+    name: 'persisted_review_tool',
+    description: 'The exact tool schema persisted with the original request.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+      additionalProperties: false,
+    },
+  },
+}] satisfies readonly LlamaCppToolDefinition[];
+
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
   readonly requests: ChatMessage[][] = [];
 
@@ -63,6 +84,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     requestMessages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
+    _tools: readonly LlamaCppToolDefinition[],
   ): Promise<PlannerActionResponse> {
     this.requests.push([...requestMessages, ...pendingMessages, { role: 'user', content: question }]);
     return Promise.resolve({
@@ -73,6 +95,52 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     });
   }
 }
+
+test('configured verdict replay uses the exact persisted tool schema', async () => {
+  let capturedBody = asObject({});
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBody = asObject(parseJsonValueText(body || '{}'));
+      sendChatCompletionSse(res, {
+        choices: [{ message: { content: '{"verdict":"approve","reason":"safe"}' } }],
+      });
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+    const config = mockSiftConfig({
+      Server: {
+        ModelPresets: {
+          ActivePresetId: 'default',
+          Presets: [{ id: 'default', VisionEnabled: true, Reasoning: 'off', IdleAction: 'unload' }],
+        },
+      },
+    });
+    const client = new ConfiguredApprovalVerdictModelClient({
+      config,
+      baseUrl,
+      model: 'mock-model',
+      slotId: 0,
+      timeoutMs: 5_000,
+      thinking: {
+        thinkingEnabled: false,
+        reasoningContentEnabled: false,
+        preserveThinking: false,
+      },
+    });
+
+    await client.request(messages, [pendingMessage], 'approve?', replayTools);
+
+    assert.deepEqual(capturedBody.tools, replayTools);
+    assert.equal(capturedBody.tool_choice, 'none');
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
 
 test('validates a complete pre-action replay payload', () => {
   const fullHistory = [
@@ -89,16 +157,19 @@ test('validates a complete pre-action replay payload', () => {
   ];
 
   assert.deepEqual(
-    AutoApprovalReplayPayloadSchema.parse({ messages: fullHistory, action }),
-    { messages: fullHistory, action },
+    AutoApprovalReplayPayloadSchema.parse({ messages: fullHistory, tools: replayTools, action }),
+    { messages: fullHistory, tools: replayTools, action },
   );
-  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], action }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: fullHistory, action }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({ messages: [], tools: replayTools, action }));
   assert.throws(() => AutoApprovalReplayPayloadSchema.parse({
     messages,
+    tools: replayTools,
     action: { ...action, command: '' },
   }));
   assert.throws(() => AutoApprovalReplayPayloadSchema.parse({
     messages,
+    tools: replayTools,
     action: {
       turn: 2,
       toolName: 'edit',
@@ -153,7 +224,7 @@ test('submits existing history followed by one transient approval question', asy
     '{"verdict":"deny","reason":"Targets files outside the repository."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
 
   assert.deepEqual(result.submittedMessages.slice(0, messages.length), messages);
   assert.deepEqual(result.submittedMessages[messages.length], pendingMessage);
@@ -192,6 +263,7 @@ test('returns approve as data without executing the proposed command', async () 
   try {
     const result = await new AutoApprovalVerdictProbe(client).run({
       messages,
+      tools: replayTools,
       action: {
         turn: 2,
         toolName: 'shell_command',
@@ -213,7 +285,7 @@ test('returns unsure without waiting for a human gate', async () => {
     '{"verdict":"unsure","reason":"The write scope is ambiguous."}',
   );
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
 
   assert.equal(result.verdict, 'unsure');
   assert.equal(result.reason, 'The write scope is ambiguous.');
@@ -222,7 +294,7 @@ test('returns unsure without waiting for a human gate', async () => {
 test('reports a failed verdict after exactly one retry', async () => {
   const client = new RecordingVerdictModelClient('not-json');
 
-  const result = await new AutoApprovalVerdictProbe(client).run({ messages, action });
+  const result = await new AutoApprovalVerdictProbe(client).run({ messages, tools: replayTools, action });
 
   assert.equal(client.requests.length, 2);
   assert.equal(result.verdict, 'unsure');
@@ -235,6 +307,7 @@ test('rejects an approval-exempt read-only action instead of inventing a verdict
   await assert.rejects(
     () => new AutoApprovalVerdictProbe(client).run({
       messages,
+      tools: replayTools,
       action: {
         turn: 2,
         toolName: 'read',

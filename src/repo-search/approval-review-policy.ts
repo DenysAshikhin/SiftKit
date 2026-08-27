@@ -48,8 +48,9 @@ export const APPROVAL_REVIEW_POLICY_LINES = [
   '',
   'Approve only objectively read-only actions or narrowly scoped, non-destructive repository writes.',
   '',
+  'Do not call tools. Your response must contain only the allowed verdict and one-sentence reason below.',
   'For an approval review, return only JSON:',
-  '{"verdict":"approve"|"deny"|"unsure","reason":"<one sentence>"}',
+  APPROVAL_VERDICT_RESPONSE_INSTRUCTION,
 ] as const;
 
 export function buildApprovalReviewRequest(input: {
@@ -62,3 +63,4 @@ export function buildApprovalReviewRequest(input: {
     `command: ${input.command}`,
   ].join('\n');
 }
+import { APPROVAL_VERDICT_RESPONSE_INSTRUCTION } from './approval-verdict.js';

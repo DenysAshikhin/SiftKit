@@ -131,7 +131,7 @@ export class TranscriptCompactor {
       stage: 'context_compaction',
       model: this.options.model,
       messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
-      toolDefinitions: [],
+      tools: [],
       maxTokens: summaryOutputCeiling,
       responseSchema: null,
       ...this.options.thinking,

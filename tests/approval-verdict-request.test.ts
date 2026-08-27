@@ -9,7 +9,7 @@ import {
   type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
-import { buildApprovalVerdictJsonSchema } from '../src/providers/structured-output-schema.js';
+import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.js';
 import {
   ApprovalModeSchema,
   RepoSearchApprovalRequestSchema,
@@ -20,6 +20,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { toProtocolTools } from '../src/providers/llama-cpp.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -39,6 +40,7 @@ function captureExecuting(messages: ChatMessage[], flags: PlannerThinkingFlags =
   return captureExecutingPlannerRequest(
     serializeProtocolMessages(messages, flags.reasoningContentEnabled),
     flags,
+    toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
   );
 }
 

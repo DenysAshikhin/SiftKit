@@ -17,6 +17,7 @@ import type {
   LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from '../llm-protocol/types.js';
+import { LlamaCppToolDefinitionSchema } from '../llm-protocol/types.js';
 import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
@@ -183,14 +184,14 @@ export function toProtocolTools(tools: readonly PlannerToolDefinition[] | undefi
     if (!name) {
       return [];
     }
-    return [{
+    return [LlamaCppToolDefinitionSchema.parse({
       type: 'function',
       function: {
         name,
         description,
         parameters: tool.function.parameters ?? { type: 'object', properties: {}, required: [] },
       },
-    }];
+    })];
   });
 }
 

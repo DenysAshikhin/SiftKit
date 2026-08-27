@@ -3,6 +3,8 @@ import { ProgressWriter } from '../lib/progress-writer.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
 import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
+import { LlamaCppToolDefinitionsSchema, type LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import { ApprovalVerdictSchema } from './approval-verdict.js';
 import {
   isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
@@ -51,6 +53,7 @@ export const AutoApprovalActionSchema = z.object({
 
 export const AutoApprovalReplayPayloadSchema = z.object({
   messages: z.array(ReplayMessageSchema).min(1),
+  tools: LlamaCppToolDefinitionsSchema.min(1),
   action: AutoApprovalActionSchema,
 });
 export type AutoApprovalReplayPayload = z.infer<typeof AutoApprovalReplayPayloadSchema>;
@@ -58,14 +61,14 @@ export type AutoApprovalReplayPayloadInput = z.input<typeof AutoApprovalReplayPa
 
 const AutoApprovalEventSchema = z.object({
   kind: z.literal('approval_auto'),
-  verdict: z.enum(['approve', 'deny', 'unsure']),
+  verdict: ApprovalVerdictSchema.shape.verdict,
   reason: z.string(),
 });
 
 export const AutoApprovalProbeResultSchema = z.object({
   submittedMessages: z.array(ReplayMessageSchema),
   action: AutoApprovalActionSchema,
-  verdict: z.enum(['approve', 'deny', 'unsure']),
+  verdict: ApprovalVerdictSchema.shape.verdict,
   reason: z.string(),
 });
 export type AutoApprovalProbeResult = z.infer<typeof AutoApprovalProbeResultSchema>;
@@ -75,6 +78,7 @@ export type ApprovalVerdictModelClient = {
     messages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
+    tools: readonly LlamaCppToolDefinition[],
   ): Promise<PlannerActionResponse>;
 };
 
@@ -92,6 +96,7 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     messages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
+    tools: readonly LlamaCppToolDefinition[],
   ): Promise<PlannerActionResponse> {
     const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
@@ -104,6 +109,7 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
       executing: captureExecutingPlannerRequest(
         serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
         thinking,
+        tools,
       ),
       logger: null,
     });
@@ -115,6 +121,7 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
 
   constructor(
     private readonly messages: ChatMessage[],
+    private readonly tools: readonly LlamaCppToolDefinition[],
     private readonly modelClient: ApprovalVerdictModelClient,
   ) {}
 
@@ -127,7 +134,7 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
       pendingMessages,
       question,
     );
-    return this.modelClient.request(this.messages, pendingMessages, question);
+    return this.modelClient.request(this.messages, pendingMessages, question, this.tools);
   }
 }
 
@@ -176,7 +183,7 @@ export class AutoApprovalVerdictProbe {
         + 'consulted for it, so there is no verdict to probe.',
       );
     }
-    const requester = new ReplayVerdictRequester(payload.messages, this.modelClient);
+    const requester = new ReplayVerdictRequester(payload.messages, payload.tools, this.modelClient);
     const progressWriter = new ProbeProgressWriter();
     const gate = new LlmApprovalGate({
       requestId: 'auto-approval-verdict-probe',

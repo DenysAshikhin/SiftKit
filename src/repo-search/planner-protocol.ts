@@ -3,7 +3,9 @@ import { getActiveInferenceBackend, getActiveModelPreset } from '../config/index
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
-import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
+import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import { LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
+import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
 import { toError } from '../lib/errors.js';
@@ -13,11 +15,10 @@ import {
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
 import {
-  buildApprovalVerdictJsonSchema,
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
 } from '../providers/structured-output-schema.js';
-import { toProtocolTools } from '../providers/llama-cpp.js';
+import { buildApprovalVerdictJsonSchema } from './approval-verdict.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
@@ -231,20 +232,26 @@ export type PlannerThinkingFlags = {
 
 const reserveRequestBuilder = new InferenceRequestBuilder();
 
+export type PlannerRequestStage =
+  | 'planner_action'
+  | 'finish_validation'
+  | 'approval_verdict'
+  | 'terminal_synthesis'
+  | 'context_compaction';
+
 export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
   config: SiftConfig;
-  stage?: string;
+  stage: PlannerRequestStage;
   model: string;
   messageRoles: readonly string[];
-  toolDefinitions?: readonly PlannerToolDefinition[];
+  tools: readonly LlamaCppToolDefinition[];
   maxTokens: number;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
 }): string {
   const backend = getActiveInferenceBackend(options.config);
   const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
-  const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
+  const stage = options.stage;
   const defaultResponseSchema = stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
@@ -261,7 +268,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
     backend,
     model: options.model,
     messages: [],
-    tools: stage === 'planner_action' ? toProtocolTools(toolDefinitions) : [],
+    tools: [...options.tools],
     defaults: samplerDefaults,
     maxTokens: options.maxTokens,
     ...(responseFormat ? { responseFormat } : {}),
@@ -314,10 +321,11 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  stage?: string;
+  stage: PlannerRequestStage;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  toolDefinitions?: readonly PlannerToolDefinition[];
+  tools: readonly LlamaCppToolDefinition[];
+  toolChoice?: LlamaCppChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
 };
 
@@ -426,9 +434,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     };
   }
 
-  const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
-  const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
+  const stage = options.stage;
+  const allowedToolNames = options.tools.map((toolDefinition) => toolDefinition.function.name);
   const defaultResponseSchema = stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
@@ -450,7 +457,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         baseUrl: options.baseUrl,
         model: options.model,
         messages: options.messages,
-        tools: stage === 'planner_action' ? toProtocolTools(toolDefinitions) : [],
+        tools: [...options.tools],
+        ...(options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice }),
         maxTokens: options.maxTokens,
         slotId: options.slotId,
         responseFormat: responseFormat ?? undefined,
@@ -555,7 +563,7 @@ export async function requestFinishValidation(options: Partial<PlannerThinkingFl
     stage: 'finish_validation',
     responseSchema: buildFinishValidationJsonSchema(),
     responseSchemaName: 'siftkit_finish_validation',
-    toolDefinitions: [],
+    tools: [],
   });
 }
 
@@ -567,6 +575,7 @@ export async function requestFinishValidation(options: Partial<PlannerThinkingFl
 export type ExecutingPlannerRequest = {
   serializedMessageJson: string[];
   flags: PlannerThinkingFlags;
+  serializedToolsJson: string;
 };
 
 /**
@@ -576,10 +585,12 @@ export type ExecutingPlannerRequest = {
 export function captureExecutingPlannerRequest(
   serializedMessages: readonly LlamaCppChatMessage[],
   flags: PlannerThinkingFlags,
+  tools: readonly LlamaCppToolDefinition[],
 ): ExecutingPlannerRequest {
   return {
     serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
     flags,
+    serializedToolsJson: JSON.stringify(tools),
   };
 }
 
@@ -663,7 +674,10 @@ export async function requestApprovalVerdict(options: {
     stage: 'approval_verdict',
     responseSchema: buildApprovalVerdictJsonSchema(),
     responseSchemaName: 'siftkit_approval_verdict',
-    toolDefinitions: [],
+    tools: LlamaCppToolDefinitionsSchema.parse(
+      parseJsonValueText(options.executing.serializedToolsJson),
+    ),
+    toolChoice: 'none',
   });
 }
 
@@ -694,7 +708,7 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
     logger: options.logger,
     stage: 'terminal_synthesis',
     responseSchema: null,
-    toolDefinitions: [],
+    tools: [],
     onContentDelta: options.onContentDelta,
   });
 }
@@ -751,7 +765,7 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
     logger: options.logger,
     stage: 'context_compaction',
     responseSchema: null,
-    toolDefinitions: [],
+    tools: [],
   });
 }
 

@@ -18,6 +18,7 @@ import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor, type CompactionRetention } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
+import { toProtocolTools } from '../../providers/llama-cpp.js';
 
 /** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
 function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
@@ -71,7 +72,7 @@ export class PromptPreparer {
       stage: 'planner_action',
       model: String(this.options.model || ''),
       messageRoles,
-      toolDefinitions: this.options.plannerToolDefinitions,
+      tools: toProtocolTools(this.options.plannerToolDefinitions),
       maxTokens,
       ...this.options.thinking,
     });

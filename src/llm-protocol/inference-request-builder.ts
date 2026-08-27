@@ -45,6 +45,7 @@ export class InferenceRequestBuilder {
       stream: true,
       stream_options: { include_usage: true },
       ...(input.tools.length > 0 ? { tools: input.tools, parallel_tool_calls: true } : {}),
+      ...(input.toolChoice === undefined ? {} : { tool_choice: input.toolChoice }),
       ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
       ...(input.responsePrefix ? { response_prefix: input.responsePrefix } : {}),
     };

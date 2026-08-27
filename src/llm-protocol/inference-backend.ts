@@ -3,6 +3,7 @@ import type { InferenceBackendId } from '../config/types.js';
 import type { PresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import type {
   LlamaCppChatMessage,
+  LlamaCppChatRequest,
   LlamaCppChatTemplateKwargs,
   LlamaCppResponseFormat,
   LlamaCppToolDefinition,
@@ -24,6 +25,7 @@ export type InferenceRequestInput = {
   defaults: PresetRequestDefaults;
   /** The only per-request sampling value; every other sampler comes from `defaults`. */
   maxTokens: number;
+  toolChoice?: LlamaCppChatRequest['tool_choice'];
   responseFormat?: LlamaCppResponseFormat;
   /** Rendered after the generation prompt (TabbyAPI `response_prefix`); used to close an exhausted think block. */
   responsePrefix?: string;
@@ -48,6 +50,7 @@ export type InferenceChatRequest = {
   stream: boolean;
   stream_options?: { include_usage: boolean };
   tools?: LlamaCppToolDefinition[];
+  tool_choice?: LlamaCppChatRequest['tool_choice'];
   parallel_tool_calls?: boolean;
   response_format?: LlamaCppResponseFormat;
   chat_template_kwargs?: LlamaCppChatTemplateKwargs;

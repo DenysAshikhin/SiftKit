@@ -18,7 +18,7 @@ import type {
   TurnPromptTokens,
 } from '../../agent-loop/types.js';
 import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
-import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { toProtocolTools } from '../../providers/llama-cpp.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
@@ -142,6 +142,7 @@ export class TaskLoop {
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerBudgetMessageOverride: string | null;
   private readonly plannerToolDefinitions: readonly PlannerToolDefinition[];
+  private readonly plannerProtocolTools: readonly LlamaCppToolDefinition[];
   private readonly allowedPlannerToolNames: string[];
   private readonly chatWebGroundingEnabled: boolean;
   private readonly chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -227,6 +228,7 @@ export class TaskLoop {
       });
     }
     this.plannerToolDefinitions = options.plannerToolDefinitions;
+    this.plannerProtocolTools = toProtocolTools(this.plannerToolDefinitions);
     const activePlannerToolNames = this.plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
     this.allowedPlannerToolNames = activePlannerToolNames;
     this.chatWebGroundingEnabled = this.loopKind === 'chat'
@@ -421,7 +423,7 @@ export class TaskLoop {
       promptTokens: prepared.promptTokens,
       maxOutputTokens: prepared.maxOutputTokens,
       messages: toProtocolChatMessages(this.transcript.getMessages()),
-      toolDefinitions: toProtocolTools(this.plannerToolDefinitions),
+      toolDefinitions: [...this.plannerProtocolTools],
       inForcedFinishMode,
     };
   }
@@ -598,7 +600,11 @@ export class TaskLoop {
         this.transcript.getMessages(),
         this.plannerThinking.reasoningContentEnabled,
       );
-      this.executingPlannerRequest = captureExecutingPlannerRequest(serializedMessages, this.plannerThinking);
+      this.executingPlannerRequest = captureExecutingPlannerRequest(
+        serializedMessages,
+        this.plannerThinking,
+        this.plannerProtocolTools,
+      );
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,
         baseUrl: this.options.baseUrl,
@@ -621,7 +627,8 @@ export class TaskLoop {
         mockResponseIndex: this.mockResponseIndex,
         abortSignal: this.options.abortSignal,
         logger: this.options.logger || null,
-        toolDefinitions: this.plannerToolDefinitions,
+        stage: 'planner_action',
+        tools: this.plannerProtocolTools,
       });
     } finally {
       providerSpan?.end();

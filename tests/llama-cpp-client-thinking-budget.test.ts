@@ -117,7 +117,8 @@ async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise
     timeoutMs: 5000,
     maxTokens: 64,
     thinkingEnabled: true,
-    toolDefinitions: [],
+    stage: 'planner_action',
+    tools: [],
     onThinkingDelta: () => {},
   });
 }
@@ -179,7 +180,8 @@ test('planner reasoningBudgetMessage overrides the preset message in the continu
       timeoutMs: 5000,
       maxTokens: 64,
       thinkingEnabled: true,
-      toolDefinitions: [],
+      stage: 'planner_action',
+      tools: [],
       onThinkingDelta: () => {},
       reasoningBudgetMessage: 'Emit the next action.',
     });

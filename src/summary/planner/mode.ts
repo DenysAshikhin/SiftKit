@@ -20,6 +20,7 @@ import {
   countLlamaCppTokens,
   generateLlamaCppChatResponse,
   toProtocolMessages,
+  toProtocolTools,
   type CountLlamaCppTokensOptions,
   type LlamaCppGenerateResult,
   type LlamaCppChatMessage,
@@ -363,7 +364,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokens: { reported: 0, budgeted: 0 },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
-        toolDefinitions: this.toolDefinitions,
+        toolDefinitions: toProtocolTools(this.toolDefinitions),
         inForcedFinishMode: false,
       };
     }
@@ -401,7 +402,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
-        toolDefinitions: this.toolDefinitions,
+        toolDefinitions: toProtocolTools(this.toolDefinitions),
         inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
       };
     }
@@ -411,7 +412,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
       maxOutputTokens: 0,
       messages: toProtocolMessages(this.messages),
-      toolDefinitions: this.toolDefinitions,
+      toolDefinitions: toProtocolTools(this.toolDefinitions),
       inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
     };
   }

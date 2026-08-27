@@ -105,6 +105,7 @@ export type LlamaCppChatOptions = {
   model: string;
   messages: LlamaCppChatMessage[];
   tools: LlamaCppToolDefinition[];
+  toolChoice?: LlamaCppChatRequest['tool_choice'];
   maxTokens: number;
   cachePrompt?: boolean;
   slotId?: number;
@@ -303,6 +304,7 @@ export class LlamaCppClient {
         model: options.model,
         messages: options.messages,
         tools: options.tools,
+        ...(options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice }),
         defaults,
         maxTokens: options.maxTokens,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),

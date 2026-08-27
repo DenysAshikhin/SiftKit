@@ -1,4 +1,3 @@
-import { z } from '../../lib/zod.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
@@ -15,12 +14,13 @@ import {
   type HumanApprovalRequester,
 } from './approval-gate.js';
 import type { JsonLogger } from '../types.js';
+import { ApprovalVerdictSchema, type ApprovalVerdict } from '../approval-verdict.js';
 
-const ApprovalVerdictSchema = z.object({
-  verdict: z.enum(['approve', 'deny', 'unsure']),
-  reason: z.string(),
-});
-type ApprovalVerdict = z.infer<typeof ApprovalVerdictSchema>;
+const FORBIDDEN_TOOL_CALL_REASON = 'approval reviewer attempted a forbidden tool call';
+
+type ApprovalVerdictAttempt =
+  | { kind: 'verdict'; value: ApprovalVerdict }
+  | { kind: 'failure'; reason: string };
 
 /** Narrow view of TaskLoop: issues one ephemeral, schema-constrained verdict request. */
 export type ApprovalVerdictRequester = {
@@ -68,16 +68,16 @@ export class LlmApprovalGate {
       buildApprovalVerdictQuestion(input),
       input.pendingMessages,
     );
-    if (verdict === null) {
-      this.emitVerdict(input, 'unsure', 'verdict call failed');
+    if (verdict.kind === 'failure') {
+      this.emitVerdict(input, 'unsure', verdict.reason);
       return this.deps.humanGate.request(input);
     }
-    this.emitVerdict(input, verdict.verdict, verdict.reason);
-    if (verdict.verdict === 'approve') {
+    this.emitVerdict(input, verdict.value.verdict, verdict.value.reason);
+    if (verdict.value.verdict === 'approve') {
       return { kind: 'approve' };
     }
-    if (verdict.verdict === 'deny') {
-      return { kind: 'deny', reason: `auto-reviewer: ${verdict.reason}` };
+    if (verdict.value.verdict === 'deny') {
+      return { kind: 'deny', reason: `auto-reviewer: ${verdict.value.reason}` };
     }
     return this.deps.humanGate.request(input);
   }
@@ -85,16 +85,22 @@ export class LlmApprovalGate {
   private async requestVerdictWithRetry(
     question: string,
     pendingMessages: ChatMessage[],
-  ): Promise<ApprovalVerdict | null> {
+  ): Promise<ApprovalVerdictAttempt> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
-        return ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || '')));
+        if (response.toolCalls.length > 0) {
+          return { kind: 'failure', reason: FORBIDDEN_TOOL_CALL_REASON };
+        }
+        return {
+          kind: 'verdict',
+          value: ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || ''))),
+        };
       } catch {
         // Inference failure or schema mismatch: retry once, then escalate to the human gate.
       }
     }
-    return null;
+    return { kind: 'failure', reason: 'verdict call failed' };
   }
 
   private emitVerdict(input: ApprovalRequestInput, verdict: string, reason: string): void {
