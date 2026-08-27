@@ -1,4 +1,5 @@
 import { TokenCountSourceSchema } from './prompt-budget.js';
+import { ToolActivityKindSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/index.js';
@@ -63,6 +64,7 @@ export const ToolResultProgressEventSchema = z.object({
   ...turnScopedFields,
   kind: z.literal('tool_result'),
   toolCallId: z.string(),
+  activityKind: ToolActivityKindSchema,
   command: z.string(),
   exitCode: z.number(),
   outputSnippet: z.string(),
@@ -109,6 +111,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
     ...turnScopedFields,
     kind: z.literal('tool_start'),
     toolCallId: z.string(),
+    activityKind: ToolActivityKindSchema,
     command: z.string(),
     promptTokenCount: z.number(),
     thinkingTokenCount: z.number(),

@@ -3,12 +3,13 @@
  * plan/repo-search execution, condensation, and tool-context management.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type {
-  ChatSession as WireChatSession,
-  ChatMessage as WireChatMessage,
-  ChatSessionResponse,
-  ChatSessionsResponse,
-  ImageMetadata,
+import {
+  ChatMessageSchema,
+  type ChatMessage as WireChatMessage,
+  type ChatSession as WireChatSession,
+  type ChatSessionResponse,
+  type ChatSessionsResponse,
+  type ImageMetadata,
 } from '@siftkit/contracts';
 import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
 import { join, resolve } from 'node:path';
@@ -145,6 +146,7 @@ function forwardRepoSearchToolEvent(
       toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
+      activityKind: event.activityKind,
       command: event.command,
       promptTokenCount: event.promptTokenCount,
     });
@@ -155,6 +157,7 @@ function forwardRepoSearchToolEvent(
       toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
+      activityKind: event.activityKind,
       command: event.command,
       exitCode: event.exitCode,
       outputSnippet: event.outputSnippet,
@@ -173,7 +176,11 @@ function withPromptContext(config: SiftConfig, session: ChatSession): ChatSessio
 }
 
 function toWireChatMessage(message: PersistedChatMessage): WireChatMessage {
-  return { ...message, sourceRunId: message.sourceRunId ?? null };
+  const sourceRunId = message.sourceRunId ?? null;
+  if (message.kind === 'assistant_tool_call') {
+    return ChatMessageSchema.parse({ ...message, sourceRunId, toolCallStatus: 'done' });
+  }
+  return ChatMessageSchema.parse({ ...message, sourceRunId });
 }
 
 function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSession {

@@ -1,8 +1,8 @@
 import { buildLiveToolMessageId } from './live-tool-message';
 import { type ChatStreamToolEvent } from './chat-stream-parser';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ChatToolCallMessage } from '../types';
 
-type LiveMessageKind = NonNullable<ChatMessage['kind']>;
+type LiveMessageKind = Exclude<ChatMessage['kind'], 'assistant_tool_call'>;
 
 export function createLiveMessage(
   id: string,
@@ -47,35 +47,59 @@ export function upsertLiveMessageInto(previous: ChatMessage[], message: ChatMess
   return next;
 }
 
-export function buildAppendedLiveToolMessage(toolEvent: ChatStreamToolEvent): ChatMessage {
+export function buildAppendedLiveToolMessage(
+  toolEvent: Extract<ChatStreamToolEvent, { kind: 'tool_start' }>,
+): ChatToolCallMessage {
   const id = buildLiveToolMessageId(toolEvent.toolCallId);
   return {
-    ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
+    id,
+    role: 'assistant',
+    kind: 'assistant_tool_call',
+    content: toolEvent.command,
+    inputTokensEstimate: 0,
     outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
     outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
+    associatedToolTokens: 0,
+    createdAtUtc: new Date().toISOString(),
+    sourceRunId: null,
     toolCallCommand: toolEvent.command,
+    toolCallActivityKind: toolEvent.activityKind,
     toolCallTurn: toolEvent.turn,
     toolCallMaxTurns: toolEvent.maxTurns,
-    toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
+    toolCallExitCode: null,
+    toolCallPromptTokenCount: toolEvent.promptTokenCount,
     toolCallStatus: 'running',
   };
 }
 
-export function buildCompletedLiveToolMessage(toolEvent: ChatStreamToolEvent): ChatMessage {
+export function buildCompletedLiveToolMessage(
+  toolEvent: Extract<ChatStreamToolEvent, { kind: 'tool_result' }>,
+): ChatToolCallMessage {
   const id = buildLiveToolMessageId(toolEvent.toolCallId);
-  const outputSnippet = typeof toolEvent.outputSnippet === 'string' ? toolEvent.outputSnippet : '';
-  const outputTokens = typeof toolEvent.outputTokens === 'number' ? Math.max(0, toolEvent.outputTokens) : 0;
   return {
-    ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
-    outputTokensEstimate: outputTokens,
-    outputTokensEstimated: outputTokens > 0 ? toolEvent.outputTokensEstimated !== false : false,
-    associatedToolTokens: outputTokens,
+    id,
+    role: 'assistant',
+    kind: 'assistant_tool_call',
+    content: toolEvent.command,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: toolEvent.outputTokens,
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
+    outputTokensEstimated: toolEvent.outputTokensEstimated,
+    thinkingTokensEstimated: false,
+    associatedToolTokens: toolEvent.outputTokens,
+    createdAtUtc: new Date().toISOString(),
+    sourceRunId: null,
     toolCallCommand: toolEvent.command,
+    toolCallActivityKind: toolEvent.activityKind,
     toolCallTurn: toolEvent.turn,
     toolCallMaxTurns: toolEvent.maxTurns,
-    toolCallExitCode: typeof toolEvent.exitCode === 'number' ? toolEvent.exitCode : null,
-    toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
-    toolCallOutputSnippet: outputSnippet,
+    toolCallExitCode: toolEvent.exitCode,
+    toolCallPromptTokenCount: toolEvent.promptTokenCount,
+    toolCallOutputSnippet: toolEvent.outputSnippet,
     toolCallStatus: 'done',
   };
 }

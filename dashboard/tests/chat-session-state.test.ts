@@ -26,7 +26,10 @@ test('active session with a running tool live message returns tool', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' } })
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+      activityKind: 'search', command: 'rg x', promptTokenCount: 0,
+    } })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'tool');
 });

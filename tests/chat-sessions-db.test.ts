@@ -416,6 +416,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
         promptCacheTokens: null,
         promptEvalTokens: 44,
         toolCallCommand: 'rg -n "timeline" .',
+        toolCallActivityKind: 'search',
         toolCallTurn: 2,
         toolCallMaxTurns: 5,
         toolCallExitCode: 0,
@@ -431,6 +432,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     const message = loaded?.messages?.[0];
     assert.equal(message?.kind, 'assistant_tool_call');
     assert.equal(message?.toolCallCommand, 'rg -n "timeline" .');
+    assert.equal(message?.toolCallActivityKind, 'search');
     assert.equal(message?.toolCallTurn, 2);
     assert.equal(message?.toolCallMaxTurns, 5);
     assert.equal(message?.toolCallExitCode, 0);
@@ -483,6 +485,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         associatedToolTokens: 9,
         thinkingContent: 'thinking',
         toolCallCommand: 'rg -n Dict src',
+        toolCallActivityKind: 'search',
         toolCallTurn: 1,
         toolCallMaxTurns: 2,
         toolCallExitCode: 0,
@@ -501,6 +504,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
     const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, 'typed-session'));
     assert.equal(reloaded?.messages?.[0]?.kind, 'assistant_tool_call');
     assert.equal(reloaded?.messages?.[0]?.toolCallCommand, 'rg -n Dict src');
+    assert.equal(reloaded?.messages?.[0]?.toolCallActivityKind, 'search');
     assert.equal(reloaded?.messages?.[0]?.groundingStatus, 'fetched');
     assert.equal(reloaded?.messages?.[0]?.promptEvalDurationMs, 40);
     assert.equal(reloaded?.messages?.[0]?.generationTokensPerSecond, 20);

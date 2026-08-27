@@ -58,6 +58,7 @@ class StubStatusEngineService extends StatusEngineService {
       toolCallId: 'tool-1',
       turn: 1,
       maxTurns: 7,
+      activityKind: 'search',
       command: 'rg -n "target" src',
       promptTokenCount: 1_200,
       thinkingTokenCount: 0,
@@ -68,6 +69,7 @@ class StubStatusEngineService extends StatusEngineService {
       toolCallId: 'tool-1',
       turn: 1,
       maxTurns: 7,
+      activityKind: 'search',
       command: 'rg -n "target" src',
       exitCode: 0,
       outputSnippet: 'src/main.ts:4:target',
@@ -93,6 +95,7 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
   task.turnThinking = { 1: 'inspect files' };
   task.commands = [{
     command: 'rg -n "target" src',
+    activityKind: 'search',
     turn: 1,
     modelVisibleCommand: 'rg -n "target" src',
     safe: true,
@@ -244,6 +247,8 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
         request.images,
       );
       const answer = result.updatedSession.messages?.find((message) => message.kind === 'assistant_answer');
+      const tool = result.updatedSession.messages?.find((message) => message.kind === 'assistant_tool_call');
+      assert.equal(tool?.toolCallActivityKind, 'search');
       assert.equal(answer?.outputTokensEstimate, 8);
       assert.equal(answer?.outputTokensEstimated, true);
       assert.equal(answer?.thinkingTokens, 2);

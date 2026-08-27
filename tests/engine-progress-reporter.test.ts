@@ -82,13 +82,15 @@ test('thinking/answer/toolStart/toolResult pass payloads through unchanged', () 
   const { events, reporter } = collect();
   reporter.thinking(3, 'partial thought');
   reporter.answer(3, 'final answer');
-  reporter.toolStart('tc_0', 3, 'rg -n foo', 500, 77);
+  reporter.toolStart('tc_0', 3, 'search', 'rg -n foo', 500, 77);
   reporter.toolResult({
-    toolCallId: 'tc_0', turn: 3, command: 'rg -n foo', exitCode: 0,
+    toolCallId: 'tc_0', turn: 3, activityKind: 'search', command: 'rg -n foo', exitCode: 0,
     outputSnippet: 'snippet', outputTokens: 12, outputTokensEstimated: false,
     promptTokenCount: 500, thinkingTokenCount: 77,
   });
   assert.deepEqual(events.map((event) => event.kind), ['thinking', 'answer', 'tool_start', 'tool_result']);
+  assert.match(JSON.stringify(events[2]), /"activityKind":"search"/u);
+  assert.match(JSON.stringify(events[3]), /"activityKind":"search"/u);
 });
 
 test('tokenizeStart/tokenizeDone mirror the preflight tokenize event shape', () => {

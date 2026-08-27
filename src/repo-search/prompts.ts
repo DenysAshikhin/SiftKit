@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
+import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import {
@@ -441,6 +441,7 @@ export function buildCompactionSummaryInstruction(): string {
 
 export const TaskCommandSchema = z.object({
   command: z.string(),
+  activityKind: ToolActivityKindSchema,
   turn: z.number(),
   modelVisibleCommand: z.string().optional(),
   safe: z.boolean(),

@@ -10,13 +10,39 @@ import {
 } from '@siftkit/contracts';
 
 const message = {
-  id: 'm1', role: 'user', content: 'hi',
+  id: 'm1', role: 'user', kind: 'user_text', content: 'hi',
   inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0,
   createdAtUtc: '2026-01-01T00:00:00Z', sourceRunId: null,
 };
 
 test('ChatMessageSchema accepts a minimal user message', () => {
   assert.deepEqual(ChatMessageSchema.parse(message), message);
+});
+
+test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
+  const toolMessage = {
+    ...message,
+    id: 'tool-1',
+    role: 'assistant',
+    kind: 'assistant_tool_call',
+    content: 'read path="src/index.ts"',
+    toolCallCommand: 'read path="src/index.ts"',
+    toolCallActivityKind: 'read',
+    toolCallTurn: 1,
+    toolCallMaxTurns: 45,
+    toolCallExitCode: null,
+    toolCallStatus: 'running',
+  };
+
+  assert.equal(ChatMessageSchema.parse(toolMessage).kind, 'assistant_tool_call');
+  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
+  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
+  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
+});
+
+test('ChatMessageSchema rejects messages without a kind', () => {
+  const { kind: _kind, ...kindlessMessage } = message;
+  assert.equal(ChatMessageSchema.safeParse(kindlessMessage).success, false);
 });
 
 test('ChatMessageSchema accepts a compaction summary row', () => {

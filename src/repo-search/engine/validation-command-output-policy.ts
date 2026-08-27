@@ -16,6 +16,14 @@ const VALIDATION_COMMAND_PATTERNS = [
   /^(?:&\s*)?ctest(?:\.exe)?(?:\s|$)/iu,
 ] as const;
 
+export function isValidationCommand(command: string): boolean {
+  const segments = command.split(/;|&&|\|\|/u);
+  return segments.some((rawSegment) => {
+    const segment = rawSegment.trim();
+    return segment.length > 0 && VALIDATION_COMMAND_PATTERNS.some((pattern) => pattern.test(segment));
+  });
+}
+
 /**
  * Node's spec reporter prints its counts before an unbounded `✖ failing tests:` block, so pure-tail
  * retention drops the verdict exactly when there are enough failures for it to matter. These lines are
@@ -39,19 +47,7 @@ export class ValidationCommandOutputPolicy {
   }
 
   isValidationCommand(command: string): boolean {
-    const segments = command.split(/;|&&|\|\|/u);
-    for (const rawSegment of segments) {
-      const segment = rawSegment.trim();
-      if (!segment) {
-        continue;
-      }
-      for (const pattern of VALIDATION_COMMAND_PATTERNS) {
-        if (pattern.test(segment)) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return isValidationCommand(command);
   }
 
   apply(options: {

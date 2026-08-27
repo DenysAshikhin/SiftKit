@@ -59,6 +59,7 @@ test('buildScorecard names the non-zero command exit instead of a bare "task fai
       passed: false,
       commands: [{
         command: 'grep pattern="x"',
+        activityKind: 'search',
         turn: 1,
         safe: true,
         reason: null,

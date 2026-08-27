@@ -45,13 +45,34 @@
 .turn-progress-text { flex: 1 1 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .turn-progress-meta { margin-left: auto; flex: none; font-family: ui-monospace, Consolas, monospace; font-size: 0.64rem; color: var(--dim); }
 
-/* ---- tool call card ---- */
-.tcall { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); margin-top: 8px; font-size: 0.74rem; overflow: hidden; }
-.tcall > header { display: flex; gap: 8px; align-items: center; padding: 6px 10px; color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem; }
-.tcall > header .tn { color: #b9cbdd; }
-.tcall > header .tok { color: var(--ok); margin-left: auto; }
-.tcall details > summary { cursor: pointer; padding: 6px 10px; color: var(--dim); }
-.tcall pre { margin: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+/* ---- recent tool activity ---- */
+.recent-activity { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+.recent-activity-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.recent-activity-meta { letter-spacing: 0; text-transform: none; }
+.recent-activity-list { display: grid; gap: 4px; margin-top: 3px; }
+.tcall { border-radius: 6px; background: none; color: var(--dim); font-size: 0.7rem; overflow: hidden; }
+.tcall-summary {
+  display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 5px;
+  color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  list-style: none;
+}
+.tcall summary.tcall-summary { cursor: pointer; }
+.tcall summary.tcall-summary::-webkit-details-marker { display: none; }
+.tcall summary.tcall-summary:hover { background: var(--panel2); }
+.tcall .tstatus { color: var(--ink); }
+.tcall .tok { color: var(--ok); }
+.tcall .tbad { color: var(--bad); }
+.tcall-expand { margin-left: auto; color: var(--dim); }
+.tcall-details {
+  display: grid; gap: 6px; margin: 3px 5px 7px 27px; padding: 8px 10px;
+  border-left: 2px solid var(--line); color: #b9cbdd;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.tcall-details pre { margin: 0; border-radius: 0; background: none; padding: 0; }
 
 /* ---- composer ---- */
 .composer { flex: none; border-top: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 7px; }

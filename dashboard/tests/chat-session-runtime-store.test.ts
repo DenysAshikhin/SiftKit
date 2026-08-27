@@ -149,7 +149,9 @@ test('applyToolEvent appends running tool message on tool_start', () => {
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      activityKind: 'search',
       command: 'rg foo',
+      promptTokenCount: 0,
     }});
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
@@ -164,16 +166,22 @@ test('applyToolEvent completes tool message on tool_result', () => {
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      activityKind: 'search',
       command: 'rg foo',
+      promptTokenCount: 0,
     }})
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_result',
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      activityKind: 'search',
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: 'hit',
+      outputTokens: 0,
+      outputTokensEstimated: false,
+      promptTokenCount: 0,
     }});
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
@@ -308,6 +316,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCo
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      activityKind: 'search',
       command: 'rg foo',
       promptTokenCount: 42,
     }});
@@ -322,8 +331,12 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      activityKind: 'search',
       command: 'rg foo',
       exitCode: 0,
+      outputSnippet: '',
+      outputTokens: 0,
+      outputTokensEstimated: false,
       promptTokenCount: 55,
     }});
   assert.equal(store.get('s1').liveToolPromptTokenCount, 55);
@@ -443,7 +456,9 @@ test('any streamed evidence ends the awaiting state, whatever arrives first', ()
     toolCallId: 'tc1',
     turn: 1,
     maxTurns: 4,
+    activityKind: 'search',
     command: 'rg foo',
+    promptTokenCount: 0,
   }});
   const afterThinking = submitted
     .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hmm' } });

@@ -42,7 +42,7 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
         finalOutput: 'answer',
         turnsUsed: 2,
         groundingStatus: 'fetched',
-        commands: [{ turn: 1, command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
+        commands: [{ turn: 1, activityKind: 'search', command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
         turnThinking: { 1: 'thinking' },
       }],
     },
@@ -69,7 +69,7 @@ test('normalizeRepoSearchResult yields null promptTokenCount when absent', () =>
       tasks: [{
         finalOutput: 'answer',
         turnsUsed: 1,
-        commands: [{ turn: 1, command: 'rg Dict', output: 'hit', exitCode: 0 }],
+        commands: [{ turn: 1, activityKind: 'search', command: 'rg Dict', output: 'hit', exitCode: 0 }],
         turnThinking: {},
       }],
     },

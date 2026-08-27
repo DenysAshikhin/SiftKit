@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
-import type { ContextUsage, ImageMetadata, ReasoningEffort } from '@siftkit/contracts';
+import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
@@ -450,6 +450,7 @@ export type PersistToolMessage = {
   id: string;
   content: string;
   toolCallCommand: string;
+  toolCallActivityKind: ToolActivityKind;
   toolCallTurn: number;
   toolCallMaxTurns: number;
   toolCallExitCode: number | null;
@@ -629,6 +630,7 @@ export function appendChatMessagesWithUsage(
         promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
         associatedToolTokens: toolOutputTokens,
         toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
+        toolCallActivityKind: ToolActivityKindSchema.parse(toolMessage.toolCallActivityKind),
         toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
         toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
         toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
@@ -889,6 +891,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     id: randomUUID(),
     content: commandText,
     toolCallCommand: commandText,
+    toolCallActivityKind: ToolActivityKindSchema.parse(command.activityKind),
     toolCallTurn: turn,
     toolCallMaxTurns: turnsUsed,
     toolCallExitCode: command.exitCode,

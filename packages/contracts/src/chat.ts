@@ -2,9 +2,44 @@ import { z } from 'zod';
 import { ModelRuntimePresetSchema } from './config.js';
 import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 
-export const ChatMessageSchema = z.object({
+export const ToolActivityKindSchema = z.enum([
+  'read',
+  'search',
+  'edit',
+  'validate',
+  'web_search',
+  'web_fetch',
+  'command',
+]);
+export type ToolActivityKind = z.infer<typeof ToolActivityKindSchema>;
+
+const ChatStreamToolCommonFields = {
+  toolCallId: z.string().trim().min(1),
+  turn: z.number().int().positive(),
+  maxTurns: z.number().int().positive(),
+  activityKind: ToolActivityKindSchema,
+  command: z.string().trim().min(1),
+  promptTokenCount: z.number().int().nonnegative(),
+} as const;
+
+export const ChatStreamToolEventSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    ...ChatStreamToolCommonFields,
+    kind: z.literal('tool_start'),
+  }),
+  z.strictObject({
+    ...ChatStreamToolCommonFields,
+    kind: z.literal('tool_result'),
+    exitCode: z.number().int(),
+    outputSnippet: z.string(),
+    outputTokens: z.number().int().nonnegative(),
+    outputTokensEstimated: z.boolean(),
+  }),
+]);
+export type ChatStreamToolEvent = z.infer<typeof ChatStreamToolEventSchema>;
+
+const ChatMessageBaseSchema = z.object({
   id: z.string(), role: z.enum(['user', 'assistant']),
-  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'assistant_progress', 'tool_image', 'compaction_summary']).optional(),
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),
@@ -15,7 +50,7 @@ export const ChatMessageSchema = z.object({
   answerStartedAtUtc: z.string().nullable().optional(), answerEndedAtUtc: z.string().nullable().optional(),
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
   associatedToolTokens: z.number().nullable().optional(), thinkingContent: z.string().nullable().optional(),
-  toolCallCommand: z.string().nullable().optional(), toolCallTurn: z.number().nullable().optional(),
+  toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
@@ -25,6 +60,34 @@ export const ChatMessageSchema = z.object({
   imageMeta: z.array(ImageMetadataSchema).optional(),
   removedImageCount: z.number().int().nonnegative().optional(),
 });
+
+export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
+  role: z.literal('assistant'),
+  kind: z.literal('assistant_tool_call'),
+  toolCallCommand: z.string().trim().min(1),
+  toolCallActivityKind: ToolActivityKindSchema,
+  toolCallTurn: z.number().int().positive(),
+  toolCallMaxTurns: z.number().int().positive(),
+  toolCallExitCode: z.number().int().nullable(),
+  toolCallStatus: z.enum(['running', 'done']),
+});
+export type ChatToolCallMessage = z.infer<typeof ChatToolCallMessageSchema>;
+
+const ChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
+  kind: z.enum([
+    'user_text',
+    'assistant_answer',
+    'assistant_thinking',
+    'assistant_progress',
+    'tool_image',
+    'compaction_summary',
+  ]),
+});
+
+export const ChatMessageSchema = z.discriminatedUnion('kind', [
+  ChatToolCallMessageSchema,
+  ChatNonToolMessageSchema,
+]);
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 export const ChatPromptContextSchema = z.object({

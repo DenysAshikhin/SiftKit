@@ -587,4 +587,20 @@ export const MIGRATIONS: readonly Migration[] = [
     }
     },
   },
+  {
+    version: 51,
+    up: (database) => {
+      if (!tableHasColumn(database, 'chat_messages', 'tool_call_activity_kind')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_activity_kind TEXT;');
+      }
+      if (tableHasColumn(database, 'chat_messages', 'kind')) {
+        database.exec(`
+          UPDATE chat_messages
+          SET tool_call_activity_kind = 'command'
+          WHERE kind = 'assistant_tool_call'
+            AND tool_call_activity_kind IS NULL;
+        `);
+      }
+    },
+  },
 ];

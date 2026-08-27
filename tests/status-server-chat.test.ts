@@ -275,6 +275,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
       turns: [
         { thinkingText: 'think one', toolMessages: [{
           id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
+          toolCallActivityKind: 'search',
           toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295, outputTokensEstimated: false,
         }] },
@@ -340,6 +341,7 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
       turns: [
         { thinkingText: '', toolMessages: [{
           id: 'tool-a', content: 'read path="src/x.ts"', toolCallCommand: 'read path="src/x.ts"',
+          toolCallActivityKind: 'read',
           toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 9048, outputTokensEstimated: true,
         }] },
@@ -502,8 +504,8 @@ test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before
       tasks: [{
         turnThinking: { 1: 'think one', 2: 'think two', 3: 'final think' },
         commands: [
-          { command: 'rg -n "a" src --no-ignore', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptOutput: 'a', outputTokens: 3 },
-          { command: 'rg -n "b" src --no-ignore', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b', promptOutput: 'b', outputTokens: 4 },
+          { command: 'rg -n "a" src --no-ignore', activityKind: 'search', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptOutput: 'a', outputTokens: 3 },
+          { command: 'rg -n "b" src --no-ignore', activityKind: 'search', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b', promptOutput: 'b', outputTokens: 4 },
         ],
       }],
     },
@@ -514,6 +516,7 @@ test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before
   assert.equal(turns[0].toolMessages.length, 1);
   assert.equal(turns[0].toolMessages[0].toolCallCommand, 'rg -n "a" src');
   assert.equal(turns[0].toolMessages[0].toolCallTurn, 1);
+  assert.equal(turns[0].toolMessages[0].toolCallActivityKind, 'search');
   assert.equal(turns[1].thinkingText, 'think two');
   assert.equal(turns[1].toolMessages[0].toolCallCommand, 'rg -n "b" src');
   assert.equal(turns[2].thinkingText, 'final think');
@@ -527,6 +530,7 @@ test('buildPersistTurnsFromRepoSearchResult uses prompt output and tokens for to
         turnThinking: {},
         commands: [{
           command: 'rg -n "tool_call" src --no-ignore',
+          activityKind: 'search',
           modelVisibleCommand: 'rg -n "tool_call" src',
           turn: 1, exitCode: 0,
           output: 'x'.repeat(10_000),
@@ -549,7 +553,7 @@ test('buildPersistTurnsFromRepoSearchResult emits no thinking bubble for a tools
     scorecard: { tasks: [{
       turnsUsed: 1,
       turnThinking: {},
-      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', turn: 1, exitCode: 0, output: 'x' }],
+      commands: [{ command: 'rg -n "x" src', activityKind: 'search', modelVisibleCommand: 'rg -n "x" src', turn: 1, exitCode: 0, output: 'x' }],
     }] },
   });
   assert.equal(turns.length, 1);
@@ -562,7 +566,7 @@ test('buildPersistTurnsFromRepoSearchResult sets tool maxTurns from task turnsUs
     scorecard: { tasks: [{
       turnsUsed: 4,
       turnThinking: {},
-      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', turn: 2, exitCode: 0, output: 'x' }],
+      commands: [{ command: 'rg -n "x" src', activityKind: 'search', modelVisibleCommand: 'rg -n "x" src', turn: 2, exitCode: 0, output: 'x' }],
     }] },
   });
   assert.equal(turns[0].toolMessages[0].toolCallTurn, 2);
@@ -574,7 +578,7 @@ test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing t
     scorecard: { tasks: [{
       turnsUsed: 1,
       turnThinking: {},
-      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', exitCode: 0, output: 'x' }],
+      commands: [{ command: 'rg -n "x" src', activityKind: 'search', modelVisibleCommand: 'rg -n "x" src', exitCode: 0, output: 'x' }],
     }] },
   }), /invalid turn/u);
 });
@@ -585,8 +589,8 @@ test('buildPersistTurnsFromRepoSearchResult persists per-call prompt token count
       turnsUsed: 2,
       turnThinking: {},
       commands: [
-        { command: 'rg -n "a" src', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptTokenCount: 2464 },
-        { command: 'rg -n "b" src', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b' },
+        { command: 'rg -n "a" src', activityKind: 'search', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptTokenCount: 2464 },
+        { command: 'rg -n "b" src', activityKind: 'search', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b' },
       ],
     }] },
   });

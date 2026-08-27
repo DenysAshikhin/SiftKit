@@ -1,15 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { z } from 'zod';
 
 import { groupMessagesIntoTurns, normalizeMessageKind, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
-import type { ChatMessage } from '../../src/types';
+import { ChatMessageSchema, type ChatMessage } from '../../src/types';
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
-  // Some cases override `kind` with undefined to exercise the role-based
-  // fallback, producing a deliberately malformed message; brand it through a
-  // runtime check rather than a cast.
-  return z.custom<ChatMessage>(() => true).parse({
+  const candidate = {
     id: 'id',
     role: 'assistant',
     kind: 'assistant_answer',
@@ -21,12 +17,24 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     createdAtUtc: '2026-06-04T00:00:00.000Z',
     sourceRunId: null,
     ...overrides,
-  });
+  };
+  if (candidate.kind === 'assistant_tool_call') {
+    return ChatMessageSchema.parse({
+      toolCallCommand: 'run command="true"',
+      toolCallActivityKind: 'command',
+      toolCallTurn: 1,
+      toolCallMaxTurns: 45,
+      toolCallExitCode: null,
+      toolCallStatus: 'done',
+      ...candidate,
+    });
+  }
+  return ChatMessageSchema.parse(candidate);
 }
 
-test('normalizeMessageKind falls back by role when kind is absent', () => {
-  assert.equal(normalizeMessageKind(message({ kind: undefined, role: 'assistant' })), 'assistant_answer');
-  assert.equal(normalizeMessageKind(message({ kind: undefined, role: 'user' })), 'user_text');
+test('normalizeMessageKind returns the required message discriminant', () => {
+  assert.equal(normalizeMessageKind(message({ kind: 'assistant_answer', role: 'assistant' })), 'assistant_answer');
+  assert.equal(normalizeMessageKind(message({ kind: 'user_text', role: 'user' })), 'user_text');
   assert.equal(normalizeMessageKind(message({ kind: 'assistant_thinking' })), 'assistant_thinking');
 });
 
@@ -98,7 +106,7 @@ test('no message in a run is dropped: a second answer renders as a step, not sil
   assert.deepEqual(turns[0].steps.map((m) => m.id), ['t', 'a2']);
 });
 
-test('all live messages collapse into one live turn; main is the latest, rest are steps', () => {
+test('all live messages collapse into one live turn with tools in the recent activity ring', () => {
   const messages = [
     message({ id: 'lt', kind: 'assistant_thinking', sourceRunId: null }),
     message({ id: 'lc', kind: 'assistant_tool_call', sourceRunId: null, toolCallStatus: 'running' }),
@@ -109,7 +117,8 @@ test('all live messages collapse into one live turn; main is the latest, rest ar
   assert.equal(turns[0].isLive, true);
   assert.deepEqual(turns[0].steps, []);
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['lt']);
-  assert.equal(turns[0].main?.id, 'lc');
+  assert.deepEqual(turns[0].recentTools.map((tool) => tool.id), ['lc']);
+  assert.equal(turns[0].main, null);
 });
 
 test('preserves order and separates user turn from following run turn', () => {
@@ -135,7 +144,7 @@ test('empty input yields no turns', () => {
   assert.deepEqual(groupMessagesIntoTurns([], new Set()), []);
 });
 
-test('a live turn keeps the newest thinking blocks in liveThinking and gives main to the newest tool call', () => {
+test('a live turn keeps the newest thinking blocks and tools in separate live stacks', () => {
   const messages = [
     message({ id: 'th1', kind: 'assistant_thinking', sourceRunId: null }),
     message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: null, toolCallStatus: 'done' }),
@@ -146,8 +155,25 @@ test('a live turn keeps the newest thinking blocks in liveThinking and gives mai
   assert.equal(turns.length, 1);
   assert.equal(turns[0].isLive, true);
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['th1', 'th2']);
-  assert.equal(turns[0].main?.id, 'tc2');
-  assert.deepEqual(turns[0].steps.map((m) => m.id), ['tc1']);
+  assert.equal(turns[0].main, null);
+  assert.deepEqual(turns[0].recentTools.map((tool) => tool.id), ['tc1', 'tc2']);
+  assert.deepEqual(turns[0].steps, []);
+});
+
+test('a live tool ring exposes only the newest three tools and drops older tools from steps', () => {
+  const ids = ['tc1', 'tc2', 'tc3', 'tc4'];
+  const messages = ids.map((id, index) => message({
+    id,
+    kind: 'assistant_tool_call',
+    sourceRunId: null,
+    toolCallStatus: index === ids.length - 1 ? 'running' : 'done',
+    toolCallTurn: index + 1,
+    toolCallMaxTurns: 45,
+  }));
+  const turns = groupMessagesIntoTurns(messages, new Set(ids));
+  assert.deepEqual(turns[0]?.recentTools.map((tool) => tool.id), ['tc2', 'tc3', 'tc4']);
+  assert.deepEqual(turns[0]?.steps, []);
+  assert.equal(turns[0]?.main, null);
 });
 
 test('liveThinking keeps only the newest LIVE_THINKING_STACK_DEPTH blocks; the overflow falls to steps', () => {
@@ -170,7 +196,7 @@ test('a live turn that is only thinking has no main and an empty steps list', ()
   assert.equal(turns[0].main, null);
 });
 
-test('once the live answer arrives the stack empties and every step returns to Internal Logic', () => {
+test('once the live answer arrives the stack empties while live tools stay in Recent activity', () => {
   const messages = [
     message({ id: 'th1', kind: 'assistant_thinking', sourceRunId: null }),
     message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: null }),
@@ -179,7 +205,8 @@ test('once the live answer arrives the stack empties and every step returns to I
   const turns = groupMessagesIntoTurns(messages, new Set(['th1', 'tc1', 'ans']));
   assert.deepEqual(turns[0].liveThinking, []);
   assert.equal(turns[0].main?.id, 'ans');
-  assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1', 'tc1']);
+  assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1']);
+  assert.deepEqual(turns[0].recentTools.map((m) => m.id), ['tc1']);
 });
 
 test('settled turns never populate liveThinking', () => {

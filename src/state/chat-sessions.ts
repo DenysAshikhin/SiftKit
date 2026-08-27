@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
-import { ImageMetadataSchema, ModelRuntimePresetSchema } from '@siftkit/contracts';
-import type { ImageMetadata } from '@siftkit/contracts';
+import { ImageMetadataSchema, ModelRuntimePresetSchema, ToolActivityKindSchema } from '@siftkit/contracts';
+import type { ImageMetadata, ToolActivityKind } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -54,6 +54,7 @@ export type ChatMessage = {
   associatedToolTokens?: number | null;
   thinkingContent?: string | null;
   toolCallCommand?: string | null;
+  toolCallActivityKind?: ToolActivityKind;
   toolCallTurn?: number | null;
   toolCallMaxTurns?: number | null;
   toolCallExitCode?: number | null;
@@ -131,6 +132,7 @@ const MessageRowSchema = z.object({
   associated_tool_tokens: z.number().nullable(),
   thinking_content: z.string().nullable(),
   tool_call_command: z.string().nullable(),
+  tool_call_activity_kind: z.string().nullable(),
   tool_call_turn: z.number().nullable(),
   tool_call_max_turns: z.number().nullable(),
   tool_call_exit_code: z.number().nullable(),
@@ -237,10 +239,11 @@ function normalizeGroundingStatus(value: string | null | undefined): ChatGroundi
 }
 
 function mapMessageRow(row: MessageRow): ChatMessage {
+  const kind = normalizeMessageKind(row.kind, row.role);
   return {
     id: row.id,
     role: normalizeRole(row.role),
-    kind: normalizeMessageKind(row.kind, row.role),
+    kind,
     content: row.content,
     inputTokensEstimate: row.input_tokens_estimate,
     outputTokensEstimate: row.output_tokens_estimate,
@@ -265,6 +268,9 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     associatedToolTokens: row.associated_tool_tokens,
     thinkingContent: row.thinking_content,
     toolCallCommand: row.tool_call_command,
+    toolCallActivityKind: kind === 'assistant_tool_call'
+      ? ToolActivityKindSchema.parse(row.tool_call_activity_kind)
+      : undefined,
     toolCallTurn: row.tool_call_turn,
     toolCallMaxTurns: row.tool_call_max_turns,
     toolCallExitCode: row.tool_call_exit_code,
@@ -365,6 +371,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       associated_tool_tokens,
       thinking_content,
       tool_call_command,
+      tool_call_activity_kind,
       tool_call_turn,
       tool_call_max_turns,
       tool_call_exit_code,
@@ -666,6 +673,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         associated_tool_tokens,
         thinking_content,
         tool_call_command,
+        tool_call_activity_kind,
         tool_call_turn,
         tool_call_max_turns,
         tool_call_exit_code,
@@ -680,16 +688,17 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         image_meta,
         removed_image_count,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
+      const messageKind = normalizeMessageKind(message.kind, message.role);
       insertMessage.run(
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
         normalizeRole(message.role),
-        normalizeMessageKind(message.kind, message.role),
+        messageKind,
         typeof message.content === 'string' ? message.content : '',
         toNullableNonNegativeInteger(message.inputTokensEstimate) ?? estimateTokenCount(message.content),
         toNullableNonNegativeInteger(message.outputTokensEstimate) ?? estimateTokenCount(message.content),
@@ -714,6 +723,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         toNullableNonNegativeInteger(message.associatedToolTokens),
         typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
         typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
+        messageKind === 'assistant_tool_call'
+          ? ToolActivityKindSchema.parse(message.toolCallActivityKind)
+          : null,
         toNullableNonNegativeInteger(message.toolCallTurn),
         toNullableNonNegativeInteger(message.toolCallMaxTurns),
         toNullableInteger(message.toolCallExitCode),

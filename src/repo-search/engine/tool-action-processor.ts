@@ -38,6 +38,7 @@ import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishCon
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
 import { ImageRetentionPolicy } from '../../image-retention-policy.js';
 import { ProgressReporter } from './progress-reporter.js';
+import { getToolActivityKind } from '../tool-activity.js';
 import { buildReadPathKey } from './read-overlap.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
@@ -441,6 +442,7 @@ export class ToolActionProcessor {
     const { commands } = this.deps;
     commands.push({
       command: rejection.recordedCommand,
+      activityKind: 'command',
       turn,
       safe: false,
       reason: rejection.reason,
@@ -499,6 +501,7 @@ export class ToolActionProcessor {
     counters.invalidResponses += 1;
     commands.push({
       command: displayToolName,
+      activityKind: 'command',
       turn,
       safe: false,
       reason: 'invalid action',
@@ -599,7 +602,7 @@ export class ToolActionProcessor {
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.commandFailures += 1;
     commands.push({
-      command, turn, safe: false, reason, exitCode: null,
+      command, activityKind: getToolActivityKind(context.nativeCall), turn, safe: false, reason, exitCode: null,
       output: `Rejected: ${duplicateMessage}`,
     });
     this.logRejectedCommand({
@@ -778,11 +781,12 @@ export class ToolActionProcessor {
   ): Promise<ToolActionOutcome> {
     const { normalizedToolName } = context;
     const { counters, forcedFinish } = this.deps;
+    const activityKind = getToolActivityKind(context.nativeCall);
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
     this.deps.progress.toolStart(
-      progressToolCallId, turn, context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
+      progressToolCallId, turn, activityKind, context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
     );
     this.deps.logger?.write({
       kind: 'turn_command_start',
@@ -963,6 +967,7 @@ export class ToolActionProcessor {
       toolAction, normalizedToolName, fingerprint, normalizedKey,
       requestedCommand, executed, baseOutput, progressToolCallId, nativeExecution,
     } = context;
+    const activityKind = getToolActivityKind(context.nativeCall);
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
     const fittedOutcome = await this.fitToolResult(turn, context, state, promptTokens);
@@ -998,6 +1003,7 @@ export class ToolActionProcessor {
       progress.toolResult({
         toolCallId: progressToolCallId,
         turn,
+        activityKind,
         command: commandToRun,
         exitCode: executed.exitCode,
         outputSnippet: snippet,
@@ -1027,6 +1033,7 @@ export class ToolActionProcessor {
       : undefined;
     commands.push({
       command: commandToRun,
+      activityKind,
       turn,
       modelVisibleCommand: commandToRun,
       safe: true,

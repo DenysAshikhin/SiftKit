@@ -29,7 +29,7 @@ function makeWebSearchAction(query: string): AgentLoopToolAction {
 }
 
 function makeCommand(command: string, turn: number, safe = true, exitCode = 0): TaskCommand {
-  return { command, turn, safe, reason: null, exitCode, output: '' };
+  return { command, activityKind: 'command', turn, safe, reason: null, exitCode, output: '' };
 }
 
 test('turns 1-9 return null', () => {
@@ -222,7 +222,7 @@ test('marks entries failed for a missing exit code and for a non-zero exit code'
     10,
     [makeRunAction('killed'), makeRunAction('boom')],
     [
-      { command: 'killed', turn: 10, safe: true, reason: null, exitCode: null, output: '' },
+      { command: 'killed', activityKind: 'command', turn: 10, safe: true, reason: null, exitCode: null, output: '' },
       makeCommand('boom', 10, true, 2),
     ],
   );

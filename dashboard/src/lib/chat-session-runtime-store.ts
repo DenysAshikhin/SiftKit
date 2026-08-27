@@ -77,9 +77,7 @@ function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEv
     ...runtime,
     awaitingResponse: false,
     liveMessages: upsertLiveMessageInto(runtime.liveMessages, toolMessage),
-    liveToolPromptTokenCount: typeof toolEvent.promptTokenCount === 'number'
-      ? toolEvent.promptTokenCount
-      : runtime.liveToolPromptTokenCount,
+    liveToolPromptTokenCount: toolEvent.promptTokenCount,
   };
 }
 

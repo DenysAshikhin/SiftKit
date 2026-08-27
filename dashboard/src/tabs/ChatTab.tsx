@@ -379,7 +379,7 @@ export function ChatTab({
                 </article>
               ) : null}
               {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
-                if (turn.steps.length === 0 && turn.liveThinking.length === 0) {
+                if (turn.steps.length === 0 && turn.liveThinking.length === 0 && turn.recentTools.length === 0) {
                   const message = turn.main;
                   if (!message) { return null; }
                   return (
@@ -698,7 +698,6 @@ function renderMessageBody(
   chatBusy: boolean,
   onDeleteMessageImage: (messageId: string, imageIndex: number) => Promise<void>,
 ) {
-  const messageKind = normalizeMessageKind(message);
   const images = (
     <MessageImages
       key={`${sessionId}:${message.id}`}
@@ -711,13 +710,13 @@ function renderMessageBody(
       onDeleteImage={(imageIndex: number) => onDeleteMessageImage(message.id, imageIndex)}
     />
   );
-  if (messageKind === 'tool_image') {
+  if (message.kind === 'tool_image') {
     return images;
   }
-  if (messageKind === 'assistant_tool_call') {
+  if (message.kind === 'assistant_tool_call') {
     return <ToolCallCard message={message} />;
   }
-  if (messageKind === 'assistant_thinking') {
+  if (message.kind === 'assistant_thinking') {
     return <ThinkingBody message={message} isLive={isLive} />;
   }
   if (message.role === 'assistant') {
@@ -773,6 +772,10 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
     : aggregateTokens.exact
       ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
+  const latestTool = turn.recentTools[turn.recentTools.length - 1] ?? null;
+  const toolProgress = latestTool
+    ? `Turn ${latestTool.toolCallTurn} / ${latestTool.toolCallMaxTurns}`
+    : null;
   const renderTurnMessage = (message: ChatMessage, extraClass?: string) => (
     <MessageBubble
       key={message.id}
@@ -827,6 +830,17 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           <span className="turn-progress-text">{turn.progress.content}</span>
           <span className="turn-progress-meta">{formatDate(turn.progress.createdAtUtc)}</span>
         </div>
+      ) : null}
+      {turn.recentTools.length > 0 ? (
+        <section className="recent-activity" aria-label="Recent activity">
+          <div className="recent-activity-header">
+            <span>Recent activity</span>
+            {toolProgress ? <span className="recent-activity-meta">{toolProgress}</span> : null}
+          </div>
+          <div className="recent-activity-list">
+            {turn.recentTools.map((tool) => <ToolCallCard key={tool.id} message={tool} />)}
+          </div>
+        </section>
       ) : null}
       {turn.main ? renderTurnMessage(turn.main, 'turn-main') : null}
     </article>

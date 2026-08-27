@@ -337,10 +337,48 @@ test('selected session alone supplies errors and warnings', () => {
 test('a running tool message renders a ToolCallCard with spinner', () => {
   const store = buildDefaultStore('session-a')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
-    .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' } });
+    .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+      activityKind: 'search', command: 'rg x', promptTokenCount: 0,
+    } });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   assert.match(markup, /class="tcall"/);
   assert.match(markup, /class="sp"/);
+  assert.match(markup, /Searching code…/u);
+  assert.doesNotMatch(markup, /rg x/u);
+});
+
+test('live recent activity renders only the newest three tools with latest turn progress', () => {
+  let store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_RING' });
+  for (const [index, toolCallId] of ['t1', 't2', 't3', 't4'].entries()) {
+    store = store.apply({
+      kind: 'tool',
+      sessionId: SESSION_B.id,
+      toolEvent: index === 3
+        ? {
+            kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45,
+            activityKind: 'search', command: `rg marker-${index}`, promptTokenCount: 0,
+          }
+        : {
+            kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45,
+            activityKind: 'search', command: `rg marker-${index}`, promptTokenCount: 0,
+            exitCode: 0, outputSnippet: `result-${index}`, outputTokens: 0, outputTokensEstimated: false,
+          },
+    });
+  }
+  const markup = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.match(markup, /Recent activity/u);
+  assert.match(markup, /Turn 4 \/ 45/u);
+  assert.equal(markup.match(/class="tcall"/gu)?.length, 3);
+  assert.doesNotMatch(markup, /rg marker-0/u);
+  assert.match(markup, /rg marker-1/u);
+  assert.match(markup, /rg marker-2/u);
+  assert.doesNotMatch(markup, /rg marker-3/u);
+  assert.doesNotMatch(markup, /assistant tool/u, 'recent activity must use compact rows, not nested message bubbles');
 });
 
 test('selected context usage renders the warning context bar', () => {
@@ -614,15 +652,15 @@ test('a real compacting stream persists and immediately renders one boundary', a
           maxTurns: 1,
           availableModels: ['mock'],
           mockResponses: [
-            'COMPLETE COMPACTION SUMMARY',
-            '{"action":"finish","output":"fresh answer"}',
+            { content: 'COMPLETE COMPACTION SUMMARY' },
+            { content: '{"action":"finish","output":"fresh answer"}' },
           ],
         }),
       },
     );
     assert.equal(stream.statusCode, 200);
     const doneEvent = stream.events.find((event) => event.event === 'done');
-    assert.ok(doneEvent?.payload);
+    assert.ok(doneEvent?.payload, JSON.stringify(stream.events));
     const terminal = ChatSessionResponseSchema.parse(doneEvent.payload);
     const activeSummaries = terminal.session.messages.filter(
       (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
@@ -765,19 +803,24 @@ test('once the answer streams, the answer and the thinking both render', () => {
   assert.ok(html.includes('THINK_MARKER_ONE'), 'the thinking must remain visible once the answer arrives');
 });
 
-test('a live turn with a running tool call still renders the thinking that led to it', () => {
+test('a live turn with a running tool call renders recent activity and the thinking that led to it', () => {
   const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_TOOL' })
     .apply({
       kind: 'tool',
       sessionId: SESSION_B.id,
-      toolEvent: { kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, command: 'TOOL_MARKER' },
+      toolEvent: {
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        activityKind: 'command', command: 'TOOL_MARKER', promptTokenCount: 0,
+      },
     });
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
     sessionRuntimes: store.getAll(),
   });
-  assert.ok(html.includes('TOOL_MARKER'), 'the running tool call must render in the main slot');
+  assert.ok(html.includes('Recent activity'), 'the running tool call must render in recent activity');
+  assert.ok(html.includes('Running command…'), 'the running tool call must render a friendly label');
+  assert.ok(!html.includes('TOOL_MARKER'), 'the running tool call must not expose its raw command');
   assert.ok(html.includes('THINK_MARKER_TOOL'), 'the thinking that led to the tool call must render');
 });
 
@@ -787,7 +830,10 @@ test('a live progress note renders one status bar between the thinking stack and
     .apply({
       kind: 'tool',
       sessionId: SESSION_B.id,
-      toolEvent: { kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, command: 'TOOL_MARKER' },
+      toolEvent: {
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        activityKind: 'command', command: 'TOOL_MARKER', promptTokenCount: 0,
+      },
     })
     .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } });
   const html = render({
@@ -800,7 +846,7 @@ test('a live progress note renders one status bar between the thinking stack and
   assert.equal(html.match(/turn-progress-bar/gu)?.length, 1, 'exactly one progress bar renders');
   const stackIndex = html.indexOf('live-thinking-stack');
   const barIndex = html.indexOf('turn-progress-bar');
-  const mainIndex = html.indexOf('TOOL_MARKER');
-  assert.ok(stackIndex !== -1 && barIndex !== -1 && mainIndex !== -1, 'stack, bar, and main must all render');
-  assert.ok(stackIndex < barIndex && barIndex < mainIndex, 'bar renders after the thinking stack and before the main message');
+  const activityIndex = html.indexOf('Recent activity');
+  assert.ok(stackIndex !== -1 && barIndex !== -1 && activityIndex !== -1, 'stack, bar, and activity must all render');
+  assert.ok(stackIndex < barIndex && barIndex < activityIndex, 'bar renders after the thinking stack and before recent activity');
 });

@@ -1,18 +1,16 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
-import { ChatSessionResponseSchema, ChatStreamProgressSchema, ChatStreamTextDeltaSchema, type ChatSessionResponse, type ChatStreamProgress, type ChatStreamTextDelta } from '@siftkit/contracts';
+import {
+  ChatSessionResponseSchema,
+  ChatStreamProgressSchema,
+  ChatStreamTextDeltaSchema,
+  ChatStreamToolEventSchema,
+  type ChatSessionResponse,
+  type ChatStreamProgress,
+  type ChatStreamTextDelta,
+  type ChatStreamToolEvent,
+} from '@siftkit/contracts';
 
-export type ChatStreamToolEvent = {
-  kind: 'tool_start' | 'tool_result';
-  toolCallId: string;
-  turn: number;
-  maxTurns: number;
-  command: string;
-  exitCode?: number;
-  outputSnippet?: string;
-  outputTokens?: number;
-  outputTokensEstimated?: boolean;
-  promptTokenCount?: number;
-};
+export type { ChatStreamToolEvent } from '@siftkit/contracts';
 
 export type ChatStreamEvent =
   | { kind: 'thinking'; delta: ChatStreamTextDelta }
@@ -42,22 +40,6 @@ function isRecord(value: JsonValue): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function buildToolEvent(kind: 'tool_start' | 'tool_result', record: JsonObject): ChatStreamToolEvent {
-  const tool: ChatStreamToolEvent = {
-    kind,
-    toolCallId: String(record.toolCallId ?? ''),
-    turn: Number(record.turn ?? 0),
-    maxTurns: Number(record.maxTurns ?? 0),
-    command: String(record.command ?? ''),
-  };
-  if (typeof record.exitCode === 'number') tool.exitCode = record.exitCode;
-  if (typeof record.outputSnippet === 'string') tool.outputSnippet = record.outputSnippet;
-  if (typeof record.outputTokens === 'number') tool.outputTokens = record.outputTokens;
-  if (typeof record.outputTokensEstimated === 'boolean') tool.outputTokensEstimated = record.outputTokensEstimated;
-  if (typeof record.promptTokenCount === 'number') tool.promptTokenCount = record.promptTokenCount;
-  return tool;
-}
-
 export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
   const parsed = readPacket(packet);
   if (!parsed || !isRecord(parsed.data)) return null;
@@ -70,8 +52,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     case 'warning':
       return { kind: 'warning', text: String(record.warning ?? '') };
     case 'tool_start':
-    case 'tool_result':
-      return { kind: 'tool', tool: buildToolEvent(parsed.eventName, record) };
+    case 'tool_result': {
+      const result = ChatStreamToolEventSchema.safeParse({ kind: parsed.eventName, ...record });
+      return result.success ? { kind: 'tool', tool: result.data } : null;
+    }
     case 'progress': {
       const result = ChatStreamProgressSchema.safeParse(record);
       return result.success ? { kind: 'progress', progress: result.data } : null;
