@@ -623,4 +623,22 @@ export const MIGRATIONS: readonly Migration[] = [
       }
     },
   },
+  {
+    version: 53,
+    up: (database) => {
+      const hasOldName = tableHasColumn(database, 'chat_messages', 'tool_call_max_turns');
+      const hasNewName = tableHasColumn(database, 'chat_messages', 'tool_call_limit');
+      if (hasOldName && !hasNewName) {
+        database.exec('ALTER TABLE chat_messages RENAME COLUMN tool_call_max_turns TO tool_call_limit;');
+      } else if (hasOldName && hasNewName) {
+        database.exec(`
+          UPDATE chat_messages
+          SET tool_call_limit = coalesce(tool_call_limit, tool_call_max_turns);
+          ALTER TABLE chat_messages DROP COLUMN tool_call_max_turns;
+        `);
+      } else if (!hasNewName) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;');
+      }
+    },
+  },
 ];

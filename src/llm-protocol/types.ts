@@ -94,8 +94,17 @@ export type LlamaCppUsage = {
   speculativeGeneratedTokens?: number | null;
 };
 
-export type NormalizedLlamaCppChatResponse = {
+export type LiveContentClassification = 'undecided' | 'narration' | 'tool_control';
+
+export type LiveContentResult = {
+  /** Safe ordinary content. Kept as the provider-facing compatibility name for consumers. */
   text: string;
+  rawText: string;
+  narrationText: string;
+  classification: LiveContentClassification;
+};
+
+export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   reasoningText: string;
   toolCalls: LlamaCppToolCall[];
   usage: LlamaCppUsage;

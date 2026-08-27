@@ -1,6 +1,5 @@
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
-
-export type LiveContentClassification = 'undecided' | 'narration' | 'tool_control';
+import type { LiveContentClassification, LiveContentResult } from './types.js';
 
 export type LiveContentSnapshot = {
   classification: LiveContentClassification;
@@ -8,44 +7,56 @@ export type LiveContentSnapshot = {
   narrationText: string;
 };
 
+export function toLiveContentResult(snapshot: LiveContentSnapshot): LiveContentResult {
+  return { ...snapshot, text: snapshot.narrationText };
+}
+
+export function completeLiveContent(
+  rawText: string,
+  hasNativeToolCalls: boolean,
+  onContent?: (snapshot: LiveContentSnapshot) => void,
+): LiveContentResult {
+  const classifier = new LiveContentClassifier();
+  classifier.observeContent(rawText);
+  if (hasNativeToolCalls) classifier.observeNativeToolCall();
+  const snapshot = classifier.finish();
+  onContent?.(snapshot);
+  return toLiveContentResult(snapshot);
+}
+
 export class LiveContentClassifier {
   private readonly parser = new LlamaCppToolCallParser();
   private rawText = '';
-  private narrationText = '';
-  private toolControlSeen = false;
+  private nativeToolBoundary: number | null = null;
 
   observeContent(accumulatedContent: string): LiveContentSnapshot {
     this.rawText = accumulatedContent;
-    if (this.toolControlSeen) {
-      if (this.narrationText.startsWith(accumulatedContent)) this.narrationText = accumulatedContent;
-      return this.snapshot('tool_control');
+    if (this.nativeToolBoundary !== null) {
+      const visibleText = accumulatedContent.slice(0, this.nativeToolBoundary);
+      return this.snapshot('tool_control', this.parser.projectStreamText(visibleText).narrationText);
     }
     const projection = this.parser.projectStreamText(accumulatedContent);
-    this.narrationText = projection.narrationText;
-    if (projection.classification === 'tool_control') this.toolControlSeen = true;
-    return this.snapshot(projection.classification);
+    return this.snapshot(projection.classification, projection.narrationText);
   }
 
   observeNativeToolCall(): LiveContentSnapshot {
-    if (!this.toolControlSeen) {
-      this.narrationText = this.parser.projectStreamText(this.rawText).narrationText;
-      this.toolControlSeen = true;
-    }
-    return this.snapshot('tool_control');
+    this.nativeToolBoundary = this.rawText.length;
+    return this.snapshot('tool_control', this.parser.projectStreamText(this.rawText).narrationText);
   }
 
   finish(): LiveContentSnapshot {
-    if (this.toolControlSeen) return this.snapshot('tool_control');
     const projection = this.parser.projectStreamText(this.rawText);
-    if (projection.classification === 'undecided') {
-      this.narrationText = '';
-      return this.snapshot('undecided');
+    if (this.nativeToolBoundary !== null) {
+      const visibleText = this.rawText.slice(0, this.nativeToolBoundary);
+      return this.snapshot('tool_control', this.parser.projectStreamText(visibleText).narrationText);
     }
-    this.narrationText = projection.narrationText;
-    return this.snapshot(projection.classification);
+    if (projection.classification === 'undecided') {
+      return this.snapshot('undecided', '');
+    }
+    return this.snapshot(projection.classification, projection.narrationText);
   }
 
-  private snapshot(classification: LiveContentClassification): LiveContentSnapshot {
-    return { classification, rawText: this.rawText, narrationText: this.narrationText };
+  private snapshot(classification: LiveContentClassification, narrationText: string): LiveContentSnapshot {
+    return { classification, rawText: this.rawText, narrationText };
   }
 }

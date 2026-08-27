@@ -114,7 +114,7 @@ test('live provider retains the large prefix through two approvals and an exempt
 
   async function requestPlanner(label: string): Promise<ExecutingPlannerRequest> {
     const messages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
-    const executing = captureExecutingPlannerRequest(messages, thinking, tools);
+    const executing = captureExecutingPlannerRequest(messages, thinking, tools, slotId);
     const response = await requestRepoSearchPlannerProtocolAction({
       config,
       baseUrl,
@@ -156,7 +156,6 @@ test('live provider retains the large prefix through two approvals and an exempt
       baseUrl,
       model,
       transcriptMessages: transcript,
-      slotId,
       pendingMessages: [pending],
       question: buildApprovalVerdictQuestion({
         toolName: 'write',

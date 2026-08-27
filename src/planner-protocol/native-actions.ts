@@ -3,7 +3,7 @@ import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type Op
 import { ModelJson } from '../lib/model-json.js';
 import { z } from '../lib/zod.js';
 import { LlamaCppToolCallParser } from '../llm-protocol/tool-call-parser.js';
-import type { LlamaCppToolCall } from '../llm-protocol/types.js';
+import type { LiveContentClassification, LlamaCppToolCall } from '../llm-protocol/types.js';
 import type { PlannerToolDefinition } from './json-schema.js';
 
 export class NativePlannerResponseError extends Error {
@@ -27,6 +27,9 @@ export class NativePlannerToolCallError extends Error {
 
 export type NativePlannerResponse = {
   text: string;
+  rawText: string;
+  narrationText: string;
+  classification: LiveContentClassification;
   toolCalls: readonly LlamaCppToolCall[];
 };
 
@@ -171,15 +174,16 @@ export function parseNativePlannerActions(
   response: NativePlannerResponse,
   options: NativePlannerActionOptions,
 ): AgentLoopAction[] {
-  const content = response.text.trim();
-  const fallbackScan = response.toolCalls.length === 0 && content
-    ? new LlamaCppToolCallParser().scanFromText(content)
+  const content = response.narrationText.trim();
+  const rawContent = response.rawText.trim();
+  const fallbackScan = response.toolCalls.length === 0 && rawContent
+    ? new LlamaCppToolCallParser().scanFromText(rawContent)
     : null;
   const toolCalls = response.toolCalls.length > 0
     ? response.toolCalls
     : fallbackScan === null ? [] : fallbackScan.calls;
   if (toolCalls.length === 0) {
-    if (!content) {
+    if (!rawContent) {
       throw new NativePlannerResponseError('Planner returned neither content nor tool calls.');
     }
     if (fallbackScan !== null && fallbackScan.sawBareMarkup) {

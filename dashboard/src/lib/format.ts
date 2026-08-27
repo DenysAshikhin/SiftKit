@@ -3,6 +3,7 @@ import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
 import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.js';
 import { sumImageTokens } from '@siftkit/contracts';
 import type {
+  ChatMessage,
   ChatSession,
   DashboardConfig,
   RunDetailResponse,
@@ -77,7 +78,7 @@ function getKnownTokenComponent(tokenCount: number, estimated: boolean | undefin
   return tokenCount > 0 && estimated === false ? tokenCount : 0;
 }
 
-export function getMessageTokenCount(message: ChatSession['messages'][number]): number | null {
+export function getMessageTokenCount(message: ChatMessage): number | null {
   const inputTokens = readTokenComponent(message.inputTokensEstimate);
   const outputTokens = readTokenComponent(message.outputTokensEstimate);
   const thinkingTokens = readTokenComponent(message.thinkingTokens);
@@ -91,17 +92,17 @@ export function getMessageTokenCount(message: ChatSession['messages'][number]): 
   return inputTokens + outputTokens + thinkingTokens;
 }
 
-export function getMessageKnownTokenCount(message: ChatSession['messages'][number]): number {
+export function getMessageKnownTokenCount(message: ChatMessage): number {
   return getKnownTokenComponent(readTokenComponent(message.inputTokensEstimate), message.inputTokensEstimated)
     + getKnownTokenComponent(readTokenComponent(message.outputTokensEstimate), message.outputTokensEstimated)
     + getKnownTokenComponent(readTokenComponent(message.thinkingTokens), message.thinkingTokensEstimated);
 }
 
-export function getReplayDisplayTokenCount(message: ChatSession['messages'][number]): number | null {
+export function getReplayDisplayTokenCount(message: ChatMessage): number | null {
   return getMessageTokenCount(message);
 }
 
-export function formatMessageTokenLabel(message: ChatSession['messages'][number]): string {
+export function formatMessageTokenLabel(message: ChatMessage): string {
   const textTokens = getReplayDisplayTokenCount(message);
   const imageTokens = sumImageTokens(message.imageMeta);
   if (textTokens === 0 && imageTokens > 0) {
@@ -140,7 +141,7 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
-  const getPromptTokensForTurn = (message: ChatSession['messages'][number], previousMessage: ChatSession['messages'][number] | null): number | null => {
+  const getPromptTokensForTurn = (message: ChatMessage, previousMessage: ChatMessage | null): number | null => {
     if (Number.isFinite(message.promptEvalTokens) && Number(message.promptEvalTokens) >= 0) {
       return Number(message.promptEvalTokens);
     }

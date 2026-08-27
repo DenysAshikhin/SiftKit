@@ -226,6 +226,9 @@ export class SummaryPlannerTranscriptState {
 
 type SummaryPlannerProviderResponse = {
   text: string;
+  rawText: string;
+  narrationText: string;
+  classification: NormalizedLlamaCppChatResponse['classification'];
   reasoningText: string | null;
   toolCalls: LlamaCppToolCall[];
   inputTokens: number | null;
@@ -454,6 +457,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private toNormalizedResponse(response: SummaryPlannerProviderResponse): NormalizedLlamaCppChatResponse {
     return {
       text: response.text,
+      rawText: response.rawText,
+      narrationText: response.narrationText,
+      classification: response.classification,
       reasoningText: response.reasoningText || '',
       toolCalls: response.toolCalls,
       usage: {
@@ -552,6 +558,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       const providerDurationMs = Date.now() - startedAt;
       return {
         text: response.text,
+        rawText: response.rawText,
+        narrationText: response.narrationText,
+        classification: response.classification,
         reasoningText: response.reasoningText,
         toolCalls: response.toolCalls,
         inputTokens,

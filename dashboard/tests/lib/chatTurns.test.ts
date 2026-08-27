@@ -24,7 +24,7 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
       toolCallActivityKind: 'command',
       toolCallActivitySubject: { kind: 'none' },
       toolCallTurn: 1,
-      toolCallMaxTurns: 45,
+      toolCallLimit: 45,
       toolCallExitCode: null,
       toolCallStatus: 'done',
       ...candidate,
@@ -170,7 +170,7 @@ test('a live tool ring exposes only the newest three tools and drops older tools
     sourceRunId: null,
     toolCallStatus: index === ids.length - 1 ? 'running' : 'done',
     toolCallTurn: index + 1,
-    toolCallMaxTurns: 45,
+    toolCallLimit: 45,
   }));
   const turns = groupMessagesIntoTurns(messages, new Set(ids));
   assert.deepEqual(turns[0]?.recentActivities.map((group) => group.key), ['2:command', '3:command', '4:command']);
@@ -196,6 +196,7 @@ test('a live turn that is only thinking has no main and an empty steps list', ()
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['th1']);
   assert.deepEqual(turns[0].steps, []);
   assert.equal(turns[0].main, null);
+  assert.equal(turns[0].showRecentActivity, true);
 });
 
 test('once the live answer arrives thinking and tools move into Internal Logic', () => {
@@ -209,6 +210,7 @@ test('once the live answer arrives thinking and tools move into Internal Logic',
   assert.equal(turns[0].main?.id, 'ans');
   assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1', 'tc1']);
   assert.deepEqual(turns[0].recentActivities, []);
+  assert.equal(turns[0].showRecentActivity, false);
 });
 
 test('settled turns never populate liveThinking', () => {

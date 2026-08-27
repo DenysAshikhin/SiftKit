@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ChatSessionResponseSchema,
-  ChatMessageSchema,
+  LiveChatMessageSchema,
+  PersistedChatMessageSchema,
   ChatSessionSchema,
   ChatSessionBusyResponseSchema,
   ChatSessionOperationKindSchema,
@@ -15,8 +16,8 @@ const message = {
   createdAtUtc: '2026-01-01T00:00:00Z', sourceRunId: null,
 };
 
-test('ChatMessageSchema accepts a minimal user message', () => {
-  assert.deepEqual(ChatMessageSchema.parse(message), message);
+test('PersistedChatMessageSchema accepts a minimal user message', () => {
+  assert.deepEqual(PersistedChatMessageSchema.parse(message), message);
 });
 
 test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
@@ -30,30 +31,40 @@ test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
     toolCallActivityKind: 'read',
     toolCallActivitySubject: { kind: 'file', value: 'index.ts' },
     toolCallTurn: 1,
-    toolCallMaxTurns: 45,
+    toolCallLimit: 45,
     toolCallExitCode: null,
     toolCallStatus: 'running',
   };
 
-  assert.equal(ChatMessageSchema.parse(toolMessage).kind, 'assistant_tool_call');
-  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
-  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
-  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
-  assert.equal(ChatMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
+  assert.equal(PersistedChatMessageSchema.parse(toolMessage).kind, 'assistant_tool_call');
+  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
+  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
+  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
+  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
 });
 
-test('ChatMessageSchema rejects messages without a kind', () => {
+test('PersistedChatMessageSchema rejects messages without a kind', () => {
   const { kind: _kind, ...kindlessMessage } = message;
-  assert.equal(ChatMessageSchema.safeParse(kindlessMessage).success, false);
+  assert.equal(PersistedChatMessageSchema.safeParse(kindlessMessage).success, false);
 });
 
-test('ChatMessageSchema accepts a compaction summary row', () => {
+test('PersistedChatMessageSchema accepts a compaction summary row', () => {
   const summary = {
     ...message,
     id: 'm2', role: 'assistant', kind: 'compaction_summary', content: 'summary text',
     compressedIntoSummary: false,
   };
-  assert.equal(ChatMessageSchema.parse(summary).kind, 'compaction_summary');
+  assert.equal(PersistedChatMessageSchema.parse(summary).kind, 'compaction_summary');
+});
+
+test('assistant narration is live-only and cannot enter persisted sessions', () => {
+  const narration = { ...message, role: 'assistant', kind: 'assistant_narration', content: 'Inspecting files.' };
+  assert.equal(LiveChatMessageSchema.safeParse(narration).success, true);
+  assert.equal(PersistedChatMessageSchema.safeParse(narration).success, false);
+  assert.equal(ChatSessionSchema.safeParse({
+    id: 's1', title: 't', modelPresetId: 'preset-a', model: null, contextWindowTokens: 4096,
+    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration],
+  }).success, false);
 });
 
 test('ChatSessionSchema no longer carries a condensed summary', () => {

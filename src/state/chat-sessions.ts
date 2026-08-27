@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
-import { ImageMetadataSchema, ModelRuntimePresetSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import type { ImageMetadata, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import {
+  ImageMetadataSchema,
+  ModelRuntimePresetSchema,
+  PersistedChatMessageSchema,
+  ToolActivityKindSchema,
+  ToolActivitySubjectSchema,
+} from '@siftkit/contracts';
+import type { ImageMetadata, PersistedChatMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -15,9 +21,9 @@ import { parseJsonValueText } from '../lib/json.js';
 import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
-export type ChatMessageRole = 'user' | 'assistant';
-export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' | 'tool_image' | 'compaction_summary';
-export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
+export type ChatMessageRole = PersistedChatMessage['role'];
+export type ChatMessageKind = PersistedChatMessage['kind'];
+export type ChatGroundingStatus = NonNullable<PersistedChatMessage['groundingStatus']>;
 
 export class ChatMessageImageNotFoundError extends Error {
   constructor() {
@@ -26,51 +32,7 @@ export class ChatMessageImageNotFoundError extends Error {
   }
 }
 
-export type ChatMessage = {
-  id: string;
-  role: ChatMessageRole;
-  kind?: ChatMessageKind;
-  content: string;
-  inputTokensEstimate: number;
-  outputTokensEstimate: number;
-  thinkingTokens: number;
-  inputTokensEstimated?: boolean;
-  outputTokensEstimated?: boolean;
-  thinkingTokensEstimated?: boolean;
-  promptCacheTokens?: number | null;
-  promptEvalTokens?: number | null;
-  promptTokensPerSecond?: number | null;
-  generationTokensPerSecond?: number | null;
-  requestDurationMs?: number | null;
-  promptEvalDurationMs?: number | null;
-  generationDurationMs?: number | null;
-  requestStartedAtUtc?: string | null;
-  thinkingStartedAtUtc?: string | null;
-  thinkingEndedAtUtc?: string | null;
-  answerStartedAtUtc?: string | null;
-  answerEndedAtUtc?: string | null;
-  speculativeAcceptedTokens?: number | null;
-  speculativeGeneratedTokens?: number | null;
-  associatedToolTokens?: number | null;
-  thinkingContent?: string | null;
-  toolCallCommand?: string | null;
-  toolCallActivityKind?: ToolActivityKind;
-  toolCallActivitySubject?: ToolActivitySubject;
-  toolCallTurn?: number | null;
-  toolCallMaxTurns?: number | null;
-  toolCallExitCode?: number | null;
-  toolCallPromptTokenCount?: number | null;
-  toolCallOutputSnippet?: string | null;
-  toolCallOutput?: string | null;
-  createdAtUtc: string;
-  sourceRunId?: string | null;
-  compressedIntoSummary?: boolean;
-  groundingStatus?: ChatGroundingStatus | null;
-  images?: string[];
-  imageMeta?: ImageMetadata[];
-  /** Attachments deleted from this message after it was sent. */
-  removedImageCount?: number;
-};
+export type ChatMessage = PersistedChatMessage;
 
 export type ChatSession = {
   id: string;
@@ -137,7 +99,7 @@ const MessageRowSchema = z.object({
   tool_call_activity_subject_kind: z.string().nullable(),
   tool_call_activity_subject_value: z.string().nullable(),
   tool_call_turn: z.number().nullable(),
-  tool_call_max_turns: z.number().nullable(),
+  tool_call_limit: z.number().nullable(),
   tool_call_exit_code: z.number().nullable(),
   tool_call_prompt_token_count: z.number().nullable(),
   tool_call_output_snippet: z.string().nullable(),
@@ -243,7 +205,7 @@ function normalizeGroundingStatus(value: string | null | undefined): ChatGroundi
 
 function mapMessageRow(row: MessageRow): ChatMessage {
   const kind = normalizeMessageKind(row.kind, row.role);
-  return {
+  return PersistedChatMessageSchema.parse({
     id: row.id,
     role: normalizeRole(row.role),
     kind,
@@ -285,11 +247,12 @@ function mapMessageRow(row: MessageRow): ChatMessage {
       )
       : undefined,
     toolCallTurn: row.tool_call_turn,
-    toolCallMaxTurns: row.tool_call_max_turns,
+    toolCallLimit: row.tool_call_limit,
     toolCallExitCode: row.tool_call_exit_code,
     toolCallPromptTokenCount: row.tool_call_prompt_token_count,
     toolCallOutputSnippet: row.tool_call_output_snippet,
     toolCallOutput: row.tool_call_output,
+    toolCallStatus: kind === 'assistant_tool_call' ? 'done' : undefined,
     createdAtUtc: row.created_at_utc,
     sourceRunId: row.source_run_id,
     compressedIntoSummary: row.compressed_into_summary === 1,
@@ -299,7 +262,7 @@ function mapMessageRow(row: MessageRow): ChatMessage {
       ? []
       : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta)),
     removedImageCount: row.removed_image_count ?? 0,
-  };
+  });
 }
 
 function toNullableInteger(value: number | null | undefined): number | null {
@@ -388,7 +351,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       tool_call_activity_subject_kind,
       tool_call_activity_subject_value,
       tool_call_turn,
-      tool_call_max_turns,
+      tool_call_limit,
       tool_call_exit_code,
       tool_call_prompt_token_count,
       tool_call_output_snippet,
@@ -612,7 +575,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   const modelPresetJson = JSON.stringify(ModelRuntimePresetSchema.parse(session.modelPreset));
   const mode = normalizeMode(session.mode);
   const presetId = requirePresetId(session.presetId);
-  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const messages = z.array(PersistedChatMessageSchema).parse(session.messages ?? []);
 
   const database = getSessionDatabase(runtimeRoot);
   database.transaction(() => {
@@ -692,7 +655,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         tool_call_activity_subject_kind,
         tool_call_activity_subject_value,
         tool_call_turn,
-        tool_call_max_turns,
+        tool_call_limit,
         tool_call_exit_code,
         tool_call_prompt_token_count,
         tool_call_output_snippet,
@@ -751,7 +714,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
           ? activitySubject.value
           : null,
         toNullableNonNegativeInteger(message.toolCallTurn),
-        toNullableNonNegativeInteger(message.toolCallMaxTurns),
+        toNullableNonNegativeInteger(message.toolCallLimit),
         toNullableInteger(message.toolCallExitCode),
         toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
         typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,

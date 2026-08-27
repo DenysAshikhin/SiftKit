@@ -4,7 +4,7 @@ import {
   buildPlannerRequestPromptReserveText,
   requestContextCompactionSummary,
   type ChatMessage,
-  type PlannerThinkingFlags,
+  type CompactionCacheOrigin,
 } from '../planner-protocol.js';
 import { buildCompactionSummaryInstruction } from '../prompts.js';
 import { countTokensWithFallback, preflightPlannerPromptBudget } from '../prompt-budget.js';
@@ -41,6 +41,23 @@ export type CompactionOutcome = {
   promptEvalTokens: number | null;
 };
 
+export function writePromptCacheEpochReset(
+  logger: JsonLogger | null,
+  fields: {
+    taskId: string;
+    turn: number | null;
+    droppedMessageCount: number;
+  },
+): void {
+  logger?.write({
+    kind: 'prompt_cache_epoch_reset',
+    taskId: fields.taskId,
+    turn: fields.turn,
+    reason: 'context_compaction',
+    droppedMessageCount: fields.droppedMessageCount,
+  });
+}
+
 /** The assistant message the rebuilt transcript carries in place of the dropped history. */
 export function buildCompactionSummaryMessage(summaryText: string): ChatMessage {
   return { role: 'assistant', content: `${COMPACTION_SUMMARY_MARKER}\n${summaryText}` };
@@ -58,11 +75,9 @@ export class TranscriptCompactor {
     model: string;
     timeoutMs: number;
     totalContextTokens: number;
-    thinking: PlannerThinkingFlags;
     useEstimatedTokensOnly: boolean;
     mockResponses: MockPlannerResponseInput[] | undefined;
     tokenUsage: TokenUsageTracker;
-    slotId?: number;
     logger: JsonLogger | null;
     abortSignal: AbortSignal | undefined;
   }) {}
@@ -78,6 +93,7 @@ export class TranscriptCompactor {
     messages: readonly ChatMessage[];
     mockResponseIndex: number;
     retention: CompactionRetention;
+    cacheOrigin: CompactionCacheOrigin;
   }): Promise<CompactionOutcome> {
     const messages = [...input.messages];
     const systemMessage = String(messages[0]?.role || '') === 'system' ? messages[0] : null;
@@ -119,9 +135,12 @@ export class TranscriptCompactor {
    * error names the real counts rather than silently chunking the transcript.
    */
   private async resolveSummaryOutputTokens(
-    input: { taskId: string; turn: number | null },
+    input: { taskId: string; turn: number | null; cacheOrigin: CompactionCacheOrigin },
     summaryRequestMessages: ChatMessage[],
   ): Promise<number> {
+    const state = input.cacheOrigin.kind === 'planner'
+      ? input.cacheOrigin.executing
+      : input.cacheOrigin;
     const summaryOutputCeiling = clampToPresetMaxTokens(
       this.options.config,
       COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
@@ -130,15 +149,15 @@ export class TranscriptCompactor {
       config: this.options.config,
       model: this.options.model,
       messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
-      tools: [],
+      tools: state.tools,
       maxTokens: summaryOutputCeiling,
       responseSchema: null,
-      ...this.options.thinking,
+      ...state.flags,
     });
     const preflight = await preflightPlannerPromptBudget({
       config: this.tokenCountConfig,
       messages: summaryRequestMessages,
-      includeReasoningContent: this.options.thinking.reasoningContentEnabled,
+      includeReasoningContent: state.flags.reasoningContentEnabled,
       providerPromptReserveText,
       totalContextTokens: this.options.totalContextTokens,
       responseReserveTokens: 0,
@@ -169,7 +188,12 @@ export class TranscriptCompactor {
   }
 
   private async requestSummary(
-    input: { taskId: string; turn: number | null; mockResponseIndex: number },
+    input: {
+      taskId: string;
+      turn: number | null;
+      mockResponseIndex: number;
+      cacheOrigin: CompactionCacheOrigin;
+    },
     historyMessages: ChatMessage[],
     instruction: string,
     maxOutputTokens: number,
@@ -193,8 +217,7 @@ export class TranscriptCompactor {
           instruction,
           timeoutMs: this.options.timeoutMs,
           maxTokens: maxOutputTokens,
-          slotId: this.options.slotId,
-          ...this.options.thinking,
+          cacheOrigin: input.cacheOrigin,
           mockResponses: this.options.mockResponses,
           mockResponseIndex,
           abortSignal: this.options.abortSignal,

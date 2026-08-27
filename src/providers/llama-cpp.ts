@@ -15,6 +15,7 @@ import type {
   LlamaCppToolCall,
   LlamaCppToolDefinition,
   LlamaCppUsage,
+  LiveContentResult,
   NormalizedLlamaCppChatResponse,
 } from '../llm-protocol/types.js';
 import { LlamaCppToolDefinitionSchema } from '../llm-protocol/types.js';
@@ -48,8 +49,7 @@ export type LlamaCppTokenCountResult = {
   errorMessage: string | null;
 };
 
-export type LlamaCppGenerateResult = {
-  text: string;
+export type LlamaCppGenerateResult = LiveContentResult & {
   toolCalls: LlamaCppToolCall[];
   usage: LlamaCppUsage | null;
   reasoningText: string | null;
@@ -483,6 +483,9 @@ export async function generateLlamaCppChatResponse(options: {
 
   return {
     text,
+    rawText: response.rawText.trim(),
+    narrationText: response.narrationText.trim(),
+    classification: response.classification,
     toolCalls: response.toolCalls,
     usage,
     reasoningText: response.reasoningText.trim() || null,

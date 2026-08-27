@@ -6,18 +6,35 @@ const TOOL_CALL_CLOSE_TAG = '</tool_call>';
 const QWEN_TOOL_CALL_PATTERN = new RegExp(`${TOOL_CALL_OPEN_TAG}\\s*([\\s\\S]*?)\\s*${TOOL_CALL_CLOSE_TAG}`, 'gu');
 const QWEN_FUNCTION_PATTERN = /<function=([^>\s]+)>\s*([\s\S]*?)\s*<\/function>/u;
 const QWEN_PARAMETER_PATTERN = /<parameter=([^>\s]+)>\s*([\s\S]*?)\s*<\/parameter>/gu;
-/** Fenced blocks first so their backtick pairs cannot be consumed as inline code. */
-const MARKDOWN_CODE_REGION_PATTERN = /```[\s\S]*?```|`[^`\n]*`/gu;
-
 type CodeRegion = { start: number; end: number };
+type MarkdownCodeScan = { regions: CodeRegion[]; incompleteStart: number | null };
 
-function findMarkdownCodeRegions(text: string): CodeRegion[] {
+function scanMarkdownCode(text: string): MarkdownCodeScan {
   const regions: CodeRegion[] = [];
-  for (const match of text.matchAll(MARKDOWN_CODE_REGION_PATTERN)) {
-    if (typeof match.index !== 'number') continue;
-    regions.push({ start: match.index, end: match.index + match[0].length });
+  let index = 0;
+  while (index < text.length) {
+    const start = text.indexOf('`', index);
+    if (start < 0) break;
+    if (text.startsWith('```', start)) {
+      const close = text.indexOf('```', start + 3);
+      if (close < 0) return { regions, incompleteStart: start };
+      const end = close + 3;
+      regions.push({ start, end });
+      index = end;
+      continue;
+    }
+    const close = text.indexOf('`', start + 1);
+    const newline = text.indexOf('\n', start + 1);
+    if (close < 0 || (newline >= 0 && newline < close)) {
+      if (newline < 0) return { regions, incompleteStart: start };
+      index = newline + 1;
+      continue;
+    }
+    const end = close + 1;
+    regions.push({ start, end });
+    index = end;
   }
-  return regions;
+  return { regions, incompleteStart: null };
 }
 
 function isInsideCodeRegion(regions: readonly CodeRegion[], index: number): boolean {
@@ -117,7 +134,7 @@ export class LlamaCppToolCallParser {
    * stripping so parameter values containing backticks survive intact.
    */
   scanFromText(text: string): TextToolCallScan {
-    const codeRegions = findMarkdownCodeRegions(text);
+    const codeRegions = scanMarkdownCode(text).regions;
     const calls: LlamaCppToolCall[] = [];
     for (const blockMatch of text.matchAll(QWEN_TOOL_CALL_PATTERN)) {
       if (typeof blockMatch.index !== 'number' || isInsideCodeRegion(codeRegions, blockMatch.index)) continue;
@@ -141,8 +158,18 @@ export class LlamaCppToolCallParser {
 
   projectStreamText(text: string): TextToolCallProjection {
     if (!text) return { classification: 'undecided', narrationText: '' };
-    const codeRegions = findMarkdownCodeRegions(text);
+    const markdown = scanMarkdownCode(text);
+    const codeRegions = markdown.regions;
     const bareOpenTagIndex = findBareOpenTag(text, codeRegions);
+    if (markdown.incompleteStart !== null
+      && (bareOpenTagIndex < 0 || markdown.incompleteStart < bareOpenTagIndex)) {
+      const visiblePrefix = text.slice(0, markdown.incompleteStart);
+      const prefixLength = getTrailingOpenTagPrefixLength(visiblePrefix, codeRegions);
+      return {
+        classification: 'undecided',
+        narrationText: prefixLength > 0 ? visiblePrefix.slice(0, -prefixLength) : visiblePrefix,
+      };
+    }
     if (bareOpenTagIndex >= 0) {
       return {
         classification: 'tool_control',

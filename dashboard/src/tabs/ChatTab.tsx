@@ -380,7 +380,10 @@ export function ChatTab({
                 </article>
               ) : null}
               {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
-                if (turn.steps.length === 0 && turn.liveThinking.length === 0 && turn.recentActivities.length === 0) {
+                if (turn.steps.length === 0
+                  && turn.liveThinking.length === 0
+                  && turn.recentActivities.length === 0
+                  && !turn.showRecentActivity) {
                   const message = turn.main;
                   if (!message) { return null; }
                   return (
@@ -410,6 +413,14 @@ export function ChatTab({
                   />
                 );
               })}
+              {selectedRuntime?.awaitingResponse ? (
+                <section className="recent-activity" aria-label="Recent activity">
+                  <div className="recent-activity-header">
+                    <span>Recent activity</span>
+                  </div>
+                  <div className="recent-activity-list" />
+                </section>
+              ) : null}
             </div>
 
             {chatError ? (
@@ -775,7 +786,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
   const toolMessages = turn.messages.filter((message): message is ChatToolCallMessage => message.kind === 'assistant_tool_call');
   const latestTool = toolMessages[toolMessages.length - 1] ?? null;
-  const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallMaxTurns}` : null;
+  const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallLimit}` : null;
   const renderTurnMessage = (message: ChatMessage, extraClass?: string) => (
     <MessageBubble
       key={message.id}
@@ -823,7 +834,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           {turn.liveThinking.map((thinking) => renderTurnMessage(thinking))}
         </div>
       ) : null}
-      {turn.recentActivities.length > 0 ? (
+      {turn.showRecentActivity ? (
         <section className="recent-activity" aria-label="Recent activity">
           <div className="recent-activity-header">
             <span>Recent activity</span>

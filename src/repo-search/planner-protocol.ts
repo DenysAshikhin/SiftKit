@@ -3,7 +3,7 @@ import { getActiveInferenceBackend, getActiveModelPreset } from '../config/index
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
-import { LiveContentClassifier, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
+import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition } from '../llm-protocol/types.js';
 import { LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -15,10 +15,7 @@ import {
   retryProviderRequest,
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
-import {
-  buildFinishValidationJsonSchema,
-  buildLlamaJsonSchemaResponseFormat,
-} from '../providers/structured-output-schema.js';
+import { buildLlamaJsonSchemaResponseFormat } from '../providers/structured-output-schema.js';
 import { buildApprovalVerdictJsonSchema } from './approval-verdict.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
@@ -33,6 +30,9 @@ import {
 
 export type PlannerActionResponse = {
   text: string;
+  rawText: string;
+  narrationText: string;
+  classification: LiveContentSnapshot['classification'];
   thinkingText: string;
   toolCalls: LlamaCppToolCall[];
   mockExhausted: boolean;
@@ -45,11 +45,6 @@ export type PlannerActionResponse = {
   speculativeGeneratedTokens?: number | null;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
-};
-
-export type FinishValidationResult = {
-  verdict: 'pass' | 'fail';
-  reason: string;
 };
 
 export type ChatMessage = {
@@ -231,11 +226,45 @@ export type PlannerThinkingFlags = {
   preserveThinking: boolean;
 };
 
+/** Exact prompt-rendering state that a derived request must extend. */
+export type ExecutingPlannerRequest = {
+  readonly serializedMessageJson: readonly string[];
+  readonly flags: Readonly<PlannerThinkingFlags>;
+  readonly tools: readonly LlamaCppToolDefinition[];
+  readonly serializedToolsJson: string;
+  readonly slotId: number;
+};
+
+export type CompactionCacheOrigin =
+  | { readonly kind: 'planner'; readonly executing: ExecutingPlannerRequest }
+  | {
+      readonly kind: 'new_epoch';
+      readonly flags: Readonly<PlannerThinkingFlags>;
+      readonly tools: readonly LlamaCppToolDefinition[];
+      readonly slotId: number;
+    };
+
+/** Captures the same serialized values sent to the provider. */
+export function captureExecutingPlannerRequest(
+  serializedMessages: readonly LlamaCppChatMessage[],
+  flags: PlannerThinkingFlags,
+  tools: readonly LlamaCppToolDefinition[],
+  slotId: number,
+): ExecutingPlannerRequest {
+  const serializedToolsJson = JSON.stringify(tools);
+  return {
+    serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
+    flags: { ...flags },
+    tools: LlamaCppToolDefinitionsSchema.parse(parseJsonValueText(serializedToolsJson)),
+    serializedToolsJson,
+    slotId,
+  };
+}
+
 const reserveRequestBuilder = new InferenceRequestBuilder();
 
 export type PlannerRequestStage =
   | 'planner_action'
-  | 'finish_validation'
   | 'approval_verdict'
   | 'terminal_synthesis'
   | 'context_compaction';
@@ -304,7 +333,7 @@ export const PLANNER_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. Emit
   + 'If the task is unfinished, emit the next tool action and keep working on later turns — '
   + 'do not emit finish just because thinking was cut short.';
 
-export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
+type PlannerRequestBase = PlannerThinkingFlags & {
   /** The active preset in here is the sole source of the request's model and samplers. */
   config: SiftConfig;
   baseUrl: string;
@@ -325,11 +354,22 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  stage: PlannerRequestStage;
   tools: readonly LlamaCppToolDefinition[];
   toolChoice?: LlamaCppChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
 } & PlannerResponseConstraint;
+
+export type PlannerRootRequestOptions = PlannerRequestBase & {
+  stage: 'planner_action' | 'context_compaction';
+  cachePrefix?: never;
+};
+
+export type PlannerDerivedRequestOptions = PlannerRequestBase & {
+  stage: Exclude<PlannerRequestStage, 'planner_action'>;
+  cachePrefix: ExecutingPlannerRequest;
+};
+
+export type PlannerRequestOptions = PlannerRootRequestOptions | PlannerDerivedRequestOptions;
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
   const thinkingParts: string[] = [];
@@ -413,7 +453,42 @@ function logProviderRetry(options: {
   });
 }
 
+function assertPromptCacheExtension(options: PlannerDerivedRequestOptions): void {
+  const prefix = options.cachePrefix;
+  if (prefix.slotId !== options.slotId) {
+    throw new Error(
+      `${options.stage} prompt-cache contract violated: slot expected ${prefix.slotId}, received ${String(options.slotId)}`,
+    );
+  }
+  if (prefix.serializedToolsJson !== JSON.stringify(options.tools)) {
+    throw new Error(`${options.stage} prompt-cache contract violated: tools diverged`);
+  }
+  for (const key of ['thinkingEnabled', 'reasoningContentEnabled', 'preserveThinking'] as const) {
+    if (prefix.flags[key] !== Boolean(options[key])) {
+      throw new Error(`${options.stage} prompt-cache contract violated: ${key} diverged`);
+    }
+  }
+  if (prefix.serializedMessageJson.length > options.messages.length) {
+    throw new Error(`${options.stage} prompt-cache contract violated: derived prompt is shorter than its prefix`);
+  }
+  for (let index = 0; index < prefix.serializedMessageJson.length; index += 1) {
+    if (prefix.serializedMessageJson[index] !== JSON.stringify(options.messages[index])) {
+      throw new Error(`${options.stage} prompt-cache contract violated: message ${index} diverged`);
+    }
+  }
+}
+
 export async function requestRepoSearchPlannerProtocolAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
+  const requestStage = options.stage;
+  const cachePrefix = 'cachePrefix' in options ? options.cachePrefix : undefined;
+  if (cachePrefix) {
+    if (requestStage === 'planner_action') {
+      throw new Error('planner_action prompt-cache contract violated: root request received a cache prefix');
+    }
+    assertPromptCacheExtension({ ...options, stage: requestStage, cachePrefix });
+  } else if (requestStage !== 'planner_action' && requestStage !== 'context_compaction') {
+    throw new Error(`${requestStage} prompt-cache contract violated: cache prefix missing`);
+  }
   if (options.abortSignal?.aborted) {
     throw options.abortSignal.reason instanceof Error
       ? options.abortSignal.reason
@@ -422,7 +497,14 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 
   if (Array.isArray(options.mockResponses)) {
     const index = options.mockResponseIndex || 0;
-    if (index >= options.mockResponses.length) return { text: '', thinkingText: '', toolCalls: [], mockExhausted: true };
+    if (index >= options.mockResponses.length) {
+      return {
+        ...completeLiveContent('', false),
+        thinkingText: '',
+        toolCalls: [],
+        mockExhausted: true,
+      };
+    }
     const mock = parseMockPlannerResponse(options.mockResponses[index], index);
     const inline = !mock.thinking && mock.content.includes(THINK_OPEN_TAG)
       ? extractInlineThinking(mock.content)
@@ -430,14 +512,9 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     const text = inline?.text ?? mock.content;
     const thinkingText = inline?.thinkingText ?? mock.thinking;
     if (thinkingText) options.onThinkingDelta?.(thinkingText);
-    if (text) {
-      const classifier = new LiveContentClassifier();
-      classifier.observeContent(text);
-      if (mock.toolCalls.length > 0) classifier.observeNativeToolCall();
-      options.onContentDelta?.(classifier.finish());
-    }
+    const content = completeLiveContent(text, mock.toolCalls.length > 0, options.onContentDelta);
     return {
-      text,
+      ...content,
       thinkingText,
       toolCalls: mock.toolCalls,
       mockExhausted: false,
@@ -516,17 +593,27 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     ...(response.earlyStopReason ? { earlyTerminationReason: response.earlyStopReason } : {}),
   });
 
-  const inlineThinking = !response.reasoningText && response.text.includes(THINK_OPEN_TAG)
-    ? extractInlineThinking(response.text)
+  const inlineThinking = !response.reasoningText && response.rawText.includes(THINK_OPEN_TAG)
+    ? extractInlineThinking(response.rawText)
     : null;
-  const rawChoiceText = inlineThinking ? inlineThinking.text : response.text;
+  const rawChoiceText = inlineThinking ? inlineThinking.text : response.rawText;
   const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
-  const text = response.stoppedEarly && response.earlyStopReason
+  const effectiveRawText = response.stoppedEarly && response.earlyStopReason
     ? [`SiftKit stopped the planner stream early: ${response.earlyStopReason}.`, rawChoiceText.trim()].filter(Boolean).join('\n')
     : rawChoiceText;
+  const content = inlineThinking || effectiveRawText !== response.rawText
+    ? completeLiveContent(effectiveRawText, response.toolCalls.length > 0)
+    : {
+      text: response.text,
+      rawText: response.rawText,
+      narrationText: response.narrationText,
+      classification: response.classification,
+    };
 
   return {
-    text: text.trim(),
+    ...content,
+    text: content.text.trim(),
+    narrationText: content.narrationText.trim(),
     thinkingText,
     toolCalls: response.toolCalls,
     mockExhausted: false,
@@ -540,83 +627,11 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   };
 }
 
-export async function requestFinishValidation(options: Partial<PlannerThinkingFlags> & {
-  config: SiftConfig;
-  baseUrl: string;
-  model: string;
-  prompt: string;
-  timeoutMs: number;
-  maxTokens: number;
-  mockResponses?: MockPlannerResponseInput[];
-  mockResponseIndex?: number;
-  logger?: JsonLogger | null;
-}): Promise<PlannerActionResponse> {
-  return requestRepoSearchPlannerProtocolAction({
-    config: options.config,
-    baseUrl: options.baseUrl,
-    model: options.model,
-    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
-    timeoutMs: options.timeoutMs,
-    maxTokens: options.maxTokens,
-    thinkingEnabled: options.thinkingEnabled,
-    reasoningContentEnabled: options.reasoningContentEnabled,
-    preserveThinking: options.preserveThinking,
-    mockResponses: options.mockResponses,
-    mockResponseIndex: options.mockResponseIndex,
-    logger: options.logger,
-    stage: 'finish_validation',
-    responseSchema: buildFinishValidationJsonSchema(),
-    responseSchemaName: 'siftkit_finish_validation',
-    tools: [],
-  });
-}
-
 /**
  * Snapshot of the serialized prompt an in-flight planner request was sent with.
  * An approval verdict may only be requested as an extension of this prompt —
  * anything else re-prefills the whole context and breaks the prompt cache.
  */
-export type ExecutingPlannerRequest = {
-  serializedMessageJson: string[];
-  flags: PlannerThinkingFlags;
-  serializedToolsJson: string;
-};
-
-/**
- * Takes the very array the planner request is sent with, so the snapshot cannot
- * drift from the sent bytes even if the request layer changes.
- */
-export function captureExecutingPlannerRequest(
-  serializedMessages: readonly LlamaCppChatMessage[],
-  flags: PlannerThinkingFlags,
-  tools: readonly LlamaCppToolDefinition[],
-): ExecutingPlannerRequest {
-  return {
-    serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
-    flags,
-    serializedToolsJson: JSON.stringify(tools),
-  };
-}
-
-function assertExtendsExecutingPlannerRequest(
-  executing: ExecutingPlannerRequest,
-  serializedMessages: readonly LlamaCppChatMessage[],
-): void {
-  const prefix = executing.serializedMessageJson;
-  if (prefix.length > serializedMessages.length) {
-    throw new Error(
-      `approval_verdict prompt diverged from the executing planner request: the verdict prompt serializes to ${serializedMessages.length} messages but the executing request sent ${prefix.length}; prompt-cache prefix broken.`,
-    );
-  }
-  for (let index = 0; index < prefix.length; index += 1) {
-    if (prefix[index] !== JSON.stringify(serializedMessages[index])) {
-      throw new Error(
-        `approval_verdict prompt diverged from the executing planner request at message ${index}; prompt-cache prefix broken.`,
-      );
-    }
-  }
-}
-
 /** The verdict is a two-field JSON object; only mirrored thinking needs headroom before it. */
 const APPROVAL_VERDICT_MAX_TOKENS = 512;
 const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
@@ -630,6 +645,13 @@ export function buildApprovalVerdictPromptMessages(
   return [...transcriptMessages, ...pendingMessages, { role: 'user', content: question }];
 }
 
+export function appendPlannerInstruction(
+  history: readonly ChatMessage[],
+  instruction: string,
+): ChatMessage[] {
+  return [...history, { role: 'user', content: instruction }];
+}
+
 export async function requestApprovalVerdict(options: {
   config: SiftConfig;
   baseUrl: string;
@@ -638,7 +660,6 @@ export async function requestApprovalVerdict(options: {
   pendingMessages: ChatMessage[];
   question: string;
   executing: ExecutingPlannerRequest;
-  slotId?: number;
   timeoutMs: number;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
@@ -653,13 +674,12 @@ export async function requestApprovalVerdict(options: {
     ),
     options.executing.flags.reasoningContentEnabled,
   );
-  assertExtendsExecutingPlannerRequest(options.executing, serializedMessages);
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializedMessages,
-    slotId: options.slotId,
+    slotId: options.executing.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: clampToPresetMaxTokens(
       options.config,
@@ -675,21 +695,21 @@ export async function requestApprovalVerdict(options: {
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
     logger: options.logger,
+    cachePrefix: options.executing,
     stage: 'approval_verdict',
     responseSchema: buildApprovalVerdictJsonSchema(),
     responseSchemaName: 'siftkit_approval_verdict',
-    tools: LlamaCppToolDefinitionsSchema.parse(
-      parseJsonValueText(options.executing.serializedToolsJson),
-    ),
+    tools: options.executing.tools,
     toolChoice: 'none',
   });
 }
 
-export async function requestTerminalSynthesis(options: Partial<PlannerThinkingFlags> & {
+export async function requestTerminalSynthesis(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
-  prompt: string;
+  messages: readonly ChatMessage[];
+  executing: ExecutingPlannerRequest;
   timeoutMs: number;
   maxTokens: number;
   mockResponses?: MockPlannerResponseInput[];
@@ -701,44 +721,56 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
+    messages: serializeProtocolMessages(
+      options.messages,
+      options.executing.flags.reasoningContentEnabled,
+    ),
+    slotId: options.executing.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
-    thinkingEnabled: options.thinkingEnabled,
-    reasoningContentEnabled: options.reasoningContentEnabled,
-    preserveThinking: options.preserveThinking,
+    ...options.executing.flags,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     logger: options.logger,
+    cachePrefix: options.executing,
     stage: 'terminal_synthesis',
     responseSchema: null,
-    tools: [],
+    tools: options.executing.tools,
+    toolChoice: 'none',
     onContentDelta: options.onContentDelta,
   });
 }
 
-/**
- * The prefix-preserving compaction request: the completed history serialized unchanged,
- * with only the summary instruction appended, so the provider can reuse the prompt-cache
- * prefix the planner requests already established.
- */
-export function buildContextCompactionPromptMessages(
-  history: readonly ChatMessage[],
-  instruction: string,
-  reasoningContentEnabled: boolean,
-): LlamaCppChatMessage[] {
-  const messages: ChatMessage[] = [
-    ...history,
-    { role: 'user', content: instruction },
-  ];
-  return serializeProtocolMessages(messages, reasoningContentEnabled);
+function deriveCompactionBranch(
+  executing: ExecutingPlannerRequest,
+  serializedHistory: readonly LlamaCppChatMessage[],
+): ExecutingPlannerRequest {
+  const serializedMessageJson = serializedHistory.map((message) => JSON.stringify(message));
+  const sharedMessageCount = Math.min(
+    executing.serializedMessageJson.length,
+    serializedMessageJson.length,
+  );
+  if (sharedMessageCount === 0
+    && executing.serializedMessageJson.length > 0
+    && serializedMessageJson.length > 0) {
+    throw new Error('context_compaction prompt-cache branch violated: no shared messages');
+  }
+  for (let index = 0; index < sharedMessageCount; index += 1) {
+    if (executing.serializedMessageJson[index] !== serializedMessageJson[index]) {
+      throw new Error(`context_compaction prompt-cache branch violated: message ${index} diverged`);
+    }
+  }
+  return {
+    ...executing,
+    serializedMessageJson,
+  };
 }
 
 /**
  * The context-compaction summarization call. Free-form text with no tools and no
  * response schema: the output becomes an assistant message, not a planner action.
  */
-export async function requestContextCompactionSummary(options: Partial<PlannerThinkingFlags> & {
+export async function requestContextCompactionSummary(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
@@ -746,31 +778,49 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
   instruction: string;
   timeoutMs: number;
   maxTokens: number;
-  slotId?: number;
+  cacheOrigin: CompactionCacheOrigin;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
-  return requestRepoSearchPlannerProtocolAction({
+  const state = options.cacheOrigin.kind === 'planner'
+    ? options.cacheOrigin.executing
+    : options.cacheOrigin;
+  const flags: PlannerThinkingFlags = { ...state.flags };
+  const serializedHistory = serializeProtocolMessages(
+    options.messages,
+    flags.reasoningContentEnabled,
+  );
+  const serializedMessages = serializeProtocolMessages(
+    appendPlannerInstruction(options.messages, options.instruction),
+    flags.reasoningContentEnabled,
+  );
+  const request = {
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: buildContextCompactionPromptMessages(options.messages, options.instruction, options.reasoningContentEnabled === true),
-    slotId: options.slotId,
+    messages: serializedMessages,
+    slotId: state.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
-    thinkingEnabled: options.thinkingEnabled,
-    reasoningContentEnabled: options.reasoningContentEnabled,
-    preserveThinking: options.preserveThinking,
+    ...flags,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
     logger: options.logger,
     stage: 'context_compaction',
     responseSchema: null,
-    tools: [],
-  });
+    tools: state.tools,
+    toolChoice: 'none',
+  } as const;
+  if (options.cacheOrigin.kind === 'planner') {
+    return requestRepoSearchPlannerProtocolAction({
+      ...request,
+      cachePrefix: deriveCompactionBranch(options.cacheOrigin.executing, serializedHistory),
+    });
+  }
+  return requestRepoSearchPlannerProtocolAction(request);
 }
 
 export { isTransientProviderError } from '../lib/provider-helpers.js';

@@ -53,6 +53,9 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
   };
   const response: NormalizedLlamaCppChatResponse = {
     text: 'answer',
+    rawText: 'answer',
+    narrationText: 'answer',
+    classification: 'narration',
     reasoningText: 'thinking',
     toolCalls: message.tool_calls || [],
     usage: {

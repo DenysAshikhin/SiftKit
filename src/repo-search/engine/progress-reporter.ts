@@ -19,17 +19,20 @@ export class ProgressReporter {
   private readonly progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   private readonly taskId: string;
   private readonly maxTurns: number;
+  private readonly toolCallLimit: number;
   private readonly taskStartedAt: number;
 
   constructor(options: {
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     taskId: string;
     maxTurns: number;
+    toolCallLimit: number;
     taskStartedAt: number;
   }) {
     this.progressWriter = options.progressWriter;
     this.taskId = options.taskId;
     this.maxTurns = options.maxTurns;
+    this.toolCallLimit = options.toolCallLimit;
     this.taskStartedAt = options.taskStartedAt;
   }
 
@@ -113,7 +116,8 @@ export class ProgressReporter {
     thinkingTokenCount: number,
   ): void {
     this.emit({
-      kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, activityKind, activitySubject, command,
+      kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, toolCallLimit: this.toolCallLimit,
+      activityKind, activitySubject, command,
       promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs(),
     });
   }
@@ -131,7 +135,13 @@ export class ProgressReporter {
     promptTokenCount: number;
     thinkingTokenCount: number;
   }): void {
-    this.emit({ kind: 'tool_result', ...options, maxTurns: this.maxTurns, elapsedMs: this.elapsedMs() });
+    this.emit({
+      kind: 'tool_result',
+      ...options,
+      maxTurns: this.maxTurns,
+      toolCallLimit: this.toolCallLimit,
+      elapsedMs: this.elapsedMs(),
+    });
   }
 
   getMaxTurns(): number {

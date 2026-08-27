@@ -367,50 +367,14 @@ export function buildTaskInitialUserPrompt(question: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Finish-validation prompt
-// ---------------------------------------------------------------------------
-
-export function buildFinishValidationPrompt(options: {
-  question: string;
-  finalOutput: string;
-  evidenceText: string;
-}): string {
-  return [
-    'You are validating a repo-search answer against gathered evidence.',
-    'Return exactly one JSON object: {"verdict":"pass"|"fail","reason":"<short reason>"}',
-    'Question: is the answer valid? is the answer well supported/justified?',
-    '',
-    `Task: ${options.question}`,
-    `Proposed answer: ${options.finalOutput}`,
-    '',
-    'Evidence from tool calls and inserted results:',
-    options.evidenceText || '[none]',
-  ].join('\n');
-}
-
-// ---------------------------------------------------------------------------
 // Terminal synthesis prompt (for runs that exhaust turns)
 // ---------------------------------------------------------------------------
 
-export function buildTerminalSynthesisPrompt(options: {
-  question: string;
-  reason: string;
-  transcript: string;
-}): string {
-  const evidenceText = options.transcript.trim() || '[none]';
+export function buildTerminalSynthesisInstruction(reason: string): string {
   return [
-    'You are finalizing a repo-search run that terminated before finish validation passed.',
-    'Write a best-effort final answer from available evidence.',
-    'Rules:',
-    '- Be explicit about uncertainty.',
-    '- Include concrete file:line evidence when present.',
-    '- Keep it concise and directly answer the task question.',
-    '',
-    `Task: ${options.question}`,
-    `Termination reason: ${options.reason}`,
-    '',
-    'Evidence from tool calls and inserted results:',
-    evidenceText,
+    `The run stopped before producing a final answer (reason: ${reason}).`,
+    'Using only the evidence already present in this conversation, write the best-effort final answer now.',
+    'Be explicit about uncertainty, include concrete file:line evidence when present, and return only the answer.',
   ].join('\n');
 }
 

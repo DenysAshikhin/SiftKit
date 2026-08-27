@@ -30,6 +30,7 @@ const ChatStreamToolCommonFields = {
   toolCallId: z.string().trim().min(1),
   turn: z.number().int().positive(),
   maxTurns: z.number().int().positive(),
+  toolCallLimit: z.number().int().positive(),
   activityKind: ToolActivityKindSchema,
   activitySubject: ToolActivitySubjectSchema,
   command: z.string().trim().min(1),
@@ -65,11 +66,11 @@ const ChatMessageBaseSchema = z.object({
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
   associatedToolTokens: z.number().nullable().optional(), thinkingContent: z.string().nullable().optional(),
   toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
-  toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
+  toolCallLimit: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
-  createdAtUtc: z.string(), sourceRunId: z.string().nullable(), compressedIntoSummary: z.boolean().optional(),
+  createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
   imageMeta: z.array(ImageMetadataSchema).optional(),
   removedImageCount: z.number().int().nonnegative().optional(),
@@ -82,29 +83,39 @@ export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
   toolCallActivityKind: ToolActivityKindSchema,
   toolCallActivitySubject: ToolActivitySubjectSchema,
   toolCallTurn: z.number().int().positive(),
-  toolCallMaxTurns: z.number().int().positive(),
+  toolCallLimit: z.number().int().positive(),
   toolCallExitCode: z.number().int().nullable(),
   toolCallStatus: z.enum(['running', 'done']),
 });
 export type ChatToolCallMessage = z.infer<typeof ChatToolCallMessageSchema>;
 
-const ChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
+const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum([
     'user_text',
     'assistant_answer',
-    'assistant_narration',
     'assistant_thinking',
-    'assistant_progress',
     'tool_image',
     'compaction_summary',
   ]),
 });
 
-export const ChatMessageSchema = z.discriminatedUnion('kind', [
+const LiveOnlyChatMessageSchema = ChatMessageBaseSchema.extend({
+  role: z.literal('assistant'),
+  kind: z.enum(['assistant_narration', 'assistant_progress']),
+});
+
+export const PersistedChatMessageSchema = z.discriminatedUnion('kind', [
   ChatToolCallMessageSchema,
-  ChatNonToolMessageSchema,
+  PersistedChatNonToolMessageSchema,
 ]);
-export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+export type PersistedChatMessage = z.infer<typeof PersistedChatMessageSchema>;
+
+export const LiveChatMessageSchema = z.discriminatedUnion('kind', [
+  ChatToolCallMessageSchema,
+  PersistedChatNonToolMessageSchema,
+  LiveOnlyChatMessageSchema,
+]);
+export type LiveChatMessage = z.infer<typeof LiveChatMessageSchema>;
 
 export const ChatPromptContextSchema = z.object({
   id: z.string(), role: z.literal('system'), kind: z.literal('system_context'),
@@ -119,7 +130,7 @@ export const ChatSessionSchema = z.object({
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
-  messages: z.array(ChatMessageSchema), promptContext: ChatPromptContextSchema.optional(),
+  messages: z.array(PersistedChatMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
 

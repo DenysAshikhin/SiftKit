@@ -26,6 +26,7 @@ const controller: RepoSearchLoopController = {
   }),
   requestModelResponse: async () => ({ outcome: 'stop', data: null }),
   inspectModelResponse: () => null,
+  validateActions: (actions) => actions,
   handleInvalidResponse: async () => ({ outcome: 'stop' }),
   evaluateFinish: async () => ({ accepted: true, outcome: 'stop' }),
   executeTools: async () => ({ outcome: 'stop', results: [] }),
@@ -35,6 +36,9 @@ test('repo-search action adapter maps native narration, provider call ids, and f
   const adapter = new RepoSearchActionAdapter(resolveRepoSearchPlannerToolDefinitions(['grep']), controller);
   const tools = adapter.parseActions({
     text: 'Searching now.',
+    rawText: 'Searching now.',
+    narrationText: 'Searching now.',
+    classification: 'narration',
     reasoningText: 'thinking',
     toolCalls: [{
       id: 'provider-call-7',
@@ -48,6 +52,9 @@ test('repo-search action adapter maps native narration, provider call ids, and f
   });
   const finish = adapter.parseActions({
     text: 'done',
+    rawText: 'done',
+    narrationText: 'done',
+    classification: 'narration',
     reasoningText: '',
     toolCalls: [],
     usage,

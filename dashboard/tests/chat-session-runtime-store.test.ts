@@ -161,7 +161,7 @@ test('tool start demotes narration and answer promotes the same message identity
   const store = new ChatSessionRuntimeStore()
     .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Candidate draft' } })
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4,
+      kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4, toolCallLimit: 4,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 0,
     }});
   const demoted = store.get('s1').liveMessages.find((message) => message.id === 'assistant-narration-turn-2');
@@ -182,6 +182,7 @@ test('applyToolEvent appends running tool message on tool_start', () => {
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      toolCallLimit: 4,
       activityKind: 'search',
       activitySubject: { kind: 'none' },
       command: 'rg foo',
@@ -200,6 +201,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      toolCallLimit: 4,
       activityKind: 'search',
       activitySubject: { kind: 'none' },
       command: 'rg foo',
@@ -210,6 +212,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      toolCallLimit: 4,
       activityKind: 'search',
       activitySubject: { kind: 'none' },
       command: 'rg foo',
@@ -352,6 +355,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCo
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      toolCallLimit: 4,
       activityKind: 'search',
       activitySubject: { kind: 'none' },
       command: 'rg foo',
@@ -368,6 +372,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
+      toolCallLimit: 4,
       activityKind: 'search',
       activitySubject: { kind: 'none' },
       command: 'rg foo',
@@ -494,6 +499,7 @@ test('any streamed evidence ends the awaiting state, whatever arrives first', ()
     toolCallId: 'tc1',
     turn: 1,
     maxTurns: 4,
+    toolCallLimit: 4,
     activityKind: 'search',
     activitySubject: { kind: 'none' },
     command: 'rg foo',

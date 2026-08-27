@@ -51,7 +51,7 @@ function mockFetchStatus(status: number, bodyText: string): () => void {
 test('streamPlanMessage yields typed tool and done events in order', async () => {
   const { streamPlanMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
-    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"command":"x"}\n\n',
+    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"toolCallLimit":1,"activityKind":"command","activitySubject":{"kind":"none"},"command":"x","promptTokenCount":0}\n\n',
     `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
   ]);
   try {

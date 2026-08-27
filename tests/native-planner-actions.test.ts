@@ -3,13 +3,25 @@ import { test } from 'node:test';
 import type { AgentLoopFinishAction } from '../src/agent-loop/types.js';
 import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { LlamaCppToolCall } from '../src/llm-protocol/types.js';
+import { completeLiveContent } from '../src/llm-protocol/live-content-classifier.js';
 import { z } from '../src/lib/zod.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import {
   NativePlannerResponseError,
   NativePlannerToolCallError,
-  parseNativePlannerActions,
+  parseNativePlannerActions as parseNativePlannerActionsFromResult,
+  type NativePlannerActionOptions,
 } from '../src/planner-protocol/native-actions.js';
+
+function parseNativePlannerActions(
+  response: { text: string; toolCalls: LlamaCppToolCall[] },
+  options: NativePlannerActionOptions,
+) {
+  return parseNativePlannerActionsFromResult({
+    ...completeLiveContent(response.text, response.toolCalls.length > 0),
+    toolCalls: response.toolCalls,
+  }, options);
+}
 
 const GitStatusArgumentsSchema = z.strictObject({
   operation: z.literal('status'),

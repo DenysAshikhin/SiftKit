@@ -66,6 +66,39 @@ test('keeps literal tool syntax visible inside completed markdown code', () => {
   }
 });
 
+test('buffers an incomplete fenced code example and recovers when the fence closes', () => {
+  const classifier = new LiveContentClassifier();
+  const prefix = 'Example:\n';
+
+  assert.deepEqual(classifier.observeContent(`${prefix}\`\`\`xml\n<tool_call>`), {
+    classification: 'undecided',
+    rawText: `${prefix}\`\`\`xml\n<tool_call>`,
+    narrationText: prefix,
+  });
+
+  const complete = `${prefix}\`\`\`xml\n<tool_call>\n</tool_call>\n\`\`\``;
+  assert.deepEqual(classifier.observeContent(complete), {
+    classification: 'narration',
+    rawText: complete,
+    narrationText: complete,
+  });
+});
+
+test('buffers an incomplete inline-code example and recovers when it closes', () => {
+  const classifier = new LiveContentClassifier();
+
+  assert.deepEqual(classifier.observeContent('Syntax: `<tool_call>'), {
+    classification: 'undecided',
+    rawText: 'Syntax: `<tool_call>',
+    narrationText: 'Syntax: ',
+  });
+  assert.deepEqual(classifier.observeContent('Syntax: `<tool_call>` is literal.'), {
+    classification: 'narration',
+    rawText: 'Syntax: `<tool_call>` is literal.',
+    narrationText: 'Syntax: `<tool_call>` is literal.',
+  });
+});
+
 test('does not promote an incomplete control prefix when the response finishes', () => {
   const classifier = new LiveContentClassifier();
   classifier.observeContent('Visible draft <tool_call');

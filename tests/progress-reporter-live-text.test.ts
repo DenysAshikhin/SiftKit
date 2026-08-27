@@ -26,7 +26,7 @@ class StubWriter extends ProgressWriter<RepoSearchProgressEvent> {
 }
 
 function buildReporter(progressWriter: ProgressWriter<RepoSearchProgressEvent>): ProgressReporter {
-  return new ProgressReporter({ progressWriter, taskId: 'task', maxTurns: 5, taskStartedAt: Date.now() });
+  return new ProgressReporter({ progressWriter, taskId: 'task', maxTurns: 5, toolCallLimit: 5, taskStartedAt: Date.now() });
 }
 
 test('liveTextEnabled requires both an enabled writer and wantsLiveText', () => {

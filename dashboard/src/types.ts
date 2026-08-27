@@ -10,7 +10,12 @@ import type {
   PresetSurface,
   PresetToolName,
   IdleSummarySnapshotRow,
+  LiveChatMessage,
 } from '@siftkit/contracts';
+import { LiveChatMessageSchema } from '@siftkit/contracts';
+
+export const ChatMessageSchema = LiveChatMessageSchema;
+export type ChatMessage = LiveChatMessage;
 
 // Dashboard-local aliases over the shared contract types (no contract-name equivalent).
 export type DashboardLlamaCppConfig = RuntimeLlamaCppConfig;

@@ -61,10 +61,6 @@ export class TranscriptManager {
     return renderTaskTranscript(this.messages, { includeReasoningContent });
   }
 
-  renderTail(skipCount: number): string {
-    return renderTaskTranscript(this.messages.slice(skipCount), { includeReasoningContent: false });
-  }
-
   replaceWith(compactedMessages: ChatMessage[], currentTurnStartIndex: number | null): void {
     if (currentTurnStartIndex !== null
       && (!Number.isInteger(currentTurnStartIndex)

@@ -58,6 +58,9 @@ class RecordingBackend implements AssistantChatBackend {
     this.requests.push(options);
     return {
       text: this.responseText,
+      rawText: this.responseText,
+      narrationText: this.responseText,
+      classification: 'narration',
       reasoningText: '',
       toolCalls: [],
       usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 0 },

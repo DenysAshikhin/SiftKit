@@ -4,9 +4,9 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  ChatMessageSchema,
+  PersistedChatMessageSchema,
   ChatStreamTextDeltaSchema,
-  type ChatMessage as WireChatMessage,
+  type PersistedChatMessage as WireChatMessage,
   type ChatSession as WireChatSession,
   type ChatSessionResponse,
   type ChatSessionsResponse,
@@ -147,6 +147,7 @@ function forwardRepoSearchToolEvent(
       toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
+      toolCallLimit: event.toolCallLimit,
       activityKind: event.activityKind,
       activitySubject: event.activitySubject,
       command: event.command,
@@ -159,6 +160,7 @@ function forwardRepoSearchToolEvent(
       toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
+      toolCallLimit: event.toolCallLimit,
       activityKind: event.activityKind,
       activitySubject: event.activitySubject,
       command: event.command,
@@ -181,9 +183,9 @@ function withPromptContext(config: SiftConfig, session: ChatSession): ChatSessio
 function toWireChatMessage(message: PersistedChatMessage): WireChatMessage {
   const sourceRunId = message.sourceRunId ?? null;
   if (message.kind === 'assistant_tool_call') {
-    return ChatMessageSchema.parse({ ...message, sourceRunId, toolCallStatus: 'done' });
+    return PersistedChatMessageSchema.parse({ ...message, sourceRunId, toolCallStatus: 'done' });
   }
-  return ChatMessageSchema.parse({ ...message, sourceRunId });
+  return PersistedChatMessageSchema.parse({ ...message, sourceRunId });
 }
 
 function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSession {

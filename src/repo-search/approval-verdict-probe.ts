@@ -98,7 +98,7 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     question: string,
     tools: readonly LlamaCppToolDefinition[],
   ): Promise<PlannerActionResponse> {
-    const { thinking, ...request } = this.options;
+    const { thinking, slotId, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
       transcriptMessages: messages,
@@ -110,6 +110,7 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
         serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
         thinking,
         tools,
+        slotId,
       ),
       logger: null,
     });

@@ -49,10 +49,3 @@ test('ModelJson rejects invalid summary shape after repair', () => {
     /invalid SiftKit decision classification/u,
   );
 });
-
-test('ModelJson parses finish-validation responses', () => {
-  assert.deepEqual(
-    ModelJson.parseRepoSearchFinishValidation('{"verdict":"pass","reason":"grounded"}'),
-    { verdict: 'pass', reason: 'grounded' },
-  );
-});

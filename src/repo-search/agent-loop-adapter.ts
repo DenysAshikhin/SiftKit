@@ -21,6 +21,7 @@ export interface RepoSearchLoopController {
   prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn>;
   requestModelResponse(context: AgentLoopResponseContext['preparedTurn']): Promise<AgentLoopModelResponse>;
   inspectModelResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null;
+  validateActions(actions: AgentLoopAction[]): AgentLoopAction[];
   handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult>;
   evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation>;
   executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution>;
@@ -49,7 +50,9 @@ export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
   ) {}
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
-    return this.parser.parseRepoSearchActions(response, this.toolDefinitions);
+    return this.controller.validateActions(
+      this.parser.parseRepoSearchActions(response, this.toolDefinitions),
+    );
   }
 
   inspectResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null {

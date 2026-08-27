@@ -1,62 +1,68 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import type { ImageDataUrl, ImageMetadata, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
-import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
+import { ChatGroundingStatusSchema, type ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
-export type RepoSearchCommandResult = {
-  turn: number | null;
-  command: string;
-  activityKind: ToolActivityKind;
-  activitySubject: ToolActivitySubject;
-  displayCommand: string;
-  output: string;
-  outputSnippet: string;
-  exitCode: number | null;
-  outputTokens: number | null;
-  outputTokensEstimated: boolean;
-  promptTokenCount: number | null;
-  imageDataUrls: ImageDataUrl[];
-  imageMeta: ImageMetadata[];
-};
+export const RepoSearchCommandResultSchema = z.strictObject({
+  turn: z.number().int().nonnegative().nullable(),
+  command: z.string(),
+  activityKind: ToolActivityKindSchema,
+  activitySubject: ToolActivitySubjectSchema,
+  displayCommand: z.string(),
+  output: z.string(),
+  outputSnippet: z.string(),
+  exitCode: z.number().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
+  outputTokensEstimated: z.boolean(),
+  promptTokenCount: z.number().int().nonnegative().nullable(),
+  imageDataUrls: z.array(ImageDataUrlSchema),
+  imageMeta: z.array(ImageMetadataSchema),
+});
+export type RepoSearchCommandResult = z.infer<typeof RepoSearchCommandResultSchema>;
 
-export type RepoSearchTaskResult = {
-  finalOutput: string;
+const TurnThinkingSchema = z.record(z.string(), z.string());
+
+export const RepoSearchTaskResultSchema = z.strictObject({
+  finalOutput: z.string(),
   /** Raw summary text from the run's last compaction; empty when the run never compacted. */
-  compactionSummary: string;
-  turnsUsed: number | null;
-  groundingStatus: ChatGroundingStatus | null;
-  commands: RepoSearchCommandResult[];
-  turnThinking: { readonly [turn: string]: string };
-  missingSignals: string[];
-};
+  compactionSummary: z.string(),
+  turnsUsed: z.number().int().nonnegative().nullable(),
+  groundingStatus: ChatGroundingStatusSchema.nullable(),
+  commands: z.array(RepoSearchCommandResultSchema),
+  turnThinking: TurnThinkingSchema,
+  missingSignals: z.array(z.string()),
+});
+export type RepoSearchTaskResult = z.infer<typeof RepoSearchTaskResultSchema>;
 
-export type RepoSearchTotals = {
-  promptTokens: number | null;
-  outputTokens: number | null;
-  thinkingTokens: number | null;
-  promptCacheTokens: number | null;
-  promptEvalTokens: number | null;
-  promptEvalDurationMs: number | null;
-  generationDurationMs: number | null;
-  speculativeAcceptedTokens: number | null;
-  speculativeGeneratedTokens: number | null;
-  outputTokensEstimatedCount: number | null;
-  thinkingTokensEstimatedCount: number | null;
-};
+export const RepoSearchTotalsSchema = z.strictObject({
+  promptTokens: z.number().nonnegative().nullable(),
+  outputTokens: z.number().nonnegative().nullable(),
+  thinkingTokens: z.number().nonnegative().nullable(),
+  promptCacheTokens: z.number().nonnegative().nullable(),
+  promptEvalTokens: z.number().nonnegative().nullable(),
+  promptEvalDurationMs: z.number().nonnegative().nullable(),
+  generationDurationMs: z.number().nonnegative().nullable(),
+  speculativeAcceptedTokens: z.number().nonnegative().nullable(),
+  speculativeGeneratedTokens: z.number().nonnegative().nullable(),
+  outputTokensEstimatedCount: z.number().nonnegative().nullable(),
+  thinkingTokensEstimatedCount: z.number().nonnegative().nullable(),
+});
+export type RepoSearchTotals = z.infer<typeof RepoSearchTotalsSchema>;
 
-export type RepoSearchScorecard = {
-  totals: RepoSearchTotals;
-  tasks: RepoSearchTaskResult[];
-};
+export const RepoSearchScorecardSchema = z.strictObject({
+  totals: RepoSearchTotalsSchema,
+  tasks: z.array(RepoSearchTaskResultSchema),
+});
+export type RepoSearchScorecard = z.infer<typeof RepoSearchScorecardSchema>;
 
-export type RepoSearchResult = {
-  requestId: string;
-  transcriptPath: string;
-  artifactPath: string;
-  scorecard: RepoSearchScorecard;
-};
+export const RepoSearchResultSchema = z.strictObject({
+  requestId: z.string(),
+  transcriptPath: z.string(),
+  artifactPath: z.string(),
+  scorecard: RepoSearchScorecardSchema,
+});
+export type RepoSearchResult = z.infer<typeof RepoSearchResultSchema>;
 
 function normalizeGroundingStatus(value: OptionalJsonValue): ChatGroundingStatus | null {
   return value === 'ungrounded' || value === 'snippet_only' || value === 'fetched' ? value : null;
@@ -70,7 +76,7 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
   const reader = JsonRecordReader.fromJsonValue(value);
   const imageDataUrlsValue = reader.value('imageDataUrls');
   const imageMetaValue = reader.value('imageMeta');
-  return {
+  return RepoSearchCommandResultSchema.parse({
     turn: reader.nullableNonNegativeInteger('turn'),
     command: reader.string('command'),
     activityKind: ToolActivityKindSchema.parse(reader.value('activityKind')),
@@ -88,7 +94,7 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
     imageMeta: imageMetaValue === undefined
       ? []
       : z.array(ImageMetadataSchema).parse(imageMetaValue),
-  };
+  });
 }
 
 function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
@@ -102,7 +108,7 @@ function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
       turnThinking[turn] = thinking;
     }
   }
-  return {
+  return RepoSearchTaskResultSchema.parse({
     finalOutput: reader.string('finalOutput'),
     compactionSummary: reader.string('compactionSummary'),
     turnsUsed: reader.nullableNonNegativeInteger('turnsUsed'),
@@ -112,12 +118,12 @@ function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
     missingSignals: Array.isArray(missingSignalsRaw)
       ? missingSignalsRaw.map((entry) => String(entry)).filter((entry) => entry.length > 0)
       : [],
-  };
+  });
 }
 
 function normalizeTotals(value: OptionalJsonValue): RepoSearchTotals {
   const reader = JsonRecordReader.fromJsonValue(value);
-  return {
+  return RepoSearchTotalsSchema.parse({
     promptTokens: readNullableNumber(reader, 'promptTokens'),
     outputTokens: readNullableNumber(reader, 'outputTokens'),
     thinkingTokens: readNullableNumber(reader, 'thinkingTokens'),
@@ -129,26 +135,26 @@ function normalizeTotals(value: OptionalJsonValue): RepoSearchTotals {
     speculativeGeneratedTokens: readNullableNumber(reader, 'speculativeGeneratedTokens'),
     outputTokensEstimatedCount: readNullableNumber(reader, 'outputTokensEstimatedCount'),
     thinkingTokensEstimatedCount: readNullableNumber(reader, 'thinkingTokensEstimatedCount'),
-  };
+  });
 }
 
 export function normalizeRepoSearchScorecard(value: OptionalJsonValue): RepoSearchScorecard {
   const reader = JsonRecordReader.fromJsonValue(value);
   const tasksRaw = reader.value('tasks');
-  return {
+  return RepoSearchScorecardSchema.parse({
     totals: normalizeTotals(reader.value('totals')),
     tasks: Array.isArray(tasksRaw) ? tasksRaw.map((entry) => normalizeTask(entry)) : [],
-  };
+  });
 }
 
 export function normalizeRepoSearchResult(value: OptionalJsonValue): RepoSearchResult {
   const reader = JsonRecordReader.fromJsonValue(value);
-  return {
+  return RepoSearchResultSchema.parse({
     requestId: reader.string('requestId'),
     transcriptPath: reader.string('transcriptPath'),
     artifactPath: reader.string('artifactPath'),
     scorecard: normalizeRepoSearchScorecard(reader.value('scorecard')),
-  };
+  });
 }
 
 export function getRepoSearchTasks(scorecard: RepoSearchScorecard): RepoSearchTaskResult[] {

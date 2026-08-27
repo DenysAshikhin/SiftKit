@@ -1,7 +1,6 @@
 import { jsonrepair } from 'jsonrepair';
 
 import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.js';
-import type { FinishValidationResult } from '../repo-search/planner-protocol.js';
 import type { StructuredModelDecision } from '../summary/types.js';
 import { getErrorMessage } from './errors.js';
 import { JsonRecordReader } from './json-record-reader.js';
@@ -29,11 +28,6 @@ export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
     const parsed = this.parseModelObject(text, 'SiftKit decision').value;
     return this.validateSummaryDecision(parsed);
-  }
-
-  static parseRepoSearchFinishValidation(text: string): FinishValidationResult {
-    const parsed = this.parseModelObject(text, 'finish validation').value;
-    return this.validateFinishValidation(parsed);
   }
 
   static parseToolArguments(value: OptionalJsonValue): JsonObject | null {
@@ -186,18 +180,6 @@ export class ModelJson {
       rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
       output,
     };
-  }
-
-  private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {
-    const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
-    if (verdict !== 'pass' && verdict !== 'fail') {
-      throw new Error('Provider returned an invalid finish validation payload.');
-    }
-    const reason = typeof parsed.reason === 'string' ? parsed.reason.trim() : '';
-    if (!reason) {
-      throw new Error('Provider returned an invalid finish validation payload.');
-    }
-    return { verdict, reason };
   }
 
   private static getClassification(value?: JsonValue) {

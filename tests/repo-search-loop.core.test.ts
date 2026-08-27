@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { asObject, asArray, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 
 import {
@@ -1385,15 +1385,16 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
 
 test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', async () => {
   const chatRequests: JsonObject[] = [];
+  const terminalPromptTokenCounts: number[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       let body = '';
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        const parsed = JSON.parse(body || '{}');
+        const parsed = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
         chatRequests.push(parsed);
-        const isTerminalSynthesis = !Array.isArray(parsed.tools) || parsed.tools.length === 0;
+        const isTerminalSynthesis = parsed.tool_choice === 'none' && chatRequests.length > 1;
         sendChatCompletionSse(res, {
           choices: [{
             message: {
@@ -1439,19 +1440,40 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
+        logger: {
+          path: 'test',
+          write(event) {
+            if (event.kind === 'task_terminal_synthesis_requested' && Number.isFinite(event.promptTokenCount)) {
+              terminalPromptTokenCounts.push(Number(event.promptTokenCount));
+            }
+          },
+        },
       }
     );
 
     assert.equal(result.reason, 'invalid_response_limit');
     assert.equal(result.finalOutput, 'best-effort answer');
     assert.equal(chatRequests.length, 2);
-    const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
+    const plannerRequest = asObject(chatRequests[0]);
+    const terminalRequest = asObject(chatRequests[1]);
+    const plannerMessages = asObjectArray(plannerRequest.messages);
+    const terminalMessages = asObjectArray(terminalRequest.messages);
+    assert.deepEqual(terminalMessages.slice(0, plannerMessages.length), plannerMessages);
+    assert.ok(terminalMessages.length > plannerMessages.length);
+    assert.equal(asObject(terminalMessages[terminalMessages.length - 1]).role, 'user');
+    assert.equal(asObject(terminalMessages[0]).role, 'system');
+    assert.equal(asObject(terminalMessages[1]).role, 'user');
+    assert.equal(terminalRequest.id_slot, plannerRequest.id_slot);
+    assert.deepEqual(terminalRequest.tools, plannerRequest.tools);
+    assert.equal(terminalRequest.tool_choice, 'none');
+    assert.equal(terminalRequest.cache_prompt, true);
+    assert.equal(terminalPromptTokenCounts.length, 1);
     assert.equal(
-      Number(chatRequests[1].max_tokens),
+      Number(terminalRequest.max_tokens),
       getDynamicMaxOutputTokens({
         config,
         totalContextTokens: 14000,
-        promptTokenCount: estimateTokenCount(config, synthesisPrompt),
+        promptTokenCount: terminalPromptTokenCounts[0],
       })
     );
   } finally {
@@ -1469,7 +1491,7 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
       req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
-        const isTerminalSynthesis = !Array.isArray(parsed.tools) || parsed.tools.length === 0;
+        const isTerminalSynthesis = parsed.tool_choice === 'none' && chatRequests.length > 1;
         sendChatCompletionSse(res, {
           choices: [{
             message: {

@@ -166,7 +166,7 @@ test('llama streaming client does not reinterpret JSON in reasoning as an action
   assert.equal(response.earlyStopReason, undefined);
 });
 
-test('llama streaming client retains malformed control text for planner rejection', async () => {
+test('llama streaming client separates malformed raw control text from safe narration', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { content: 'Visible prefix <tool_call><function=>broken' } }] },
   ]);
@@ -180,7 +180,10 @@ test('llama streaming client retains malformed control text for planner rejectio
     allowedToolNames: [],
   });
 
-  assert.equal(response.text, 'Visible prefix <tool_call><function=>broken');
+  assert.equal(response.text, 'Visible prefix ');
+  assert.equal(response.narrationText, 'Visible prefix ');
+  assert.equal(response.rawText, 'Visible prefix <tool_call><function=>broken');
+  assert.equal(response.classification, 'tool_control');
   assert.deepEqual(response.toolCalls, []);
 });
 

@@ -41,6 +41,7 @@ function captureExecuting(messages: ChatMessage[], flags: PlannerThinkingFlags =
     serializeProtocolMessages(messages, flags.reasoningContentEnabled),
     flags,
     toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
+    2,
   );
 }
 
@@ -115,7 +116,7 @@ test('verdict fails loud when a transcript message diverges from the executing p
   ));
   await assert.rejects(
     requestApprovalVerdict(verdictOptions(rewritten, captureExecuting(transcript))),
-    /diverged[\s\S]*message 1/u,
+    /(?:diverged at message 1|message 1 diverged)/u,
   );
 });
 

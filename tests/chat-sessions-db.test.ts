@@ -28,9 +28,10 @@ const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
 const COMPACTION_FIXTURE_TIMESTAMP = '2026-08-20T00:00:00.000Z';
 
-function compactionMessage(overrides: Partial<ChatMessage> & { id: string }): ChatMessage {
+type NonToolChatMessage = Exclude<ChatMessage, { kind: 'assistant_tool_call' }>;
+
+function compactionMessage(overrides: Partial<NonToolChatMessage> & { id: string }): ChatMessage {
   return {
-    role: 'assistant',
     content: '',
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
@@ -38,6 +39,8 @@ function compactionMessage(overrides: Partial<ChatMessage> & { id: string }): Ch
     createdAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
     sourceRunId: null,
     ...overrides,
+    role: overrides.role ?? 'assistant',
+    kind: overrides.kind ?? 'assistant_answer',
   };
 }
 
@@ -115,6 +118,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
       messages: [{
         id: 'm1',
         role: 'user',
+        kind: 'user_text',
         content: 'hello',
         inputTokensEstimate: 1,
         outputTokensEstimate: 0,
@@ -419,11 +423,12 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
         toolCallActivityKind: 'search',
         toolCallActivitySubject: { kind: 'none' },
         toolCallTurn: 2,
-        toolCallMaxTurns: 5,
+        toolCallLimit: 5,
         toolCallExitCode: 0,
         toolCallPromptTokenCount: 44,
         toolCallOutputSnippet: 'src/chat.ts:1:timeline',
         toolCallOutput: 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble',
+        toolCallStatus: 'done',
         createdAtUtc: new Date().toISOString(),
         sourceRunId: 'run-tool',
       }],
@@ -435,7 +440,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     assert.equal(message?.toolCallCommand, 'rg -n "timeline" .');
     assert.equal(message?.toolCallActivityKind, 'search');
     assert.equal(message?.toolCallTurn, 2);
-    assert.equal(message?.toolCallMaxTurns, 5);
+    assert.equal(message?.toolCallLimit, 5);
     assert.equal(message?.toolCallExitCode, 0);
     assert.equal(message?.toolCallPromptTokenCount, 44);
     assert.equal(message?.toolCallOutputSnippet, 'src/chat.ts:1:timeline');
@@ -488,8 +493,9 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         toolCallCommand: 'rg -n Dict src',
         toolCallActivityKind: 'search',
         toolCallActivitySubject: { kind: 'file', value: 'Dict.ts' },
+        toolCallStatus: 'done',
         toolCallTurn: 1,
-        toolCallMaxTurns: 2,
+        toolCallLimit: 2,
         toolCallExitCode: 0,
         toolCallPromptTokenCount: 11,
         toolCallOutputSnippet: 'snippet',
@@ -734,6 +740,16 @@ test('manual condense reports the summarizer retry through the logger it is give
     assert.ok(retry);
     // Condense is not a loop turn, so it must not claim one.
     assert.equal(retry.turn, null);
+    assert.deepEqual(
+      logged.filter((event) => event.kind === 'prompt_cache_epoch_reset'),
+      [{
+        kind: 'prompt_cache_epoch_reset',
+        taskId: session.id,
+        turn: null,
+        reason: 'context_compaction',
+        droppedMessageCount: 2,
+      }],
+    );
   });
 });
 

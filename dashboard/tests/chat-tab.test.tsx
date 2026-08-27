@@ -338,7 +338,7 @@ test('a running tool message renders a neutral friendly activity row', () => {
   const store = buildDefaultStore('session-a')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
     .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, toolCallLimit: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
@@ -357,11 +357,11 @@ test('live recent activity renders only the newest three tools with latest turn 
       sessionId: SESSION_B.id,
       toolEvent: index === 3
         ? {
-            kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45,
+            kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45, toolCallLimit: 45,
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
           }
         : {
-            kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45,
+            kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45, toolCallLimit: 45,
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
             exitCode: 0, outputSnippet: `result-${index}`, outputTokens: 0, outputTokensEstimated: false,
           },
@@ -469,6 +469,7 @@ test('a submitted message renders as a pending bubble instead of staying in the 
   assert.match(markup, /class="msg user user_text live pending"/u);
   assert.match(markup, /sending…/u);
   assert.match(markup, /describe this/u);
+  assert.match(markup, /Recent activity/u, 'the activity shell starts with the request, before model output');
 });
 
 test('the pending bubble survives a warning that arrives before the stream', () => {
@@ -787,6 +788,7 @@ test('a live turn that has only streamed thinking renders no empty Internal Logi
   });
   assert.ok(html.includes('THINK_MARKER_ONE'), 'streamed thinking must be in the DOM for a text-only submit too');
   assert.ok(!html.includes('Internal Logic (0)'), 'an empty Internal Logic disclosure must not render');
+  assert.ok(html.includes('Recent activity'), 'the activity ring shell must render before the first tool call');
 });
 
 test('once the answer streams, the answer and the thinking both render', () => {
@@ -807,7 +809,7 @@ test('a live turn with a running tool call renders recent activity and the think
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     });
@@ -817,6 +819,7 @@ test('a live turn with a running tool call renders recent activity and the think
     sessionRuntimes: store.getAll(),
   });
   assert.ok(html.includes('Recent activity'), 'the running tool call must render in recent activity');
+  assert.ok(html.includes('1/4'), 'tool progress must count calls against the enforced tool-call limit');
   assert.ok(html.includes('Running command…'), 'the running tool call must render a friendly label');
   assert.ok(!html.includes('TOOL_MARKER'), 'the running tool call must not expose its raw command');
   assert.ok(html.includes('THINK_MARKER_TOOL'), 'the thinking that led to the tool call must render');
@@ -828,7 +831,7 @@ test('the activity ring disappears into Internal Logic when final answer streami
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
       },
     })
@@ -854,7 +857,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     })

@@ -77,6 +77,8 @@ async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<
     timeoutMs: 5000,
     maxTokens: 64,
     thinkingEnabled: true,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
     stage: 'planner_action',
     tools: [],
     responseSchema: null,

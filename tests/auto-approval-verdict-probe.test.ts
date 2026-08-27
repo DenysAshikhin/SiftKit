@@ -89,6 +89,9 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     this.requests.push([...requestMessages, ...pendingMessages, { role: 'user', content: question }]);
     return Promise.resolve({
       text: this.responseText,
+      rawText: this.responseText,
+      narrationText: this.responseText,
+      classification: 'narration',
       thinkingText: '',
       toolCalls: [],
       mockExhausted: false,

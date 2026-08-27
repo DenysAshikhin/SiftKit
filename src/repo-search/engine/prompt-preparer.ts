@@ -7,6 +7,7 @@ import {
   buildPlannerRequestPromptReserveText,
   plannerMessageKeepsReasoningContent,
   type ChatMessage,
+  type CompactionCacheOrigin,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
 import type { LlamaCppToolDefinition } from '../../llm-protocol/types.js';
@@ -15,7 +16,11 @@ import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-bu
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter, type TokenizeDoneInfo } from './progress-reporter.js';
 import { TranscriptManager } from './transcript-manager.js';
-import { TranscriptCompactor, type CompactionRetention } from './transcript-compactor.js';
+import {
+  TranscriptCompactor,
+  writePromptCacheEpochReset,
+  type CompactionRetention,
+} from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
@@ -107,7 +112,11 @@ export class PromptPreparer {
     throw overflowError;
   }
 
-  async prepareTurn(turn: number, mockResponseIndex: number): Promise<PreparedTurnBudget> {
+  async prepareTurn(
+    turn: number,
+    mockResponseIndex: number,
+    cacheOrigin: CompactionCacheOrigin,
+  ): Promise<PreparedTurnBudget> {
     const { taskId, budget, transcript, progress } = this.options;
     const promptRenderSpan = this.options.timingRecorder?.start('repo.prompt.render', {
       taskId,
@@ -196,10 +205,16 @@ export class PromptPreparer {
         messages: transcript.getMessages(),
         mockResponseIndex,
         retention,
+        cacheOrigin,
       });
       compactionSummary = compacted.summaryText;
       nextMockResponseIndex = compacted.nextMockResponseIndex;
       transcript.replaceWith(compacted.messages, compacted.currentTurnStartIndex);
+      writePromptCacheEpochReset(this.options.logger, {
+        taskId,
+        turn,
+        droppedMessageCount: compacted.droppedMessageCount,
+      });
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
       providerPromptReserveText = this.buildProviderPromptReserveText(
         transcript.messageRoles(),

@@ -32,7 +32,7 @@ import type {
 } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
 import { InferenceRequestBuilder } from './inference-request-builder.js';
-import { LiveContentClassifier, type LiveContentSnapshot } from './live-content-classifier.js';
+import { LiveContentClassifier, toLiveContentResult, type LiveContentSnapshot } from './live-content-classifier.js';
 
 type LlamaCppHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
@@ -511,13 +511,11 @@ export class LlamaCppClient {
     const finalContent = contentClassifier.finish();
     const dialectToolCalls = protocolToolCalls.length === 0 ? parser.scanFromText(finalContent.rawText).calls : [];
     const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : dialectToolCalls;
-    const responseText = finalContent.classification === 'tool_control' && toolCalls.length === 0
-      ? finalContent.rawText
-      : finalContent.narrationText;
+    const normalizedContent = toLiveContentResult(finalContent);
     const promptEvalDuration = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
     const generationDuration = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
     return {
-      text: responseText,
+      ...normalizedContent,
       reasoningText,
       toolCalls,
       usage: {

@@ -59,6 +59,9 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
       // What the real reviewer returns when the model answers with anything but a verdict.
       requestApprovalVerdict: () => Promise.resolve({
         text: 'not a verdict',
+        rawText: 'not a verdict',
+        narrationText: 'not a verdict',
+        classification: 'narration',
         thinkingText: '',
         toolCalls: [],
         mockExhausted: false,
@@ -311,6 +314,9 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
         return Promise.resolve(verdictAttempts === 1
           ? {
             text: '{"verdict":"approve","reason":"must not be accepted"}',
+            rawText: '{"verdict":"approve","reason":"must not be accepted"}',
+            narrationText: '{"verdict":"approve","reason":"must not be accepted"}',
+            classification: 'tool_control',
             thinkingText: 'I should call a tool.',
             toolCalls: [{
               id: 'call-1',
@@ -321,6 +327,9 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
           }
           : {
             text: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
+            rawText: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
+            narrationText: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
+            classification: 'narration',
             thinkingText: '',
             toolCalls: [],
             mockExhausted: false,

@@ -88,6 +88,7 @@ export function makeProcessor(
       progressWriter: new SilentProgressWriter(),
       taskId: 'task-alignment',
       maxTurns: 5,
+      toolCallLimit: 5,
       taskStartedAt: Date.now(),
     }),
     transcript,

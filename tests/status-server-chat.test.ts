@@ -120,14 +120,24 @@ function createSession(): ChatSession {
       {
         id: 'assistant-1',
         role: 'assistant',
+        kind: 'assistant_answer',
         content: 'final answer',
         thinkingContent: 'prior thinking',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 0,
+        thinkingTokens: 0,
+        createdAtUtc: '2026-04-17T00:00:00.000Z',
       },
       {
         id: 'assistant-2',
         role: 'assistant',
+        kind: 'assistant_answer',
         content: 'answer without thinking',
         thinkingContent: '',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 0,
+        thinkingTokens: 0,
+        createdAtUtc: '2026-04-17T00:00:00.000Z',
       },
     ],
   });
@@ -277,7 +287,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
           id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
           toolCallActivityKind: 'search',
           toolCallActivitySubject: { kind: 'none' },
-          toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
+          toolCallTurn: 1, toolCallLimit: 2, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295, outputTokensEstimated: false,
         }] },
         { thinkingText: 'final think', toolMessages: [] },
@@ -344,7 +354,7 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
           id: 'tool-a', content: 'read path="src/x.ts"', toolCallCommand: 'read path="src/x.ts"',
           toolCallActivityKind: 'read',
           toolCallActivitySubject: { kind: 'file', value: 'x.ts' },
-          toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
+          toolCallTurn: 1, toolCallLimit: 1, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 9048, outputTokensEstimated: true,
         }] },
       ],
@@ -460,6 +470,7 @@ test('buildContextUsage estimates continuation context from session content inst
       {
         id: 'user-1',
         role: 'user',
+        kind: 'user_text',
         content: 'How are tool calls handled?',
         inputTokensEstimate: 52403,
         inputTokensEstimated: false,
@@ -470,6 +481,7 @@ test('buildContextUsage estimates continuation context from session content inst
       {
         id: 'assistant-1',
         role: 'assistant',
+        kind: 'assistant_answer',
         content: '# Repo Search Results\n\nTool calls are parsed and executed through the loop.',
         inputTokensEstimate: 0,
         outputTokensEstimate: 2288,
@@ -573,7 +585,7 @@ test('buildPersistTurnsFromRepoSearchResult sets tool maxTurns from task turnsUs
     }] },
   });
   assert.equal(turns[0].toolMessages[0].toolCallTurn, 2);
-  assert.equal(turns[0].toolMessages[0].toolCallMaxTurns, 4);
+  assert.equal(turns[0].toolMessages[0].toolCallLimit, 4);
 });
 
 test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing turn', () => {
@@ -767,7 +779,13 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 62000 }),
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
-      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', inputTokensEstimate: 0, outputTokensEstimate: 42073, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
+      {
+        id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"',
+        inputTokensEstimate: 0, outputTokensEstimate: 42073, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z',
+        toolCallCommand: 'web_fetch url="https://example.test"', toolCallActivityKind: 'web_fetch',
+        toolCallActivitySubject: { kind: 'host', value: 'example.test' }, toolCallTurn: 1, toolCallLimit: 45,
+        toolCallExitCode: 0, toolCallStatus: 'done',
+      },
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', inputTokensEstimate: 0, outputTokensEstimate: 2048, thinkingTokens: 0, associatedToolTokens: 42073, createdAtUtc: '2026-01-01T00:00:00.000Z' },
     ],
   };

@@ -1,8 +1,15 @@
 import type { SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
-import { requestTerminalSynthesis, type PlannerThinkingFlags } from '../planner-protocol.js';
-import { countTokensWithFallback } from '../prompt-budget.js';
-import { buildTerminalSynthesisPrompt } from '../prompts.js';
+import { computeResponseReserveTokens } from '../../lib/response-reserve.js';
+import {
+  appendPlannerInstruction,
+  buildPlannerRequestPromptReserveText,
+  requestTerminalSynthesis,
+  type ChatMessage,
+  type ExecutingPlannerRequest,
+} from '../planner-protocol.js';
+import { preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { buildTerminalSynthesisInstruction } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { TokenUsageTracker } from './token-usage.js';
@@ -18,7 +25,6 @@ export class TerminalSynthesizer {
     config: SiftConfig;
     useEstimatedTokensOnly: boolean;
     totalContextTokens: number;
-    thinking: PlannerThinkingFlags;
     streamFinishAsAnswer: boolean;
     logger: JsonLogger | null;
     progress: ProgressReporter;
@@ -27,22 +33,38 @@ export class TerminalSynthesizer {
 
   async synthesize(input: {
     taskId: string;
-    question: string;
     reason: string;
-    transcript: string;
+    messages: readonly ChatMessage[];
+    executing: ExecutingPlannerRequest;
     turnsUsed: number;
     mockResponses?: MockPlannerResponseInput[];
     mockResponseIndex: number;
   }): Promise<{ finalOutput: string; nextMockResponseIndex: number }> {
-    const synthesisPrompt = buildTerminalSynthesisPrompt({
-      question: input.question,
-      reason: input.reason,
-      transcript: input.transcript,
-    });
-    const synthesisPromptTokenCount = await countTokensWithFallback(
-      this.options.useEstimatedTokensOnly ? undefined : this.options.config,
-      synthesisPrompt,
+    const terminalMessages = appendPlannerInstruction(
+      input.messages,
+      buildTerminalSynthesisInstruction(input.reason),
     );
+    const providerPromptReserveText = buildPlannerRequestPromptReserveText({
+      config: this.options.config,
+      model: this.options.model,
+      messageRoles: terminalMessages.map((message) => message.role),
+      tools: input.executing.tools,
+      maxTokens: computeResponseReserveTokens({
+        config: this.options.config,
+        totalContextTokens: this.options.totalContextTokens,
+      }),
+      responseSchema: null,
+      ...input.executing.flags,
+    });
+    const preflight = await preflightPlannerPromptBudget({
+      config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
+      messages: terminalMessages,
+      includeReasoningContent: input.executing.flags.reasoningContentEnabled,
+      providerPromptReserveText,
+      totalContextTokens: this.options.totalContextTokens,
+      responseReserveTokens: 0,
+    });
+    const synthesisPromptTokenCount = preflight.promptTokenCount;
     const synthesisMaxTokens = getDynamicMaxOutputTokens({
       config: this.options.config,
       totalContextTokens: this.options.totalContextTokens,
@@ -65,16 +87,16 @@ export class TerminalSynthesizer {
           config: this.options.config,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
-          prompt: synthesisPrompt,
+          messages: terminalMessages,
+          executing: input.executing,
           timeoutMs: this.options.timeoutMs,
           mockResponses: input.mockResponses,
           mockResponseIndex,
           maxTokens: synthesisMaxTokens,
-          ...this.options.thinking,
           logger: this.options.logger,
-      onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
-        ? (snapshot) => { this.options.progress.answer(input.turnsUsed, snapshot.narrationText); }
-        : undefined,
+          onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
+            ? (snapshot) => { this.options.progress.answer(input.turnsUsed, snapshot.narrationText); }
+            : undefined,
         });
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;

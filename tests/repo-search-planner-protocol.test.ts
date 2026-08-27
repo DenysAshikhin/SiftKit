@@ -5,29 +5,34 @@ import http from 'node:http';
 import { ModelJson } from '../src/lib/model-json.js';
 import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
-import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import {
-  buildContextCompactionPromptMessages,
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
   requestApprovalVerdict,
   requestContextCompactionSummary,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
+  serializeProtocolMessages,
   TOOL_DEFINITIONS,
   type ChatMessage,
   type PlannerActionResponse,
-  type PlannerRequestStage,
+  type PlannerDerivedRequestOptions,
+  type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
+import type { JsonLogger } from '../src/repo-search/types.js';
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
 const PLANNER_REQUEST_DEFAULTS = {
   stage: 'planner_action',
+  thinkingEnabled: false,
+  reasoningContentEnabled: false,
+  preserveThinking: false,
   tools: toProtocolTools(TOOL_DEFINITIONS),
   responseSchema: null,
 } as const;
@@ -622,26 +627,81 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   assert.equal(captured.max_tokens, 2048);
 });
 
-test('planner stage is telemetry only and does not change the request body', async () => {
-  async function captureStage(stage: PlannerRequestStage): Promise<JsonObject> {
-    return captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
-      ...PLANNER_REQUEST_DEFAULTS,
-      stage,
-      config: buildTestConfig(),
-      baseUrl,
-      model: 'test-model',
-      messages: [{ role: 'user', content: 'same request' }],
-      timeoutMs: 5_000,
-      maxTokens: 128,
-    }));
-  }
+test('derived planner requests reject every cache-contract divergence before logging or HTTP', async () => {
+  let requestCount = 0;
+  const loggerEvents: JsonObject[] = [];
+  await withServer(
+    (_req, res) => {
+      requestCount += 1;
+      sendChatCompletionSse(res, { choices: [{ message: { content: 'unexpected' } }] });
+    },
+    async (baseUrl) => {
+      const flags: PlannerThinkingFlags = {
+        thinkingEnabled: true,
+        reasoningContentEnabled: true,
+        preserveThinking: true,
+      };
+      const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+      const history: ChatMessage[] = [{ role: 'user', content: 'same request' }];
+      const messages = serializeProtocolMessages(history, true);
+      const cachePrefix = captureExecutingPlannerRequest(messages, flags, tools, 2);
+      const logger: JsonLogger = {
+            path: 'test',
+            write(event) {
+              loggerEvents.push(JsonObjectSchema.parse(parseJsonValueText(JSON.stringify(event))));
+            },
+      };
+      const common = {
+        config: buildTestConfig(),
+        baseUrl,
+        model: 'test-model',
+        timeoutMs: 5_000,
+        maxTokens: 128,
+        stage: 'approval_verdict',
+        toolChoice: 'none',
+        responseSchema: null,
+        cachePrefix,
+        logger,
+      } as const;
+      const cases: Array<{ options: PlannerDerivedRequestOptions; error: RegExp }> = [
+        {
+          options: { ...common, messages: [{ role: 'user', content: 'different' }], slotId: 2, ...flags, tools },
+          error: /approval_verdict prompt-cache contract violated: message 0 diverged/u,
+        },
+        {
+          options: { ...common, messages, slotId: 2, ...flags, tools: [] },
+          error: /approval_verdict prompt-cache contract violated: tools diverged/u,
+        },
+        {
+          options: { ...common, messages, slotId: 2, ...flags, thinkingEnabled: false, tools },
+          error: /approval_verdict prompt-cache contract violated: thinkingEnabled diverged/u,
+        },
+        {
+          options: { ...common, messages, slotId: 2, ...flags, reasoningContentEnabled: false, tools },
+          error: /approval_verdict prompt-cache contract violated: reasoningContentEnabled diverged/u,
+        },
+        {
+          options: { ...common, messages, slotId: 2, ...flags, preserveThinking: false, tools },
+          error: /approval_verdict prompt-cache contract violated: preserveThinking diverged/u,
+        },
+        {
+          options: { ...common, messages, slotId: 1, ...flags, tools },
+          error: /approval_verdict prompt-cache contract violated: slot expected 2, received 1/u,
+        },
+      ];
 
-  assert.deepEqual(
-    await captureStage('finish_validation'),
-    await captureStage('planner_action'),
+      for (const current of cases) {
+        await assert.rejects(
+          requestRepoSearchPlannerProtocolAction(current.options),
+          current.error,
+        );
+      }
+    },
   );
-});
 
+  assert.equal(requestCount, 0);
+  assert.equal(loggerEvents.some((event) => event.kind === 'provider_request_start'), false);
+});
 
 test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxTokens', async () => {
   const config = buildTestConfig({ MaxTokens: 300 });
@@ -657,15 +717,15 @@ test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxToken
       thinkingEnabled: false,
       reasoningContentEnabled: false,
       preserveThinking: false,
-    }, toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run']))),
+    }, toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])), 2),
     timeoutMs: 5000,
   }), '{"verdict":"approve","reason":"ok"}');
 
   assert.equal(captured.max_tokens, 300);
 });
 
-test('requestContextCompactionSummary sends the unchanged history prefix plus its instruction', async () => {
-  let capturedBody: JsonObject | null = null;
+test('context compaction branches from an actual preceding planner request', async () => {
+  const capturedBodies: JsonObject[] = [];
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -679,13 +739,15 @@ test('requestContextCompactionSummary sends the unchanged history prefix plus it
         body += chunk;
       });
       req.on('end', () => {
-        capturedBody = JsonObjectSchema.parse(parseJsonValueText(body || '{}'));
+        capturedBodies.push(JsonObjectSchema.parse(parseJsonValueText(body || '{}')));
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
         });
-        res.write('data: {"choices":[{"delta":{"content":"SUMMARY TEXT"}}]}\n\n');
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { content: capturedBodies.length === 1 ? 'planner response' : 'SUMMARY TEXT' } }],
+        })}\n\n`);
         res.write(
           'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
           + '"usage":{"prompt_tokens":338,"prompt_tokens_details":{"cached_tokens":321}},'
@@ -696,34 +758,120 @@ test('requestContextCompactionSummary sends the unchanged history prefix plus it
       });
     },
     async (baseUrl) => {
-      const history: ChatMessage[] = [
+      const plannerHistory: ChatMessage[] = [
         { role: 'system', content: 'system' },
         { role: 'user', content: 'old question' },
         { role: 'assistant', content: 'old answer', reasoning_content: 'old reasoning' },
       ];
+      const branchHistory = plannerHistory.slice(0, 2);
       const instruction = 'summarize now';
+      const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+      const flags: PlannerThinkingFlags = {
+        thinkingEnabled: false,
+        reasoningContentEnabled: true,
+        preserveThinking: false,
+      };
+      const serializedPlanner = serializeProtocolMessages(plannerHistory, true);
+      await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig({ Backend: 'llama' }),
+        baseUrl,
+        model: 'mock-model',
+        messages: serializedPlanner,
+        slotId: 2,
+        timeoutMs: 5000,
+        maxTokens: 512,
+        ...flags,
+        stage: 'planner_action',
+        responseSchema: null,
+        tools,
+      });
+      const executing = captureExecutingPlannerRequest(serializedPlanner, flags, tools, 2);
       const response = await requestContextCompactionSummary({
         config: buildTestConfig({ Backend: 'llama' }),
         baseUrl,
         model: 'mock-model',
-        messages: history,
+        messages: branchHistory,
         instruction,
-        reasoningContentEnabled: true,
-        slotId: 2,
+        cacheOrigin: { kind: 'planner', executing },
         timeoutMs: 5000,
         maxTokens: 512,
       });
 
-      const body = asObject(capturedBody);
-      assert.deepEqual(body.messages, buildContextCompactionPromptMessages(history, instruction, true));
+      assert.equal(capturedBodies.length, 2);
+      const plannerBody = asObject(capturedBodies[0]);
+      const body = asObject(capturedBodies[1]);
+      const plannerMessages = asObjectArray(plannerBody.messages);
+      const requestMessages = asObjectArray(body.messages);
+      assert.deepEqual(requestMessages.slice(0, branchHistory.length), plannerMessages.slice(0, branchHistory.length));
+      assert.deepEqual(requestMessages.at(-1), { role: 'user', content: instruction });
       assert.equal(body.cache_prompt, true);
       assert.equal(body.id_slot, 2);
-      assert.equal(body.tools, undefined);
+      assert.deepEqual(body.tools, tools);
+      assert.equal(body.tool_choice, 'none');
       assert.equal(body.response_format, undefined);
       assert.equal(response.promptCacheTokens, 321);
       assert.equal(response.promptEvalTokens, 17);
     },
   );
+});
+
+test('context compaction rejects a branch that diverges from its executing planner request before HTTP', async () => {
+  let requestCount = 0;
+  await withServer(
+    (_req, res) => {
+      requestCount += 1;
+      sendChatCompletionSse(res, { choices: [{ message: { content: 'unexpected' } }] });
+    },
+    async (baseUrl) => {
+      const flags: PlannerThinkingFlags = {
+        thinkingEnabled: false,
+        reasoningContentEnabled: false,
+        preserveThinking: false,
+      };
+      const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+      const executingMessages = serializeProtocolMessages([{ role: 'system', content: 'original' }], false);
+      const executing = captureExecutingPlannerRequest(executingMessages, flags, tools, 2);
+
+      await assert.rejects(
+        requestContextCompactionSummary({
+          config: buildTestConfig(),
+          baseUrl,
+          model: 'mock-model',
+          messages: [{ role: 'system', content: 'different' }],
+          instruction: 'summarize now',
+          cacheOrigin: { kind: 'planner', executing },
+          timeoutMs: 5000,
+          maxTokens: 512,
+        }),
+        /context_compaction prompt-cache branch violated: message 0 diverged/u,
+      );
+    },
+  );
+  assert.equal(requestCount, 0);
+});
+
+test('first compaction request explicitly starts a new cache epoch', async () => {
+  const flags: PlannerThinkingFlags = {
+    thinkingEnabled: false,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  };
+  const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+  const captured = await captureChatRequestBody((baseUrl) => requestContextCompactionSummary({
+    config: buildTestConfig(),
+    baseUrl,
+    model: 'mock-model',
+    messages: [{ role: 'system', content: 'system' }],
+    instruction: 'summarize now',
+    cacheOrigin: { kind: 'new_epoch', flags, tools, slotId: 2 },
+    timeoutMs: 5000,
+    maxTokens: 512,
+  }), 'SUMMARY TEXT');
+
+  assert.equal(captured.id_slot, 2);
+  assert.deepEqual(captured.tools, tools);
+  assert.equal(captured.tool_choice, 'none');
+  assert.equal(captured.cache_prompt, true);
 });
 
 test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection without fallback retry', async () => {

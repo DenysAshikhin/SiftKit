@@ -40,6 +40,9 @@ function buildResponse(
 ): NormalizedLlamaCppChatResponse {
   return {
     text,
+    rawText: text,
+    narrationText: text,
+    classification: text ? 'narration' : 'undecided',
     reasoningText: '',
     toolCalls,
     usage,

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
 } from '../src/providers/structured-output-schema.js';
@@ -24,22 +23,14 @@ test('buildSummaryDecisionJsonSchema includes unsupported_input when enabled', (
   );
 });
 
-test('buildFinishValidationJsonSchema enforces verdict and reason', () => {
-  const schemaText = JSON.stringify(buildFinishValidationJsonSchema());
-  assert.match(schemaText, /verdict/u);
-  assert.match(schemaText, /pass/u);
-  assert.match(schemaText, /fail/u);
-  assert.match(schemaText, /reason/u);
-});
-
 test('buildLlamaJsonSchemaResponseFormat wraps schema for chat completions', () => {
-  const schema = buildFinishValidationJsonSchema();
+  const schema = buildSummaryDecisionJsonSchema({ allowUnsupportedInput: false });
   const responseFormat = buildLlamaJsonSchemaResponseFormat({
-    name: 'finish_validation',
+    name: 'summary_decision',
     schema,
   });
   assert.equal(responseFormat.type, 'json_schema');
-  assert.equal(responseFormat.json_schema.name, 'finish_validation');
+  assert.equal(responseFormat.json_schema.name, 'summary_decision');
   assert.equal(responseFormat.json_schema.strict, true);
   assert.deepEqual(responseFormat.json_schema.schema, schema);
 });

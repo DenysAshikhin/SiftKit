@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildApprovalVerdictPromptMessages,
-  buildContextCompactionPromptMessages,
+  captureExecutingPlannerRequest,
+  resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
 } from '../src/repo-search/planner-protocol.js';
 import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
+import { toProtocolTools } from '../src/providers/llama-cpp.js';
 
 test('the verdict prompt shares P + A with the next planner request', () => {
   const transcript = [
@@ -32,15 +34,39 @@ test('the verdict prompt shares P + A with the next planner request', () => {
   assert.notEqual(JSON.stringify(verdict[3]), JSON.stringify(nextTurn[3]));
 });
 
-test('the compaction request byte-preserves completed history and only appends its instruction', () => {
-  const history = [
-    { role: 'system' as const, content: 'system' },
-    { role: 'user' as const, content: 'old question' },
-    { role: 'assistant' as const, content: 'old answer', reasoning_content: 'old reasoning' },
-  ];
-  const serializedHistory = serializeProtocolMessages(history, true);
-  const compacting = buildContextCompactionPromptMessages(history, 'summarize now', true);
+test('captureExecutingPlannerRequest isolates the snapshot from later input mutation', () => {
+  const flags = {
+    thinkingEnabled: false,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  };
+  const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
+  const captured = captureExecutingPlannerRequest(
+    serializeProtocolMessages([{ role: 'user', content: 'q' }], false),
+    flags,
+    tools,
+    3,
+  );
+  const serializedToolsBefore = captured.serializedToolsJson;
+  const toolsBefore = [{
+    type: 'function',
+    function: {
+      name: 'read',
+      description: tools[0].function.description,
+      parameters: tools[0].function.parameters,
+    },
+  }];
 
-  assert.deepEqual(compacting.slice(0, serializedHistory.length), serializedHistory);
-  assert.deepEqual(compacting.at(-1), { role: 'user', content: 'summarize now' });
+  flags.thinkingEnabled = true;
+  flags.reasoningContentEnabled = true;
+  flags.preserveThinking = true;
+  tools[0].function.description = 'mutated after capture';
+
+  assert.deepEqual(captured.flags, {
+    thinkingEnabled: false,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  });
+  assert.equal(captured.serializedToolsJson, serializedToolsBefore);
+  assert.deepEqual(captured.tools, toolsBefore);
 });

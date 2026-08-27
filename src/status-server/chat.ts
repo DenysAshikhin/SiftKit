@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { z } from '../lib/zod.js';
 import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
@@ -9,9 +10,13 @@ import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-p
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger } from '../repo-search/types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
-import { buildCompactionSummaryMessage, TranscriptCompactor } from '../repo-search/engine/transcript-compactor.js';
+import {
+  buildCompactionSummaryMessage,
+  TranscriptCompactor,
+  writePromptCacheEpochReset,
+} from '../repo-search/engine/transcript-compactor.js';
 import { TokenUsageTracker } from '../repo-search/engine/token-usage.js';
-import { DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
+import { allocateLlamaCppSlotId, DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
@@ -312,11 +317,7 @@ export function buildChatHistoryMessages(
   const replayThinking = shouldPreserveThinking(config, session.thinkingEnabled !== false);
   let pendingThinking = '';
   for (const message of messages) {
-    const kind = typeof message.kind === 'string'
-      ? message.kind
-      : message.role === 'user'
-        ? 'user_text'
-        : 'assistant_answer';
+    const kind = message.kind;
     if (kind === 'compaction_summary') {
       const summaryText = trimText(message.content);
       if (summaryText) {
@@ -453,7 +454,7 @@ export type PersistToolMessage = {
   toolCallActivityKind: ToolActivityKind;
   toolCallActivitySubject: ToolActivitySubject;
   toolCallTurn: number;
-  toolCallMaxTurns: number;
+  toolCallLimit: number;
   toolCallExitCode: number | null;
   toolCallPromptTokenCount?: number | null;
   toolCallOutputSnippet: string;
@@ -633,12 +634,13 @@ export function appendChatMessagesWithUsage(
         toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
         toolCallActivityKind: ToolActivityKindSchema.parse(toolMessage.toolCallActivityKind),
         toolCallActivitySubject: ToolActivitySubjectSchema.parse(toolMessage.toolCallActivitySubject),
-        toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
-        toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
+        toolCallTurn: z.number().int().positive().parse(toolMessage.toolCallTurn),
+        toolCallLimit: z.number().int().positive().parse(toolMessage.toolCallLimit),
         toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
         toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
         toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
         toolCallOutput: toolOutput,
+        toolCallStatus: 'done',
         createdAtUtc: now,
         sourceRunId,
       });
@@ -733,13 +735,19 @@ export async function condenseChatSession(
 ): Promise<ChatSession & { messages: PersistedChatMessage[] }> {
   const effectiveConfig = resolveChatSessionConfig(config, session);
   const history = buildChatHistoryMessages(effectiveConfig, session);
+  const slotId = allocateLlamaCppSlotId(effectiveConfig);
+  const cacheOrigin = {
+    kind: 'new_epoch',
+    flags: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
+    tools: [],
+    slotId,
+  } as const;
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,
     baseUrl: getConfiguredLlamaBaseUrl(effectiveConfig),
     model: resolveChatSessionModel(config, session),
     timeoutMs: DEFAULT_TIMEOUT_MS,
     totalContextTokens: resolveChatSessionContextWindow(config, session),
-    thinking: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
@@ -755,6 +763,7 @@ export async function condenseChatSession(
     messages: history,
     mockResponseIndex: 0,
     retention: { kind: 'none' },
+    cacheOrigin,
   });
 
   const now = new Date().toISOString();
@@ -763,6 +772,11 @@ export async function condenseChatSession(
   messages.push(buildCompactionSummaryRow(outcome.summaryText, now));
   const updated: ChatSession & { messages: PersistedChatMessage[] } = { ...session, updatedAtUtc: now, messages };
   saveChatSession(runtimeRoot, updated);
+  writePromptCacheEpochReset(logger, {
+    taskId: session.id,
+    turn: null,
+    droppedMessageCount: outcome.droppedMessageCount,
+  });
   return updated;
 }
 
@@ -896,7 +910,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     toolCallActivityKind: ToolActivityKindSchema.parse(command.activityKind),
     toolCallActivitySubject: ToolActivitySubjectSchema.parse(command.activitySubject),
     toolCallTurn: turn,
-    toolCallMaxTurns: turnsUsed,
+    toolCallLimit: turnsUsed,
     toolCallExitCode: command.exitCode,
     toolCallPromptTokenCount: command.promptTokenCount,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,

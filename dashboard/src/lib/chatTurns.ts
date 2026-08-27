@@ -13,6 +13,8 @@ export type ChatTurn = {
   liveThinking: ChatMessage[];
   /** Live-only: the newest grouped tool activities, oldest first. */
   recentActivities: ToolActivityGroup[];
+  /** The activity shell stays visible for the live assistant phase, including before its first tool. */
+  showRecentActivity: boolean;
   main: ChatMessage | null;
 };
 
@@ -79,6 +81,9 @@ function finalizeTurn(turn: ChatTurn): void {
   turn.main = main;
   turn.liveThinking = liveThinking;
   turn.recentActivities = recentActivities;
+  turn.showRecentActivity = turn.isLive
+    && turn.messages.some((message) => message.role === 'assistant')
+    && !turn.messages.some(isAnswerMessage);
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot, thinking stack, or progress bar stays in Internal Logic.
   turn.steps = turn.messages.filter((message) => (
@@ -97,7 +102,16 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
     if (lastTurn && lastTurn.key === key) {
       lastTurn.messages.push(message);
     } else {
-      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], recentActivities: [], main: null });
+      turns.push({
+        key,
+        isLive,
+        messages: [message],
+        steps: [],
+        liveThinking: [],
+        recentActivities: [],
+        showRecentActivity: false,
+        main: null,
+      });
     }
   }
   for (const turn of turns) {

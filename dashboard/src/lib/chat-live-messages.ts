@@ -1,6 +1,6 @@
 import { buildLiveToolMessageId } from './live-tool-message';
 import { type ChatStreamToolEvent } from './chat-stream-parser';
-import type { ChatMessage, ChatToolCallMessage } from '../types';
+import { ChatMessageSchema, type ChatMessage, type ChatToolCallMessage } from '../types';
 
 type LiveMessageKind = Exclude<ChatMessage['kind'], 'assistant_tool_call'>;
 
@@ -11,7 +11,7 @@ export function createLiveMessage(
   content: string,
 ): ChatMessage {
   const thinkingTokens = kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0;
-  return {
+  return ChatMessageSchema.parse({
     id,
     role,
     kind,
@@ -25,7 +25,7 @@ export function createLiveMessage(
     associatedToolTokens: 0,
     createdAtUtc: new Date().toISOString(),
     sourceRunId: null,
-  };
+  });
 }
 
 export const LIVE_USER_MESSAGE_ID = 'live-user';
@@ -69,7 +69,7 @@ export function buildAppendedLiveToolMessage(
     toolCallActivityKind: toolEvent.activityKind,
     toolCallActivitySubject: toolEvent.activitySubject,
     toolCallTurn: toolEvent.turn,
-    toolCallMaxTurns: toolEvent.maxTurns,
+    toolCallLimit: toolEvent.toolCallLimit,
     toolCallExitCode: null,
     toolCallPromptTokenCount: toolEvent.promptTokenCount,
     toolCallStatus: 'running',
@@ -98,7 +98,7 @@ export function buildCompletedLiveToolMessage(
     toolCallActivityKind: toolEvent.activityKind,
     toolCallActivitySubject: toolEvent.activitySubject,
     toolCallTurn: toolEvent.turn,
-    toolCallMaxTurns: toolEvent.maxTurns,
+    toolCallLimit: toolEvent.toolCallLimit,
     toolCallExitCode: toolEvent.exitCode,
     toolCallPromptTokenCount: toolEvent.promptTokenCount,
     toolCallOutputSnippet: toolEvent.outputSnippet,

@@ -5,6 +5,7 @@ import {
 } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
+  AgentLoopAction,
   AgentLoopFinishAction,
   AgentLoopFinishEvaluation,
   AgentLoopInvalidResponseResult,
@@ -17,7 +18,7 @@ import type {
   AgentLoopToolResult,
   TurnPromptTokens,
 } from '../../agent-loop/types.js';
-import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
+import { NativePlannerResponseError, NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
 import type { LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { toProtocolTools } from '../../providers/llama-cpp.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
@@ -28,6 +29,7 @@ import {
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
   toProtocolChatMessages,
+  type CompactionCacheOrigin,
   type ExecutingPlannerRequest,
   type ChatMessage,
   type PlannerActionResponse,
@@ -120,6 +122,21 @@ function getRepoSearchModelData(context: AgentLoopResponseContext): RepoSearchMo
   return data;
 }
 
+export function enforceToolCallLimit(
+  actions: AgentLoopAction[],
+  completedToolCalls: number,
+  toolCallLimit: number,
+): AgentLoopAction[] {
+  const requestedToolCalls = actions.filter((action) => action.kind === 'tool').length;
+  const remainingToolCalls = toolCallLimit - completedToolCalls;
+  if (requestedToolCalls > remainingToolCalls) {
+    throw new NativePlannerResponseError(
+      `Planner requested ${requestedToolCalls} tool calls with ${Math.max(remainingToolCalls, 0)} remaining. Finish now.`,
+    );
+  }
+  return actions;
+}
+
 // ---------------------------------------------------------------------------
 // Task loop orchestrator
 // ---------------------------------------------------------------------------
@@ -129,6 +146,7 @@ export class TaskLoop {
   private readonly options: RunTaskLoopOptions;
   private readonly taskStartedAt: number;
   private readonly maxTurns: number;
+  private readonly toolCallLimit: number;
   private readonly maxInvalidResponses: number;
   private readonly webTools: WebResearchTools;
   private readonly tokenUsage: TokenUsageTracker;
@@ -188,6 +206,7 @@ export class TaskLoop {
     this.imageTokenBudget = resolveImageTokenBudget(activePreset);
     this.taskStartedAt = Date.now();
     this.maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
+    this.toolCallLimit = this.maxTurns;
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
     this.webTools = buildWebToolsForTaskLoop(options.config);
     this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
@@ -251,6 +270,7 @@ export class TaskLoop {
       progressWriter: options.progressWriter ?? new SilentProgressWriter(),
       taskId: task.id,
       maxTurns: this.maxTurns,
+      toolCallLimit: this.toolCallLimit,
       taskStartedAt: this.taskStartedAt,
     });
     this.transcript = new TranscriptManager({
@@ -278,11 +298,9 @@ export class TaskLoop {
         model: String(options.model || ''),
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         totalContextTokens: this.budget.totalContextTokens,
-        thinking: this.plannerThinking,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         mockResponses: options.mockResponses,
         tokenUsage: this.tokenUsage,
-        slotId: this.slotId,
         logger: options.logger || null,
         abortSignal: options.abortSignal,
       }),
@@ -374,7 +392,6 @@ export class TaskLoop {
       pendingMessages,
       question,
       executing,
-      slotId: this.slotId,
       timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
       mockResponses: this.options.mockResponses,
       mockResponseIndex: this.mockResponseIndex,
@@ -406,7 +423,19 @@ export class TaskLoop {
     this.turnsUsed = turn;
     const inForcedFinishMode = this.forcedFinish.isActive();
 
-    const prepared = await this.promptPreparer.prepareTurn(turn, this.mockResponseIndex);
+    const cacheOrigin: CompactionCacheOrigin = this.executingPlannerRequest
+      ? { kind: 'planner', executing: this.executingPlannerRequest }
+      : {
+          kind: 'new_epoch',
+          flags: this.plannerThinking,
+          tools: this.plannerProtocolTools,
+          slotId: this.slotId,
+        };
+    const prepared = await this.promptPreparer.prepareTurn(
+      turn,
+      this.mockResponseIndex,
+      cacheOrigin,
+    );
     this.mockResponseIndex = prepared.nextMockResponseIndex;
     if (prepared.compactionSummary !== null) {
       this.lastCompactionSummary = prepared.compactionSummary;
@@ -516,6 +545,10 @@ export class TaskLoop {
     };
   }
 
+  validateActions(actions: AgentLoopAction[]): AgentLoopAction[] {
+    return enforceToolCallLimit(actions, this.commands.length, this.toolCallLimit);
+  }
+
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
     this.finishVerification.recordNonFinishAction();
     const beforeCommandCount = this.commands.length;
@@ -558,6 +591,9 @@ export class TaskLoop {
   ): NormalizedLlamaCppChatResponse {
     return {
       text: response.text,
+      rawText: response.rawText,
+      narrationText: response.narrationText,
+      classification: response.classification,
       reasoningText: response.thinkingText || '',
       toolCalls: response.toolCalls,
       usage: {
@@ -603,6 +639,7 @@ export class TaskLoop {
         serializedMessages,
         this.plannerThinking,
         this.plannerProtocolTools,
+        this.slotId,
       );
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,
@@ -752,17 +789,20 @@ export class TaskLoop {
         config: this.options.config,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         totalContextTokens: this.budget.totalContextTokens,
-        thinking: this.plannerThinking,
         streamFinishAsAnswer: this.streamFinishAsAnswer,
         logger: this.options.logger || null,
         progress: this.progress,
         tokenUsage: this.tokenUsage,
       });
+      const executing = this.executingPlannerRequest;
+      if (!executing) {
+        throw new Error('terminal_synthesis requires an executing planner prompt-cache prefix');
+      }
       const synthesis = await synthesizer.synthesize({
         taskId: this.task.id,
-        question: this.task.question,
         reason: this.counters.reason,
-        transcript: this.transcript.renderTail(2),
+        messages: this.transcript.getMessages(),
+        executing,
         turnsUsed: this.turnsUsed,
         mockResponses: this.options.mockResponses,
         mockResponseIndex: this.mockResponseIndex,

@@ -16,6 +16,7 @@ test('renders known progress kinds as single stderr lines', () => {
     toolCallId: 'tc_0',
     turn: 3,
     maxTurns: 24,
+    toolCallLimit: 24,
     activityKind: 'search',
     activitySubject: { kind: 'none' },
     command: 'git grep -n "x" src',

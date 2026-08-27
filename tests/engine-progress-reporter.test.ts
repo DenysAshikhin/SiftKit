@@ -12,6 +12,7 @@ function collect(): { writer: CollectingProgressWriter<RepoSearchProgressEvent>;
     progressWriter: writer,
     taskId: 't1',
     maxTurns: 45,
+    toolCallLimit: 45,
     taskStartedAt: Date.now(),
   });
   return { writer, events: writer.events, reporter };
@@ -22,6 +23,7 @@ test('enabled reflects writer behavior; silent writer emits nothing', () => {
     progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
     taskId: 't1',
     maxTurns: 45,
+    toolCallLimit: 45,
     taskStartedAt: Date.now(),
   });
   assert.equal(disabled.enabled, false);
