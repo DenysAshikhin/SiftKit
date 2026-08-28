@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { PendingCapturesResponseSchema } from '@siftkit/contracts';
+import {
+  PENDING_CAPTURE_LIST_STATES, PendingCaptureDtoSchema, PendingCapturesResponseSchema,
+} from '@siftkit/contracts';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
@@ -100,4 +103,13 @@ test('pending captures route lists queued captures whose pixels the evidence rou
     }
     await removeDirectoryWithRetries(tempRoot);
   }
+});
+
+test('pending-capture list states have exactly one source of truth', () => {
+  assert.deepEqual(PendingCaptureDtoSchema.shape.state.options, [...PENDING_CAPTURE_LIST_STATES]);
+
+  const serviceSource = fs.readFileSync(path.join('src', 'assistant', 'assistant-service.ts'), 'utf8');
+  assert.match(serviceSource, /PENDING_CAPTURE_LIST_STATES/u);
+  assert.doesNotMatch(serviceSource, /'queued', 'awaiting_image_capability', 'processing'/u);
+  assert.match(serviceSource, /PENDING_CAPTURE_LIST_LIMIT/u);
 });

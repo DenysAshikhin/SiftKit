@@ -153,10 +153,13 @@ export const DesktopStateDtoSchema = z.object({
 }).strict();
 export type DesktopStateDto = z.infer<typeof DesktopStateDtoSchema>;
 
+/** Queue states the dashboard pending view lists; the DTO state enum derives from this. */
+export const PENDING_CAPTURE_LIST_STATES = ['queued', 'awaiting_image_capability', 'processing'] as const;
+
 /** A capture still owed an extraction, listed for the dashboard pending view. */
 export const PendingCaptureDtoSchema = z.object({
   evidenceId: z.string().min(1),
-  state: z.enum(['queued', 'awaiting_image_capability', 'processing']),
+  state: z.enum(PENDING_CAPTURE_LIST_STATES),
   enqueuedAtUtc: z.string(),
   byteLength: z.number().int().positive(),
   foregroundContextKey: z.string(),

@@ -14,6 +14,7 @@ import type {
   MobileEnvelope,
   SuppressionAuditDto,
 } from '@siftkit/contracts';
+import { PENDING_CAPTURE_LIST_STATES } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
 import type { Clock } from './clock.js';
@@ -144,6 +145,9 @@ const SLOW_DRAIN_THRESHOLD_MS = 250;
 
 /** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
 const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
+
+/** Caps each state's rows in the dashboard pending-captures listing. */
+const PENDING_CAPTURE_LIST_LIMIT = 200;
 
 /**
  * §3. Everything assistant-shaped hangs off this object, and the status server holds exactly one
@@ -466,8 +470,8 @@ export class AssistantService implements AssistantRuntime {
   /** Captures still owed an extraction, oldest first, for the dashboard pending view. */
   listPendingCaptures(): PendingCaptureDto[] {
     const pending: PendingCaptureDto[] = [];
-    for (const state of ['queued', 'awaiting_image_capability', 'processing'] as const) {
-      for (const row of this.captureQueue.listByState(this.ownerId, state, 200)) {
+    for (const state of PENDING_CAPTURE_LIST_STATES) {
+      for (const row of this.captureQueue.listByState(this.ownerId, state, PENDING_CAPTURE_LIST_LIMIT)) {
         pending.push({
           evidenceId: row.evidence_id,
           state,
