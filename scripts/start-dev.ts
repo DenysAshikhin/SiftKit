@@ -8,7 +8,7 @@ import {
   getAssistantShellPath,
 } from './start-dev-assistant-shell.js';
 import { isBackendReadyStatusCode } from './start-dev-health.js';
-import { buildStartupPortChecks, getStatusServerConnectHost, isPortInUse } from './start-dev-ports.js';
+import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
@@ -34,6 +34,7 @@ function startProcess(command: string, args: string[], options: SpawnOptions = {
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const useStableStatus = process.argv.includes('--stable');
 const statusScript = useStableStatus ? 'start:status:stable:server' : 'start:status';
+const ASSISTANT_SHELL_WATCH_INTERVAL_MS = 5000;
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
 let assistantShellProcess: ChildProcess | null = null;
@@ -60,7 +61,7 @@ function shutdown(signalName: string): void {
 
 function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
   const host = getStatusServerConnectHost();
-  const port = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
+  const port = getStatusServerPort(process.env);
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : 30000;
   const pollMs = Number.isFinite(Number(options.pollMs)) ? Number(options.pollMs) : 400;
   const deadline = Date.now() + timeoutMs;
@@ -100,7 +101,7 @@ function isAssistantShellRunning(): boolean {
 
 async function syncAssistantShell(): Promise<void> {
   const host = getStatusServerConnectHost();
-  const port = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
+  const port = getStatusServerPort(process.env);
   let currentEnabled: boolean;
   try {
     const config = await httpClient.requestJson(
@@ -172,7 +173,7 @@ void (async () => {
     if (!shuttingDown) {
       void syncAssistantShell();
     }
-  }, 5000);
+  }, ASSISTANT_SHELL_WATCH_INTERVAL_MS);
   if (reuseExistingDashboard) {
     return;
   }

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { isBackendReadyStatusCode } from '../scripts/start-dev-health.js';
-import { buildStartupPortChecks } from '../scripts/start-dev-ports.js';
+import { buildStartupPortChecks, getStatusServerPort } from '../scripts/start-dev-ports.js';
 import { stopChildProcessTree } from '../scripts/start-dev-process.js';
 import { readPackageJson } from './helpers/package-json.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -91,4 +91,9 @@ test('stable status script starts the full stable dev stack', () => {
 
   assert.equal(packageJson.scripts?.['start:status:stable'], 'tsx .\\scripts\\start-dev.ts --stable');
   assert.equal(packageJson.scripts?.['start:status:stable:server'], 'node .\\dist\\status-server\\main.js');
+});
+
+test('status server port derives from one exported helper', () => {
+  assert.equal(getStatusServerPort({}), 4765);
+  assert.equal(getStatusServerPort({ SIFTKIT_STATUS_PORT: '5123' }), 5123);
 });

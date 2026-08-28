@@ -51,6 +51,11 @@ function readDashboardDevScript(dashboardPackageJsonPath: string): string {
   return parsedPackage.scripts?.dev || '';
 }
 
+/** Single source for the status server port shared by port preflight, health, and config polls. */
+export function getStatusServerPort(env: NodeJS.ProcessEnv): number {
+  return parsePositivePort(env.SIFTKIT_STATUS_PORT, 4765);
+}
+
 export function buildStartupPortChecks(
   env: NodeJS.ProcessEnv,
   dashboardPackageJsonPath = path.resolve(process.cwd(), 'dashboard', 'package.json'),
@@ -61,7 +66,7 @@ export function buildStartupPortChecks(
       service: 'status',
       name: 'status server',
       host: getStatusServerConnectHost(env),
-      port: parsePositivePort(env.SIFTKIT_STATUS_PORT, 4765),
+      port: getStatusServerPort(env),
       fatalIfInUse: true,
     },
     {

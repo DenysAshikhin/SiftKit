@@ -60,4 +60,7 @@ test('start-dev wires the assistant shell watcher into the dev stack', () => {
   assert.match(script, /start-dev-assistant-shell\.js/u);
   assert.match(script, /decideAssistantShellAction/u);
   assert.match(script, /\/config/u);
+  assert.doesNotMatch(script, /4765/u);
+  assert.match(script, /getStatusServerPort/u);
+  assert.match(script, /ASSISTANT_SHELL_WATCH_INTERVAL_MS/u);
 });
