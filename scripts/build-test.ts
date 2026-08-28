@@ -183,15 +183,12 @@ async function buildTestArtifacts(): Promise<void> {
     return;
   }
 
-  runTypeScriptScript(path.join('scripts', 'sync-dist-runtime.ts'), ['--clean']);
   resetTestBuildRoot();
   const npmCliPath = process.env.npm_execpath;
   if (!npmCliPath) {
     throw new Error('npm_execpath is required to build test artifacts. Run npm run build:test.');
   }
-  runCommand(process.execPath, [npmCliPath, '--prefix', path.join(repoRoot, 'packages', 'contracts'), 'run', 'build']);
-  runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.json')]);
-  runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.scripts.json')]);
+  runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-b', path.join(repoRoot, 'tsconfig.json')]);
   runTypeScriptScript(path.join('scripts', 'sync-dist-runtime.ts'), []);
   runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.test-build.json')]);
 

@@ -4,9 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 
-import { cleanCompiledOutputs, syncDistRuntime } from '../scripts/sync-dist-runtime.js';
 import { mockConfig } from './_runtime-helpers.js';
 import { readPackageJson } from './helpers/package-json.js';
 import { mockRunRecord } from './helpers/mock-run-record.js';
@@ -22,7 +20,6 @@ import {
   getRunTelemetryStats,
   sortBenchmarkResults,
 } from '../bench/spec-settings.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
   'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
@@ -634,13 +631,15 @@ test('package focused3 spec benchmark command preserves existing commands and se
   );
 });
 
-test('package build command syncs dist runtime output after compiling TypeScript', () => {
+test('package build compiles with project references and finishes with runtime markers', () => {
   const pkg = readPackageJson();
 
+  assert.match(String(pkg.scripts?.build || ''), /tsc\s+-b\s+\.\\tsconfig\.json/u);
   assert.match(
     String(pkg.scripts?.build || ''),
     /node\s+--experimental-strip-types\s+\.\\scripts\\sync-dist-runtime\.ts/u,
   );
+  assert.doesNotMatch(String(pkg.scripts?.build || ''), /--clean/u);
   assert.doesNotMatch(String(pkg.scripts?.build || ''), /experimental-default-type/u);
 });
 
@@ -692,10 +691,10 @@ test('native type-stripped source build scripts are warning-free under their ESM
   assert.doesNotMatch(result.stderr, /MODULE_TYPELESS_PACKAGE_JSON/u);
 });
 
-test('compiled purge-temp-dirs module can be evaluated as ESM without purging OS temp', async () => {
-  const moduleUrl = pathToFileURL(path.resolve('dist', 'scripts', 'purge-temp-dirs.js')).href;
+test('purge:temp runs from source via tsx instead of a compiled scripts tree', () => {
+  const pkg = readPackageJson();
 
-  await import(moduleUrl);
+  assert.equal(String(pkg.scripts?.['purge:temp']), 'tsx .\\scripts\\purge-temp-dirs-main.ts');
 });
 
 test('compiled test runner executes after source staging is removed', () => {
@@ -730,7 +729,8 @@ test('build:test reuses only a current content-addressed artifact set', () => {
 
   assert.match(buildScript, /state\.kind === 'current'/u);
   assert.match(buildScript, /isTestsOnlyChange\(state\)/u);
-  assert.match(buildScript, /\['--clean'\]/u);
+  assert.doesNotMatch(buildScript, /--clean/u);
+  assert.match(buildScript, /'-b'/u);
 });
 
 test('scripts TypeScript build includes both build entrypoints and purge', () => {
@@ -740,6 +740,8 @@ test('scripts TypeScript build includes both build entrypoints and purge', () =>
   assert.match(scriptsConfig, /"scripts\/sync-dist-runtime\.ts"/u);
   assert.match(scriptsConfig, /"scripts\/purge-temp-dirs\.ts"/u);
   assert.match(scriptsConfig, /"scripts\/purge-temp-dirs-main\.ts"/u);
+  assert.match(scriptsConfig, /"scripts\/build-clean\.ts"/u);
+  assert.match(scriptsConfig, /"noEmit":\s*true/u);
 });
 
 test('package test command runs prepared artifacts without building or typechecking', () => {
@@ -764,39 +766,22 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
   assert.equal(String(pkg.scripts?.['typecheck:analysis']), 'tsc -p .\\tsconfig.analysis.json --noEmit');
 });
 
-test('syncDistRuntime copies current output and removes its source staging directory', () => {
-  const tempRoot = createManagedTempDir('sync-dist-runtime-');
-  const sourceRoot = path.join(tempRoot, 'dist', 'src');
-  const targetRoot = path.join(tempRoot, 'dist');
+test('sync-dist-runtime no longer stages, moves, or wipes compiled output', () => {
+  const syncScript = fs.readFileSync(path.join('scripts', 'sync-dist-runtime.ts'), 'utf8');
 
-  fs.mkdirSync(path.join(sourceRoot, 'status-server'), { recursive: true });
-  fs.mkdirSync(path.join(targetRoot, 'status-server'), { recursive: true });
-  fs.writeFileSync(path.join(sourceRoot, 'status-server', 'dashboard-runs.js'), 'fresh');
-  fs.writeFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'stale');
-  fs.writeFileSync(path.join(targetRoot, 'status-server', 'deleted-worker.js'), 'obsolete');
-
-  syncDistRuntime(sourceRoot, targetRoot);
-
-  assert.equal(fs.readFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'utf8'), 'fresh');
-  assert.equal(fs.existsSync(path.join(targetRoot, 'status-server', 'deleted-worker.js')), false);
-  assert.equal(fs.existsSync(sourceRoot), false);
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  assert.doesNotMatch(syncScript, /cleanCompiledOutputs/u);
+  assert.doesNotMatch(syncScript, /syncDistRuntime/u);
+  assert.doesNotMatch(syncScript, /--clean/u);
+  assert.match(syncScript, /ensureCliShebang/u);
 });
 
-test('cleanCompiledOutputs removes the complete dist output tree', () => {
-  const tempRoot = createManagedTempDir('clean-compiled-runtime-');
-  const distRoot = path.join(tempRoot, 'dist');
-  fs.mkdirSync(path.join(distRoot, 'src'), { recursive: true });
-  fs.mkdirSync(path.join(distRoot, 'scripts'), { recursive: true });
-  fs.writeFileSync(path.join(distRoot, 'src', 'stale.js'), 'obsolete');
-  fs.writeFileSync(path.join(distRoot, 'scripts', 'stale.js'), 'obsolete');
-  fs.writeFileSync(path.join(distRoot, 'deleted-top-level.js'), 'obsolete');
-  fs.writeFileSync(path.join(distRoot, 'keep.txt'), 'obsolete');
+test('package build:clean removes every incremental output tree', () => {
+  const pkg = readPackageJson();
 
-  cleanCompiledOutputs(distRoot);
-
-  assert.equal(fs.existsSync(distRoot), false);
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  assert.equal(
+    String(pkg.scripts?.['build:clean']),
+    'node --experimental-strip-types .\\scripts\\build-clean.ts',
+  );
 });
 
 test('benchmark wrapper regroups multi-word option values after npm strips quotes on Windows', () => {

@@ -4,19 +4,22 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
+    "rootDir": "src",
     "strict": true,
     "declaration": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "paths": {
-      "@siftkit/contracts": ["./packages/contracts/src/index.ts"]
-    },
+    "incremental": true,
+    "tsBuildInfoFile": ".tscache/main-build.tsbuildinfo",
     "types": [
       "node"
     ]
   },
   "include": [
     "src/**/*.ts"
+  ],
+  "references": [
+    { "path": "./packages/contracts" }
   ]
 }
