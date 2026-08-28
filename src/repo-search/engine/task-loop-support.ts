@@ -83,25 +83,7 @@ export function allocateLlamaCppSlotId(config: SiftConfig): number {
 export type TaskDefinition = {
   id: string;
   question: string;
-  signals: string[];
 };
-
-export function evaluateTaskSignals(
-  task: TaskDefinition,
-  evidenceText: string,
-): {
-  passed: boolean;
-  missingSignals: string[];
-} {
-  const missingSignals: string[] = [];
-  for (const signal of task.signals) {
-    const regex = new RegExp(signal, 'iu');
-    if (!regex.test(evidenceText)) {
-      missingSignals.push(signal);
-    }
-  }
-  return { passed: missingSignals.length === 0, missingSignals };
-}
 
 // ---------------------------------------------------------------------------
 // Task result type
@@ -121,16 +103,6 @@ export const TASK_END_REASONS = [
 ] as const;
 export const TaskEndReasonSchema = z.enum(TASK_END_REASONS);
 export type TaskEndReason = z.infer<typeof TaskEndReasonSchema>;
-
-/**
- * A rejected call (`safe: false`, `exitCode: null`) is a screening decision, not an executed
- * failure — only a command that actually ran and exited non-zero counts here.
- */
-export function countExecutedCommandFailures(
-  commands: readonly { safe: boolean; exitCode: number | null }[],
-): number {
-  return commands.filter((command) => command.safe && command.exitCode !== null && command.exitCode !== 0).length;
-}
 
 export const TaskResultSchema = z.object({
   id: z.string(),
@@ -154,7 +126,6 @@ export const TaskResultSchema = z.object({
   mutatedPaths: z.array(z.string()),
   groundingStatus: ChatGroundingStatusSchema.optional(),
   passed: z.boolean(),
-  missingSignals: z.array(z.string()),
   promptTokens: z.number(),
   outputTokens: z.number(),
   toolTokens: z.number(),

@@ -50,13 +50,14 @@ test('buildScorecard passes a finished run', () => {
   assert.deepEqual(scorecard.failureReasons, []);
 });
 
-test('buildScorecard names the non-zero command exit instead of a bare "task failed"', () => {
+test('buildScorecard reports only the end reason for an evicted run with non-zero exits', () => {
   const scorecard = buildScorecard({
     runId: 'r4',
     model: 'm',
     tasks: [buildMockTaskResult({
-      reason: 'finish',
+      reason: 'max_turns',
       passed: false,
+      commandFailures: 1,
       commands: [{
         command: 'grep pattern="x"',
         activityKind: 'search',
@@ -70,5 +71,29 @@ test('buildScorecard names the non-zero command exit instead of a bare "task fai
     })],
   });
   assert.equal(scorecard.verdict, 'fail');
-  assert.deepEqual(scorecard.failureReasons, ['repo-search: commands exited non-zero 1']);
+  assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason max_turns']);
+});
+
+test('buildScorecard passes a finished run whose commands exited non-zero', () => {
+  const scorecard = buildScorecard({
+    runId: 'r5',
+    model: 'm',
+    tasks: [buildMockTaskResult({
+      reason: 'finish',
+      passed: true,
+      commandFailures: 2,
+      commands: [{
+        command: 'grep pattern="x"',
+        activityKind: 'search',
+        activitySubject: { kind: 'none' },
+        turn: 1,
+        safe: true,
+        reason: null,
+        exitCode: 1,
+        output: 'red run',
+      }],
+    })],
+  });
+  assert.equal(scorecard.verdict, 'pass');
+  assert.deepEqual(scorecard.failureReasons, []);
 });

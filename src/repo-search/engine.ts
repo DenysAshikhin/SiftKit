@@ -19,7 +19,7 @@ import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
-import { countExecutedCommandFailures, TaskResultSchema } from './engine/task-loop-support.js';
+import { TaskResultSchema } from './engine/task-loop-support.js';
 import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -43,7 +43,7 @@ import type { PresetSystemContext } from '../preset-system-context.js';
 import type { RepoSearchTaskKind } from './task-kind.js';
 import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
 
-export { evaluateTaskSignals, type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
+export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
 // ---------------------------------------------------------------------------
 // Main task loop
@@ -101,10 +101,6 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
   for (const task of options.tasks) {
     if (task.passed) continue;
     if (task.reason !== 'finish') failureReasons.push(`${task.id}: ended with reason ${task.reason}`);
-    if (task.missingSignals.length > 0) failureReasons.push(`${task.id}: missing signals [${task.missingSignals.join(', ')}]`);
-    if (Number(task.commandFailures || 0) > 0) failureReasons.push(`${task.id}: command failures ${Number(task.commandFailures || 0)}`);
-    const exitFailures = countExecutedCommandFailures(task.commands);
-    if (exitFailures > 0) failureReasons.push(`${task.id}: commands exited non-zero ${exitFailures}`);
   }
 
   return {
@@ -202,7 +198,6 @@ export async function runRepoSearch(options: {
   const tasksToRun: TaskDefinition[] = [{
     id: 'repo-search',
     question: options.taskPrompt,
-    signals: [],
   }];
 
   const tasks: TaskResult[] = [];

@@ -6,15 +6,19 @@ import type {
   AssistantMemoryHistoryEntryDto,
   AssistantValidationCandidateDto,
   DesktopStateDto,
+  PendingCaptureDto,
 } from '../../types.js';
 import {
   bootstrapAssistantToken,
+  fetchAssistantEvidencePixels,
   getAssistantDesktopState,
   getAssistantMemoryHistory,
+  getAssistantPendingCaptures,
   getAssistantValidation,
   removeAssistantValidationCandidate,
   saveAssistantValidationNotes,
 } from '../../assistant-api.js';
+import { ImageLightbox } from '../../components/ImageLightbox.js';
 import { AssistantMaintenance } from './AssistantMaintenance.js';
 
 type AssistantView = 'configuration' | 'validation' | 'history';
@@ -23,6 +27,10 @@ type AssistantSettingsProps = {
   assistant: AssistantConfig;
   onChange(value: AssistantConfig): void;
 };
+
+type CapturePreview =
+  | { kind: 'url'; url: string }
+  | { kind: 'error'; error: string };
 
 function Toggle(props: { label: string; value: boolean; onChange(value: boolean): void }) {
   return (
@@ -278,6 +286,9 @@ export function AssistantSettings(props: AssistantSettingsProps) {
   const [validation, setValidation] = React.useState<AssistantValidationCandidateDto[]>([]);
   const [history, setHistory] = React.useState<AssistantMemoryHistoryEntryDto[]>([]);
   const [desktopState, setDesktopState] = React.useState<DesktopStateDto | null>(null);
+  const [pendingCaptures, setPendingCaptures] = React.useState<PendingCaptureDto[]>([]);
+  const [capturePreviews, setCapturePreviews] = React.useState<Record<string, CapturePreview>>({});
+  const [zoomedCapture, setZoomedCapture] = React.useState<PendingCaptureDto | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -286,16 +297,18 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     void (async () => {
       try {
         const nextToken = await bootstrapAssistantToken();
-        const [nextValidation, nextHistory, nextDesktopState] = await Promise.all([
+        const [nextValidation, nextHistory, nextDesktopState, nextCaptures] = await Promise.all([
           getAssistantValidation(nextToken),
           getAssistantMemoryHistory(nextToken),
           getAssistantDesktopState(nextToken),
+          getAssistantPendingCaptures(nextToken),
         ]);
         if (!active) return;
         setToken(nextToken);
         setValidation(nextValidation);
         setHistory(nextHistory);
         setDesktopState(nextDesktopState);
+        setPendingCaptures(nextCaptures.captures);
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : String(caught));
       } finally {
@@ -304,6 +317,35 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     })();
     return () => { active = false; };
   }, []);
+
+  // Pixel fetches are lazy: they start only once the capture list has loaded, and each
+  // decrypted blob is held as an object URL until the view unmounts or reloads the list.
+  React.useEffect(() => {
+    if (token === null || pendingCaptures.length === 0) return;
+    let active = true;
+    const urls: string[] = [];
+    void (async () => {
+      for (const capture of pendingCaptures) {
+        try {
+          const blob = await fetchAssistantEvidencePixels(token, capture.evidenceId);
+          if (!active) return;
+          const url = window.URL.createObjectURL(blob);
+          urls.push(url);
+          setCapturePreviews((prev) => ({ ...prev, [capture.evidenceId]: { kind: 'url', url } }));
+        } catch (caught) {
+          if (!active) return;
+          setCapturePreviews((prev) => ({
+            ...prev,
+            [capture.evidenceId]: { kind: 'error', error: caught instanceof Error ? caught.message : String(caught) },
+          }));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      for (const url of urls) window.URL.revokeObjectURL(url);
+    };
+  }, [token, pendingCaptures]);
 
   async function saveNotes(candidate: AssistantValidationCandidateDto): Promise<void> {
     if (token === null) return;
@@ -324,6 +366,8 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     }
   }
 
+  const zoomedPreview = zoomedCapture === null ? undefined : capturePreviews[zoomedCapture.evidenceId];
+
   return (
     <div className="assistant-settings">
       <div className="segc assistant-view-nav" aria-label="Assistant settings view">
@@ -342,6 +386,44 @@ export function AssistantSettings(props: AssistantSettingsProps) {
       {view === 'validation' ? (
         <div className="assistant-feed">
           {loading ? <p className="hint">Loading pending proof…</p> : null}
+          {!loading ? (
+            <section className="assistant-pending-captures">
+              {pendingCaptures.length === 0 ? (
+                <p className="hint">No captures are waiting for image analysis.</p>
+              ) : (
+                <>
+                  <h3>Pending captures</h3>
+                  {pendingCaptures.map((capture) => {
+                    const preview = capturePreviews[capture.evidenceId];
+                    return (
+                      <article className="assistant-feed-card" key={capture.evidenceId}>
+                        <div className="assistant-card-heading">
+                          <h3>{capture.foregroundContextKey}</h3>
+                          <span className="bdg">{capture.state.replace(/_/g, ' ')}</span>
+                        </div>
+                        {preview === undefined ? (
+                          <p className="hint">Loading preview…</p>
+                        ) : preview.kind === 'url' ? (
+                          <button
+                            type="button"
+                            className="image-zoom"
+                            aria-label={`Enlarge capture ${capture.evidenceId}`}
+                            title="Enlarge"
+                            onClick={() => setZoomedCapture(capture)}
+                          >
+                            <img src={preview.url} alt={`Capture from ${capture.foregroundContextKey}`} />
+                          </button>
+                        ) : (
+                          <p className="error">Preview unavailable: {preview.error}</p>
+                        )}
+                        <p className="hint">{new Date(capture.enqueuedAtUtc).toLocaleString()} · {(capture.byteLength / 1024).toFixed(1)} KB</p>
+                      </article>
+                    );
+                  })}
+                </>
+              )}
+            </section>
+          ) : null}
           {!loading && validation.length === 0 ? <p className="hint">No proof is awaiting validation.</p> : null}
           {validation.map((candidate) => (
             <article className="assistant-feed-card" key={candidate.id}>
@@ -369,6 +451,13 @@ export function AssistantSettings(props: AssistantSettingsProps) {
               </div>
             </article>
           ))}
+          {zoomedCapture !== null && zoomedPreview !== undefined && zoomedPreview.kind === 'url' ? (
+            <ImageLightbox
+              src={zoomedPreview.url}
+              alt={`Capture from ${zoomedCapture.foregroundContextKey}`}
+              onClose={() => setZoomedCapture(null)}
+            />
+          ) : null}
         </div>
       ) : null}
       {view === 'history' ? (

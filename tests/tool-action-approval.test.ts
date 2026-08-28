@@ -38,7 +38,7 @@ class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
 }
 
 function makeTask(prompt: string) {
-  return { id: 'task-1', question: prompt, signals: [] };
+  return { id: 'task-1', question: prompt };
 }
 
 function makeLoopOptions(tempRoot: string, mockResponses: MockPlannerResponseInput[], writer: AutoRespondingWriter, gate: ApprovalGate) {

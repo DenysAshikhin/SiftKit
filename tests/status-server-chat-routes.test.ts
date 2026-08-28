@@ -151,7 +151,6 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
       finalOutput,
       compactionSummary,
       passed: true,
-      missingSignals: [],
       promptTokens: 0,
       outputTokens: 0,
       toolTokens: 0,

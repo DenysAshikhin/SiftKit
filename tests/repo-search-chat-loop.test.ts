@@ -41,7 +41,7 @@ async function closeServer(server: http.Server): Promise<void> {
 
 test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () => {
   const result = await runTaskLoop(
-    { id: 'chat', question: 'What is 2+2?', signals: [] },
+    { id: 'chat', question: 'What is 2+2?' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -64,7 +64,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
 
 test('chat loopKind with zero planner tools rejects repo-search tool actions', async () => {
   const result = await runTaskLoop(
-    { id: 'chat', question: 'What is this repo?', signals: [] },
+    { id: 'chat', question: 'What is this repo?' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -94,7 +94,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
 test('chat mode streams finish output as answer events', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'chat', question: 'Greet me.', signals: [] },
+    { id: 'chat', question: 'Greet me.' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -121,7 +121,7 @@ test('chat mode streams finish output as answer events', async () => {
 test('non-live writers do not receive the final planner answer event', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'chat', question: 'Greet me.', signals: [] },
+    { id: 'chat', question: 'Greet me.' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -146,7 +146,7 @@ test('non-live writers do not receive the final planner answer event', async () 
 
 test('tool token totals sum command output tokens', async () => {
   const result = await runTaskLoop(
-    { id: 'repo-search', question: 'Find x.', signals: [] },
+    { id: 'repo-search', question: 'Find x.' },
     {
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       runtimeProfile: REPO_SEARCH_RUNTIME_PROFILE,
@@ -197,7 +197,7 @@ test('chat streams native content as raw progress and safe narration before the 
 
   try {
     const result = await runTaskLoop(
-      { id: 'chat', question: 'Greet me.', signals: [] },
+      { id: 'chat', question: 'Greet me.' },
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
@@ -278,7 +278,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
 
   try {
     const result = await runTaskLoop(
-      { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
+      { id: 'chat', question: 'Answer from terminal synthesis.' },
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
@@ -346,7 +346,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
 
   try {
     const result = await runTaskLoop(
-      { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
+      { id: 'chat', question: 'Answer from terminal synthesis.' },
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
@@ -374,7 +374,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
 test('chat mode seeds system prompt override and history before the question', async () => {
   const logged: Array<{ role: string; content: string }> = [];
   await runTaskLoop(
-    { id: 'chat', question: 'And now?', signals: [] },
+    { id: 'chat', question: 'And now?' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -413,7 +413,7 @@ test('chat mode seeds system prompt override and history before the question', a
 test('chat loop sends replayed tool-call history before the new user message', async () => {
   const capturedMessages: JsonSerializable[] = [];
   const result = await runTaskLoop(
-    { id: 'chat', question: 'next question', signals: [] },
+    { id: 'chat', question: 'next question' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
@@ -470,7 +470,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
 test('thinkingEnabledOverride=false forces enable_thinking:false in the planner request', async () => {
   const requests: Array<{ enable_thinking?: boolean }> = [];
   await runTaskLoop(
-    { id: 'chat', question: 'Hi', signals: [] },
+    { id: 'chat', question: 'Hi' },
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),

@@ -152,3 +152,18 @@ export const DesktopStateDtoSchema = z.object({
   }).strict().nullable(),
 }).strict();
 export type DesktopStateDto = z.infer<typeof DesktopStateDtoSchema>;
+
+/** A capture still owed an extraction, listed for the dashboard pending view. */
+export const PendingCaptureDtoSchema = z.object({
+  evidenceId: z.string().min(1),
+  state: z.enum(['queued', 'awaiting_image_capability', 'processing']),
+  enqueuedAtUtc: z.string(),
+  byteLength: z.number().int().positive(),
+  foregroundContextKey: z.string(),
+}).strict();
+export type PendingCaptureDto = z.infer<typeof PendingCaptureDtoSchema>;
+
+export const PendingCapturesResponseSchema = z.object({
+  captures: z.array(PendingCaptureDtoSchema),
+}).strict();
+export type PendingCapturesResponse = z.infer<typeof PendingCapturesResponseSchema>;

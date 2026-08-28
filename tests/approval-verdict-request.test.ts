@@ -143,7 +143,7 @@ test('a task loop refuses an approval verdict before any planner request', async
   const tempRoot = createManagedTempDir('siftkit-verdict-no-planner-');
   try {
     const loop = new TaskLoop(
-      { id: 'task-1', question: 'q', signals: [] },
+      { id: 'task-1', question: 'q' },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: tempRoot,

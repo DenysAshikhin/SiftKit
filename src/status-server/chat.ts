@@ -874,12 +874,7 @@ export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: st
     }
   }
   lines.push('', '## Critical Review');
-  const missingSignals = primaryTask?.missingSignals || [];
-  if (missingSignals.length > 0) {
-    lines.push(`- Missing expected evidence signals: ${missingSignals.join(', ')}`);
-  } else {
-    lines.push('- Verify that proposed changes preserve existing behavior and test coverage.');
-  }
+  lines.push('- Verify that proposed changes preserve existing behavior and test coverage.');
   lines.push('- Check for hidden coupling between chat flow state, session persistence, and model-request locking.');
   lines.push('- Validate repo-root input carefully to avoid running searches outside intended workspace.');
   lines.push('', '## Artifacts');

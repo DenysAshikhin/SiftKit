@@ -17,6 +17,7 @@ import {
   AssistantStatusResponseSchema,
   AssistantTopicForgetPreviewSchema,
   DesktopStateDtoSchema,
+  PendingCapturesResponseSchema,
   type AssistantAssertionExplanation,
   type AssistantDeletionPreview,
   type AssistantEvidenceDeletionPreview,
@@ -32,6 +33,7 @@ import {
   type AssistantTopicForgetPreview,
   type AssistantTopicForgetRequest,
   type DesktopStateDto,
+  type PendingCapturesResponse,
 } from '@siftkit/contracts';
 import {
   bootstrapAssistantToken,
@@ -103,6 +105,10 @@ export function getAssistantStatus(token: string): Promise<AssistantStatusRespon
 
 export function getAssistantDesktopState(token: string): Promise<DesktopStateDto> {
   return request('/assistant/desktop/state', token, DesktopStateDtoSchema);
+}
+
+export function getAssistantPendingCaptures(token: string): Promise<PendingCapturesResponse> {
+  return request('/assistant/captures/pending', token, PendingCapturesResponseSchema);
 }
 
 /** Decrypted evidence bytes for a per-item reveal. Held in memory only; never cached. */

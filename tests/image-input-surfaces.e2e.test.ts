@@ -166,7 +166,7 @@ test('repo-search puts the image part on the first user message it sends', async
   const port = Number(address && typeof address === 'object' ? address.port : 0);
   try {
     await runTaskLoop(
-      { id: 'img', question: 'what is this?', signals: [] },
+      { id: 'img', question: 'what is this?' },
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),

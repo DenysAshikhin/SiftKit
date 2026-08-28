@@ -27,7 +27,7 @@ function collectingLogger(events: LoggedEvent[]) {
 test('repo-agent finish is challenged once and accepted when the model doubles down', async () => {
   const events: LoggedEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'agent-reaffirm', question: 'Do the task.', signals: [] },
+    { id: 'agent-reaffirm', question: 'Do the task.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       runtimeProfile: AGENT_RUNTIME_PROFILE,
@@ -55,7 +55,7 @@ test('repo-agent finish is challenged once and accepted when the model doubles d
 test('repo-agent model may back down twice; the third finish is forced done', async () => {
   const events: LoggedEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'agent-forced', question: 'Do the task.', signals: [] },
+    { id: 'agent-forced', question: 'Do the task.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       runtimeProfile: AGENT_RUNTIME_PROFILE,
@@ -90,7 +90,7 @@ test('repo-agent model may back down twice; the third finish is forced done', as
 test('repo-search loop finishes are never challenged', async () => {
   const events: LoggedEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'search-untouched', question: 'Find planner tools.', signals: ['done'] },
+    { id: 'search-untouched', question: 'Find planner tools.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
@@ -119,7 +119,7 @@ test('finish during forced-finish mode bypasses the verification gate', async ()
   const patterns = Array.from({ length: 10 }, (_, index) => `needle${index}`);
   const events: LoggedEvent[] = [];
   const result = await runTaskLoop(
-    { id: 'agent-forced-mode', question: 'Do the task.', signals: [] },
+    { id: 'agent-forced-mode', question: 'Do the task.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       runtimeProfile: AGENT_RUNTIME_PROFILE,

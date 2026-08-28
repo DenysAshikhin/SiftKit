@@ -57,7 +57,7 @@ export function makeProcessor(
     liveImagePathKeys,
   });
   const processor = new ToolActionProcessor({
-    task: { id: 'task-alignment', question: 'q', signals: ['done'] },
+    task: { id: 'task-alignment', question: 'q' },
     repoRoot: root,
     config: undefined,
     mockCommandResults,

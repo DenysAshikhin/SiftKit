@@ -508,6 +508,7 @@ export async function acquireModelRequestWithWait(
 ): Promise<ModelRequestLock | null> {
   ctx.modelIdleController?.clearForIncomingRequest();
   ctx.assistant?.onInteractiveRequest();
+  ctx.assistantIdleGate?.noteActivity();
   logIncomingModelRequest(ctx, kind);
   clearIdleSummaryTimer(ctx);
   let lock = acquireModelRequest(ctx, kind, options.ownerRunId ?? null);

@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -111,7 +111,6 @@ test('runTaskLoop stops on invalid response limit', async () => {
     {
       id: 'task-invalid',
       question: 'Any question.',
-      signals: ['unused'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -134,7 +133,6 @@ test('runTaskLoop returns invalid native arguments on the failing call before a 
     {
       id: 'task-invalid-recoverable-tool-replay',
       question: 'Any question.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -186,7 +184,6 @@ test('runTaskLoop nudges unrecoverable responses without inventing a tool call',
     {
       id: 'task-invalid-fallback-tool-replay',
       question: 'Any question.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -282,7 +279,6 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
       {
         id: 'task-runaway-streamed-tool-json',
         question: 'Find planner text.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -338,7 +334,6 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
     {
       id: 'task-token-guard',
       question: 'Find planner text.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -390,7 +385,6 @@ test('runTaskLoop advances overlapping read calls to the next unread span', asyn
     {
       id: 'task-native-read-unread-span',
       question: 'Read target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -437,7 +431,6 @@ test('runTaskLoop replays effective read range after native unread expansion', a
     {
       id: 'task-native-read-effective-replay',
       question: 'Read target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -496,7 +489,6 @@ test('runTaskLoop replays only the returned read range after fitting an oversize
     {
       id: 'task-budget-bounded-read',
       question: 'read file',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -557,7 +549,6 @@ test('runTaskLoop bounds the unread read span at the next returned range', async
     {
       id: 'task-native-read-next-range-bound',
       question: 'Read target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -597,7 +588,6 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
     {
       id: 'task-native-read-exhausted',
       question: 'Read target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -646,7 +636,6 @@ test('runTaskLoop forces finish after repeated exhausted reads', async () => {
     {
       id: 'task-native-read-exhausted-stagnation',
       question: 'Read target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -689,7 +678,6 @@ test('runTaskLoop truncates oversized find output with omitted file count', asyn
     {
       id: 'task-native-list-truncate',
       question: 'List files.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -730,7 +718,6 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
     {
       id: 'task-oversized-line-read-stats',
       question: 'Read a large file section.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -782,7 +769,6 @@ test('runTaskLoop does not print a red console warning when successful output is
       {
         id: 'task-token-guard-console-warning',
         question: 'Find planner text.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -868,7 +854,6 @@ test('runTaskLoop fails before any provider request when the summarization promp
         {
           id: 'task-compaction-prompt-overflow',
           question: 'Q'.repeat(20000),
-          signals: [],
         },
         {
           ...MOCK_LOOP_DEFAULTS,
@@ -906,7 +891,6 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
     {
       id: 'task-provider-reserve-budget',
       question: 'Find planner budget references.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -944,7 +928,6 @@ test('runTaskLoop compacts an overflowing history and continues from the summary
     {
       id: 'task-llm-compaction',
       question: 'Find planner references.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1004,7 +987,6 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
     {
       id: 'task-dynamic-cap-growth',
       question: 'Find planner text.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1055,7 +1037,6 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
     {
       id: 'task-remaining-token-guard',
       question: oversizedQuestion,
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1106,7 +1087,6 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
     {
       id: 'task-same-turn-token-guard',
       question: 'Find planner prompt and prompt budget helpers.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1158,7 +1138,6 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
     {
       id: 'task-finish-no-reasoning',
       question: 'Find planner text.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1202,7 +1181,6 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
     {
       id: 'task-finish-with-reasoning',
       question: 'Find planner text.',
-      signals: ['final answer'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1270,7 +1248,6 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
     {
       id: 'task-finish-many-tools-no-followup',
       question: 'Find planner text.',
-      signals: ['src\\target.ts:10'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1312,7 +1289,6 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
     {
       id: 'task-max-turns-no-reasoning',
       question: 'Find planner text.',
-      signals: ['never-hits'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1415,7 +1391,6 @@ test('runTaskLoop retries transient provider network failures via shared retry h
       {
         id: 'task-retry-on-switch',
         question: 'Find planner text.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -1487,7 +1462,6 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
       {
         id: 'task-connrefused-warmup',
         question: 'Find planner text.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -1550,7 +1524,6 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
       {
         id: 'task-loading-model-retry',
         question: 'Find planner text.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -1584,7 +1557,6 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
     {
       id: 'task-duplicate-command',
       question: 'Find planner text.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1617,7 +1589,6 @@ test('runTaskLoop blocks an identical typed Git call as an exact duplicate', asy
     {
       id: 'task-semantic-duplicate-command',
       question: 'Find port defaults.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1660,7 +1631,6 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
     {
       id: 'task-line-read-overlap-metrics',
       question: 'Read two files.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1709,7 +1679,6 @@ test('runTaskLoop with ExpandReads disabled skips returned lines but stops at th
     {
       id: 'task-expand-reads-disabled',
       question: 'Read a file twice.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1751,7 +1720,6 @@ test('runTaskLoop does not compact different commands that happen to return the 
     {
       id: 'task-collapse-repeat-replay',
       question: 'Find runner port.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1806,7 +1774,6 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
     {
       id: 'task-zero-output-force-finish',
       question: 'Find planner text.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1839,7 +1806,6 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
     {
       id: 'task-third-cadence',
       question: 'Find planner text.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1896,7 +1862,6 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
     {
       id: 'task-no-thinking',
       question: 'Find planner text.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1950,11 +1915,10 @@ test('buildScorecard aggregates totals and verdict', () => {
         invalidResponses: 0,
         commandFailures: 0,
         commands: [{ command: 'rg x', turn: 1, safe: true, reason: null, exitCode: 0, output: '' }],
-        missingSignals: [],
       }),
       mockTaskResult({
         id: 'b',
-        reason: 'finish',
+        reason: 'max_turns',
         passed: false,
         safetyRejects: 2,
         invalidResponses: 1,
@@ -1963,7 +1927,6 @@ test('buildScorecard aggregates totals and verdict', () => {
           { command: 'rg y', turn: 1, safe: true, reason: null, exitCode: 0, output: '' },
           { command: 'rg z', turn: 2, safe: false, reason: null, exitCode: 0, output: '' },
         ],
-        missingSignals: ['signal-1'],
       }),
     ],
   });
@@ -1976,13 +1939,13 @@ test('buildScorecard aggregates totals and verdict', () => {
   assert.equal(scorecard.totals.commandFailures, 1);
   assert.equal(scorecard.totals.commandsExecuted, 3);
   assert.equal(scorecard.verdict, 'fail');
-  assert.equal(scorecard.failureReasons.length, 2);
+  assert.deepEqual(scorecard.failureReasons, ['b: ended with reason max_turns']);
 });
 
 test('mock planner strips think block from response text', async () => {
   const events: JsonObject[] = [];
   await runTaskLoop(
-    { id: 'task-strip', question: 'q', signals: ['done'] },
+    { id: 'task-strip', question: 'q' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
@@ -1998,7 +1961,7 @@ test('mock planner strips think block from response text', async () => {
 
 test('runTaskLoop records real planner turn per command and per-turn thinking', async () => {
   const result = await runTaskLoop(
-    { id: 'task-turns', question: 'Find planner text.', signals: ['done'] },
+    { id: 'task-turns', question: 'Find planner text.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
@@ -2025,7 +1988,7 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
 
 test('runTaskLoop keeps only latest planner thinking when per-step thinking is disabled', async () => {
   const result = await runTaskLoop(
-    { id: 'task-turns-pruned', question: 'Find planner text.', signals: ['done'] },
+    { id: 'task-turns-pruned', question: 'Find planner text.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
@@ -2064,7 +2027,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
 
 test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
   const result = await runTaskLoop(
-    { id: 'task-dup-turn', question: 'Find planner text.', signals: [] },
+    { id: 'task-dup-turn', question: 'Find planner text.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
@@ -2089,7 +2052,7 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
 
 test('runTaskLoop records turn thinking for an invalid-parse turn', async () => {
   const result = await runTaskLoop(
-    { id: 'task-invalid-think', question: 'q', signals: ['done'] },
+    { id: 'task-invalid-think', question: 'q' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
@@ -2115,7 +2078,6 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
     {
       id: 'task-read-after-edit',
       question: 'Read and edit target file.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -2159,7 +2121,6 @@ test('runTaskLoop keeps read history across a typed read-only Git call', async (
     {
       id: 'task-read-after-git',
       question: 'Read target file around a git call.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -2207,7 +2168,6 @@ test('runTaskLoop lets a read repeat after run invalidates every window with Exp
     {
       id: 'task-read-after-run',
       question: 'Read target file around a run call.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,

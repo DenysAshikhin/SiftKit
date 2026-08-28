@@ -10,7 +10,7 @@ const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-syn-loop-');
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {
   const events: Record<string, JsonSerializable>[] = [];
   const result = await runTaskLoop(
-    { id: 'task-syn-1', question: 'Any question.', signals: [] },
+    { id: 'task-syn-1', question: 'Any question.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
@@ -36,7 +36,7 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
 test('synthesis that returns empty text twice then succeeds on attempt 3 sets finalOutput', async () => {
   const events: Record<string, JsonSerializable>[] = [];
   const result = await runTaskLoop(
-    { id: 'task-syn-3', question: 'Any question.', signals: [] },
+    { id: 'task-syn-3', question: 'Any question.' },
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
@@ -65,7 +65,7 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
   const events: Record<string, JsonSerializable>[] = [];
   await assert.rejects(
     runTaskLoop(
-      { id: 'task-syn-fail', question: 'Any question.', signals: [] },
+      { id: 'task-syn-fail', question: 'Any question.' },
       {
         ...MOCK_LOOP_DEFAULTS,
         maxTurns: 1,
@@ -91,7 +91,7 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
 test('synthesis with exhausted mocks throws after 3 attempts (no silent dump fallback)', async () => {
   await assert.rejects(
     runTaskLoop(
-      { id: 'task-syn-exhaust', question: 'Any question.', signals: [] },
+      { id: 'task-syn-exhaust', question: 'Any question.' },
       {
         ...MOCK_LOOP_DEFAULTS,
         maxTurns: 1,

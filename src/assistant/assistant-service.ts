@@ -9,6 +9,7 @@ import type {
   CaptureSubmissionDto,
   DesktopStateDto,
   EnvironmentStateDto,
+  PendingCaptureDto,
   KeyCustody,
   MobileEnvelope,
   SuppressionAuditDto,
@@ -462,6 +463,28 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /** A capture the shell suppressed. Non-content: the rule id and nothing else. */
+  /** Captures still owed an extraction, oldest first, for the dashboard pending view. */
+  listPendingCaptures(): PendingCaptureDto[] {
+    const pending: PendingCaptureDto[] = [];
+    for (const state of ['queued', 'awaiting_image_capability', 'processing'] as const) {
+      for (const row of this.captureQueue.listByState(this.ownerId, state, 200)) {
+        pending.push({
+          evidenceId: row.evidence_id,
+          state,
+          enqueuedAtUtc: row.enqueued_at_utc,
+          byteLength: row.byte_length,
+          foregroundContextKey: row.foreground_context_key,
+        });
+      }
+    }
+    return pending.sort((a, b) => a.enqueuedAtUtc.localeCompare(b.enqueuedAtUtc));
+  }
+
+  /** Shell-reported seconds since keyboard/mouse input; null when the shell is gone or stale. */
+  desktopInputIdleSeconds(): number | null {
+    return this.environment.readInputIdleSeconds();
+  }
+
   ingestSuppression(suppression: SuppressionAuditDto): void {
     this.captureIntake.recordSuppression(this.ownerId, suppression);
   }

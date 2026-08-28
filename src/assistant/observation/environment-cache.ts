@@ -42,6 +42,12 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
     this.power = new DesktopPowerStateProvider(this);
   }
 
+  /** Seconds since the last OS keyboard/mouse input, or null while heartbeats are stale. */
+  readInputIdleSeconds(): number | null {
+    const fresh = this.fresh();
+    return fresh === null ? null : fresh.secondsSinceInput;
+  }
+
   ingest(state: EnvironmentStateDto): void {
     this.last = state;
     this.receivedEpochMs = this.clock.nowEpochMs();

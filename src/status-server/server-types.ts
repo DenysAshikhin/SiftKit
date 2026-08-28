@@ -14,6 +14,7 @@ import type { ModelIdleController } from './model-idle-controller.js';
 import type { AssistantRuntime } from '../assistant/assistant-service.js';
 import type { AssistantService } from '../assistant/assistant-service.js';
 import type { AssistantRouteGuard } from './assistant-auth.js';
+import type { StatusServerIdleGate } from './assistant-idle-gate.js';
 import type { AssistantRateLimiter } from './assistant-rate-limiter.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
@@ -123,6 +124,7 @@ export type ServerContext = {
   appliedModelPresetState: AppliedModelPresetState;
   assistant: AssistantRuntime | null;
   assistantControl: AssistantService | null;
+  assistantIdleGate: StatusServerIdleGate | null;
   assistantRouteGuard: AssistantRouteGuard | null;
   assistantRateLimiter: AssistantRateLimiter;
   assistantDrainTimer: NodeJS.Timeout | null;

@@ -31,7 +31,6 @@ export const RepoSearchTaskResultSchema = z.strictObject({
   groundingStatus: ChatGroundingStatusSchema.nullable(),
   commands: z.array(RepoSearchCommandResultSchema),
   turnThinking: TurnThinkingSchema,
-  missingSignals: z.array(z.string()),
 });
 export type RepoSearchTaskResult = z.infer<typeof RepoSearchTaskResultSchema>;
 
@@ -100,7 +99,6 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
 function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
   const reader = JsonRecordReader.fromJsonValue(value);
   const commandsRaw = reader.value('commands');
-  const missingSignalsRaw = reader.value('missingSignals');
   const turnThinkingRaw = reader.object('turnThinking') || {};
   const turnThinking: { [turn: string]: string } = {};
   for (const [turn, thinking] of Object.entries(turnThinkingRaw)) {
@@ -115,9 +113,6 @@ function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
     groundingStatus: normalizeGroundingStatus(reader.value('groundingStatus')),
     commands: Array.isArray(commandsRaw) ? commandsRaw.map((entry) => normalizeCommand(entry)) : [],
     turnThinking,
-    missingSignals: Array.isArray(missingSignalsRaw)
-      ? missingSignalsRaw.map((entry) => String(entry)).filter((entry) => entry.length > 0)
-      : [],
   });
 }
 

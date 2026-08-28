@@ -61,7 +61,7 @@ async function runOneTurnAgainstServer(): Promise<LoopRun> {
   const logged: Record<string, JsonSerializable>[] = [];
   try {
     const result = await runTaskLoop(
-      { id: 'prompt-accounting', question: 'Finish immediately.', signals: [] },
+      { id: 'prompt-accounting', question: 'Finish immediately.' },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: createManagedTempDir('siftkit-prompt-accounting-'),

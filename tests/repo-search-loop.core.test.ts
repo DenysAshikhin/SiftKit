@@ -173,7 +173,6 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
     {
       id: 'task-native-grep-mixed-quote',
       question: 'Find relative imports.',
-      signals: ['BridgeClient'],
     },
     {
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -214,7 +213,6 @@ test('runTaskLoop accumulates thinking tokens across turns on every token-bearin
     {
       id: 'task-thinking-token-accumulation',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -269,7 +267,6 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
     {
       id: 'task-progress-metadata',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -309,7 +306,6 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
     {
       id: 'task-output-tokens-full',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -339,7 +335,6 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
     {
       id: 'task-output-tokens-full-log',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -377,7 +372,6 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
     {
       id: 'task-output-loop-guard',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -419,7 +413,6 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
     {
       id: 'task-final-output-progress',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -492,7 +485,6 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
       {
         id: 'task-reuse-preflight-prompt-tokens',
         question: 'Find git status.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -540,7 +532,6 @@ test('runTaskLoop executes find and read natively', async () => {
       {
         id: 'task-native-read-list',
         question: 'List files, then read the sample file.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -591,7 +582,6 @@ test('runTaskLoop executes ls at repository root natively', async () => {
       {
         id: 'task-native-root-list',
         question: 'List repository root files.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -639,7 +629,6 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
       {
         id: 'task-runner-glob',
         question: 'List runner files.',
-        signals: ['done'],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -693,7 +682,6 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
         {
           id: 'task-provider-network-error',
           question: 'Trigger a provider request failure.',
-          signals: [],
         },
         {
           ...MOCK_LOOP_DEFAULTS,
@@ -732,12 +720,11 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   assert.equal(typeof asObject(errorEvent?.error).message, 'string');
 });
 
-test('runTaskLoop counts non-zero command exits as command failures but not invalid responses', async () => {
+test('runTaskLoop counts non-zero command exits as command failures without failing the run', async () => {
   const task = await runTaskLoop(
     {
       id: 'task-command-failure',
       question: 'Find planner text.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -757,7 +744,7 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
 
   assert.equal(task.invalidResponses, 0);
   assert.equal(task.commandFailures, 1);
-  assert.equal(task.passed, false);
+  assert.equal(task.passed, true);
 
   const scorecard = buildScorecard({
     runId: 'run-command-failure',
@@ -765,15 +752,15 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
     tasks: [task],
   });
   assert.equal(scorecard.totals.commandFailures, 1);
-  assert.equal(scorecard.verdict, 'fail');
+  assert.equal(scorecard.verdict, 'pass');
+  assert.deepEqual(scorecard.failureReasons, []);
 });
 
-test('runTaskLoop still counts exit code 1 from non-search commands as a command failure', async () => {
+test('runTaskLoop counts exit code 1 from non-search commands as a command failure without failing the run', async () => {
   const task = await runTaskLoop(
     {
       id: 'task-non-search-exit1',
       question: 'Check git log.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -792,7 +779,7 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
   );
 
   assert.equal(task.commandFailures, 1);
-  assert.equal(task.passed, false);
+  assert.equal(task.passed, true);
 });
 
 test('runTaskLoop stops on finish action', async () => {
@@ -800,7 +787,6 @@ test('runTaskLoop stops on finish action', async () => {
     {
       id: 'task-finish',
       question: 'Find planner tool names.',
-      signals: ['find_text', 'read_lines', 'json_filter'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -826,7 +812,6 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
     {
       id: 'task-tool-batch',
       question: 'Find planner prompt and prompt budget helpers.',
-      signals: ['planner prompt', 'prompt budget'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -869,7 +854,6 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
     {
       id: 'task-min-depth',
       question: 'Find planner tools.',
-      signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -906,7 +890,6 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
     {
       id: 'task-max-turns',
       question: 'Find planner prompt location.',
-      signals: ['summary.ts'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -939,7 +922,6 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
     {
       id: 'task-budget-hidden',
       question: 'Track tool usage.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -986,7 +968,6 @@ test('runTaskLoop records line-read stats for read windows', async () => {
       {
         id: 'task-line-read-stats',
         question: 'Read a file section.',
-        signals: [],
       },
       {
         ...MOCK_LOOP_DEFAULTS,
@@ -1084,7 +1065,6 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
       {
         id: 'task-chat-transcript',
         question: 'Find planner text.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -1219,7 +1199,6 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
       {
         id: 'task-duplicate-warning-tool-turn',
         question: 'Find planner text.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -1287,7 +1266,6 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
     {
       id: 'task-max-turns-synthesis',
       question: 'Find planner prompt location.',
-      signals: [],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
@@ -1347,7 +1325,6 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
       {
         id: 'task-dynamic-planner-max-tokens',
         question: 'Find planner prompt location.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -1426,7 +1403,6 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       {
         id: 'task-dynamic-terminal-synthesis-max-tokens',
         question: 'Find planner prompt location.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -1523,7 +1499,6 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
       {
         id: 'task-preset-max-tokens-clamp',
         question: 'Find planner prompt location.',
-        signals: [],
       },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
@@ -1562,7 +1537,6 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
     {
       id: 'task-tool-call-id',
       question: 'Find planner text.',
-      signals: ['planner'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,

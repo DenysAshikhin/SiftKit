@@ -52,6 +52,10 @@ export const desktopStateEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, service.desktopState());
 }, { requireEnabled: false });
 
+export const capturesPendingEndpoint = assistantRoute(({ service, res }) => {
+  sendJson(res, 200, { captures: service.listPendingCaptures() });
+}, { requireEnabled: false });
+
 export const factoryResetPreviewEndpoint = assistantRoute(({ service, res }) => {
   sendJson(res, 200, service.previewFactoryReset());
 }, { requireEnabled: false });

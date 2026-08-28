@@ -247,7 +247,7 @@ async function runBudgetedTaskLoop(
   opts: { stockBudgetMessage?: boolean } = {},
 ): Promise<void> {
   await runTaskLoop(
-    { id: loopKind, question: 'hi', signals: [] },
+    { id: loopKind, question: 'hi' },
     {
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       repoRoot: os.tmpdir(),
@@ -312,7 +312,7 @@ test('planner loop on llama backend warns that the planner budget message cannot
   const runWithLogger = async (loopKind: 'repo-search' | 'chat'): Promise<Record<string, JsonSerializable>[]> => {
     const events: Record<string, JsonSerializable>[] = [];
     await runTaskLoop(
-      { id: loopKind, question: 'hi', signals: [] },
+      { id: loopKind, question: 'hi' },
       {
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: os.tmpdir(),

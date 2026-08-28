@@ -46,6 +46,7 @@ test('loads pending proof and memory history and saves notes with its in-memory 
         proofs: [{ evidenceId: 'evidence-1', sourceType: 'conversation', sourceRef: 'chat-1' }],
         createdAtUtc: '2026-08-10T10:01:00.000Z',
       }] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
       if (input.endsWith('/notes')) return json({ ok: true, graphVersion: 1 });
       throw new Error(`Unexpected request: ${input}`);
     },
@@ -82,6 +83,7 @@ test('observation settings render consent, capture controls, deny lists, and the
       if (input === '/assistant/desktop/state') return json(desktopStateBody(false, 3));
       if (input === '/assistant/validation') return json({ items: [] });
       if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
       throw new Error(`Unexpected request: ${input}`);
     },
   });
@@ -139,6 +141,7 @@ test('deny-list fields resync when the config changes from outside', { concurren
       if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
       if (input === '/assistant/validation') return json({ items: [] });
       if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
       throw new Error(`Unexpected request: ${input}`);
     },
   });
@@ -168,4 +171,57 @@ test('deny-list fields resync when the config changes from outside', { concurren
   // … and blur reconciles the display back to the stored values.
   fireEvent.blur(processes);
   assert.equal(processes.value, 'obs64.exe\nkeepass.exe');
+});
+
+test('pending validation lists captures with object-URL previews and a lightbox', { concurrency: false }, async () => {
+  const created: string[] = [];
+  Object.defineProperty(window.URL, 'createObjectURL', {
+    configurable: true,
+    value: () => {
+      const url = `blob:capture-${created.length + 1}`;
+      created.push(url);
+      return url;
+    },
+  });
+  Object.defineProperty(window.URL, 'revokeObjectURL', {
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: string) => {
+      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 1));
+      if (input === '/assistant/validation') return json({ items: [] });
+      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [{
+        evidenceId: 'ev_1',
+        state: 'awaiting_image_capability',
+        enqueuedAtUtc: '2026-08-10T10:00:00.000Z',
+        byteLength: 68,
+        foregroundContextKey: 'app:code|siftkit',
+      }] });
+      if (input === '/assistant/evidence/blob?id=ev_1') {
+        return new Response(
+          new Blob([Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' }),
+        );
+      }
+      throw new Error(`Unexpected request: ${input}`);
+    },
+  });
+
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
+
+  await screen.findByText('Pending captures');
+  const image = await screen.findByRole('img');
+  assert.equal(image.getAttribute('src'), 'blob:capture-1', 'the thumbnail uses an object URL');
+  assert.deepEqual(created, ['blob:capture-1'], 'one object URL is created per capture');
+  screen.getByText('awaiting image capability');
+  screen.getByText('app:code|siftkit');
+  screen.getByText(`${new Date('2026-08-10T10:00:00.000Z').toLocaleString()} · 0.1 KB`);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Enlarge capture ev_1' }));
+  screen.getByRole('dialog');
+  assert.equal(screen.getAllByRole('img').length, 2, 'the lightbox shows the same preview');
 });

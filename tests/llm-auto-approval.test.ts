@@ -120,7 +120,7 @@ class RecordingWriter extends CollectingProgressWriter<RepoSearchProgressEvent> 
 }
 
 function makeTask(prompt: string) {
-  return { id: 'task-1', question: prompt, signals: [] };
+  return { id: 'task-1', question: prompt };
 }
 
 function makeRecordingLogger() {

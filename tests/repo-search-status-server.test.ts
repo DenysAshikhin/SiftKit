@@ -1197,7 +1197,6 @@ test('repo-search endpoint reloads executor module per request', async () => {
             commands: [],
             finalOutput: 'CACHE_HIT_OUTPUT',
             passed: true,
-            missingSignals: [],
           }],
           totals: {
             tasks: 1,

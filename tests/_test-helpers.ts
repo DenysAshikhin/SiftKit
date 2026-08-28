@@ -45,7 +45,6 @@ export function buildMockTaskResult(overrides: Partial<TaskResult> = {}): TaskRe
     finalOutput: 'mock final output',
     compactionSummary: '',
     passed: true,
-    missingSignals: [],
     promptTokens: 0,
     outputTokens: 0,
     toolTokens: 0,

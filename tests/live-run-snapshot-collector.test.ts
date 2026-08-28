@@ -255,7 +255,7 @@ test('collector surfaces run and snapshot write errors', () => {
 
   collector.recordRunError('planner_preflight_overflow');
   collector.recordWriteError('EPERM: operation not permitted');
-  collector.record({ kind: 'task_done', taskId: 't', reason: 'finished', turnsUsed: 3, safetyRejects: 0, invalidResponses: 0, commandFailures: 0, passed: true, missingSignals: [] });
+  collector.record({ kind: 'task_done', taskId: 't', reason: 'finished', turnsUsed: 3, safetyRejects: 0, invalidResponses: 0, commandFailures: 0, passed: true });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.health.lastError, 'planner_preflight_overflow');

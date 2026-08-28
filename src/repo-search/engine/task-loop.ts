@@ -66,10 +66,8 @@ import {
   allocateLlamaCppSlotId,
   buildAssistantReplayMessage,
   buildWebToolsForTaskLoop,
-  countExecutedCommandFailures,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
-  evaluateTaskSignals,
   isPlannerMaintainPerStepThinkingEnabled,
   resolvePlannerThinkingFlags,
   type LoopCounters,
@@ -97,7 +95,6 @@ import type { RepoSearchLoopKind } from '../task-kind.js';
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
-  evaluateTaskSignals,
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
@@ -812,18 +809,17 @@ export class TaskLoop {
       this.mockResponseIndex = synthesis.nextMockResponseIndex;
     }
 
-    const evidenceParts = [this.finalOutput, ...this.commands.map((item) => item.output)];
-    const signalCheck = evaluateTaskSignals(this.task, evidenceParts.join('\n'));
-    const hasExecutedCommandFailure = countExecutedCommandFailures(this.commands) > 0;
     // A run that stopped on a turn, invalid-response or forced-finish limit did not answer the
     // question. Scoring it as a pass is how run 100b487d reported verdict=pass while its own
-    // terminal synthesis said "Incomplete".
-    const passed = this.counters.reason === 'finish' && signalCheck.passed && !hasExecutedCommandFailure;
+    // terminal synthesis said "Incomplete". Command exit codes are telemetry, not verdict
+    // input: TDD red runs and recovered failures are normal work (runs ac543c1c, ceeedb28
+    // were falsely failed by the old exit-code gate).
+    const passed = this.counters.reason === 'finish';
 
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
       invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
-      finishChallenges: this.finishVerification.issuedCount, passed, missingSignals: signalCheck.missingSignals,
+      finishChallenges: this.finishVerification.issuedCount, passed,
     });
 
     return {
@@ -834,7 +830,6 @@ export class TaskLoop {
       compactionSummary: this.lastCompactionSummary,
       mutatedPaths: [...this.mutatedPaths], passed,
       ...(this.chatWebGroundingEnabled ? { groundingStatus: this.chatWebGroundingPolicy.getStatus() } : {}),
-      missingSignals: signalCheck.missingSignals,
       ...this.tokenUsage.snapshot(),
       toolStats: this.toolStats.snapshot(),
       readOverlapSummary: this.readWindows.summary(),

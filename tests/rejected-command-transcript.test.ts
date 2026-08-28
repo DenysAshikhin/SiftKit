@@ -53,7 +53,6 @@ test('a rejected read writes a turn_command_result with rejected=true', async ()
     {
       id: 'task-rejected-read',
       question: 'Read a file that does not exist.',
-      signals: ['done'],
     },
     {
       ...REJECTION_LOOP_DEFAULTS,
