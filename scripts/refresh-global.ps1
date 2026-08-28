@@ -175,6 +175,14 @@ function Stop-ExistingGlobalSiftKitStatusServer {
     }
 }
 
+function Get-SiftKitDesktopToolingRoot {
+    if ($env:SIFTKIT_TOOLING_ROOT) {
+        return $env:SIFTKIT_TOOLING_ROOT
+    }
+
+    Join-Path (Split-Path $script:RepoRoot -Parent) '.tooling\siftkit-gate-d'
+}
+
 $tarballName = Get-SiftKitPackageTarballName
 
 # Reconcile node_modules and the hidden node_modules/.package-lock.json before packing.
@@ -183,6 +191,15 @@ $tarballName = Get-SiftKitPackageTarballName
 # npm-packlist with a silent exit 1 while gathering bundleDependencies.
 Write-Host 'Reconciling workspace install before packing...'
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--loglevel', 'error') -Description 'Reconciling workspace install'
+
+$cargoTauriPath = Join-Path (Get-SiftKitDesktopToolingRoot) 'cargo\bin\cargo-tauri.exe'
+if (-not (Test-Path -LiteralPath $cargoTauriPath)) {
+    Write-Host 'Portable Rust toolchain missing; installing...'
+    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('run', 'desktop:install-toolchain') -Description 'Installing the desktop Rust toolchain' -MaxAttempts 1
+}
+
+Write-Host 'Building the desktop shell...'
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('run', 'desktop:build') -Description 'Building the desktop shell' -MaxAttempts 1
 
 Write-Host 'Packing current repo...'
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspaces=false', '--loglevel', 'error') -Description 'Packing current repo'
