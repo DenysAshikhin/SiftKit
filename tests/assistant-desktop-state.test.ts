@@ -88,21 +88,22 @@ function createEligibleQuestion(service: AssistantService, nowUtc: string): stri
 }
 
 function buildService(runtimeRoot: string, clock: FixedClock): AssistantService {
+  const config = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Enabled: true,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
+  };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
     imageCapability: new StubImageCapability(false),
-    config: {
-      ...DEFAULT_ASSISTANT_CONFIG,
-      Enabled: true,
-      Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
-    },
+    config,
   });
 }
 

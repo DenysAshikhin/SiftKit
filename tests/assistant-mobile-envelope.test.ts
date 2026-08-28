@@ -120,16 +120,17 @@ test('an accepted envelope records its nonce and advances the device high-water 
 /** A full service, for the two cases that need the ingestion pipeline behind the verifier. */
 function buildService(): AssistantService {
   const runtimeRoot = createManagedTempDir('siftkit-assistant-mobile-');
+  const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock: new FixedClock(FIXTURE_START_INSTANT),
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
-    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
+    config,
   });
 }
 

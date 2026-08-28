@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import type { KeyCustody } from '@siftkit/contracts';
 import type { AssistantConfigWriter } from '../../src/assistant/assistant-service.js';
 import type { AssistantConfig } from '../../src/config/types.js';
 import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
@@ -14,12 +15,13 @@ import {
 } from '../../src/state/runtime-db.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
-/** Durable-enough config sink for unit tests: the service only needs its own write to stick. */
+/** Durable-enough config store for unit tests: the service only needs its own flip to stick. */
 export class MemoryAssistantConfigWriter implements AssistantConfigWriter {
-  written: AssistantConfig | null = null;
+  constructor(public persisted: AssistantConfig) {}
 
-  write(config: AssistantConfig): void {
-    this.written = config;
+  writeKeyCustody(custody: KeyCustody): AssistantConfig {
+    this.persisted = { ...this.persisted, KeyCustody: custody };
+    return this.persisted;
   }
 }
 

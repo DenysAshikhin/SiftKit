@@ -253,6 +253,9 @@ export class ConfigUpdateEndpoint implements RouteEndpoint {
     // POST /status/restart or lazily before the next model request. Coordinator-free
     // servers have no runtime transition, so their in-memory admission state updates here.
     writeConfig(configPath, nextConfig);
+    // The dashboard settings page saves the Assistant block through this endpoint; the
+    // running service must observe the change, not keep its boot-time snapshot.
+    ctx.assistant?.refreshConfig(nextConfig.Assistant);
     if (!ctx.presetRuntimeCoordinator) {
       ctx.appliedModelPresetState.applyPreset(getActiveModelPreset(nextConfig));
     }

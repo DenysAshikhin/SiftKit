@@ -254,16 +254,17 @@ class AlwaysIdle {
 }
 
 function buildService(runtimeRoot: string, clock: FixedClock, observation: AssistantConfig['Observation']): AssistantService {
+  const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true, Observation: observation };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
-    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true, Observation: observation },
+    config,
   });
 }
 

@@ -40,16 +40,17 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
   const runtimeRoot = createManagedTempDir('siftkit-gate-c-');
   const clock = new FixedClock('2026-08-05T09:00:00.000Z');
   const inference = new FakeAssistantInference([ANSWER_EXTRACTION]);
+  const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true };
   const service = AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference,
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
-    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
+    config,
   });
 
   try {
@@ -125,16 +126,17 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
 
 test('Gate C: disabled service remains inert and unavailable desktop state never shows a question', async () => {
   const runtimeRoot = createManagedTempDir('siftkit-gate-c-disabled-');
+  const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: false };
   const service = AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock: new FixedClock('2026-08-05T09:00:00.000Z'),
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
-    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: false },
+    config,
   });
   try {
     service.ingestChatTurn({

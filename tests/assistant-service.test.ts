@@ -28,16 +28,17 @@ function buildService(
   inference: AssistantInferenceClient = new FakeAssistantInference(responses),
 ): AssistantService {
   const runtimeRoot = createManagedTempDir('siftkit-assistant-service-');
+  const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: enabled };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock: new FixedClock('2026-08-05T09:00:00.000Z'),
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference,
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
-    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: enabled },
+    config,
   });
 }
 

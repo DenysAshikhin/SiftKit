@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 import { httpClient } from '../src/lib/http-client.js';
+import {
+  AssistantShellConfigSchema,
+  decideAssistantShellAction,
+  getAssistantShellPath,
+} from './start-dev-assistant-shell.js';
 import { isBackendReadyStatusCode } from './start-dev-health.js';
 import { buildStartupPortChecks, getStatusServerConnectHost, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
@@ -30,6 +36,9 @@ const useStableStatus = process.argv.includes('--stable');
 const statusScript = useStableStatus ? 'start:status:stable:server' : 'start:status';
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
+let assistantShellProcess: ChildProcess | null = null;
+let assistantShellWatcher: NodeJS.Timeout | null = null;
+let previousAssistantEnabled: boolean | null = null;
 let reuseExistingDashboard = false;
 
 let shuttingDown = false;
@@ -38,7 +47,10 @@ function shutdown(signalName: string): void {
     return;
   }
   shuttingDown = true;
-  for (const child of [statusProcess, dashboardProcess]) {
+  if (assistantShellWatcher !== null) {
+    clearInterval(assistantShellWatcher);
+  }
+  for (const child of [statusProcess, dashboardProcess, assistantShellProcess]) {
     stopChildProcessTree(child);
   }
   setTimeout(() => {
@@ -80,6 +92,46 @@ function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = 
   });
 }
 
+function isAssistantShellRunning(): boolean {
+  return assistantShellProcess !== null
+    && assistantShellProcess.exitCode === null
+    && !assistantShellProcess.killed;
+}
+
+async function syncAssistantShell(): Promise<void> {
+  const host = getStatusServerConnectHost();
+  const port = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
+  let currentEnabled: boolean;
+  try {
+    const config = await httpClient.requestJson(
+      { url: `http://${host}:${port}/config`, method: 'GET', timeoutMs: 5000 },
+      AssistantShellConfigSchema,
+    );
+    currentEnabled = config.Assistant.Enabled;
+  } catch {
+    // Server restarting or unreachable; keep the last observed switch state.
+    return;
+  }
+  const action = decideAssistantShellAction(previousAssistantEnabled, currentEnabled, isAssistantShellRunning());
+  previousAssistantEnabled = currentEnabled;
+  if (action === 'start') {
+    const shellPath = getAssistantShellPath(process.cwd());
+    if (!existsSync(shellPath)) {
+      process.stderr.write(
+        `[start-dev] Assistant is enabled but the desktop shell is missing at ${shellPath}. `
+        + 'Run npm run desktop:build, then toggle the assistant off and on again.\n'
+      );
+      return;
+    }
+    process.stdout.write('[start-dev] Assistant enabled; starting the desktop shell.\n');
+    assistantShellProcess = startProcess(shellPath, []);
+  } else if (action === 'stop') {
+    process.stdout.write('[start-dev] Assistant disabled; stopping the desktop shell.\n');
+    stopChildProcessTree(assistantShellProcess);
+    assistantShellProcess = null;
+  }
+}
+
 void (async () => {
   for (const portCheck of buildStartupPortChecks(process.env)) {
     if (await isPortInUse(portCheck.host, portCheck.port)) {
@@ -115,6 +167,12 @@ void (async () => {
   if (shuttingDown) {
     return;
   }
+  void syncAssistantShell();
+  assistantShellWatcher = setInterval(() => {
+    if (!shuttingDown) {
+      void syncAssistantShell();
+    }
+  }, 5000);
   if (reuseExistingDashboard) {
     return;
   }

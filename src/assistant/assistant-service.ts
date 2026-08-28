@@ -99,7 +99,12 @@ class ServiceCustodyConfigPort implements AssistantCustodyConfigPort {
 
 /** Durable home of the assistant config block, so the service can persist its own flips. */
 export interface AssistantConfigWriter {
-  write(config: AssistantConfig): void;
+  /**
+   * Flips only KeyCustody against the persisted config and returns the resulting Assistant
+   * block. Read-modify-write happens at the store, never from in-memory state, so a concurrent
+   * config save (e.g. the dashboard enabling the assistant) is preserved, not clobbered.
+   */
+  writeKeyCustody(custody: KeyCustody): AssistantConfig;
 }
 
 export interface AssistantServiceOptions {
@@ -461,11 +466,9 @@ export class AssistantService implements AssistantRuntime {
     this.captureIntake.recordSuppression(this.ownerId, suppression);
   }
 
-  /** Persists a key-custody flip durably, then refreshes the in-memory config. */
+  /** Persists a key-custody flip durably, then adopts the persisted config it produced. */
   applyKeyCustody(custody: KeyCustody): void {
-    const updated = { ...this.currentConfig, KeyCustody: custody };
-    this.configWriter.write(updated);
-    this.refreshConfig(updated);
+    this.refreshConfig(this.configWriter.writeKeyCustody(custody));
   }
 
   /**

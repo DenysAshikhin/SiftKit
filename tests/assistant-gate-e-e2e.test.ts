@@ -97,18 +97,19 @@ function buildService(
   const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
   const clock = new FixedClock(FIXTURE_START_INSTANT);
   const ids = new SequentialIdGenerator();
+  const config = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Enabled: true,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
+  };
   const service = AssistantService.create({
     database, runtimeRoot, clock, ids,
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
     imageCapability: new StubImageCapability(),
-    config: {
-      ...DEFAULT_ASSISTANT_CONFIG,
-      Enabled: true,
-      Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
-    },
+    config,
   });
   return {
     service,

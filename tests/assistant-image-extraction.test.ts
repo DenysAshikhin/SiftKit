@@ -153,21 +153,22 @@ test('a drain with a capable runtime extracts every unprocessed capture oldest-f
   const inference = new FakeAssistantInference([
     extraction('Visual Studio Code'), extraction('Firefox'),
   ]);
+  const config = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Enabled: true,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
+  };
   const service = AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference,
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
     imageCapability: new StubImageCapability(true),
-    config: {
-      ...DEFAULT_ASSISTANT_CONFIG,
-      Enabled: true,
-      Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
-    },
+    config,
   });
   try {
     const queue = new CaptureQueueStore(

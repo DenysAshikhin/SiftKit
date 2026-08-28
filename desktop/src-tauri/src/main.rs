@@ -6,36 +6,36 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
-use siftkit_assistant_shell::clock::{iso8601_from_epoch, iso8601_now, now_epoch_seconds};
-use siftkit_assistant_shell::contracts::{
+use siftkit_assistant_shell_lib::clock::{iso8601_from_epoch, iso8601_now, now_epoch_seconds};
+use siftkit_assistant_shell_lib::contracts::{
     CaptureDisplayDto, CaptureSubmissionDto, DesktopStateDto, ForegroundContextDto, SchemaV1,
     SuppressionAuditDto, SuppressionRuleId,
 };
-use siftkit_assistant_shell::custody::{synchronize_custody, KeyBlobStore};
-use siftkit_assistant_shell::daemon::client::{ClientError, DaemonClient};
-use siftkit_assistant_shell::daemon::supervisor::{ProbeResult, Supervisor};
-use siftkit_assistant_shell::observation::hash::{dhash64_hex, is_blank_frame, pixel_sha256};
-use siftkit_assistant_shell::observation::heartbeat::{
+use siftkit_assistant_shell_lib::custody::{synchronize_custody, KeyBlobStore};
+use siftkit_assistant_shell_lib::daemon::client::{ClientError, DaemonClient};
+use siftkit_assistant_shell_lib::daemon::supervisor::{ProbeResult, Supervisor};
+use siftkit_assistant_shell_lib::observation::hash::{dhash64_hex, is_blank_frame, pixel_sha256};
+use siftkit_assistant_shell_lib::observation::heartbeat::{
     foreground_context_key, Heartbeat, HeartbeatEmission, ObservationTick,
 };
-use siftkit_assistant_shell::observation::preflight::{evaluate, PreflightInput};
-use siftkit_assistant_shell::observation::scheduler::CaptureScheduler;
-use siftkit_assistant_shell::observation::titles::normalize_title;
-use siftkit_assistant_shell::platform::windows::activity::{
+use siftkit_assistant_shell_lib::observation::preflight::{evaluate, PreflightInput};
+use siftkit_assistant_shell_lib::observation::scheduler::CaptureScheduler;
+use siftkit_assistant_shell_lib::observation::titles::normalize_title;
+use siftkit_assistant_shell_lib::platform::windows::activity::{
     WindowsActivityProvider, WindowsNotificationProvider,
 };
-use siftkit_assistant_shell::platform::windows::capture::{encode_png, WindowsCaptureProvider};
-use siftkit_assistant_shell::platform::windows::job::JobObjectDaemonControl;
-use siftkit_assistant_shell::platform::windows::power::WindowsPowerStateProvider;
-use siftkit_assistant_shell::platform::windows::secure_key::DpapiSecureKeyProvider;
-use siftkit_assistant_shell::platform::windows::startup::{
+use siftkit_assistant_shell_lib::platform::windows::capture::{encode_png, WindowsCaptureProvider};
+use siftkit_assistant_shell_lib::platform::windows::job::JobObjectDaemonControl;
+use siftkit_assistant_shell_lib::platform::windows::power::WindowsPowerStateProvider;
+use siftkit_assistant_shell_lib::platform::windows::secure_key::DpapiSecureKeyProvider;
+use siftkit_assistant_shell_lib::platform::windows::startup::{
     reconcile_startup, WindowsRunKeyRegistry,
 };
-use siftkit_assistant_shell::platform::{
+use siftkit_assistant_shell_lib::platform::{
     CaptureScope, ForegroundSample, NativeActivityProvider, NativeCaptureProvider,
     NativeNotificationProvider, NativePowerStateProvider,
 };
-use siftkit_assistant_shell::popup::{PopupController, PopupWindow, QuestionFeedback};
+use siftkit_assistant_shell_lib::popup::{PopupController, PopupWindow, QuestionFeedback};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -123,7 +123,7 @@ struct TauriPopupWindow {
 impl PopupWindow for TauriPopupWindow {
     fn open(
         &mut self,
-        question: &siftkit_assistant_shell::contracts::PendingQuestionDto,
+        question: &siftkit_assistant_shell_lib::contracts::PendingQuestionDto,
     ) -> Result<(), String> {
         if let Some(existing) = self.app.get_webview_window(POPUP_LABEL) {
             let _ = existing.close();
@@ -472,7 +472,7 @@ fn run_capture(
     state: &ShellState,
     observation: &ObservationConfig,
     tick: &ObservationTick,
-    reason: siftkit_assistant_shell::contracts::CaptureReason,
+    reason: siftkit_assistant_shell_lib::contracts::CaptureReason,
     private_mode: bool,
     foreground: Option<&ForegroundContextDto>,
 ) {

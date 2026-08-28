@@ -156,21 +156,22 @@ function drainService(
   responses: readonly string[],
 ): AssistantService {
   const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const config = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Enabled: true,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
+  };
   return AssistantService.create({
     database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(),
+    configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
     imageCapability: new StubImageCapability(),
-    config: {
-      ...DEFAULT_ASSISTANT_CONFIG,
-      Enabled: true,
-      Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
-    },
+    config,
   });
 }
 
