@@ -639,6 +639,10 @@ test('package build compiles with project references and finishes with runtime m
     String(pkg.scripts?.build || ''),
     /node\s+--experimental-strip-types\s+\.\\scripts\\sync-dist-runtime\.ts/u,
   );
+  assert.match(
+    String(pkg.scripts?.build || ''),
+    /node\s+--experimental-strip-types\s+\.\\scripts\\dashboard-stamp\.ts/u,
+  );
   assert.doesNotMatch(String(pkg.scripts?.build || ''), /--clean/u);
   assert.doesNotMatch(String(pkg.scripts?.build || ''), /experimental-default-type/u);
 });
