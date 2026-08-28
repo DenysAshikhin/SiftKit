@@ -176,11 +176,13 @@ function Stop-ExistingGlobalSiftKitStatusServer {
 }
 
 function Get-SiftKitDesktopToolingRoot {
-    if ($env:SIFTKIT_TOOLING_ROOT) {
-        return $env:SIFTKIT_TOOLING_ROOT
+    $toolchainPathsScript = Join-Path $script:RepoRoot 'scripts\desktop\toolchain-paths.mjs'
+    $printRoot = 'const { pathToFileURL } = await import(''node:url''); const m = await import(pathToFileURL(process.argv[1]).href); process.stdout.write(m.TOOLING_ROOT);'
+    $root = & node --input-type=module -e $printRoot $toolchainPathsScript
+    if (-not $root) {
+        throw 'Unable to resolve the desktop tooling root from scripts/desktop/toolchain-paths.mjs.'
     }
-
-    Join-Path (Split-Path $script:RepoRoot -Parent) '.tooling\siftkit-gate-d'
+    $root
 }
 
 $tarballName = Get-SiftKitPackageTarballName

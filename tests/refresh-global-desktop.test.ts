@@ -5,8 +5,10 @@ import path from 'node:path';
 
 const script = fs.readFileSync(path.join('scripts', 'refresh-global.ps1'), 'utf8');
 
-test('refresh-global installs the Rust toolchain only when cargo-tauri is missing', () => {
-  assert.match(script, /SIFTKIT_TOOLING_ROOT/u);
+test('refresh-global resolves the tooling root from toolchain-paths.mjs, not a ps1 mirror', () => {
+  assert.match(script, /toolchain-paths\.mjs/u);
+  assert.match(script, /TOOLING_ROOT/u);
+  assert.doesNotMatch(script, /siftkit-gate-d/u);
   assert.match(script, /cargo\\bin\\cargo-tauri\.exe/u);
   assert.match(script, /desktop:install-toolchain/u);
 });
