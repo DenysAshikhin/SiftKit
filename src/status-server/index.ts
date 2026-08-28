@@ -268,7 +268,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),
     assistant: null,
     assistantControl: null,
-    assistantIdleGate: null,
     assistantRouteGuard: null,
     assistantRateLimiter: new AssistantRateLimiter(),
     assistantDrainTimer: null,
@@ -334,7 +333,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ctx.assistantControl = options.assistant instanceof AssistantService ? options.assistant : null;
   } else {
     try {
-      const assistantIdleGate = new StatusServerIdleGate(ctx);
       const assistant = AssistantService.create({
         database: runtimeDatabase,
         runtimeRoot: getRuntimeRoot(),
@@ -342,7 +340,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         ids: new RandomIdGenerator(),
         inference: new LlamaCppAssistantInference(initialConfig, ctx.appliedModelPresetState),
         tokens: new BackendTokenCounter(initialConfig),
-        idleGate: assistantIdleGate,
+        idleGate: new StatusServerIdleGate(ctx),
         config: initialConfig.Assistant,
         configWriter: new StatusServerAssistantConfigWriter(configPath),
         imageCapability: new ManagedRuntimeImageCapabilityProvider(
@@ -351,7 +349,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       });
       ctx.assistant = assistant;
       ctx.assistantControl = assistant;
-      ctx.assistantIdleGate = assistantIdleGate;
     } catch (error) {
       ctx.assistant = null;
       process.stderr.write(

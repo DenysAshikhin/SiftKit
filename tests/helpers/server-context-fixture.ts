@@ -44,7 +44,6 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
     assistant: null,
     assistantControl: null,
-    assistantIdleGate: null,
     assistantRouteGuard: null,
     assistantRateLimiter: new AssistantRateLimiter(),
     assistantDrainTimer: null,
