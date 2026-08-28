@@ -1,5 +1,4 @@
 import type { SiftConfig } from '../../config/index.js';
-import { clampToPresetMaxTokens } from '../../lib/dynamic-output-cap.js';
 import {
   buildPlannerRequestPromptReserveText,
   requestContextCompactionSummary,
@@ -12,8 +11,8 @@ import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import {
-  COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
   COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
+  splitCompactionGenerationTokens,
 } from './turn-budget.js';
 
 /** Marks the rebuilt assistant message so the model reads it as history, not as its own answer. */
@@ -33,6 +32,9 @@ export type CompactionOutcome = {
   summaryText: string;
   droppedMessageCount: number;
   summaryTokenCount: number;
+  summaryGenerationTokenBudget: number;
+  summaryReasoningTokenBudget: number;
+  summaryOutputTokenBudget: number;
   summarizerElapsedMs: number;
   nextMockResponseIndex: number;
   /** First message of the retained in-flight turn in the rebuilt transcript, or null when none is retained. */
@@ -75,6 +77,7 @@ export class TranscriptCompactor {
     model: string;
     timeoutMs: number;
     totalContextTokens: number;
+    responseReserveTokens: number;
     useEstimatedTokensOnly: boolean;
     mockResponses: MockPlannerResponseInput[] | undefined;
     tokenUsage: TokenUsageTracker;
@@ -105,9 +108,9 @@ export class TranscriptCompactor {
       ...partition.completedMessages,
     ];
     const summaryRequestMessages: ChatMessage[] = [...historyMessages, { role: 'user', content: instruction }];
-    const maxOutputTokens = await this.resolveSummaryOutputTokens(input, summaryRequestMessages);
+    const generationTokens = await this.resolveSummaryGenerationTokens(input, summaryRequestMessages);
 
-    const summary = await this.requestSummary(input, historyMessages, instruction, maxOutputTokens);
+    const summary = await this.requestSummary(input, historyMessages, instruction, generationTokens);
     const rebuilt: ChatMessage[] = [
       ...(systemMessage ? [systemMessage] : []),
       buildCompactionSummaryMessage(summary.summaryText),
@@ -120,6 +123,9 @@ export class TranscriptCompactor {
       summaryText: summary.summaryText,
       droppedMessageCount: messages.length - keptMessageCount,
       summaryTokenCount: await countTokensWithFallback(this.tokenCountConfig, summary.summaryText),
+      summaryGenerationTokenBudget: generationTokens.totalTokens,
+      summaryReasoningTokenBudget: generationTokens.reasoningTokens,
+      summaryOutputTokenBudget: generationTokens.outputTokens,
       summarizerElapsedMs: summary.elapsedMs,
       nextMockResponseIndex: summary.nextMockResponseIndex,
       currentTurnStartIndex: input.retention.kind === 'current_chat_turn' ? (systemMessage ? 2 : 1) : null,
@@ -129,28 +135,24 @@ export class TranscriptCompactor {
   }
 
   /**
-   * The summary gets whatever the window leaves after the summarization prompt, up to
-   * the fixed ceiling. The TurnBudget compaction reserve is what keeps that remainder
-   * comfortably above the floor; dropping below it means the cap math regressed, so the
-   * error names the real counts rather than silently chunking the transcript.
+   * The summary generation gets whatever the window leaves after its prompt, up to the
+   * run's response reserve. Two thirds cap thinking and one third caps summary output.
+   * The TurnBudget compaction reserve keeps the output share above the floor.
    */
-  private async resolveSummaryOutputTokens(
+  private async resolveSummaryGenerationTokens(
     input: { taskId: string; turn: number | null; cacheOrigin: CompactionCacheOrigin },
     summaryRequestMessages: ChatMessage[],
-  ): Promise<number> {
+  ): Promise<ReturnType<typeof splitCompactionGenerationTokens>> {
     const state = input.cacheOrigin.kind === 'planner'
       ? input.cacheOrigin.executing
       : input.cacheOrigin;
-    const summaryOutputCeiling = clampToPresetMaxTokens(
-      this.options.config,
-      COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
-    );
+    const generationTokenCeiling = Math.max(0, Math.floor(this.options.responseReserveTokens));
     const providerPromptReserveText = buildPlannerRequestPromptReserveText({
       config: this.options.config,
       model: this.options.model,
       messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
       tools: state.tools,
-      maxTokens: summaryOutputCeiling,
+      maxTokens: generationTokenCeiling,
       responseSchema: null,
       ...state.flags,
     });
@@ -164,12 +166,19 @@ export class TranscriptCompactor {
     });
     const promptTokenCount = preflight.promptTokenCount;
     const remainingTokens = this.options.totalContextTokens - promptTokenCount;
-    const maxOutputTokens = Math.min(
-      summaryOutputCeiling,
-      remainingTokens,
+    const requestedTokens = splitCompactionGenerationTokens(generationTokenCeiling);
+    const outputTokens = Math.min(requestedTokens.outputTokens, Math.max(remainingTokens, 0));
+    const reasoningTokens = Math.min(
+      requestedTokens.reasoningTokens,
+      Math.max(remainingTokens - outputTokens, 0),
     );
-    if (maxOutputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
-      return maxOutputTokens;
+    const generationTokens = {
+      totalTokens: reasoningTokens + outputTokens,
+      reasoningTokens,
+      outputTokens,
+    };
+    if (generationTokens.outputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
+      return generationTokens;
     }
     const message = `planner_compaction_prompt_overflow prompt_tokens=${promptTokenCount} `
       + `remaining_tokens=${remainingTokens} min_summary_output_tokens=${COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS} `
@@ -196,7 +205,7 @@ export class TranscriptCompactor {
     },
     historyMessages: ChatMessage[],
     instruction: string,
-    maxOutputTokens: number,
+    generationTokens: ReturnType<typeof splitCompactionGenerationTokens>,
   ): Promise<{
     summaryText: string;
     nextMockResponseIndex: number;
@@ -216,7 +225,9 @@ export class TranscriptCompactor {
           messages: historyMessages,
           instruction,
           timeoutMs: this.options.timeoutMs,
-          maxTokens: maxOutputTokens,
+          maxTokens: generationTokens.totalTokens,
+          reasoningBudgetTokens: generationTokens.reasoningTokens,
+          continuationMaxTokens: generationTokens.outputTokens,
           cacheOrigin: input.cacheOrigin,
           mockResponses: this.options.mockResponses,
           mockResponseIndex,

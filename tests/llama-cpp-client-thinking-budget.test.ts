@@ -5,6 +5,7 @@ import os from 'node:os';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import {
   PLANNER_REASONING_BUDGET_MESSAGE,
+  requestContextCompactionSummary,
   requestRepoSearchPlannerProtocolAction,
 } from '../src/repo-search/planner-protocol.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
@@ -88,14 +89,14 @@ function startFakeStreamServer(): Promise<FakeStreamServer> {
 
 function budgetedConfig(
   backend: 'exl3' | 'llama',
-  opts: { baseUrl?: string; stockBudgetMessage?: boolean } = {},
+  opts: { baseUrl?: string; stockBudgetMessage?: boolean; reasoningBudget?: number } = {},
 ): SiftConfig {
   const preset = mockModelPreset({
     id: 'budget-test',
     label: 'budget test',
     Backend: backend,
     Reasoning: 'on',
-    ReasoningBudget: 8,
+    ReasoningBudget: opts.reasoningBudget ?? 8,
     // stockBudgetMessage keeps the normalized default so tests can exercise the
     // "user did not customize the message" branch.
     ...(opts.stockBudgetMessage ? {} : { ReasoningBudgetMessage: 'Answer now.' }),
@@ -167,6 +168,44 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
     });
     assert.equal(fake.requestCount(), 2);
     assert.equal(response.thinkingBudgetExhausted, true);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('context compaction gives its continuation only the summary output allocation', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    const config = budgetedConfig('exl3', {
+      baseUrl: fake.baseUrl,
+      reasoningBudget: 100_000,
+    });
+    const flags = {
+      thinkingEnabled: true,
+      reasoningContentEnabled: false,
+      preserveThinking: false,
+    };
+    const response = await requestContextCompactionSummary({
+      config,
+      baseUrl: fake.baseUrl,
+      model: 'mock',
+      messages: [{ role: 'user', content: 'large history' }],
+      instruction: 'Summarize the history.',
+      timeoutMs: 5_000,
+      maxTokens: 12,
+      reasoningBudgetTokens: 8,
+      continuationMaxTokens: 4,
+      cacheOrigin: { kind: 'new_epoch', flags, tools: [], slotId: 0 },
+    });
+
+    assert.equal(fake.requestCount(), 2);
+    assert.equal(fake.bodyAt(0).max_tokens, 12);
+    assert.equal(fake.bodyAt(1).max_tokens, 4);
+    const prefix = String(fake.bodyAt(1).response_prefix);
+    assert.match(prefix, /Output the context compaction summary now\./u);
+    assert.equal(response.thinkingBudgetExhausted, true);
+    assert.match(response.thinkingText, /Output the context compaction summary now\./u);
+    assert.match(response.text, /"action"\s*:\s*"finish"/u);
   } finally {
     await fake.close();
   }

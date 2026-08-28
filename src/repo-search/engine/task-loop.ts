@@ -298,6 +298,7 @@ export class TaskLoop {
         model: String(options.model || ''),
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         totalContextTokens: this.budget.totalContextTokens,
+        responseReserveTokens: this.budget.responseReserveTokens,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         mockResponses: options.mockResponses,
         tokenUsage: this.tokenUsage,

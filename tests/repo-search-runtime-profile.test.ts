@@ -19,19 +19,18 @@ test('task-kind schema and normalizer preserve every exact execution kind', () =
   assert.equal(RepoSearchTaskKindSchema.safeParse('summary').success, false);
 });
 
-test('runtime profile owns turn and overflow policy for every task kind', () => {
+test('runtime profile owns turn limits and loop kinds for every task kind', () => {
   const expectations = [
-    { kind: 'plan', maxTurns: 45, overflow: 'compact', loopKind: 'repo-search' },
-    { kind: 'repo-search', maxTurns: 45, overflow: 'compact', loopKind: 'repo-search' },
-    { kind: 'chat', maxTurns: 45, overflow: 'compact', loopKind: 'chat' },
-    { kind: 'repo-agent', maxTurns: 100, overflow: 'fail', loopKind: 'repo-agent' },
+    { kind: 'plan', maxTurns: 45, loopKind: 'repo-search' },
+    { kind: 'repo-search', maxTurns: 45, loopKind: 'repo-search' },
+    { kind: 'chat', maxTurns: 45, loopKind: 'chat' },
+    { kind: 'repo-agent', maxTurns: 100, loopKind: 'repo-agent' },
   ] as const;
 
   for (const expectation of expectations) {
     const profile = new RepoSearchRuntimeProfile(expectation.kind);
     assert.equal(profile.resolveMaxTurns(undefined, 45), expectation.maxTurns);
     assert.equal(profile.resolveMaxTurns(125, 45), 125);
-    assert.equal(profile.contextOverflowPolicy, expectation.overflow);
     assert.equal(profile.loopKind, expectation.loopKind);
   }
 });

@@ -186,10 +186,6 @@ export class PromptPreparer {
     let compactionSummary: string | null = null;
     let nextMockResponseIndex = mockResponseIndex;
 
-    if (!preflight.ok && this.options.runtimeProfile.contextOverflowPolicy === 'fail') {
-      this.failOverflow(preflight, maxOutputTokens, turn, false);
-    }
-
     if (!preflight.ok) {
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
         taskId,
@@ -258,6 +254,9 @@ export class PromptPreparer {
         maxPromptBudget: afterCompaction.maxPromptBudget,
         droppedMessageCount: compacted.droppedMessageCount,
         summaryTokenCount: compacted.summaryTokenCount,
+        summaryGenerationTokenBudget: compacted.summaryGenerationTokenBudget,
+        summaryReasoningTokenBudget: compacted.summaryReasoningTokenBudget,
+        summaryOutputTokenBudget: compacted.summaryOutputTokenBudget,
         summarizerElapsedMs: compacted.summarizerElapsedMs,
         promptCacheTokens: compacted.promptCacheTokens,
         promptEvalTokens: compacted.promptEvalTokens,

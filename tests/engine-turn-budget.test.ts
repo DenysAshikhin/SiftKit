@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
   COMPACTION_PROMPT_HEADROOM_TOKENS,
-  COMPACTION_RESERVE_TOKENS,
-  COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
   MIN_TURN_TOOL_RESULT_RATIO,
   TurnBudget,
 } from '../src/repo-search/engine/turn-budget.js';
@@ -21,8 +19,8 @@ function configWithMaxTokens(maxTokens: number): SiftConfig {
 test('TurnBudget splits context into the shared response reserve and usable prompt tokens', () => {
   const budget = new TurnBudget({ totalContextTokens: 140_000, maxTurns: 45, config: null });
   assert.equal(budget.responseReserveTokens, RESPONSE_RESERVE_TOKENS);
-  assert.equal(budget.compactionReserveTokens, COMPACTION_RESERVE_TOKENS);
-  assert.equal(budget.usablePromptTokens, 115_000);
+  assert.equal(budget.compactionReserveTokens, 11_000);
+  assert.equal(budget.usablePromptTokens, 114_000);
 });
 
 test('TurnBudget clamps the reserve to half of a small context', () => {
@@ -36,7 +34,8 @@ test('TurnBudget clamps the reserve to half of a small context', () => {
 test('TurnBudget bounds the reserve by the active preset MaxTokens', () => {
   const budget = new TurnBudget({ totalContextTokens: 140_000, maxTurns: 45, config: configWithMaxTokens(8_000) });
   assert.equal(budget.responseReserveTokens, 8_000);
-  assert.equal(budget.usablePromptTokens, 122_000);
+  assert.equal(budget.compactionReserveTokens, 8_666);
+  assert.equal(budget.usablePromptTokens, 123_334);
 });
 
 test('usablePromptTokens never goes negative', () => {
@@ -45,12 +44,11 @@ test('usablePromptTokens never goes negative', () => {
   assert.equal(budget.usablePromptTokens, 0);
 });
 
-test('the compaction reserve is the summary output cap plus its prompt headroom', () => {
-  // Derived, not a coincidence: raising the summary cap has to raise the reserve that
-  // holds it, or the summarizer overflows a window the budget still calls healthy.
+test('the compaction reserve is one third of the run response reserve plus prompt headroom', () => {
+  const budget = new TurnBudget({ totalContextTokens: 140_000, maxTurns: 45, config: null });
   assert.equal(
-    COMPACTION_RESERVE_TOKENS,
-    COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS + COMPACTION_PROMPT_HEADROOM_TOKENS,
+    budget.compactionReserveTokens,
+    Math.floor(budget.responseReserveTokens / 3) + COMPACTION_PROMPT_HEADROOM_TOKENS,
   );
   assert.ok(COMPACTION_PROMPT_HEADROOM_TOKENS > 0);
 });
@@ -58,22 +56,22 @@ test('the compaction reserve is the summary output cap plus its prompt headroom'
 test('the compaction reserve leaves room for a whole summarization request', () => {
   const budget = new TurnBudget({ totalContextTokens: 150_000, maxTurns: 45, config: null });
   const worstCaseTranscriptTokens = budget.usablePromptTokens + budget.responseReserveTokens;
-  assert.equal(worstCaseTranscriptTokens, budget.totalContextTokens - COMPACTION_RESERVE_TOKENS);
+  assert.equal(worstCaseTranscriptTokens, budget.totalContextTokens - budget.compactionReserveTokens);
 });
 
 test('a lone tool call early in a run gets the whole floor share', () => {
   const budget = new TurnBudget({ totalContextTokens: 100_000, maxTurns: 45, config: null });
-  assert.equal(budget.usablePromptTokens, 75_000);
-  assert.equal(budget.perToolCapTokens(0, 1), Math.floor(75_000 * MIN_TURN_TOOL_RESULT_RATIO));
-  assert.equal(budget.perToolCapTokens(0, 1), 5_625);
+  assert.equal(budget.usablePromptTokens, 74_000);
+  assert.equal(budget.perToolCapTokens(0, 1), Math.floor(74_000 * MIN_TURN_TOOL_RESULT_RATIO));
+  assert.equal(budget.perToolCapTokens(0, 1), 5_550);
 });
 
 test('the turn share still grows with completed tool-call progress', () => {
   const budget = new TurnBudget({ totalContextTokens: 100_000, maxTurns: 10, config: null });
   const early = budget.perToolCapTokens(0, 1);
   const late = budget.perToolCapTokens(4, 1);
-  assert.equal(early, Math.floor(75_000 * MIN_TURN_TOOL_RESULT_RATIO));
-  assert.equal(late, Math.floor(75_000 * (4 / 10)));
+  assert.equal(early, Math.floor(74_000 * MIN_TURN_TOOL_RESULT_RATIO));
+  assert.equal(late, Math.floor(74_000 * (4 / 10)));
   assert.ok(late > early, `expected the cap to grow with progress, got ${late} <= ${early}`);
 });
 

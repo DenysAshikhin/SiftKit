@@ -1,5 +1,4 @@
 import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import { z } from '../../lib/zod.js';
 import type { RunToolArgs } from '../repo-tool-arguments.js';
 import type { RepoSearchLoopKind, RepoSearchTaskKind } from '../task-kind.js';
 import {
@@ -10,9 +9,6 @@ import {
 } from './validation-command-output-policy.js';
 
 export const REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT = 50;
-
-export const ContextOverflowPolicySchema = z.enum(['compact', 'fail']);
-export type ContextOverflowPolicy = z.infer<typeof ContextOverflowPolicySchema>;
 
 export class RepoSearchRuntimeProfile {
   private readonly validationOutputPolicy = new ValidationCommandOutputPolicy(
@@ -32,10 +28,6 @@ export class RepoSearchRuntimeProfile {
     return this.taskKind === 'repo-agent'
       ? REPO_AGENT_DEFAULT_MAX_TURNS
       : standardDefault;
-  }
-
-  get contextOverflowPolicy(): ContextOverflowPolicy {
-    return this.taskKind === 'repo-agent' ? 'fail' : 'compact';
   }
 
   get loopKind(): RepoSearchLoopKind {

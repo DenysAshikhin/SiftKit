@@ -45,16 +45,19 @@ const SummaryRequestSchema = z.object({
   tool_choice: z.string(),
   id_slot: z.number(),
   cache_prompt: z.boolean(),
+  max_tokens: z.number().int().positive(),
 }).passthrough();
 
 function makeCompactor(mockResponses: MockPlannerResponseInput[] | undefined, totalContextTokens = 32_000): TranscriptCompactor {
   const config = mockOfflineSiftConfig();
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 45, config });
   return new TranscriptCompactor({
     config,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
     timeoutMs: 5_000,
     totalContextTokens,
+    responseReserveTokens: budget.responseReserveTokens,
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
     tokenUsage: new TokenUsageTracker(config, true),
@@ -164,6 +167,7 @@ test('chat compaction sends only completed history to the real summary request',
       model: 'mock-model',
       timeoutMs: 5_000,
       totalContextTokens: 32_000,
+      responseReserveTokens: new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config }).responseReserveTokens,
       useEstimatedTokensOnly: true,
       mockResponses: undefined,
       tokenUsage: new TokenUsageTracker(config, true),
@@ -197,6 +201,7 @@ test('chat compaction sends only completed history to the real summary request',
     assert.equal(captured.tool_choice, 'none');
     assert.equal(captured.id_slot, 2);
     assert.equal(captured.cache_prompt, true);
+    assert.equal(captured.max_tokens, 15_000);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
@@ -275,6 +280,7 @@ test('a completed-history image consumes the structured summary budget', async (
     model: 'mock-model',
     timeoutMs: 5_000,
     totalContextTokens: 2_500,
+    responseReserveTokens: new TurnBudget({ totalContextTokens: 2_500, maxTurns: 45, config }).responseReserveTokens,
     useEstimatedTokensOnly: true,
     mockResponses: [{ content: 'SUMMARY BODY' }],
     tokenUsage: new TokenUsageTracker(config, true),
@@ -317,6 +323,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
     model: 'mock-model',
     timeoutMs: 5_000,
     totalContextTokens: 32_000,
+    responseReserveTokens: new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config }).responseReserveTokens,
     useEstimatedTokensOnly: true,
     mockResponses: [{ content: '' }, { content: 'RECOVERED SUMMARY' }],
     tokenUsage: new TokenUsageTracker(config, true),

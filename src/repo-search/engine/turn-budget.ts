@@ -12,11 +12,6 @@ export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
 // import without pulling in the loop.
 export const DEFAULT_MAX_TURNS = 45;
 
-// Hard cap on one compaction summary's output, and the output half of the compaction
-// reserve below. The summary gets whatever the window leaves after the summarization
-// prompt, up to this ceiling.
-export const COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
-
 // Below this there is not enough room to write a summary worth resuming from, so the
 // run fails loudly instead of emitting a stub that silently loses the conversation.
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
@@ -25,10 +20,19 @@ export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 // summarization request, on top of the summary's own output.
 export const COMPACTION_PROMPT_HEADROOM_TOKENS = 6_000;
 
-// Withheld from the tool-result budget so a summarization request always fits in one
-// shot. Derived from the two parts above so raising the summary cap cannot leave the
-// reserve too small to hold what it is reserving for.
-export const COMPACTION_RESERVE_TOKENS = COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS + COMPACTION_PROMPT_HEADROOM_TOKENS;
+export function splitCompactionGenerationTokens(totalTokens: number): {
+  totalTokens: number;
+  reasoningTokens: number;
+  outputTokens: number;
+} {
+  const normalizedTotal = Math.max(0, Math.floor(Number(totalTokens) || 0));
+  const outputTokens = Math.floor(normalizedTotal / 3);
+  return {
+    totalTokens: normalizedTotal,
+    reasoningTokens: normalizedTotal - outputTokens,
+    outputTokens,
+  };
+}
 
 export class TurnBudget {
   readonly totalContextTokens: number;
@@ -45,10 +49,11 @@ export class TurnBudget {
       config: options.config,
     });
     const promptTokensBeforeCompactionReserve = Math.max(this.totalContextTokens - this.responseReserveTokens, 0);
-    // Never more than half the prompt budget: on a tiny context window a flat 10k
-    // reserve would leave no room for any tool result at all.
+    const summaryOutputTokens = splitCompactionGenerationTokens(this.responseReserveTokens).outputTokens;
+    // Never more than half the prompt budget: on a tiny context window the summary
+    // reserve would otherwise leave no room for any tool result at all.
     this.compactionReserveTokens = Math.min(
-      COMPACTION_RESERVE_TOKENS,
+      summaryOutputTokens + COMPACTION_PROMPT_HEADROOM_TOKENS,
       Math.floor(promptTokensBeforeCompactionReserve / 2),
     );
     this.usablePromptTokens = Math.max(promptTokensBeforeCompactionReserve - this.compactionReserveTokens, 0);

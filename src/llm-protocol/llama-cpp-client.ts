@@ -123,6 +123,10 @@ export type LlamaCppChatOptions = {
   logger?: ProviderEventLogger | null;
   /** Spliced into the closed think block of a budget continuation in place of the preset message. */
   reasoningBudgetMessage?: string;
+  /** Request-scoped client-side thinking cap; overrides the active preset without changing request rendering. */
+  reasoningBudgetTokens?: number;
+  /** Generation cap for the one-shot continuation after the thinking budget is exhausted. */
+  continuationMaxTokens?: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
 };
@@ -269,7 +273,14 @@ export class LlamaCppClient {
       || activePreset.ReasoningBudgetMessage
       || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
     const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
-    const continuation = await this.streamChatAtBaseUrl(baseUrl, options, {
+    const continuationMaxTokens = Number.isFinite(options.continuationMaxTokens)
+      && Number(options.continuationMaxTokens) > 0
+      ? Math.max(1, Math.floor(Number(options.continuationMaxTokens)))
+      : options.maxTokens;
+    const continuation = await this.streamChatAtBaseUrl(baseUrl, {
+      ...options,
+      maxTokens: continuationMaxTokens,
+    }, {
       responsePrefix: buildClosedThinkBlock(exhaustedThinking),
     });
     return {
@@ -368,12 +379,16 @@ export class LlamaCppClient {
       return true;
     };
     const budgetPreset = getActiveModelPreset(options.config);
+    const configuredReasoningBudget = Number.isFinite(options.reasoningBudgetTokens)
+      && Number(options.reasoningBudgetTokens) > 0
+      ? Math.max(1, Math.floor(Number(options.reasoningBudgetTokens)))
+      : budgetPreset.ReasoningBudget;
     const thinkingBudgetTokens = continuation === undefined
       && getActiveInferenceBackend(options.config) === 'exl3'
       && this.resolveReasoning(options) === 'on'
-      && Number.isFinite(budgetPreset.ReasoningBudget)
-      && budgetPreset.ReasoningBudget > 0
-      ? budgetPreset.ReasoningBudget
+      && Number.isFinite(configuredReasoningBudget)
+      && Number(configuredReasoningBudget) > 0
+      ? Number(configuredReasoningBudget)
       : null;
 
     try {

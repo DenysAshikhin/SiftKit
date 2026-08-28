@@ -357,6 +357,8 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   tools: readonly LlamaCppToolDefinition[];
   toolChoice?: LlamaCppChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
+  reasoningBudgetTokens?: number;
+  continuationMaxTokens?: number;
 } & PlannerResponseConstraint;
 
 export type PlannerRootRequestOptions = PlannerRequestBase & {
@@ -549,6 +551,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         retry: false,
         abortSignal: options.abortSignal,
         reasoningBudgetMessage: options.reasoningBudgetMessage,
+        reasoningBudgetTokens: options.reasoningBudgetTokens,
+        continuationMaxTokens: options.continuationMaxTokens,
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
       }),
@@ -651,6 +655,9 @@ export function appendPlannerInstruction(
 ): ChatMessage[] {
   return [...history, { role: 'user', content: instruction }];
 }
+
+const CONTEXT_COMPACTION_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. '
+  + 'Output the context compaction summary now.';
 
 export async function requestApprovalVerdict(options: {
   config: SiftConfig;
@@ -778,6 +785,8 @@ export async function requestContextCompactionSummary(options: {
   instruction: string;
   timeoutMs: number;
   maxTokens: number;
+  reasoningBudgetTokens: number;
+  continuationMaxTokens: number;
   cacheOrigin: CompactionCacheOrigin;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
@@ -804,6 +813,9 @@ export async function requestContextCompactionSummary(options: {
     slotId: state.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
+    reasoningBudgetTokens: options.reasoningBudgetTokens,
+    continuationMaxTokens: options.continuationMaxTokens,
+    reasoningBudgetMessage: CONTEXT_COMPACTION_REASONING_BUDGET_MESSAGE,
     ...flags,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,

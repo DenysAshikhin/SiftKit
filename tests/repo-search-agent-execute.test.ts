@@ -50,7 +50,52 @@ test('repo-agent defaults to 100 turns and preserves an explicit higher override
   assert.equal(await readRepoAgentMaxTurns(125), 125);
 });
 
-test('repo-agent fails an oversized prompt before transcript compaction or a model call', async () => {
+test('repo-agent resumes after compacting recoverable reasoning history', async () => {
+  const dir = createManagedTempDir('siftkit-agent-compaction-');
+  try {
+    const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      taskKind: 'repo-agent',
+      prompt: 'inspect the helper directory',
+      repoRoot: dir,
+      config: mockSiftConfig({
+        Runtime: { LlamaCpp: { NumCtx: 9_000 } },
+        Server: {
+          ModelPresets: {
+            ActivePresetId: 'default',
+            Presets: [{
+              id: 'default',
+              Reasoning: 'on',
+              ReasoningContent: true,
+              PreserveThinking: true,
+              MaintainPerStepThinking: true,
+              IdleAction: 'unload',
+            }],
+          },
+        },
+      }),
+      model: 'mock',
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: [
+        {
+          thinking: 'H'.repeat(18_000),
+          toolCalls: [{ name: 'ls', arguments: { path: '.', limit: 1 } }],
+        },
+        { content: 'SUMMARY BODY' },
+        ...repoAgentFinishResponses('completed after compaction'),
+      ],
+      mockCommandResults: {},
+    });
+
+    assert.equal(result.scorecard.verdict, 'pass');
+    assert.equal(result.scorecard.tasks[0]?.finalOutput, 'completed after compaction');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('repo-agent attempts compaction and fails when its summarization prompt is oversized', async () => {
   const dir = createManagedTempDir('siftkit-agent-overflow-');
   try {
     await assert.rejects(
@@ -63,10 +108,10 @@ test('repo-agent fails an oversized prompt before transcript compaction or a mod
         model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
-        mockResponses: [{ content: "must not run" }],
+        mockResponses: [{ content: 'SUMMARY BODY' }],
         mockCommandResults: {},
       }),
-      /planner_preflight_overflow.*total_context_tokens=9000.*compacted=false/u,
+      /planner_compaction_prompt_overflow.*total_context_tokens=9000/u,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

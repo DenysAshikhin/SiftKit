@@ -56,6 +56,7 @@ function makePreparer(
       model: 'mock-model',
       timeoutMs: 5_000,
       totalContextTokens: budget.totalContextTokens,
+      responseReserveTokens: budget.responseReserveTokens,
       useEstimatedTokensOnly: true,
       mockResponses,
       tokenUsage: new TokenUsageTracker(config, true),
@@ -160,7 +161,32 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   assert.ok(applied);
   assert.equal(Number(applied.droppedMessageCount) > 0, true);
   assert.equal(Number(applied.summaryTokenCount) > 0, true);
+  assert.equal(applied.summaryOutputTokenBudget, 1_500);
+  assert.ok(Number(applied.summaryReasoningTokenBudget) > 0);
+  assert.equal(
+    applied.summaryGenerationTokenBudget,
+    Number(applied.summaryReasoningTokenBudget) + Number(applied.summaryOutputTokenBudget),
+  );
   assert.equal(Number(applied.summarizerElapsedMs) >= 0, true);
+});
+
+test('prepareTurn compacts an overflowing repo-agent transcript', async () => {
+  const transcript = makeCompactableTranscript();
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 100, config: null }),
+    transcript,
+    [{ content: 'SUMMARY BODY' }],
+    events,
+    NO_THINKING,
+    'repo-agent',
+  );
+
+  const prepared = await prepareTurn(preparer, 1, 0);
+
+  assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
+  assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), true);
 });
 
 test('prepareTurn compacts at most once per turn and then reports overflow', async () => {
