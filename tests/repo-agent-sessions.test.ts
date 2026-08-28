@@ -63,7 +63,6 @@ class NonFinishEngine implements RepoAgentEngine {
       throw new Error('Expected mock scorecard task.');
     }
     task.reason = 'invalid_response_limit';
-    task.passed = false;
     result.scorecard.verdict = 'fail';
     return result;
   }

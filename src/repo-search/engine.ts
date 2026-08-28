@@ -19,7 +19,7 @@ import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
-import { TaskResultSchema } from './engine/task-loop-support.js';
+import { TaskResultSchema, taskPassed } from './engine/task-loop-support.js';
 import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -72,12 +72,13 @@ export type Scorecard = z.infer<typeof ScorecardSchema>;
 export function buildScorecard(options: { runId: string; model: string; tasks: TaskResult[] }): Scorecard {
   const totals = {
     tasks: options.tasks.length,
-    passed: options.tasks.filter((t) => t.passed).length,
-    failed: options.tasks.filter((t) => !t.passed).length,
+    passed: options.tasks.filter((t) => taskPassed(t)).length,
+    failed: options.tasks.filter((t) => !taskPassed(t)).length,
     commandsExecuted: options.tasks.reduce((s, t) => s + t.commands.length, 0),
     safetyRejects: options.tasks.reduce((s, t) => s + t.safetyRejects, 0),
     invalidResponses: options.tasks.reduce((s, t) => s + t.invalidResponses, 0),
-    commandFailures: options.tasks.reduce((s, t) => s + Number(t.commandFailures || 0), 0),
+    rejectedCalls: options.tasks.reduce((s, t) => s + Number(t.rejectedCalls || 0), 0),
+    nonZeroExits: options.tasks.reduce((s, t) => s + Number(t.nonZeroExits || 0), 0),
     promptTokens: options.tasks.reduce((s, t) => s + Number(t.promptTokens || 0), 0),
     outputTokens: options.tasks.reduce((s, t) => s + Number(t.outputTokens || 0), 0),
     toolTokens: options.tasks.reduce((s, t) => s + Number(t.toolTokens || 0), 0),
@@ -99,8 +100,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
 
   const failureReasons: string[] = [];
   for (const task of options.tasks) {
-    if (task.passed) continue;
-    if (task.reason !== 'finish') failureReasons.push(`${task.id}: ended with reason ${task.reason}`);
+    if (!taskPassed(task)) failureReasons.push(`${task.id}: ended with reason ${task.reason}`);
   }
 
   return {

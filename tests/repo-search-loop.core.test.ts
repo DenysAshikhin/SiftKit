@@ -195,9 +195,10 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
     }
   );
 
-  assert.equal(result.commandFailures, 0);
+  assert.equal(result.rejectedCalls, 0);
+  assert.equal(result.nonZeroExits, 0);
   assert.match(result.commands[0]?.output || '', /BridgeClient/u);
-  assert.equal(result.passed, true);
+  assert.equal(result.reason, 'finish');
 });
 
 const TOKEN_BEARING_KINDS = ['llm_start', 'llm_end', 'tool_start', 'tool_result'] as const;
@@ -563,8 +564,8 @@ test('runTaskLoop executes find and read natively', async () => {
     assert.match(String(commandResults[1]?.insertedResultText || ''), /2: line-2/u);
     assert.match(String(commandResults[1]?.insertedResultText || ''), /3: line-3/u);
     assert.equal(result.reason, 'finish');
-    assert.equal(result.commandFailures, 0);
-    assert.equal(result.passed, true);
+    assert.equal(result.rejectedCalls, 0);
+    assert.equal(result.nonZeroExits, 0);
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -608,9 +609,10 @@ test('runTaskLoop executes ls at repository root natively', async () => {
     const output = String(commandResults[0]?.insertedResultText || '');
     assert.match(String(commandResults[0]?.command || ''), /^ls /u);
     assert.match(output, /README\.md/u);
-    assert.equal(result.commandFailures, 0);
+    assert.equal(result.rejectedCalls, 0);
+    assert.equal(result.nonZeroExits, 0);
     assert.equal(result.safetyRejects, 0);
-    assert.equal(result.passed, true);
+    assert.equal(result.reason, 'finish');
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -658,8 +660,8 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
     assert.doesNotMatch(output, /runner\.sqlite3/u);
     assert.doesNotMatch(output, /not-runner\.txt/u);
     assert.equal(result.reason, 'finish');
-    assert.equal(result.commandFailures, 0);
-    assert.equal(result.passed, true);
+    assert.equal(result.rejectedCalls, 0);
+    assert.equal(result.nonZeroExits, 0);
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -743,15 +745,15 @@ test('runTaskLoop counts non-zero command exits as command failures without fail
   );
 
   assert.equal(task.invalidResponses, 0);
-  assert.equal(task.commandFailures, 1);
-  assert.equal(task.passed, true);
+  assert.equal(task.nonZeroExits, 1);
+  assert.equal(task.reason, 'finish');
 
   const scorecard = buildScorecard({
     runId: 'run-command-failure',
     model: 'model-x',
     tasks: [task],
   });
-  assert.equal(scorecard.totals.commandFailures, 1);
+  assert.equal(scorecard.totals.nonZeroExits, 1);
   assert.equal(scorecard.verdict, 'pass');
   assert.deepEqual(scorecard.failureReasons, []);
 });
@@ -778,8 +780,8 @@ test('runTaskLoop counts exit code 1 from non-search commands as a command failu
     }
   );
 
-  assert.equal(task.commandFailures, 1);
-  assert.equal(task.passed, true);
+  assert.equal(task.nonZeroExits, 1);
+  assert.equal(task.reason, 'finish');
 });
 
 test('runTaskLoop stops on finish action', async () => {
@@ -804,7 +806,6 @@ test('runTaskLoop stops on finish action', async () => {
   assert.equal(result.reason, 'finish');
   assert.equal(result.turnsUsed, 1);
   assert.equal(result.commands.length, 0);
-  assert.equal(result.passed, true);
 });
 
 test('runTaskLoop executes tool batches sequentially and counts each tool call toward finish depth', async () => {

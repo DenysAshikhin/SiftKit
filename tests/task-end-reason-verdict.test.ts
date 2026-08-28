@@ -24,7 +24,7 @@ test('buildScorecard fails a run that hit the invalid response limit', () => {
   const scorecard = buildScorecard({
     runId: 'r1',
     model: 'm',
-    tasks: [buildMockTaskResult({ reason: 'invalid_response_limit', passed: false })],
+    tasks: [buildMockTaskResult({ reason: 'invalid_response_limit' })],
   });
   assert.equal(scorecard.verdict, 'fail');
   assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason invalid_response_limit']);
@@ -34,7 +34,7 @@ test('buildScorecard fails a run that ran out of turns', () => {
   const scorecard = buildScorecard({
     runId: 'r2',
     model: 'm',
-    tasks: [buildMockTaskResult({ reason: 'max_turns', passed: false })],
+    tasks: [buildMockTaskResult({ reason: 'max_turns' })],
   });
   assert.equal(scorecard.verdict, 'fail');
   assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason max_turns']);
@@ -44,7 +44,7 @@ test('buildScorecard passes a finished run', () => {
   const scorecard = buildScorecard({
     runId: 'r3',
     model: 'm',
-    tasks: [buildMockTaskResult({ reason: 'finish', passed: true })],
+    tasks: [buildMockTaskResult({ reason: 'finish' })],
   });
   assert.equal(scorecard.verdict, 'pass');
   assert.deepEqual(scorecard.failureReasons, []);
@@ -56,8 +56,7 @@ test('buildScorecard reports only the end reason for an evicted run with non-zer
     model: 'm',
     tasks: [buildMockTaskResult({
       reason: 'max_turns',
-      passed: false,
-      commandFailures: 1,
+      nonZeroExits: 1,
       commands: [{
         command: 'grep pattern="x"',
         activityKind: 'search',
@@ -74,14 +73,25 @@ test('buildScorecard reports only the end reason for an evicted run with non-zer
   assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason max_turns']);
 });
 
+test('buildScorecard derives the verdict from the end reason alone', () => {
+  for (const reason of TASK_END_REASONS) {
+    const scorecard = buildScorecard({
+      runId: `r-${reason}`,
+      model: 'm',
+      tasks: [buildMockTaskResult({ reason })],
+    });
+    assert.equal(scorecard.verdict, reason === 'finish' ? 'pass' : 'fail');
+    assert.equal(scorecard.totals.passed + scorecard.totals.failed, scorecard.totals.tasks);
+  }
+});
+
 test('buildScorecard passes a finished run whose commands exited non-zero', () => {
   const scorecard = buildScorecard({
     runId: 'r5',
     model: 'm',
     tasks: [buildMockTaskResult({
       reason: 'finish',
-      passed: true,
-      commandFailures: 2,
+      nonZeroExits: 2,
       commands: [{
         command: 'grep pattern="x"',
         activityKind: 'search',

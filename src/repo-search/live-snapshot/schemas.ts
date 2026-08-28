@@ -1,5 +1,6 @@
 import { z } from '../../lib/zod.js';
 import { JsonValueSchema } from '../../lib/json-types.js';
+import { RejectionKindSchema } from '../engine/task-loop-support.js';
 
 /** Newest turns are kept; older ones age out so the file stays small enough to rewrite constantly. */
 export const LIVE_SNAPSHOT_MAX_TURNS = 100;
@@ -100,7 +101,8 @@ export const LiveRunSnapshotSchema = z.object({
     turns: z.number(),
     providerRequests: z.number(),
     providerErrors: z.number(),
-    commandFailures: z.number(),
+    rejectedCalls: z.number(),
+    nonZeroExits: z.number(),
     safetyRejects: z.number(),
     approvalDenials: z.number(),
   }),
@@ -175,16 +177,33 @@ export const TurnCommandStartEventSchema = z.object({
   commandToRun: z.string(),
 });
 
-export const TurnCommandResultEventSchema = z.object({
+const CommandResultBaseSchema = z.object({
   turn: z.number(),
   command: z.string(),
   toolName: OptionalString,
-  exitCode: OptionalNumber,
   output: OptionalString,
   resultTokenCount: OptionalNumber,
-  rejected: z.boolean().optional(),
+});
+
+/**
+ * A tool outcome is either executed or rejected, and the exit code says which: a rejection never
+ * ran, so it has none. Keeping the two shapes distinct is what makes a rejection that forgets to
+ * name its kind fail to parse instead of quietly counting toward nothing.
+ */
+export const RejectedCommandResultSchema = CommandResultBaseSchema.extend({
+  exitCode: z.null(),
+  rejectionKind: RejectionKindSchema,
   rejectionReason: OptionalString,
 });
+
+export const ExecutedCommandResultSchema = CommandResultBaseSchema.extend({
+  exitCode: z.number(),
+});
+
+export const TurnCommandResultEventSchema = z.union([
+  RejectedCommandResultSchema,
+  ExecutedCommandResultSchema,
+]);
 
 export const ApprovalVerdictEventSchema = z.object({
   turn: z.number(),

@@ -183,7 +183,8 @@ export class TaskLoop {
   private readonly turnThinking: Record<number, string> = {};
   private readonly counters: LoopCounters = {
     invalidResponses: 0,
-    commandFailures: 0,
+    rejectedCalls: 0,
+    nonZeroExits: 0,
     safetyRejects: 0,
     reason: 'max_turns',
   };
@@ -809,26 +810,19 @@ export class TaskLoop {
       this.mockResponseIndex = synthesis.nextMockResponseIndex;
     }
 
-    // A run that stopped on a turn, invalid-response or forced-finish limit did not answer the
-    // question. Scoring it as a pass is how run 100b487d reported verdict=pass while its own
-    // terminal synthesis said "Incomplete". Command exit codes are telemetry, not verdict
-    // input: TDD red runs and recovered failures are normal work (runs ac543c1c, ceeedb28
-    // were falsely failed by the old exit-code gate).
-    const passed = this.counters.reason === 'finish';
-
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
-      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
-      finishChallenges: this.finishVerification.issuedCount, passed,
+      invalidResponses: this.counters.invalidResponses, rejectedCalls: this.counters.rejectedCalls, nonZeroExits: this.counters.nonZeroExits,
+      finishChallenges: this.finishVerification.issuedCount,
     });
 
     return {
       id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
-      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
+      invalidResponses: this.counters.invalidResponses, rejectedCalls: this.counters.rejectedCalls, nonZeroExits: this.counters.nonZeroExits,
       finishChallenges: this.finishVerification.issuedCount,
       commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
       compactionSummary: this.lastCompactionSummary,
-      mutatedPaths: [...this.mutatedPaths], passed,
+      mutatedPaths: [...this.mutatedPaths],
       ...(this.chatWebGroundingEnabled ? { groundingStatus: this.chatWebGroundingPolicy.getStatus() } : {}),
       ...this.tokenUsage.snapshot(),
       toolStats: this.toolStats.snapshot(),

@@ -111,7 +111,10 @@ export const TaskResultSchema = z.object({
   turnsUsed: z.number(),
   safetyRejects: z.number(),
   invalidResponses: z.number(),
-  commandFailures: z.number(),
+  /** Tool calls refused before execution: forced-finish budget, duplicate call, duplicate web tool. */
+  rejectedCalls: z.number(),
+  /** Commands that actually ran and returned a non-zero exit code. */
+  nonZeroExits: z.number(),
   /** Verification-gate challenges issued before this task's finish was accepted. */
   finishChallenges: z.number(),
   commands: z.array(TaskCommandSchema),
@@ -125,7 +128,6 @@ export const TaskResultSchema = z.object({
    */
   mutatedPaths: z.array(z.string()),
   groundingStatus: ChatGroundingStatusSchema.optional(),
-  passed: z.boolean(),
   promptTokens: z.number(),
   outputTokens: z.number(),
   toolTokens: z.number(),
@@ -142,6 +144,17 @@ export const TaskResultSchema = z.object({
   readOverlapSummary: ReadOverlapSummarySchema,
 });
 export type TaskResult = z.infer<typeof TaskResultSchema>;
+
+/**
+ * A task passed iff it ended by finishing. A run that stopped on a turn, invalid-response or
+ * forced-finish limit did not answer the question; scoring it as a pass is how run 100b487d
+ * reported verdict=pass while its own terminal synthesis said "Incomplete". Command exit codes
+ * are telemetry, not verdict input: TDD red runs and recovered failures are normal work (runs
+ * ac543c1c, ceeedb28 were falsely failed by the old exit-code gate).
+ */
+export function taskPassed(task: Pick<TaskResult, 'reason'>): boolean {
+  return task.reason === 'finish';
+}
 
 // ---------------------------------------------------------------------------
 // Task loop options
@@ -225,10 +238,20 @@ export type TurnOutcome = 'continue' | 'stop';
 
 export type LoopCounters = {
   invalidResponses: number;
-  commandFailures: number;
+  rejectedCalls: number;
+  nonZeroExits: number;
   safetyRejects: number;
   reason: TaskEndReason;
 };
+
+/**
+ * Why a tool call was rejected. Every rejection is logged as a `turn_command_result` with a null
+ * exit code, so the event alone cannot say whether the run refused the call on a budget or screened
+ * it as unsafe. Naming the kind at the emit site is what lets a consumer reproduce the engine's
+ * split — `safety` tallies to `safetyRejects`, the rest to `rejectedCalls`.
+ */
+export const RejectionKindSchema = z.enum(['budget', 'duplicate', 'safety']);
+export type RejectionKind = z.infer<typeof RejectionKindSchema>;
 
 /**
  * An executed tool action steps the invalid-response budget back down. The guard exists to catch a

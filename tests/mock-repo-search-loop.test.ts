@@ -616,10 +616,9 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   // The first read executes and logs a result; the rejected second read logs one too, flagged rejected.
   assert.equal(commandEvents.length, 2);
-  assert.equal(commandEvents[1].rejected, true);
+  assert.equal(commandEvents[1].rejectionKind, 'duplicate');
   assert.equal(commandEvents[1].exitCode, null);
-  assert.equal(result.commandFailures, 1);
-  assert.equal(result.passed, true);
+  assert.equal(result.rejectedCalls, 1);
   const rejected = result.commands.filter((command) => command.safe === false);
   assert.equal(rejected.length, 1);
   assert.equal(rejected[0].reason, 'exhausted read');
@@ -1577,7 +1576,7 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.turnsUsed, 3);
-  assert.equal(result.commandFailures, 1);
+  assert.equal(result.rejectedCalls, 1);
   assert.equal(result.commands.length, 2);
   assert.equal(result.commands[1].safe, false);
   assert.equal(String(result.commands[1].reason || ''), 'duplicate command');
@@ -1910,19 +1909,19 @@ test('buildScorecard aggregates totals and verdict', () => {
       mockTaskResult({
         id: 'a',
         reason: 'finish',
-        passed: true,
         safetyRejects: 1,
         invalidResponses: 0,
-        commandFailures: 0,
+        rejectedCalls: 0,
+        nonZeroExits: 0,
         commands: [{ command: 'rg x', turn: 1, safe: true, reason: null, exitCode: 0, output: '' }],
       }),
       mockTaskResult({
         id: 'b',
         reason: 'max_turns',
-        passed: false,
         safetyRejects: 2,
         invalidResponses: 1,
-        commandFailures: 1,
+        rejectedCalls: 1,
+        nonZeroExits: 0,
         commands: [
           { command: 'rg y', turn: 1, safe: true, reason: null, exitCode: 0, output: '' },
           { command: 'rg z', turn: 2, safe: false, reason: null, exitCode: 0, output: '' },
@@ -1936,7 +1935,7 @@ test('buildScorecard aggregates totals and verdict', () => {
   assert.equal(scorecard.totals.failed, 1);
   assert.equal(scorecard.totals.safetyRejects, 3);
   assert.equal(scorecard.totals.invalidResponses, 1);
-  assert.equal(scorecard.totals.commandFailures, 1);
+  assert.equal(scorecard.totals.rejectedCalls, 1);
   assert.equal(scorecard.totals.commandsExecuted, 3);
   assert.equal(scorecard.verdict, 'fail');
   assert.deepEqual(scorecard.failureReasons, ['b: ended with reason max_turns']);
@@ -2106,7 +2105,8 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
+  assert.equal(result.rejectedCalls, 0);
+  assert.equal(result.nonZeroExits, 0);
   // read, edit, read â€” the third call executed instead of being rejected.
   assert.equal(commandEvents.length, 3);
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
@@ -2151,10 +2151,10 @@ test('runTaskLoop keeps read history across a typed read-only Git call', async (
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 1);
+  assert.equal(result.rejectedCalls, 1);
   // Two executed results (read, git) plus the rejected exhausted read's result event.
   assert.equal(commandEvents.length, 3);
-  assert.equal(commandEvents[2].rejected, true);
+  assert.equal(commandEvents[2].rejectionKind, 'duplicate');
   assert.equal(result.commands[2]?.reason, 'exhausted read');
 });
 
@@ -2199,7 +2199,8 @@ test('runTaskLoop lets a read repeat after run invalidates every window with Exp
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
+  assert.equal(result.rejectedCalls, 0);
+  assert.equal(result.nonZeroExits, 0);
   assert.equal(commandEvents.length, 3);
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
 });

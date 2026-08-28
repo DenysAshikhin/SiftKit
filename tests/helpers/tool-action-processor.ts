@@ -44,7 +44,7 @@ export function makeProcessor(
   transcript: TranscriptManager;
 } {
   const commands: TaskCommand[] = [];
-  const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
+  const counters: LoopCounters = { invalidResponses: 0, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, reason: 'max_turns' };
   const tokenUsage = new TokenUsageTracker(undefined, true);
   const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5, config: null });
   const events: JsonObject[] = [];

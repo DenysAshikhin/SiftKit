@@ -18,14 +18,26 @@ test('TurnCommandResultEventSchema accepts a rejected command with a null exit c
     toolName: 'web_search',
     exitCode: null,
     output: 'Rejected command: No web search provider configured.',
-    rejected: true,
+    rejectionKind: 'safety',
     rejectionReason: 'No web search provider configured.',
   });
   assert.equal(parsed.success, true);
   if (!parsed.success) return;
   assert.equal(parsed.data.toolName, 'web_search');
-  assert.equal(parsed.data.rejected, true);
   assert.equal(parsed.data.exitCode, null);
+  assert.equal('rejectionKind' in parsed.data && parsed.data.rejectionKind, 'safety');
+});
+
+test('TurnCommandResultEventSchema rejects a null-exit result that does not name its rejection kind', () => {
+  // Without the kind the collector cannot tell a screened call from a refused one, so an emitter
+  // that forgets it must fail loudly here rather than tally toward neither counter.
+  const parsed = TurnCommandResultEventSchema.safeParse({
+    turn: 4,
+    command: 'web_search query="x"',
+    exitCode: null,
+    output: 'Rejected command: nope',
+  });
+  assert.equal(parsed.success, false);
 });
 
 test('TurnCommandResultEventSchema still accepts a plain executed result', () => {
@@ -38,7 +50,7 @@ test('TurnCommandResultEventSchema still accepts a plain executed result', () =>
   });
   assert.equal(parsed.success, true);
   if (!parsed.success) return;
-  assert.equal(parsed.data.rejected, undefined);
+  assert.equal('rejectionKind' in parsed.data, false);
   assert.equal(parsed.data.toolName, undefined);
 });
 
@@ -79,7 +91,7 @@ test('a rejected read writes a turn_command_result with rejected=true', async ()
   assert.equal(result.reason, 'finish');
   const results = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(results.length, 1);
-  assert.equal(results[0].rejected, true);
+  assert.equal(results[0].rejectionKind, 'safety');
   assert.equal(results[0].exitCode, null);
   assert.equal(results[0].toolName, 'read');
   assert.equal(String(results[0].output).startsWith('Rejected command: '), true);

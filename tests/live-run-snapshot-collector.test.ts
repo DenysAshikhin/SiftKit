@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { getLiveRunSnapshotPath, getLiveRunsDirectory } from '../src/config/paths.js';
+import { runTaskLoop } from '../src/repo-search/engine.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.js';
 import { LiveRunSnapshotSchema } from '../src/repo-search/live-snapshot/schemas.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
+import { parseLoggedEvent } from './helpers/logged-events.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+
+const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-live-collector-');
 
 function makeCollector(): LiveRunSnapshotCollector {
   return new LiveRunSnapshotCollector({
@@ -172,7 +180,7 @@ test('collector captures tool execution phase, exit code and truncated output ed
   assert.equal(tool?.outputHead.startsWith('A'), true);
   assert.equal(tool?.outputTail.endsWith('C'), true);
   assert.ok(tool !== null && tool.durationMs !== null && tool.durationMs >= 0);
-  assert.equal(snapshot.counters.commandFailures, 1);
+  assert.equal(snapshot.counters.nonZeroExits, 1);
   assert.equal(snapshot.phase.name, 'idle');
 });
 
@@ -185,7 +193,91 @@ test('collector keeps short tool output whole without a tail', () => {
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.turns[0].tool?.outputHead, 'clean');
   assert.equal(snapshot.turns[0].tool?.outputTail, '');
-  assert.equal(snapshot.counters.commandFailures, 0);
+  assert.equal(snapshot.counters.nonZeroExits, 0);
+});
+
+test('collector counters agree with the task result for one run', async () => {
+  const repoRoot = createManagedTempDir('siftkit-live-counters-');
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    { id: 'task-live-counters', question: 'Read target file and search.' },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'git']),
+      mockResponses: [
+        { toolCalls: [{ name: 'read', arguments: { path: 'target.ts', offset: 1, limit: 3 } }] },
+        { toolCalls: [{ name: 'read', arguments: { path: 'target.ts', offset: 1, limit: 3 } }] },
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'line', path: 'src' } }] },
+        { content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {
+        'git operation="grep" path="src" pattern="line"': { exitCode: 2, stdout: '', stderr: 'boom' },
+      },
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    },
+  );
+
+  const collector = makeCollector();
+  for (const event of events) {
+    collector.record(event);
+  }
+
+  const snapshot = LiveRunSnapshotSchema.parse(collector.build());
+  assert.equal(result.rejectedCalls, 1);
+  assert.equal(result.nonZeroExits, 1);
+  assert.equal(snapshot.counters.rejectedCalls, result.rejectedCalls);
+  assert.equal(snapshot.counters.nonZeroExits, result.nonZeroExits);
+});
+
+test('a screened call counts as a safety reject in both the task result and the snapshot', async () => {
+  const repoRoot = createManagedTempDir('siftkit-live-safety-');
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    { id: 'task-live-safety', question: 'Read a file that does not exist.' },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
+      mockResponses: [
+        { toolCalls: [{ name: 'read', arguments: { path: 'absent.ts', offset: 1, limit: 5 } }] },
+        { content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    },
+  );
+
+  const collector = makeCollector();
+  for (const event of events) {
+    collector.record(event);
+  }
+
+  const snapshot = LiveRunSnapshotSchema.parse(collector.build());
+  assert.equal(result.safetyRejects, 1);
+  assert.equal(result.rejectedCalls, 0);
+  assert.equal(snapshot.counters.safetyRejects, result.safetyRejects);
+  assert.equal(snapshot.counters.rejectedCalls, result.rejectedCalls);
 });
 
 test('collector counts denied approvals', () => {
@@ -255,7 +347,7 @@ test('collector surfaces run and snapshot write errors', () => {
 
   collector.recordRunError('planner_preflight_overflow');
   collector.recordWriteError('EPERM: operation not permitted');
-  collector.record({ kind: 'task_done', taskId: 't', reason: 'finished', turnsUsed: 3, safetyRejects: 0, invalidResponses: 0, commandFailures: 0, passed: true });
+  collector.record({ kind: 'task_done', taskId: 't', reason: 'finished', turnsUsed: 3, safetyRejects: 0, invalidResponses: 0, rejectedCalls: 0, nonZeroExits: 0 });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.health.lastError, 'planner_preflight_overflow');

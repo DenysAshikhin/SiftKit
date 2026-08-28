@@ -45,6 +45,7 @@ import {
   applyToolOutputRepetitionGuard,
   decayInvalidResponses,
   type LoopCounters,
+  type RejectionKind,
   type TaskDefinition,
   type TurnOutcome,
 } from './task-loop-support.js';
@@ -293,7 +294,7 @@ export class ToolActionProcessor {
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
-      counters.commandFailures += 1;
+      counters.rejectedCalls += 1;
       this.recordRejectedToolCall(turn, state, {
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
@@ -301,6 +302,7 @@ export class ToolActionProcessor {
         transcriptCommand: command,
         reason: attempt.rejectionReason,
         output: `Rejected command: ${attempt.rejectionReason}`,
+        rejectionKind: 'budget',
       });
       state.pendingForcedFinishCountdownText = attempt.countdownText;
       if (attempt.exhausted) {
@@ -349,6 +351,7 @@ export class ToolActionProcessor {
           transcriptCommand: command,
           reason,
           output: `Rejected command: ${reason}`,
+          rejectionKind: 'safety',
         });
         return 'next';
       }
@@ -413,6 +416,7 @@ export class ToolActionProcessor {
     command: string;
     reason: string | null;
     output: string;
+    rejectionKind: RejectionKind;
   }): void {
     this.deps.logger?.write({
       kind: 'turn_command_result',
@@ -422,7 +426,7 @@ export class ToolActionProcessor {
       command: options.command,
       exitCode: null,
       output: options.output,
-      rejected: true,
+      rejectionKind: options.rejectionKind,
       rejectionReason: options.reason,
     });
   }
@@ -438,6 +442,7 @@ export class ToolActionProcessor {
       transcriptCommand: string;
       reason: string | null;
       output: string;
+      rejectionKind: RejectionKind;
     },
   ): void {
     const { commands } = this.deps;
@@ -457,6 +462,7 @@ export class ToolActionProcessor {
       command: rejection.transcriptCommand,
       reason: rejection.reason,
       output: rejection.output,
+      rejectionKind: rejection.rejectionKind,
     });
     state.batchOutcomes.push({
       action: buildRejectedTranscriptAction({
@@ -553,7 +559,7 @@ export class ToolActionProcessor {
     if (this.deps.chatWebGroundingEnabled && (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch')) {
       const duplicateDecision = this.deps.chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
       if (duplicateDecision.kind === 'reject') {
-        counters.commandFailures += 1;
+        counters.rejectedCalls += 1;
         this.recordRejectedToolCall(turn, state, {
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
@@ -561,6 +567,7 @@ export class ToolActionProcessor {
           transcriptCommand: command,
           reason: 'duplicate web tool',
           output: duplicateDecision.message,
+          rejectionKind: 'duplicate',
         });
         return 'next';
       }
@@ -603,7 +610,7 @@ export class ToolActionProcessor {
     const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length, transcript.generation);
     const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
-    counters.commandFailures += 1;
+    counters.rejectedCalls += 1;
     commands.push({
       command,
       activityKind: context.activity.activityKind,
@@ -617,6 +624,7 @@ export class ToolActionProcessor {
       command,
       reason,
       output: `Rejected: ${duplicateMessage}`,
+      rejectionKind: 'duplicate',
     });
     if (registration.activeReplayMessageIndex !== null) {
       transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
@@ -744,6 +752,7 @@ export class ToolActionProcessor {
       transcriptCommand: nativeExecution.command,
       reason: nativeExecution.reason,
       output: `Rejected command: ${nativeExecution.reason}`,
+      rejectionKind: 'safety',
     });
     return 'next';
   }
@@ -849,7 +858,7 @@ export class ToolActionProcessor {
       });
     }
     if (Number(executed.exitCode) !== 0) {
-      counters.commandFailures += 1;
+      counters.nonZeroExits += 1;
     }
 
     let zeroOutputWarningText = '';

@@ -197,7 +197,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
 });
 
 test('decayInvalidResponses steps the counter down and floors at zero', () => {
-  const counters: LoopCounters = { invalidResponses: 2, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
+  const counters: LoopCounters = { invalidResponses: 2, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, reason: 'max_turns' };
 
   decayInvalidResponses(counters);
   assert.equal(counters.invalidResponses, 1);
@@ -274,6 +274,38 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
 
   assert.equal(commands[1]?.reason, 'duplicate command');
   assert.equal(counters.invalidResponses, 1);
+});
+
+test('a rejected call and a non-zero exit increment separate counters', async () => {
+  const root = createManagedTempDir('siftkit-counter-split-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, counters } = makeProcessor(root);
+
+  // The second `ls` is rejected as a duplicate before anything runs.
+  await processor.executeBatch(
+    1,
+    [
+      { kind: 'tool', callId: 'test_call_43', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_44', toolName: 'ls', args: { path: '.' } },
+    ],
+    '',
+    { reported: 0, budgeted: 0 },
+    false,
+  );
+  assert.equal(counters.rejectedCalls, 1);
+  assert.equal(counters.nonZeroExits, 0);
+
+  // An executed command that exits non-zero does the reverse.
+  const failing = makeProcessor(root, ['git']);
+  await failing.processor.executeBatch(
+    1,
+    [{ kind: 'tool', callId: 'test_call_45', toolName: 'git', args: { operation: 'log', limit: 1 } }],
+    '',
+    { reported: 0, budgeted: 0 },
+    false,
+  );
+  assert.equal(failing.counters.nonZeroExits, 1);
+  assert.equal(failing.counters.rejectedCalls, 0);
 });
 
 test('malformed actions alternating with invalid Git operations still hit the invalid-response limit', async () => {

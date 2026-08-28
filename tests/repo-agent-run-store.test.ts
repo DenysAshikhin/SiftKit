@@ -24,6 +24,7 @@ import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { classifyRepoAgentExecutionResult } from '../src/repo-agent/run-output.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { buildScorecard } from '../src/repo-search/engine.js';
 import type { TaskEndReason } from '../src/repo-search/engine/task-loop-support.js';
 import { buildMockScorecard } from './_test-helpers.js';
 
@@ -42,38 +43,33 @@ after(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });
 });
 
-function buildExecutionResult(
-  reason: TaskEndReason,
-  passed: boolean,
-  verdict: 'pass' | 'fail',
-): RepoSearchExecutionResult {
+function buildExecutionResult(reason: TaskEndReason): RepoSearchExecutionResult {
   const scorecard = buildMockScorecard('Terminal synthesis output');
   const task = scorecard.tasks[0];
   if (!task) {
     throw new Error('Expected mock scorecard task.');
   }
   task.reason = reason;
-  task.passed = passed;
-  scorecard.verdict = verdict;
+  const { runId, model, tasks } = scorecard;
   return {
     requestId: 'request-id',
     transcriptPath: 'transcript.jsonl',
     artifactPath: 'artifact.json',
-    scorecard,
+    scorecard: buildScorecard({ runId, model, tasks }),
   };
 }
 
 test('repo-agent execution outcome requires a genuine passing finish', () => {
   const cases = [
-    { reason: 'finish' as const, passed: true, verdict: 'pass' as const, expected: 'completed' },
-    { reason: 'invalid_response_limit' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
-    { reason: 'max_turns' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
-    { reason: 'finish' as const, passed: false, verdict: 'fail' as const, expected: 'failed' },
+    { reason: 'finish' as const, expected: 'completed' },
+    { reason: 'invalid_response_limit' as const, expected: 'failed' },
+    { reason: 'max_turns' as const, expected: 'failed' },
+    { reason: 'forced_finish_attempt_limit' as const, expected: 'failed' },
   ];
 
   for (const fixture of cases) {
     const outcome = classifyRepoAgentExecutionResult(
-      buildExecutionResult(fixture.reason, fixture.passed, fixture.verdict),
+      buildExecutionResult(fixture.reason),
     );
     assert.equal(outcome.status, fixture.expected);
     assert.equal(outcome.output, 'Terminal synthesis output');
@@ -81,6 +77,28 @@ test('repo-agent execution outcome requires a genuine passing finish', () => {
       assert.match(outcome.error, new RegExp(fixture.reason, 'u'));
     }
   }
+});
+
+test('a finished task with a non-zero command exit still classifies as completed', () => {
+  // A TDD red run is normal work: the exit code is telemetry, only the end reason decides.
+  const result = buildExecutionResult('finish');
+  const task = result.scorecard.tasks[0];
+  if (!task) {
+    throw new Error('Expected mock scorecard task.');
+  }
+  task.commands = [{
+    command: 'npm test',
+    activityKind: 'search',
+    activitySubject: { kind: 'none' },
+    turn: 1,
+    safe: true,
+    reason: null,
+    exitCode: 1,
+    output: 'red run',
+  }];
+
+  const outcome = classifyRepoAgentExecutionResult(result);
+  assert.equal(outcome.status, 'completed');
 });
 
 function makeRunsRoot(): string {

@@ -126,7 +126,8 @@ export class LiveRunSnapshotCollector {
   private readonly counters = {
     providerRequests: 0,
     providerErrors: 0,
-    commandFailures: 0,
+    rejectedCalls: 0,
+    nonZeroExits: 0,
     safetyRejects: 0,
     approvalDenials: 0,
   };
@@ -210,7 +211,8 @@ export class LiveRunSnapshotCollector {
         turns: ordered.length,
         providerRequests: this.counters.providerRequests,
         providerErrors: this.counters.providerErrors,
-        commandFailures: this.counters.commandFailures,
+        rejectedCalls: this.counters.rejectedCalls,
+        nonZeroExits: this.counters.nonZeroExits,
         safetyRejects: this.counters.safetyRejects,
         approvalDenials: this.counters.approvalDenials,
       },
@@ -468,7 +470,16 @@ export class LiveRunSnapshotCollector {
       outputTail: edges.tail,
     };
     if (exitCode !== null && exitCode !== 0) {
-      this.counters.commandFailures += 1;
+      this.counters.nonZeroExits += 1;
+    }
+    // Rejections split the same way the engine splits them, so the snapshot and the scorecard
+    // report the same numbers: a screened call is a safety reject, not a refused call.
+    if ('rejectionKind' in parsed.data) {
+      if (parsed.data.rejectionKind === 'safety') {
+        this.counters.safetyRejects += 1;
+      } else {
+        this.counters.rejectedCalls += 1;
+      }
     }
     this.setPhase('idle', parsed.data.turn, null);
   }

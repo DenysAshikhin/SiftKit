@@ -1,5 +1,6 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
+import { taskPassed } from '../repo-search/engine/task-loop-support.js';
 import { z } from '../lib/zod.js';
 
 export const RepoAgentExecutionOutcomeSchema = z.discriminatedUnion('status', [
@@ -43,16 +44,12 @@ export function classifyRepoAgentExecutionResult(
 ): RepoAgentExecutionOutcome {
   const output = formatRepoTaskOutput(result);
   const taskFailures = result.scorecard.tasks
-    .filter((task) => task.reason !== 'finish' || !task.passed)
-    .map((task) => `${task.id}: reason=${task.reason}, passed=${task.passed}`);
-  if (taskFailures.length === 0 && result.scorecard.verdict === 'pass') {
+    .filter((task) => !taskPassed(task))
+    .map((task) => `${task.id}: ended with reason ${task.reason}`);
+  if (taskFailures.length === 0) {
     return RepoAgentExecutionOutcomeSchema.parse({ status: 'completed', output });
   }
-  const failureDetails = [
-    ...taskFailures,
-    ...(result.scorecard.verdict === 'fail' ? ['scorecard verdict=fail'] : []),
-    ...result.scorecard.failureReasons,
-  ];
+  const failureDetails = [...taskFailures, ...result.scorecard.failureReasons];
   return RepoAgentExecutionOutcomeSchema.parse({
     status: 'failed',
     error: `Repo-agent execution failed: ${[...new Set(failureDetails)].join('; ') || 'unknown task outcome'}`,
