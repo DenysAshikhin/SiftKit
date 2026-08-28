@@ -1,38 +1,19 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import test from 'node:test';
 
 import { KeyMaterialDtoSchema } from '@siftkit/contracts';
 import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { startStatusServer } from '../src/status-server/index.js';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
 import { z } from '../src/lib/zod.js';
-import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
-import {
-  configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
-} from './helpers/dashboard-test-repo.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { requestJson } from './helpers/dashboard-http.js';
+import { withAssistantServer } from './helpers/assistant-server-harness.js';
 
 const AssistantViewSchema = z.object({
   assistant: z.object({ Enabled: z.boolean(), KeyCustody: z.string() }),
 });
 
 test('dashboard PUT /config enable reaches the live service and survives custody migration', async () => {
-  const tempRoot = createManagedTempDir('siftkit-assistant-config-prop-');
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  writeConfig(getConfigPath(), getDefaultConfig());
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
-
-  try {
-    const bootstrap = await requestJson(`${baseUrl}/assistant/auth/bootstrap`);
-    const token = typeof bootstrap.body.token === 'string' ? bootstrap.body.token : '';
-    const headers = { Authorization: `Bearer ${token}` };
-
+  await withAssistantServer('siftkit-assistant-config-prop-', getDefaultConfig().Assistant, async ({ baseUrl, headers }) => {
     const initialView = await requestJson(`${baseUrl}/assistant/config`, { headers });
     assert.equal(initialView.statusCode, 200);
 
@@ -72,13 +53,5 @@ test('dashboard PUT /config enable reaches the live service and survives custody
     const afterBlock = AssistantViewSchema.parse(afterMigration.body).assistant;
     assert.equal(afterBlock.Enabled, true);
     assert.equal(afterBlock.KeyCustody, 'desktop');
-  } finally {
-    await closeHttpServer(server);
-    restoreDashboardTestRepo(previousCwd);
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+  });
 });

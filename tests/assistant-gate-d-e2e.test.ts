@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { CaptureSubmissionDto, SuppressionAuditDto } from '@siftkit/contracts';
+import type { SuppressionAuditDto } from '@siftkit/contracts';
 import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
@@ -26,16 +26,12 @@ import {
   MemoryAssistantConfigWriter, withAssistantContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { CAPTURE_PNG_BYTES, captureSubmissionDto } from './helpers/assistant-server-harness.js';
 import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
 import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-
-const PNG_BYTES = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-);
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {
@@ -74,30 +70,6 @@ function injectionExtraction(): string {
       suggestedConfidence: 0.99,
     }],
   });
-}
-
-function captureDto(pixelSeed: string, perceptualHash: string): CaptureSubmissionDto {
-  return {
-    schemaVersion: 1,
-    capturedAtUtc: new Date().toISOString(),
-    reason: 'fixed_cadence',
-    display: {
-      id: 'DISPLAY1', name: 'Monitor', primary: true,
-      pixelWidth: 1920, pixelHeight: 1080, logicalWidth: 1920, logicalHeight: 1080,
-      scaleFactor: 1,
-    },
-    foregroundContextKey: 'app:code|siftkit',
-    foreground: {
-      processName: 'Code.exe',
-      executablePath: 'C:/Code.exe',
-      applicationId: 'app:code',
-      normalizedTitle: 'SiftKit',
-      fullscreen: false,
-    },
-    pixelSha256: pixelSeed.repeat(64).slice(0, 64),
-    perceptualHash,
-    imageDataUrl: `data:image/png;base64,${PNG_BYTES.toString('base64')}`,
-  };
 }
 
 function suppressionDto(): SuppressionAuditDto {
@@ -195,7 +167,7 @@ test('gate D e2e: a disabled assistant rejects every ingestion route and writes 
         },
         idleSeconds: 4, sessionLocked: false,
       }],
-      ['/assistant/ingest/capture', captureDto('1', 'f0e1d2c3b4a59687')],
+      ['/assistant/ingest/capture', captureSubmissionDto('1', 'f0e1d2c3b4a59687')],
       ['/assistant/ingest/suppression', suppressionDto()],
     ] as const) {
       const response = await requestJson(`${harness.baseUrl}${route}`, {
@@ -228,7 +200,7 @@ test('gate D e2e: capture flows to a searchable candidate and expiry recalculate
     const accepted = await requestJson(`${harness.baseUrl}/assistant/ingest/capture`, {
       method: 'POST',
       headers: harness.headers,
-      body: JSON.stringify(captureDto('1', 'f0e1d2c3b4a59687')),
+      body: JSON.stringify(captureSubmissionDto('1', 'f0e1d2c3b4a59687')),
     });
     assert.equal(accepted.statusCode, 200);
     assert.equal(accepted.body.outcome, 'accepted');
@@ -321,7 +293,7 @@ test('gate D e2e: suppression writes audit only and injection output mutates not
     const accepted = await requestJson(`${harness.baseUrl}/assistant/ingest/capture`, {
       method: 'POST',
       headers: harness.headers,
-      body: JSON.stringify(captureDto('2', '0f1e2d3c4b5a6978')),
+      body: JSON.stringify(captureSubmissionDto('2', '0f1e2d3c4b5a6978')),
     });
     assert.equal(accepted.body.outcome, 'accepted');
 
@@ -369,7 +341,7 @@ test('gate D e2e: custody migrates to the shell and survives a daemon restart', 
     const accepted = await requestJson(`${harness.baseUrl}/assistant/ingest/capture`, {
       method: 'POST',
       headers: harness.headers,
-      body: JSON.stringify(captureDto('3', 'a1b2c3d4e5f60718')),
+      body: JSON.stringify(captureSubmissionDto('3', 'a1b2c3d4e5f60718')),
     });
     assert.equal(accepted.body.outcome, 'accepted');
 
@@ -423,7 +395,7 @@ test('gate D e2e: custody migrates to the shell and survives a daemon restart', 
       : '';
     const revealed = await fetch(`${baseUrl}/assistant/evidence/blob?id=${evidenceId}`, { headers });
     assert.equal(revealed.status, 200, 'the re-imported key decrypts pre-migration evidence');
-    assert.deepEqual(Buffer.from(await revealed.arrayBuffer()), PNG_BYTES);
+    assert.deepEqual(Buffer.from(await revealed.arrayBuffer()), CAPTURE_PNG_BYTES);
   } finally {
     await closeHttpServer(server);
     harness.restoreEnv();
