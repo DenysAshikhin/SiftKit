@@ -18,3 +18,21 @@ export function getTokenEstimateCharactersPerToken(config: SiftConfig | undefine
 export function estimateTokenCount(config: SiftConfig | undefined, text: string): number {
   return estimateTokenCountFromCharacters(config, String(text || '').length);
 }
+
+/**
+ * How many thinking tokens a stream has spent. The provider's own count wins when
+ * it reports one, because the character estimate is coarse enough to misprice a
+ * whole continuation. A reported zero is not a count: backends that emit
+ * `reasoning_tokens: 0` on every frame and the real figure only in the final usage
+ * payload would otherwise read as having spent nothing.
+ */
+export function resolveSpentThinkingTokens(
+  config: SiftConfig | undefined,
+  reportedThinkingTokens: number | null,
+  reasoningText: string,
+): number {
+  if (reportedThinkingTokens !== null && reportedThinkingTokens > 0) {
+    return Math.floor(reportedThinkingTokens);
+  }
+  return reasoningText.length === 0 ? 0 : estimateTokenCountFromCharacters(config, reasoningText.length);
+}

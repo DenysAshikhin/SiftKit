@@ -36,7 +36,7 @@
 - Modify: `src/lib/token-estimate.ts:20` (append)
 - Test: `tests/token-estimate-spent-thinking.test.ts` (create)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/token-estimate-spent-thinking.test.ts`:
 
@@ -68,7 +68,7 @@ test('empty reasoning text with no reported count resolves to zero', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```
 npm run build:test
@@ -77,7 +77,7 @@ node .\dist\test-runner\run-tests.js token-estimate-spent-thinking
 
 Expected: FAIL — `resolveSpentThinkingTokens` is not exported from `token-estimate.js`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Append to `src/lib/token-estimate.ts`:
 
@@ -103,7 +103,7 @@ export function resolveSpentThinkingTokens(
 
 `SiftConfig` is already imported at `src/lib/token-estimate.ts:1`. The `reasoningText.length === 0` guard is required because `estimateTokenCountFromCharacters` floors at 1.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 ```
 npm run build:test
@@ -112,7 +112,7 @@ node .\dist\test-runner\run-tests.js token-estimate-spent-thinking
 
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Verify types and lint**
+- [x] **Step 5: Verify types and lint**
 
 ```
 npm run typecheck
@@ -132,7 +132,7 @@ backends that report counts. No option signatures change in this task.
 - Modify: `src/llm-protocol/llama-cpp-client.ts:8` (import), `:447-452` (gate)
 - Modify: `tests/llama-cpp-client-thinking-budget.test.ts:33-86` (fake server), append tests
 
-- [ ] **Step 1: Make the fake SSE server configurable**
+- [x] **Step 1: Make the fake SSE server configurable**
 
 In `tests/llama-cpp-client-thinking-budget.test.ts`, replace the
 `startFakeStreamServer()` signature and its reasoning-emission block. Add this
@@ -201,7 +201,7 @@ approximately `:135` and `:143` accordingly:
     assert.ok(response.thinkingText.includes('r00'));
 ```
 
-- [ ] **Step 2: Write the failing gate tests**
+- [x] **Step 2: Write the failing gate tests**
 
 Append to `tests/llama-cpp-client-thinking-budget.test.ts`:
 
@@ -248,7 +248,7 @@ test('reported zeros fall back to the character estimate and still trip the gate
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify the first fails**
+- [x] **Step 3: Run the tests to verify the first fails**
 
 ```
 npm run build:test
@@ -259,7 +259,7 @@ Expected: `the gate fires on a positive reported thinking count` FAILS — the
 estimate stops after delta 0, so `r08` is absent. The `reported zeros` test and
 every pre-existing test PASS.
 
-- [ ] **Step 4: Switch the gate to the shared rule**
+- [x] **Step 4: Switch the gate to the shared rule**
 
 In `src/llm-protocol/llama-cpp-client.ts`, change the import at line 8:
 
@@ -288,7 +288,7 @@ Replace the gate body (currently `if (thinkingBudgetTokens !== null && estimateT
 `llama-cpp-client.ts:431`, above this block in the same loop iteration, so the
 current frame's reported count is visible to the gate.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 ```
 npm run build:test
@@ -297,7 +297,7 @@ node .\dist\test-runner\run-tests.js llama-cpp-client-thinking-budget
 
 Expected: PASS, all tests in the file.
 
-- [ ] **Step 6: Verify types and lint**
+- [x] **Step 6: Verify types and lint**
 
 ```
 npm run typecheck
@@ -321,7 +321,7 @@ The rename and the derivation land together because the option's meaning inverts
 - Modify: `tests/llama-cpp-client-thinking-budget.test.ts:175-210`, append tests
 - Modify: `tests/repo-search-planner-protocol.test.ts:799`, `:848`, `:874`
 
-- [ ] **Step 1: Write the failing allowance tests**
+- [x] **Step 1: Write the failing allowance tests**
 
 In `tests/llama-cpp-client-thinking-budget.test.ts`, rewrite the existing test
 named `context compaction gives its continuation only the summary output
@@ -424,7 +424,7 @@ test('a continuation with no floor gets the remainder, not a second full budget'
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```
 npm run build:test
@@ -435,7 +435,7 @@ Expected: FAIL. The two rewritten/new compaction tests fail to compile
 (`continuationMinTokens` does not exist), and `a continuation with no floor`
 fails with `max_tokens` of 64 rather than 54.
 
-- [ ] **Step 3: Rename the client option and derive the allowance**
+- [x] **Step 3: Rename the client option and derive the allowance**
 
 In `src/llm-protocol/llama-cpp-client.ts`, replace lines 128-129:
 
@@ -475,7 +475,7 @@ Update the doc comment above `continueAfterThinkingBudget` (currently
    */
 ```
 
-- [ ] **Step 4: Propagate the rename**
+- [x] **Step 4: Propagate the rename**
 
 `src/repo-search/planner-protocol.ts:361`:
 
@@ -507,7 +507,7 @@ Update the doc comment above `continueAfterThinkingBudget` (currently
           continuationMinTokens: generationTokens.outputTokens,
 ```
 
-- [ ] **Step 5: Correct the comments the split no longer matches**
+- [x] **Step 5: Correct the comments the split no longer matches**
 
 `src/repo-search/engine/transcript-compactor.ts:137-141`:
 
@@ -533,7 +533,7 @@ at line 23 (there is no comment there today; add one):
  */
 ```
 
-- [ ] **Step 6: Fix the planner-protocol tests**
+- [x] **Step 6: Fix the planner-protocol tests**
 
 In `tests/repo-search-planner-protocol.test.ts`, rename the option at lines 799,
 848, and 874:
@@ -547,7 +547,7 @@ This is a pure rename. All three call sites run on the `llama` backend, where
 continuation request is ever issued, and none of them assert a continuation
 `max_tokens`. No expected values change.
 
-- [ ] **Step 7: Run the affected suites**
+- [x] **Step 7: Run the affected suites**
 
 ```
 npm run build:test
@@ -558,7 +558,7 @@ node .\dist\test-runner\run-tests.js engine-prompt-preparer
 
 Expected: PASS in all three.
 
-- [ ] **Step 8: Verify the whole suite, types, and lint**
+- [x] **Step 8: Verify the whole suite, types, and lint**
 
 ```
 npm run build:test
@@ -569,7 +569,7 @@ npm run typecheck
 Expected: no failures; `npm run typecheck` exits 0. `npm run typecheck` already
 runs `npm run lint` as its last step.
 
-- [ ] **Step 9: Confirm no stale references remain**
+- [x] **Step 9: Confirm no stale references remain**
 
 ```
 grep -rn "continuationMaxTokens" --include=*.ts src tests dashboard packages

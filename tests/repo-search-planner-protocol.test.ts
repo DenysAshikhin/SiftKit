@@ -796,7 +796,7 @@ test('context compaction branches from an actual preceding planner request', asy
         timeoutMs: 5000,
         maxTokens: 512,
         reasoningBudgetTokens: 342,
-        continuationMaxTokens: 170,
+        continuationMinTokens: 170,
       });
 
       assert.equal(capturedBodies.length, 2);
@@ -845,7 +845,7 @@ test('context compaction rejects a branch that diverges from its executing plann
           timeoutMs: 5000,
           maxTokens: 512,
           reasoningBudgetTokens: 342,
-          continuationMaxTokens: 170,
+          continuationMinTokens: 170,
         }),
         /context_compaction prompt-cache branch violated: message 0 diverged/u,
       );
@@ -871,7 +871,7 @@ test('first compaction request explicitly starts a new cache epoch', async () =>
     timeoutMs: 5000,
     maxTokens: 512,
     reasoningBudgetTokens: 342,
-    continuationMaxTokens: 170,
+    continuationMinTokens: 170,
   }), 'SUMMARY TEXT');
 
   assert.equal(captured.id_slot, 2);

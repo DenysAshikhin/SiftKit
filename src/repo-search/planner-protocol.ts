@@ -358,7 +358,7 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   toolChoice?: LlamaCppChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
   reasoningBudgetTokens?: number;
-  continuationMaxTokens?: number;
+  continuationMinTokens?: number;
 } & PlannerResponseConstraint;
 
 export type PlannerRootRequestOptions = PlannerRequestBase & {
@@ -552,7 +552,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         abortSignal: options.abortSignal,
         reasoningBudgetMessage: options.reasoningBudgetMessage,
         reasoningBudgetTokens: options.reasoningBudgetTokens,
-        continuationMaxTokens: options.continuationMaxTokens,
+        continuationMinTokens: options.continuationMinTokens,
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
       }),
@@ -786,7 +786,7 @@ export async function requestContextCompactionSummary(options: {
   timeoutMs: number;
   maxTokens: number;
   reasoningBudgetTokens: number;
-  continuationMaxTokens: number;
+  continuationMinTokens: number;
   cacheOrigin: CompactionCacheOrigin;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
@@ -814,7 +814,7 @@ export async function requestContextCompactionSummary(options: {
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
     reasoningBudgetTokens: options.reasoningBudgetTokens,
-    continuationMaxTokens: options.continuationMaxTokens,
+    continuationMinTokens: options.continuationMinTokens,
     reasoningBudgetMessage: CONTEXT_COMPACTION_REASONING_BUDGET_MESSAGE,
     ...flags,
     mockResponses: options.mockResponses,

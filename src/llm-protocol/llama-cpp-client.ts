@@ -5,7 +5,7 @@ import {
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
   type SiftConfig,
 } from '../config/index.js';
-import { estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
+import { resolveSpentThinkingTokens } from '../lib/token-estimate.js';
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { httpClient, HttpResponseError, LlamaHttpError } from '../lib/http-client.js';
 import { parseJsonObjectText } from '../lib/json.js';
@@ -125,8 +125,8 @@ export type LlamaCppChatOptions = {
   reasoningBudgetMessage?: string;
   /** Request-scoped client-side thinking cap; overrides the active preset without changing request rendering. */
   reasoningBudgetTokens?: number;
-  /** Generation cap for the one-shot continuation after the thinking budget is exhausted. */
-  continuationMaxTokens?: number;
+  /** Floor under the one-shot continuation issued after the thinking budget is exhausted. */
+  continuationMinTokens?: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
 };
@@ -261,7 +261,9 @@ export class LlamaCppClient {
   /**
    * The stream stopped at the ReasoningBudget mid-think. Re-send once with the
    * partial reasoning and the budget message closed inside a think block
-   * (TabbyAPI `response_prefix`), so generation resumes at the answer.
+   * (TabbyAPI `response_prefix`), so generation resumes at the answer. The
+   * continuation gets whatever the generation budget has left after the thinking
+   * already spent, floored at `continuationMinTokens`.
    */
   private async continueAfterThinkingBudget(
     baseUrl: string,
@@ -273,13 +275,20 @@ export class LlamaCppClient {
       || activePreset.ReasoningBudgetMessage
       || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
     const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
-    const continuationMaxTokens = Number.isFinite(options.continuationMaxTokens)
-      && Number(options.continuationMaxTokens) > 0
-      ? Math.max(1, Math.floor(Number(options.continuationMaxTokens)))
-      : options.maxTokens;
+    const spentThinkingTokens = resolveSpentThinkingTokens(
+      options.config,
+      streamed.usage.thinkingTokens,
+      streamed.reasoningText,
+    );
+    const continuationFloor = options.continuationMinTokens !== undefined
+      ? Math.max(0, Math.floor(options.continuationMinTokens))
+      : 0;
+    // The thinking already spent came out of this request's generation budget, so
+    // only the remainder is still available — never a second full grant.
+    const continuationRequestMaxTokens = Math.max(1, continuationFloor, options.maxTokens - spentThinkingTokens);
     const continuation = await this.streamChatAtBaseUrl(baseUrl, {
       ...options,
-      maxTokens: continuationMaxTokens,
+      maxTokens: continuationRequestMaxTokens,
     }, {
       responsePrefix: buildClosedThinkBlock(exhaustedThinking),
     });
@@ -446,7 +455,7 @@ export class LlamaCppClient {
           if (deltaReasoning) {
             reasoningText += deltaReasoning;
             if (thinkingBudgetTokens !== null
-              && estimateTokenCountFromCharacters(options.config, reasoningText.length) > thinkingBudgetTokens) {
+              && resolveSpentThinkingTokens(options.config, thinkingTokens, reasoningText) > thinkingBudgetTokens) {
               earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
               break streamFrames;
             }

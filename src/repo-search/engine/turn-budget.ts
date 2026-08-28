@@ -20,6 +20,12 @@ export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 // summarization request, on top of the summary's own output.
 export const COMPACTION_PROMPT_HEADROOM_TOKENS = 6_000;
 
+/**
+ * Splits a compaction generation ceiling into a thinking cap and an output share.
+ * The output share is a floor, not a cap: it sizes the prompt-side compaction
+ * reserve and guarantees the continuation a minimum, while unspent thinking flows
+ * back to the summary.
+ */
 export function splitCompactionGenerationTokens(totalTokens: number): {
   totalTokens: number;
   reasoningTokens: number;

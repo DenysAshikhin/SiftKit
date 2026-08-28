@@ -136,8 +136,10 @@ export class TranscriptCompactor {
 
   /**
    * The summary generation gets whatever the window leaves after its prompt, up to the
-   * run's response reserve. Two thirds cap thinking and one third caps summary output.
-   * The TurnBudget compaction reserve keeps the output share above the floor.
+   * run's response reserve. Two thirds cap thinking; the remaining third is the floor
+   * under the summary output, not its cap — a continuation that spends less thinking
+   * than the gate allows keeps the difference. The TurnBudget compaction reserve keeps
+   * that floor above COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS.
    */
   private async resolveSummaryGenerationTokens(
     input: { taskId: string; turn: number | null; cacheOrigin: CompactionCacheOrigin },
@@ -227,7 +229,7 @@ export class TranscriptCompactor {
           timeoutMs: this.options.timeoutMs,
           maxTokens: generationTokens.totalTokens,
           reasoningBudgetTokens: generationTokens.reasoningTokens,
-          continuationMaxTokens: generationTokens.outputTokens,
+          continuationMinTokens: generationTokens.outputTokens,
           cacheOrigin: input.cacheOrigin,
           mockResponses: this.options.mockResponses,
           mockResponseIndex,

@@ -27,11 +27,27 @@ type FakeStreamServer = {
   close: () => Promise<void>;
 };
 
+type FakeStreamOptions = {
+  /** Characters per reasoning delta. Default 8. */
+  reasoningChunkChars?: number;
+  /** Number of reasoning deltas on request 1. Default 10. */
+  reasoningChunkCount?: number;
+  /**
+   * 'none' emits no completion usage on reasoning frames (default).
+   * 'cumulative' reports reasoning_tokens = chunkIndex + 1.
+   * 'zero' reports reasoning_tokens = 0 on every reasoning frame.
+   */
+  reportedReasoningTokens?: 'none' | 'cumulative' | 'zero';
+};
+
 // Fake OpenAI-compatible SSE server. Request 1 streams only reasoning deltas —
 // enough to blow a tiny ReasoningBudget — then a content action and [DONE].
 // Every later request does the same minus the reasoning, so a continuation
 // request completes immediately with the action payload.
-function startFakeStreamServer(): Promise<FakeStreamServer> {
+function startFakeStreamServer(options: FakeStreamOptions = {}): Promise<FakeStreamServer> {
+  const chunkChars = options.reasoningChunkChars ?? 8;
+  const chunkCount = options.reasoningChunkCount ?? 10;
+  const reportedMode = options.reportedReasoningTokens ?? 'none';
   return new Promise((resolve) => {
     const bodies: string[] = [];
     const server = http.createServer((req, res) => {
@@ -51,19 +67,24 @@ function startFakeStreamServer(): Promise<FakeStreamServer> {
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
         });
-        const writeDelta = (delta: JsonObject): void => {
-          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk' })}\n\n`);
+        const writeDelta = (delta: JsonObject, usage?: JsonObject): void => {
+          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk', ...(usage ? { usage } : {}) })}\n\n`);
         };
         // Prompt usage rides the first frame of every request, so the first
         // request's stats survive the mid-stream budget abort.
         const promptUsage = bodies.length === 1
           ? { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 60 } }
           : { prompt_tokens: 110, prompt_tokens_details: { cached_tokens: 100 } };
-        res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {} }], object: 'chat.completion.chunk', usage: promptUsage })}\n\n`);
+        writeDelta({}, promptUsage);
         if (bodies.length === 1) {
-          // 10 chunks x 8 chars = 80 reasoning chars (> 8 tokens x 4 chars/token).
-          for (let index = 0; index < 10; index += 1) {
-            writeDelta({ reasoning_content: `reason${String(index).padStart(2, '0')}` });
+          // chunkCount deltas of chunkChars each; the defaults (10 x 8 = 80 chars)
+          // exceed a tiny ReasoningBudget under the 2.5 chars/token estimate.
+          for (let index = 0; index < chunkCount; index += 1) {
+            const text = `r${String(index).padStart(2, '0')}`.padEnd(chunkChars, '.');
+            const usage = reportedMode === 'none'
+              ? undefined
+              : { completion_tokens_details: { reasoning_tokens: reportedMode === 'cumulative' ? index + 1 : 0 } };
+            writeDelta({ reasoning_content: text }, usage);
           }
         }
         writeDelta({ content: '{"action":"finish","output":"done"}' });
@@ -136,12 +157,12 @@ test('exl3 streaming enforces ReasoningBudget with a response_prefix continuatio
     assert.ok(!('response_prefix' in fake.bodyAt(0)));
     const prefix = String(fake.bodyAt(1).response_prefix);
     assert.ok(prefix.startsWith('<think>\n'));
-    assert.ok(prefix.includes('reason00'));
+    assert.ok(prefix.includes('r00'));
     assert.ok(prefix.includes('Answer now.'));
     assert.ok(prefix.trimEnd().endsWith('</think>'));
 
     assert.match(response.text, /"action"\s*:\s*"finish"/u);
-    assert.ok(response.thinkingText.includes('reason00'));
+    assert.ok(response.thinkingText.includes('r00'));
     assert.ok(response.thinkingText.includes('Answer now.'));
     assert.equal(response.thinkingBudgetExhausted, true);
 
@@ -173,39 +194,87 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
   }
 });
 
-test('context compaction gives its continuation only the summary output allocation', async () => {
+// Both compaction tests drive the same request; only the generation ceiling
+// and the fake server reasoning stream vary.
+function requestCompactionSummary(
+  fake: FakeStreamServer,
+  config: SiftConfig,
+  maxTokens: number,
+): ReturnType<typeof requestContextCompactionSummary> {
+  const flags = {
+    thinkingEnabled: true,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  };
+  return requestContextCompactionSummary({
+    config,
+    baseUrl: fake.baseUrl,
+    model: 'mock',
+    messages: [{ role: 'user', content: 'large history' }],
+    instruction: 'Summarize the history.',
+    timeoutMs: 5_000,
+    maxTokens,
+    reasoningBudgetTokens: 8,
+    continuationMinTokens: 4,
+    cacheOrigin: { kind: 'new_epoch', flags, tools: [], slotId: 0 },
+  });
+}
+
+test('a compaction continuation never drops below its summary output floor', async () => {
   const fake = await startFakeStreamServer();
   try {
     const config = budgetedConfig('exl3', {
       baseUrl: fake.baseUrl,
       reasoningBudget: 100_000,
     });
-    const flags = {
-      thinkingEnabled: true,
-      reasoningContentEnabled: false,
-      preserveThinking: false,
-    };
-    const response = await requestContextCompactionSummary({
-      config,
-      baseUrl: fake.baseUrl,
-      model: 'mock',
-      messages: [{ role: 'user', content: 'large history' }],
-      instruction: 'Summarize the history.',
-      timeoutMs: 5_000,
-      maxTokens: 12,
-      reasoningBudgetTokens: 8,
-      continuationMaxTokens: 4,
-      cacheOrigin: { kind: 'new_epoch', flags, tools: [], slotId: 0 },
-    });
+    const response = await requestCompactionSummary(fake, config, 12);
 
     assert.equal(fake.requestCount(), 2);
     assert.equal(fake.bodyAt(0).max_tokens, 12);
+    // The gate trips at an estimated spend of 10, leaving a remainder of 2, so
+    // the floor of 4 governs.
     assert.equal(fake.bodyAt(1).max_tokens, 4);
     const prefix = String(fake.bodyAt(1).response_prefix);
     assert.match(prefix, /Output the context compaction summary now\./u);
     assert.equal(response.thinkingBudgetExhausted, true);
     assert.match(response.thinkingText, /Output the context compaction summary now\./u);
     assert.match(response.text, /"action"\s*:\s*"finish"/u);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('measured headroom above the floor goes to the continuation', async () => {
+  // 40-char deltas, reported counts climbing 1 per delta, budget 8: the gate
+  // trips on delta 8 at a reported spend of 9, so 64 - 9 = 55 remains — far above
+  // the floor of 4, and far above what the 360-character estimate would allow.
+  const fake = await startFakeStreamServer({
+    reasoningChunkChars: 40,
+    reasoningChunkCount: 12,
+    reportedReasoningTokens: 'cumulative',
+  });
+  try {
+    const config = budgetedConfig('exl3', { baseUrl: fake.baseUrl, reasoningBudget: 100_000 });
+    await requestCompactionSummary(fake, config, 64);
+
+    assert.equal(fake.requestCount(), 2);
+    assert.equal(fake.bodyAt(1).max_tokens, 55);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('a continuation with no floor gets the remainder, not a second full budget', async () => {
+  // Regression guard: an unset floor used to re-grant the whole maxTokens.
+  const fake = await startFakeStreamServer();
+  try {
+    await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+
+    assert.equal(fake.requestCount(), 2);
+    assert.equal(fake.bodyAt(0).max_tokens, 64);
+    // Three 8-character deltas (24 chars) estimate at 10 tokens at the 2.5
+    // chars/token default, tripping the budget of 8.
+    assert.equal(fake.bodyAt(1).max_tokens, 54);
   } finally {
     await fake.close();
   }
@@ -349,6 +418,47 @@ test('llama backend streaming never enforces the budget client-side', async () =
     assert.ok(!('response_prefix' in fake.bodyAt(0)));
     assert.match(response.text, /"action"\s*:\s*"finish"/u);
     assert.equal(response.thinkingBudgetExhausted, undefined);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('the gate fires on a positive reported thinking count, not the character estimate', async () => {
+  // 40-char deltas estimate at 16 tokens each, so the estimate would blow a
+  // budget of 8 on the first delta. Reported counts climb 1 per delta, so the
+  // stop must instead land on delta 8 (reported 9 > 8).
+  const fake = await startFakeStreamServer({
+    reasoningChunkChars: 40,
+    reasoningChunkCount: 12,
+    reportedReasoningTokens: 'cumulative',
+  });
+  try {
+    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+
+    assert.equal(fake.requestCount(), 2);
+    assert.equal(response.thinkingBudgetExhausted, true);
+    // Nine deltas survived the gate; the tenth never streamed.
+    assert.ok(response.thinkingText.includes('r08'));
+    assert.ok(!response.thinkingText.includes('r09'));
+  } finally {
+    await fake.close();
+  }
+});
+
+test('reported zeros fall back to the character estimate and still trip the gate', async () => {
+  const fake = await startFakeStreamServer({
+    reasoningChunkChars: 40,
+    reasoningChunkCount: 12,
+    reportedReasoningTokens: 'zero',
+  });
+  try {
+    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+
+    assert.equal(fake.requestCount(), 2);
+    assert.equal(response.thinkingBudgetExhausted, true);
+    // 40 chars estimates at 16 tokens, over the budget of 8, so one delta is enough.
+    assert.ok(response.thinkingText.includes('r00'));
+    assert.ok(!response.thinkingText.includes('r01'));
   } finally {
     await fake.close();
   }
