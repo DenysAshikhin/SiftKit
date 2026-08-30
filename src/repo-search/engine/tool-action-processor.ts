@@ -48,7 +48,6 @@ import {
   type LoopCounters,
   type RejectionKind,
   type TaskDefinition,
-  type ToolBatchTally,
   type TurnOutcome,
 } from './task-loop-support.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
@@ -180,7 +179,6 @@ export type ToolActionProcessorDeps = {
   mutatedPaths: Set<string>;
   successfulToolCalls: Array<{ toolName: string; promptResultText: string }>;
   commands: TaskCommand[];
-  toolBatchTally: ToolBatchTally;
   toolCallLimit: number;
   counters: LoopCounters;
   visionEnabled: boolean;
@@ -206,7 +204,7 @@ export class ToolActionProcessor {
     responseContent = '',
   ): Promise<TurnOutcome> {
     const { transcript, duplicates, counters } = this.deps;
-    this.deps.toolBatchTally.executed += 1;
+    counters.executedToolBatches += 1;
     const state: TurnBatchState = {
       batchIndex: 0,
       toolCallIds: toolActions.map((action) => action.callId),
@@ -237,7 +235,7 @@ export class ToolActionProcessor {
 
     const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
     if (lastOutcome !== undefined) {
-      const notice = buildToolBudgetNotice(this.deps.toolBatchTally.executed, this.deps.toolCallLimit);
+      const notice = buildToolBudgetNotice(counters.executedToolBatches, this.deps.toolCallLimit);
       if (notice !== null) {
         lastOutcome.toolContent = `${lastOutcome.toolContent}\n\n${notice}`;
       }

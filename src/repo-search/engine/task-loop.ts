@@ -58,7 +58,7 @@ import { throwIfAborted } from '../../lib/abort.js';
 import { SilentProgressWriter } from '../../lib/progress-writer.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
-import { FORCED_FINISH_MAX_ATTEMPTS, ForcedFinishController } from './forced-finish.js';
+import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { PromptPreparer } from './prompt-preparer.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
@@ -68,14 +68,15 @@ import {
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
+  formatToolCallLimitReached,
   isPlannerMaintainPerStepThinkingEnabled,
+  POST_LIMIT_ANSWER_SLACK_TURNS,
   resolvePlannerThinkingFlags,
   type LoopCounters,
   MIN_TOOL_CALLS_BEFORE_FINISH,
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
-  type ToolBatchTally,
   type TurnOutcome,
 } from './task-loop-support.js';
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
@@ -128,7 +129,7 @@ export function enforceToolCallLimit(
   const requestsTools = actions.some((action) => action.kind === 'tool');
   if (requestsTools && executedToolBatches >= toolCallLimit) {
     throw new NativePlannerResponseError(
-      `Tool-call limit reached (${executedToolBatches}/${toolCallLimit} batches used). Do not call tools again; return your final answer as content.`,
+      `${formatToolCallLimitReached(executedToolBatches, toolCallLimit)} Do not call tools again; return your final answer as content.`,
     );
   }
   return actions;
@@ -180,13 +181,13 @@ export class TaskLoop {
   private readonly toolActions: ToolActionProcessor;
 
   private readonly commands: TaskCommand[] = [];
-  private readonly toolBatchTally: ToolBatchTally = { executed: 0 };
   private readonly turnThinking: Record<number, string> = {};
   private readonly counters: LoopCounters = {
     invalidResponses: 0,
     rejectedCalls: 0,
     nonZeroExits: 0,
     safetyRejects: 0,
+    executedToolBatches: 0,
     reason: 'max_turns',
   };
   private finalOutput = '';
@@ -346,7 +347,6 @@ export class TaskLoop {
       mutatedPaths: this.mutatedPaths,
       successfulToolCalls: this.successfulToolCalls,
       commands: this.commands,
-      toolBatchTally: this.toolBatchTally,
       toolCallLimit: this.toolCallLimit,
       counters: this.counters,
       visionEnabled: this.visionEnabled,
@@ -414,7 +414,7 @@ export class TaskLoop {
       // Tool batches consume the budget (1 per tool-bearing turn); the slack
       // turns exist so the model can still deliver its final answer after the
       // limit-reached notice instead of dying on the turn cap.
-      maxTurns: this.maxTurns + FORCED_FINISH_MAX_ATTEMPTS,
+      maxTurns: this.maxTurns + POST_LIMIT_ANSWER_SLACK_TURNS,
       promptAdapter,
       actionAdapter,
       toolAdapter,
@@ -551,7 +551,7 @@ export class TaskLoop {
   }
 
   validateActions(actions: AgentLoopAction[]): AgentLoopAction[] {
-    return enforceToolCallLimit(actions, this.toolBatchTally.executed, this.toolCallLimit);
+    return enforceToolCallLimit(actions, this.counters.executedToolBatches, this.toolCallLimit);
   }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {

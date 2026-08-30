@@ -3,13 +3,7 @@ import type { SiftConfig } from '../../config/index.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
-
-// A failing command's tail is still evidence — test runners and compilers print
-// their verdicts and failure summaries last — but failure dumps are low-density,
-// so the kept tail gets a small fixed budget instead of the growing per-tool cap.
-// ~75-125 lines: enough for a runner summary plus failing-test names, never
-// enough for repeated failures to starve the remaining allowance.
-export const FAILED_COMMAND_TAIL_CAP_TOKENS = 1_024;
+import { FAILED_COMMAND_TAIL_CAP_TOKENS } from './turn-budget.js';
 
 export type FittedToolResult = {
   resultText: string;

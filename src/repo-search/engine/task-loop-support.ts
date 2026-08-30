@@ -30,17 +30,26 @@ export const DEFAULT_MAX_INVALID_RESPONSES = 3;
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
 
-/** Executed tool batches (one per planner response that ran tools); shared by reference between TaskLoop and ToolActionProcessor. */
-export type ToolBatchTally = { executed: number };
-
 const TOOL_BUDGET_PERCENT_NOTICES = [25, 50, 75] as const;
 const TOOL_BUDGET_COUNTDOWN_WINDOW = 9;
+
+/** The one rendering of the limit-reached state; the in-band notice and the enforcement error both open with it. */
+export function formatToolCallLimitReached(executedBatches: number, toolCallLimit: number): string {
+  return `Tool-call limit reached (${executedBatches}/${toolCallLimit} batches used).`;
+}
+
+/**
+ * Turns reserved after the tool budget is exhausted so the model can still deliver its final
+ * answer. Deliberately its own constant: it is not the forced-finish retry budget, and retuning
+ * one must not silently retune the other.
+ */
+export const POST_LIMIT_ANSWER_SLACK_TURNS = 3;
 
 /** In-band budget notice appended to the last tool result of a batch; null when no threshold was crossed. */
 export function buildToolBudgetNotice(executedBatches: number, toolCallLimit: number): string | null {
   const remaining = toolCallLimit - executedBatches;
   if (remaining <= 0) {
-    return `[tool budget] Tool-call limit reached (${executedBatches}/${toolCallLimit} batches used). You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
+    return `[tool budget] ${formatToolCallLimitReached(executedBatches, toolCallLimit)} You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
   }
   if (remaining <= TOOL_BUDGET_COUNTDOWN_WINDOW) {
     return `[tool budget] ${remaining} tool-call batch${remaining === 1 ? '' : 'es'} remaining (${executedBatches}/${toolCallLimit} used). Prioritize verification and finishing.`;
@@ -264,6 +273,11 @@ export type LoopCounters = {
   rejectedCalls: number;
   nonZeroExits: number;
   safetyRejects: number;
+  /**
+   * Tool-bearing planner responses that consumed a batch-budget unit. Counted even when every
+   * call in the batch was screened out (duplicate/unsafe) — a wasted response still spends budget.
+   */
+  executedToolBatches: number;
   reason: TaskEndReason;
 };
 
