@@ -306,6 +306,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   assert.equal(source.sourcePromptTokenCount, SOURCE_PRECOMPACTION_PROMPT_TOKENS);
   assert.equal(compaction.beforePromptTokenCount, replayPreflight.promptTokenCount);
   assert.ok(Number(compaction.afterPromptTokenCount) <= Number(compaction.maxPromptBudget));
+  assert.ok(prepared.kind === 'ready');
   const summaryText = prepared.compactionSummary?.trim();
   assert.ok(summaryText);
   const artifactContent = [

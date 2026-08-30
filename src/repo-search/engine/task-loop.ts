@@ -60,7 +60,7 @@ import { DuplicateTracker } from './duplicate-tracker.js';
 import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
-import { PromptPreparer } from './prompt-preparer.js';
+import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
   allocateLlamaCppSlotId,
@@ -423,6 +423,47 @@ export class TaskLoop {
     return new RepoSearchResultAssembler(this).assemble();
   }
 
+  /**
+   * The prompt outgrew the window and this loop kind answers instead of compacting. The turn is
+   * abandoned before any planner request, so the token figures below are for logging only;
+   * terminal synthesis in `buildAgentLoopResult` writes the answer from the transcript as it stands.
+   */
+  private stopForContextOverflow(
+    turn: number,
+    overflow: Extract<PreparedTurnBudget, { kind: 'context_overflow' }>,
+    inForcedFinishMode: boolean,
+  ): AgentLoopPreparedTurn {
+    this.counters.reason = 'context_overflow';
+    // Synthesis must byte-extend the executing prompt prefix. When the very first turn overflows
+    // there is no planner request to extend, so the transcript it will synthesize from becomes it.
+    if (!this.executingPlannerRequest) {
+      this.executingPlannerRequest = captureExecutingPlannerRequest(
+        serializeProtocolMessages(this.transcript.getMessages(), this.plannerThinking.reasoningContentEnabled),
+        this.plannerThinking,
+        this.plannerProtocolTools,
+        this.slotId,
+      );
+    }
+    this.options.logger?.write({
+      kind: 'turn_context_overflow_forced_answer',
+      taskId: this.task.id,
+      turn,
+      promptTokenCount: overflow.promptTokenCount,
+      maxPromptBudget: overflow.maxPromptBudget,
+      overflowTokens: overflow.overflowTokens,
+      maxOutputTokens: overflow.maxOutputTokens,
+    });
+    return {
+      outcome: 'stop',
+      turnNumber: turn,
+      promptTokens: { reported: overflow.promptTokenCount, budgeted: overflow.promptTokenCount },
+      maxOutputTokens: overflow.maxOutputTokens,
+      messages: toProtocolChatMessages(this.transcript.getMessages()),
+      toolDefinitions: [...this.plannerProtocolTools],
+      inForcedFinishMode,
+    };
+  }
+
   async prepareTurn(turn: number): Promise<AgentLoopPreparedTurn> {
     throwIfAborted(this.options.abortSignal);
     this.turnsUsed = turn;
@@ -441,6 +482,9 @@ export class TaskLoop {
       this.mockResponseIndex,
       cacheOrigin,
     );
+    if (prepared.kind === 'context_overflow') {
+      return this.stopForContextOverflow(turn, prepared, inForcedFinishMode);
+    }
     this.mockResponseIndex = prepared.nextMockResponseIndex;
     if (prepared.compactionSummary !== null) {
       this.lastCompactionSummary = prepared.compactionSummary;

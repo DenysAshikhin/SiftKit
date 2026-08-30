@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.js';
+import { PromptPreparer, type PreparedTurnBudget } from '../src/repo-search/engine/prompt-preparer.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import {
@@ -89,6 +89,16 @@ function prepareTurn(
   });
 }
 
+/** Narrows the prepared-turn union without a type assertion; throws on the unexpected variant. */
+function withKind(prepared: PreparedTurnBudget, kind: 'ready'): Extract<PreparedTurnBudget, { kind: 'ready' }>;
+function withKind(prepared: PreparedTurnBudget, kind: 'context_overflow'): Extract<PreparedTurnBudget, { kind: 'context_overflow' }>;
+function withKind(prepared: PreparedTurnBudget, kind: PreparedTurnBudget['kind']): PreparedTurnBudget {
+  if (prepared.kind !== kind) {
+    throw new Error(`expected prepared turn kind '${kind}', got '${prepared.kind}'`);
+  }
+  return prepared;
+}
+
 // Sized to the worst case a real turn can produce at a 9000-token window: over the
 // 4500-token prompt budget, but inside the 6750 tokens the compaction reserve
 // guarantees the summarizer can still swallow in one shot.
@@ -118,7 +128,7 @@ test('prepareTurn returns a token count and output budget for a small prompt', a
     events,
   );
 
-  const prepared = await prepareTurn(preparer, 1, 0);
+  const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
   assert.ok(prepared.promptTokens.reported > 0);
   assert.ok(prepared.maxOutputTokens > 0);
@@ -135,9 +145,11 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,
+    NO_THINKING,
+    'repo-agent',
   );
 
-  const prepared = await prepareTurn(preparer, 1, 0);
+  const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
   assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
   assert.equal(transcript.render(false).includes(COMPACTION_SUMMARY_MARKER), true);
@@ -170,23 +182,58 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   assert.equal(Number(applied.summarizerElapsedMs) >= 0, true);
 });
 
-test('prepareTurn compacts an overflowing repo-agent transcript', async () => {
+test('prepareTurn returns a context_overflow outcome for an overflowing repo-search transcript', async () => {
   const transcript = makeCompactableTranscript();
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 100, config: null }),
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,
-    NO_THINKING,
-    'repo-agent',
   );
 
-  const prepared = await prepareTurn(preparer, 1, 0);
+  const prepared = withKind(await prepareTurn(preparer, 1, 0), 'context_overflow');
 
-  assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
+  assert.ok(prepared.overflowTokens > 0);
+  assert.ok(prepared.maxOutputTokens > 0);
+  // The transcript is left exactly as the loop handed it over: no compaction, no epoch reset.
+  assert.equal(transcript.generation, 0);
   assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
-  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), true);
+  assert.equal(events.filter((event) => event.kind === 'prompt_cache_epoch_reset').length, 0);
+  assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
+
+  const forced = events.find((event) => event.kind === 'turn_preflight_forced_answer');
+  assert.ok(forced);
+  assert.equal(forced.taskId, 't1');
+  assert.equal(forced.turn, 1);
+  assert.ok(Number(forced.promptTokenCount) > Number(forced.maxPromptBudget));
+  assert.ok(Number(forced.transcriptPromptTokenCount) > 0);
+  assert.ok(Number(forced.providerPromptReserveTokenCount) > 0);
+  assert.ok(Number(forced.maxPromptBudget) > 0);
+  assert.ok(Number(forced.overflowTokens) > 0);
+  assert.ok(Number(forced.maxOutputTokens) > 0);
+  assert.equal(Number(forced.totalContextTokens), 9_000);
+  assert.ok(Number(forced.responseReserveTokens) > 0);
+});
+
+test('prepareTurn returns context_overflow without calling the compactor when no mock responses remain', async () => {
+  const transcript = makeCompactableTranscript();
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
+    transcript,
+    [],
+    events,
+  );
+
+  // An empty mockResponses array would reject with planner_compaction_failed if the
+  // compactor were ever invoked, so context_overflow proves it was not.
+  const prepared = withKind(await prepareTurn(preparer, 1, 0), 'context_overflow');
+
+  assert.ok(prepared.overflowTokens > 0);
+  assert.equal(transcript.generation, 0);
+  assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_forced_answer'), true);
 });
 
 test('prepareTurn compacts at most once per turn and then reports overflow', async () => {
@@ -205,6 +252,8 @@ test('prepareTurn compacts at most once per turn and then reports overflow', asy
     transcript,
     [{ content: 'SUMMARY BODY' }, { content: 'SECOND SUMMARY' }],
     events,
+    NO_THINKING,
+    'repo-agent',
   );
 
   await assert.rejects(prepareTurn(preparer, 1, 0), /planner_preflight_overflow/u);
@@ -231,7 +280,14 @@ test('prepareTurn releases image guards for attachments dropped by compaction', 
     initialUserImages: [],
     liveImagePathKeys,
   });
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript);
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
+    transcript,
+    [{ content: 'SUMMARY BODY' }],
+    [],
+    NO_THINKING,
+    'repo-agent',
+  );
 
   await prepareTurn(preparer, 1, 0);
 
@@ -244,6 +300,9 @@ test('prepareTurn surfaces a summarizer failure as planner_compaction_failed', a
     new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }),
     transcript,
     [],
+    [],
+    NO_THINKING,
+    'repo-agent',
   );
 
   await assert.rejects(prepareTurn(preparer, 1, 0), /planner_compaction_failed/u);
@@ -262,9 +321,11 @@ test('preflight counts preserved reasoning_content toward the prompt', async () 
   const withReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], WITH_PRESERVED_THINKING);
   const withoutReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], NO_THINKING);
 
-  const counted = await prepareTurn(withReasoning, 1, 0, WITH_PRESERVED_THINKING);
-  const uncounted = await prepareTurn(withoutReasoning, 1, 0);
+  const counted = withKind(await prepareTurn(withReasoning, 1, 0, WITH_PRESERVED_THINKING), 'ready');
+  const uncounted = withKind(await prepareTurn(withoutReasoning, 1, 0), 'ready');
 
+  assert.equal(counted.compactionSummary, null);
+  assert.equal(uncounted.compactionSummary, null);
   // ~8k chars of reasoning ≈ 2k estimated tokens; require a decisive gap.
   assert.ok(counted.promptTokens.reported > uncounted.promptTokens.reported + 1_000);
 });
@@ -278,9 +339,9 @@ test('preserved reasoning mass triggers compaction that plain content would not'
     liveImagePathKeys: new Set<string>(),
   });
   const events: Array<Record<string, JsonSerializable>> = [];
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript, [{ content: 'SUMMARY BODY' }], events, WITH_PRESERVED_THINKING);
+  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript, [{ content: 'SUMMARY BODY' }], events, WITH_PRESERVED_THINKING, 'repo-agent');
 
-  const prepared = await prepareTurn(preparer, 1, 0, WITH_PRESERVED_THINKING);
+  const prepared = withKind(await prepareTurn(preparer, 1, 0, WITH_PRESERVED_THINKING), 'ready');
 
   assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
   assert.ok(events.some((event) => event.kind === 'turn_preflight_compaction_applied'));
@@ -302,8 +363,9 @@ test('prepareTurn reports the transcript prompt size, not the request-envelope r
     events,
   );
 
-  const prepared = await prepareTurn(preparer, 1, 0);
+  const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
+  assert.equal(prepared.compactionSummary, null);
   // The budget log records both halves; the reported count must be the transcript
   // half alone, because the envelope reserve never occupies prompt context.
   const budgetEvent = events.find((event) => event.kind === 'turn_preflight_budget');

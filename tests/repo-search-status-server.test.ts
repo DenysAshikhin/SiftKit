@@ -772,7 +772,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
     }),
     {
       event: 'command',
-      fields: 't2/9  prompt=1,234tok (560 thinking)  elapsed=2s  git operation="grep" path="src" pattern="planner"',
+      fields: 't2/9  prompt=1,234tok  thinking-total=560  elapsed=2s  git operation="grep" path="src" pattern="planner"',
       severity: 'normal',
     },
   );
@@ -796,7 +796,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
     }),
     {
       event: 'command',
-      fields: 't1/2  prompt=88tok (0 thinking)  elapsed=0s  git operation="grep" path="." pattern="dashboard"',
+      fields: 't1/2  prompt=88tok  thinking-total=0  elapsed=0s  git operation="grep" path="." pattern="dashboard"',
       severity: 'normal',
     },
   );
@@ -824,7 +824,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       thinkingTokenCount: 41_205,
       elapsedMs: 4200,
     }),
-    { event: 'llm_start', fields: 't18/45  prompt=312,345tok (41,205 thinking)  elapsed=4s', severity: 'normal' },
+    { event: 'llm_start', fields: 't18/45  prompt=312,345tok  thinking-total=41,205  elapsed=4s', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -835,7 +835,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       thinkingTokenCount: 41_205,
       elapsedMs: 7800,
     }),
-    { event: 'llm_end', fields: 't18/45  prompt=312,345tok (41,205 thinking)  elapsed=7s', severity: 'normal' },
+    { event: 'llm_end', fields: 't18/45  prompt=312,345tok  thinking-total=41,205  elapsed=7s', severity: 'normal' },
   );
   // A blank command has nothing to log.
   assert.equal(

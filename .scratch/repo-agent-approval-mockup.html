@@ -137,17 +137,24 @@
   .deny-form .hint { font-size: 0.68rem; color: var(--bad); visibility: hidden; }
   .deny-form .row { display: flex; gap: 7px; }
 
-  /* Resolved approval (persisted audit row → new repo_agent_approval message kind) */
-  .approval.resolved-approved { border-color: #2c4d3a; background: #101a14; }
-  .approval.resolved-approved .head .title { color: var(--ok); }
-  .approval.resolved-denied { border-color: #8d4b53; background: #1c1214; }
-  .approval.resolved-denied .head .title { color: var(--bad); }
-  .approval.timed-out { border-color: #8d4b53; }
-  .approval .resolution {
-    padding: 0 12px 10px; font-size: 0.72rem; color: var(--dim);
-    display: flex; align-items: center; gap: 7px;
+  /* Resolved decisions collapse into compact one-line audit rows
+     (persisted repo_agent_approval kind renders as this, never as a full card) */
+  .approval-row {
+    justify-self: stretch; max-width: 100%; display: flex; align-items: center; gap: 8px;
+    font-size: 0.72rem; color: var(--dim); padding: 4px 12px;
+    border-left: 2px solid var(--line); background: transparent;
   }
-  .approval .resolution .who { color: var(--ink); font-weight: 600; }
+  .approval-row .verdict { font-weight: 600; }
+  .approval-row.ok { border-left-color: var(--ok); }
+  .approval-row.ok .verdict { color: var(--ok); }
+  .approval-row.bad { border-left-color: #8d4b53; }
+  .approval-row.bad .verdict { color: var(--bad); }
+  .approval-row .cmd-inline {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem;
+    color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;
+  }
+  .approval-row .who { color: var(--ink); font-weight: 600; }
+  .approval.timed-out { border-color: #8d4b53; }
   .hidden { display: none !important; }
 
   .result-note {
@@ -182,6 +189,13 @@
     border: none; border-radius: 7px; padding: 7px 14px; flex: none;
   }
   .send:disabled { opacity: 0.55; cursor: not-allowed; }
+  /* While THIS client's operation is generating, the send button becomes Stop (danger palette, runs.css:148-154) */
+  .send.stop {
+    border: 1px solid #8d4b53;
+    background: linear-gradient(180deg, #3a2028 0%, #28161c 100%);
+    color: #ffd7d2;
+    box-shadow: inset 0 0 0 1px #c86d7a22;
+  }
   .lease-note { font-size: 0.68rem; color: var(--dim); display: none; }
   .lease-note.visible { display: block; }
 
@@ -244,16 +258,11 @@
       </div>
     </div>
 
-    <!-- Persisted, already-resolved approval (audit row → repo_agent_approval kind) -->
-    <div class="approval resolved-approved">
-      <div class="head">
-        <span class="title">✓ Approved — <span class="tool">Write</span></span>
-        <span class="timer">approval 91ab… · 14:02:11</span>
-      </div>
-      <div class="detail">
-        <div class="cmd">Write tests/model-request-backoff.test.ts</div>
-      </div>
-      <div class="resolution"><span class="who">denys</span> approved — new test file, no existing code touched</div>
+    <!-- Persisted, already-resolved approval: compact audit ROW, not a card -->
+    <div class="approval-row ok">
+      <span class="verdict">✓ Approved</span>
+      <span class="cmd-inline">Write tests/model-request-backoff.test.ts</span>
+      <span>· <span class="who">denys</span> · 14:02:11</span>
     </div>
 
     <!-- PENDING approval bubble — the core of this mockup.
@@ -270,18 +279,17 @@
       </div>
       <div class="actions" id="approvalActions">
         <button class="btn approve" onclick="approve()">Approve</button>
-        <button class="btn deny" onclick="showDenyForm()">Deny…</button>
+        <button class="btn deny" onclick="showDenyForm()">Reject…</button>
         <button class="btn abort" onclick="abortRun()">Abort run</button>
       </div>
       <div class="deny-form" id="denyForm">
-        <textarea id="denyReason" placeholder="Reason for denial (required) — sent to the agent so it can adjust…"></textarea>
-        <span class="hint" id="denyHint">A reason is required to deny.</span>
+        <textarea id="denyReason" placeholder="Reason for rejection (required) — sent to the agent so it can adjust…"></textarea>
+        <span class="hint" id="denyHint">A reason is required to reject.</span>
         <div class="row">
-          <button class="btn deny" onclick="confirmDeny()">Deny with reason</button>
+          <button class="btn deny" onclick="confirmDeny()">Reject with reason</button>
           <button class="btn" onclick="hideDenyForm()">Cancel</button>
         </div>
       </div>
-      <div class="resolution hidden" id="pendingResolution"></div>
     </div>
 
     <!-- Completed-run result (persisted assistant message; hidden until demo state 4) -->
@@ -306,10 +314,10 @@
       </label>
     </div>
     <div class="input-row">
-      <textarea class="input" id="composerInput" disabled placeholder="Agent run in progress — approve, deny, or abort above to continue…"></textarea>
-      <button class="send" disabled id="sendBtn">Run Agent</button>
+      <textarea class="input" id="composerInput" disabled placeholder="Agent run in progress — approve, reject, or stop to continue…"></textarea>
+      <button class="send stop" id="sendBtn" onclick="stopRun()">Stop</button>
     </div>
-    <div class="lease-note visible" id="leaseNote">Session is leased by the active repo-agent run (one operation at a time). Chat unlocks when the run finishes.</div>
+    <div class="lease-note visible" id="leaseNote">Session is leased by the active repo-agent run (one operation at a time). Stop aborts the run, flushes partial work to the transcript, and frees the queue.</div>
   </div>
 </div>
 
@@ -320,29 +328,30 @@
   function hideDenyForm() { $('denyForm').classList.remove('visible'); $('denyHint').style.visibility = 'hidden'; }
 
   function approve() {
-    resolvePending('approved', 'approved · run continuing');
+    resolvePending('ok', '✓ Approved', '');
     setTimeout(demoDone, 1200);
   }
   function confirmDeny() {
     const reason = $('denyReason').value.trim();
     if (!reason) { $('denyHint').style.visibility = 'visible'; $('denyReason').focus(); return; }
-    resolvePending('denied', 'denied — "' + reason + '" · agent will adjust');
+    resolvePending('bad', '✗ Rejected', ' — "' + reason + '"');
+    setStatus('running', '<span class="spinner"></span> running · agent adjusting');
   }
   function abortRun() {
-    resolvePending('denied', 'run aborted by user');
+    resolvePending('bad', '⏹ Aborted', '');
     setStatus('bad', '⏹ aborted');
     unlockComposer();
   }
-  function resolvePending(kind, text) {
+  /* On decision, the card collapses into the same compact audit row used for history. */
+  function resolvePending(tone, verdict, suffix) {
     const bubble = $('pendingApproval');
-    bubble.classList.remove('timed-out');
-    bubble.classList.add(kind === 'approved' ? 'resolved-approved' : 'resolved-denied');
-    $('approvalTitle').innerHTML = (kind === 'approved' ? '✓ Approved' : '✗ Denied') + ' — <span class="tool">bash</span>';
-    $('approvalActions').classList.add('hidden');
-    hideDenyForm();
-    const res = $('pendingResolution');
-    res.classList.remove('hidden');
-    res.innerHTML = '<span class="who">denys</span> ' + text;
+    const cmd = bubble.querySelector('.cmd').textContent;
+    const row = document.createElement('div');
+    row.className = 'approval-row ' + tone;
+    row.innerHTML = '<span class="verdict">' + verdict + '</span>'
+      + '<span class="cmd-inline">' + cmd + '</span>'
+      + '<span>· <span class="who">denys</span> · just now' + suffix + '</span>';
+    bubble.replaceWith(row);
   }
 
   function setStatus(cls, html) { const s = $('agentStatus'); s.className = 'status ' + cls; s.innerHTML = html; }
@@ -362,11 +371,24 @@
     unlockComposer();
     $('msgs').scrollTop = $('msgs').scrollHeight;
   }
+  function stopRun() {
+    const pending = document.getElementById('pendingApproval');
+    if (pending) { resolvePending('bad', '⏹ Stopped', ''); }
+    setStatus('bad', '⏹ stopped by user');
+    const note = document.createElement('div');
+    note.className = 'result-note';
+    note.innerHTML = '<span class="line"></span> stopped by user · partial work flushed to transcript <span class="line"></span>';
+    $('msgs').appendChild(note);
+    unlockComposer();
+  }
   function unlockComposer() {
     $('leasePill').classList.remove('visible');
     $('composerInput').disabled = false;
     $('composerInput').placeholder = 'Message the session — the agent result is now part of the transcript…';
-    $('sendBtn').disabled = false;
+    const send = $('sendBtn');
+    send.classList.remove('stop');
+    send.textContent = 'Run Agent';
+    send.onclick = null;
     $('leaseNote').classList.remove('visible');
   }
 </script>

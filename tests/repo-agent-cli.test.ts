@@ -206,7 +206,7 @@ test('non-TTY start with --progress prints progress to stderr and a complete app
     const boundary = RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout));
     assert.equal(boundary.status, 'approval_required');
     assert.match(result.stderr, /Exiting: approval required/u);
-    assert.match(result.stderr, /llm_start prompt=100tok \(25 thinking\)$/mu);
+    assert.match(result.stderr, /llm_start prompt=100tok {2}thinking-total=25$/mu);
     assert.match(result.stderr, /npm install left-pad/u);
   } finally {
     await server.close();

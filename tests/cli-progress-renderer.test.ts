@@ -31,7 +31,7 @@ test('renders known progress kinds as single stderr lines', () => {
   const lines = stderr.read().trim().split('\n');
   assert.equal(lines.length, 4);
   assert.match(lines[0] ?? '', /repo-search waiting for model lock \(1 queued, 4s\)/u);
-  assert.match(lines[1] ?? '', /repo-search t3\/24 llm_start prompt=1,234tok \(56 thinking\)/u);
+  assert.match(lines[1] ?? '', /repo-search t3\/24 llm_start prompt=1,234tok {2}thinking-total=56/u);
   assert.match(lines[2] ?? '', /repo-search t3\/24 git grep -n "x" src/u);
   assert.match(lines[3] ?? '', /repo-search t3\/24 done exit=0 57tok/u);
 });

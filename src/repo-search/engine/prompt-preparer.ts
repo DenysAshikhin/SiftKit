@@ -40,13 +40,22 @@ function toTokenizeDoneInfo(preflight: PreflightResult): TokenizeDoneInfo {
   return { ...preflight, promptTokenCount: preflight.transcriptPromptTokenCount };
 }
 
-export type PreparedTurnBudget = {
-  promptTokens: TurnPromptTokens;
-  maxOutputTokens: number;
-  /** The raw summary text when this turn compacted, else null. */
-  compactionSummary: string | null;
-  nextMockResponseIndex: number;
-};
+export type PreparedTurnBudget =
+  | {
+      kind: 'ready';
+      promptTokens: TurnPromptTokens;
+      maxOutputTokens: number;
+      /** The raw summary text when this turn compacted, else null. */
+      compactionSummary: string | null;
+      nextMockResponseIndex: number;
+    }
+  | {
+      kind: 'context_overflow';
+      promptTokenCount: number;
+      maxPromptBudget: number;
+      overflowTokens: number;
+      maxOutputTokens: number;
+    };
 
 export class PromptPreparer {
   constructor(
@@ -187,6 +196,30 @@ export class PromptPreparer {
     let nextMockResponseIndex = mockResponseIndex;
 
     if (!preflight.ok) {
+      if (this.options.runtimeProfile.contextOverflowPolicy === 'force_answer') {
+        // repo-search answers from the evidence it already has: no compaction, no transcript
+        // mutation, no mock-response advance — the loop stops and terminal synthesis takes over.
+        this.options.logger?.write({
+          kind: 'turn_preflight_forced_answer',
+          taskId,
+          turn,
+          promptTokenCount: preflight.promptTokenCount,
+          transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
+          providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
+          maxPromptBudget: preflight.maxPromptBudget,
+          overflowTokens: preflight.overflowTokens,
+          maxOutputTokens,
+          totalContextTokens: budget.totalContextTokens,
+          responseReserveTokens: budget.responseReserveTokens,
+        });
+        return {
+          kind: 'context_overflow',
+          promptTokenCount: preflight.promptTokenCount,
+          maxPromptBudget: preflight.maxPromptBudget,
+          overflowTokens: preflight.overflowTokens,
+          maxOutputTokens,
+        };
+      }
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
         taskId,
         turn,
@@ -270,6 +303,7 @@ export class PromptPreparer {
     }
 
     return {
+      kind: 'ready',
       promptTokens: {
         reported: preflight.transcriptPromptTokenCount,
         budgeted: preflight.promptTokenCount,

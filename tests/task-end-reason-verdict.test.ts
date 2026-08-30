@@ -7,6 +7,7 @@ import { buildMockTaskResult } from './_test-helpers.js';
 
 test('TASK_END_REASONS lists every reason the loop can assign', () => {
   assert.deepEqual([...TASK_END_REASONS].sort(), [
+    'context_overflow',
     'finish',
     'forced_finish_attempt_limit',
     'invalid_response_limit',
@@ -17,6 +18,7 @@ test('TASK_END_REASONS lists every reason the loop can assign', () => {
 
 test('TaskEndReasonSchema rejects an unknown reason', () => {
   assert.equal(TaskEndReasonSchema.safeParse('finish').success, true);
+  assert.equal(TaskEndReasonSchema.safeParse('context_overflow').success, true);
   assert.equal(TaskEndReasonSchema.safeParse('totally_new_reason').success, false);
 });
 
@@ -38,6 +40,16 @@ test('buildScorecard fails a run that ran out of turns', () => {
   });
   assert.equal(scorecard.verdict, 'fail');
   assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason max_turns']);
+});
+
+test('buildScorecard fails a run that ended on context overflow', () => {
+  const scorecard = buildScorecard({
+    runId: 'r6',
+    model: 'm',
+    tasks: [buildMockTaskResult({ reason: 'context_overflow' })],
+  });
+  assert.equal(scorecard.verdict, 'fail');
+  assert.deepEqual(scorecard.failureReasons, ['repo-search: ended with reason context_overflow']);
 });
 
 test('buildScorecard passes a finished run', () => {

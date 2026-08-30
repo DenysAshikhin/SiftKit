@@ -55,9 +55,14 @@ export function formatInteger(value?: number | null): string {
   return formatGroupedNumber(Math.trunc(Number(value)));
 }
 
-/** The shared `prompt=<size> (<thinking> thinking)` field used by every per-turn progress line. */
+/**
+ * The shared `prompt=<size>tok  thinking-total=<count>` pair used by every per-turn progress line.
+ * They are two independent figures, not a breakdown: the prompt is this turn's context, while the
+ * thinking count is the run's cumulative reasoning output, which keeps climbing across a compaction
+ * that shrinks the prompt.
+ */
 export function formatPromptTokensField(promptTokenCount: number, thinkingTokenCount: number): string {
-  return `prompt=${formatInteger(promptTokenCount)}tok (${formatInteger(thinkingTokenCount)} thinking)`;
+  return `prompt=${formatInteger(promptTokenCount)}tok  thinking-total=${formatInteger(thinkingTokenCount)}`;
 }
 
 export function formatMilliseconds(milliseconds?: number | null): string {

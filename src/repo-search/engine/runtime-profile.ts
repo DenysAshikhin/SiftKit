@@ -34,6 +34,15 @@ export class RepoSearchRuntimeProfile {
     return this.taskKind === 'plan' ? 'repo-search' : this.taskKind;
   }
 
+  /**
+   * How the loop reacts when a turn's prompt overflows the context budget. repo-search already
+   * holds the evidence it needs, so it stops and answers from the transcript as it stands;
+   * repo-agent and chat still have work left to do and must survive the overflow by compacting.
+   */
+  get contextOverflowPolicy(): 'force_answer' | 'compact' {
+    return this.loopKind === 'repo-search' ? 'force_answer' : 'compact';
+  }
+
   beginRun(call: RunToolArgs): RunFullOutputDecision {
     return this.runFullOutputGate.beginRun({
       command: call.command,

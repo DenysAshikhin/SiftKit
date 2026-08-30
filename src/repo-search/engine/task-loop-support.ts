@@ -123,8 +123,9 @@ export type TaskDefinition = {
 
 /**
  * Every way a task loop can stop. Only `finish` is a genuine completion — the rest are aborts, and
- * the scorecard must not report them as passes. Closed so a new stop condition fails to compile
- * rather than silently scoring as a pass.
+ * the scorecard must not report them as passes. `context_overflow` is an abort too: the prompt
+ * outgrew the window and the loop was forced to answer from the transcript as it stands. Closed so
+ * a new stop condition fails to compile rather than silently scoring as a pass.
  */
 export const TASK_END_REASONS = [
   'finish',
@@ -132,6 +133,7 @@ export const TASK_END_REASONS = [
   'invalid_response_limit',
   'forced_finish_attempt_limit',
   'mock_responses_exhausted',
+  'context_overflow',
 ] as const;
 export const TaskEndReasonSchema = z.enum(TASK_END_REASONS);
 export type TaskEndReason = z.infer<typeof TaskEndReasonSchema>;

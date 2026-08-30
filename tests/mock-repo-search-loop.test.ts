@@ -17,6 +17,8 @@ import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/plan
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
@@ -791,7 +793,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
   assert.equal(withReserve.promptTokenCount > withReserve.maxPromptBudget, true);
 });
 
-test('runTaskLoop fails before any provider request when the summarization prompt cannot fit', async () => {
+test('runTaskLoop fails before any provider request when the repo-agent summarization prompt cannot fit', async () => {
   const events: JsonObject[] = [];
   // This loop has no mockResponses, so preflight tokenizes for real: point it at the 404
   // stub so it falls back to the estimate instead of retrying a refused connection.
@@ -805,6 +807,9 @@ test('runTaskLoop fails before any provider request when the summarization promp
         },
         {
           ...MOCK_LOOP_DEFAULTS,
+          // Only compacting loop kinds reach the summarization prompt at all; repo-search
+          // stops and answers instead.
+          runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
           baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
           config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
@@ -870,7 +875,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
   assert.equal(Number(budgetEvent?.maxOutputTokens) > 0, true);
 });
 
-test('runTaskLoop compacts an overflowing history and continues from the summary', async () => {
+test('runTaskLoop compacts an overflowing repo-agent history and continues from the summary', async () => {
   const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
@@ -879,6 +884,8 @@ test('runTaskLoop compacts an overflowing history and continues from the summary
     },
     {
       ...MOCK_LOOP_DEFAULTS,
+      // repo-search answers on overflow; only a compacting loop kind resumes from a summary.
+      runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -889,10 +896,11 @@ test('runTaskLoop compacts an overflowing history and continues from the summary
       totalContextTokens: 32000,
       historyMessages: [{ role: 'assistant', content: 'H'.repeat(100_000) }],
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
+      // The summary is consumed by turn 1's compaction; the repo-agent finish gate then
+      // challenges the answer once, so the finish text is offered twice.
       mockResponses: [
         { content: 'SUMMARY: earlier turns collected planner references under src/.' },
-        { content: "done" },
-        { content: '{"verdict":"pass","reason":"supported"}' },
+        ...repoAgentFinishResponses('done'),
       ],
       mockCommandResults: {},
       logger: {
@@ -2158,4 +2166,40 @@ test('runTaskLoop lets a read repeat after run invalidates every window with Exp
   assert.equal(result.nonZeroExits, 0);
   assert.equal(commandEvents.length, 3);
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
+});
+
+test('runTaskLoop forces a repo-search answer when the prompt outgrows the context window', async () => {
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-context-overflow-forced-answer',
+      question: 'Q'.repeat(20000),
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 7000,
+      mockResponses: [{ content: 'best effort from partial evidence' }],
+      mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    }
+  );
+
+  assert.equal(result.reason, 'context_overflow');
+  assert.equal(result.finalOutput, 'best effort from partial evidence');
+  assert.equal(result.compactionSummary, '');
+  assert.equal(result.turnsUsed, 1);
+  assert.ok(events.some((event) => event.kind === 'turn_preflight_forced_answer'));
+  assert.ok(events.some((event) => event.kind === 'turn_context_overflow_forced_answer'));
+  assert.ok(events.some((event) => event.kind === 'task_terminal_synthesis_result'));
+  // The overflowing turn never reaches the planner, and nothing is compacted away.
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
+  assert.equal(events.some((event) => event.kind === 'turn_model_request'), false);
 });
