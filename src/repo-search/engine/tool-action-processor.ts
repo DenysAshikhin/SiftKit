@@ -233,11 +233,16 @@ export class ToolActionProcessor {
       }
     }
 
-    const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
-    if (lastOutcome !== undefined) {
-      const notice = buildToolBudgetNotice(counters.executedToolBatches, this.deps.toolCallLimit);
-      if (notice !== null) {
+    const notice = buildToolBudgetNotice(counters.executedToolBatches, this.deps.toolCallLimit);
+    if (notice !== null) {
+      const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
+      if (lastOutcome !== undefined) {
         lastOutcome.toolContent = `${lastOutcome.toolContent}\n\n${notice}`;
+      } else {
+        // All actions took the duplicate-replay path, which replaces transcript messages
+        // instead of pushing outcomes; the batch still consumed a budget unit, so the
+        // notice rides the pending-user-message flush instead of being dropped.
+        state.pendingModeChangeUserMessages.push(notice);
       }
     }
 

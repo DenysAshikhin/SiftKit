@@ -12,6 +12,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
@@ -250,7 +251,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
         const parsed = asObject(parseJsonValueText(body || '{}'));
         // Empty responses for every loop turn (maxTurns 1 + the finishing-headroom
         // slack turns) so the run exhausts and terminal synthesis streams the answer.
-        if (requestCount <= 4) {
+        if (requestCount <= 1 + POST_LIMIT_ANSWER_SLACK_TURNS) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '' } }] })}\n\n`);
           res.write('data: [DONE]\n\n');

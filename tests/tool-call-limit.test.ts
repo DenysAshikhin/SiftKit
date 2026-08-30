@@ -5,7 +5,7 @@ import type { AgentLoopAction } from '../src/agent-loop/types.js';
 import { enforceToolCallLimit } from '../src/repo-search/engine/task-loop.js';
 import {
   buildToolBudgetNotice,
-  formatToolCallLimitReached,
+  buildToolLimitReachedSummary,
   POST_LIMIT_ANSWER_SLACK_TURNS,
 } from '../src/repo-search/engine/task-loop-support.js';
 
@@ -31,7 +31,7 @@ test('content-only responses pass even at the limit', () => {
 });
 
 test('the limit-reached notice and the enforcement error share one prefix', () => {
-  const prefix = formatToolCallLimitReached(45, 45);
+  const prefix = buildToolLimitReachedSummary(45, 45);
   assert.equal(prefix, 'Tool-call limit reached (45/45 batches used).');
   assert.ok(String(buildToolBudgetNotice(45, 45)).startsWith(`[tool budget] ${prefix}`));
   assert.throws(

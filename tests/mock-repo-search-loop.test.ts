@@ -16,6 +16,7 @@ import {
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
@@ -1247,9 +1248,9 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
         },
       }),
       maxTurns: 3,
-      // Above the post-budget strike count (3 slack turns) so the run reaches
+      // Above the post-budget strike count (the slack turns) so the run reaches
       // the turn cap instead of the invalid-response limit.
-      maxInvalidResponses: 4,
+      maxInvalidResponses: POST_LIMIT_ANSWER_SLACK_TURNS + 1,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
@@ -1275,10 +1276,11 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
   );
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  // 3 budget turns + FORCED_FINISH_MAX_ATTEMPTS slack turns.
-  assert.equal(turnRequests.length, 6);
+  // 3 budget turns + POST_LIMIT_ANSWER_SLACK_TURNS slack turns.
+  const expectedTurnRequests = 3 + POST_LIMIT_ANSWER_SLACK_TURNS;
+  assert.equal(turnRequests.length, expectedTurnRequests);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[5].thinkingEnabled, false);
+  assert.equal(turnRequests[expectedTurnRequests - 1].thinkingEnabled, false);
   assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
   assert.equal(result.reason, 'max_turns');
 });

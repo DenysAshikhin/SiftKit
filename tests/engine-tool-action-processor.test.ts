@@ -558,3 +558,23 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
   assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);
   assert.doesNotMatch(commands[2]?.output ?? '', /Notice: outputMode "full"/u);
 });
+
+// The duplicate-replay path (3rd identical call) replaces a transcript message instead of
+// pushing a batchOutcome, so the batch ends with batchOutcomes empty — yet it still consumed
+// a budget unit. The notice must then arrive as a user message, not vanish.
+test('budget notice still reaches the model when a batch collapses onto a duplicate replay', async () => {
+  const root = createManagedTempDir('siftkit-replay-budget-notice-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, transcript } = makeProcessor(root);
+
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'replay_1', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'replay_2', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(3, [{ kind: 'tool', callId: 'replay_3', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+
+  // Batch 3 took the replay path (no batchOutcomes); with the helper's toolCallLimit of 5
+  // the countdown notice for 3/5 used must land as a trailing user message.
+  const messages = transcript.getMessages();
+  const last = messages[messages.length - 1];
+  assert.equal(last?.role, 'user');
+  assert.match(String(last?.content ?? ''), /2 tool-call batches remaining \(3\/5 used\)/u);
+});

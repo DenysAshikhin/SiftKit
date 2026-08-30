@@ -2,10 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
+import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-syn-loop-');
+
+// Each test strikes out on empty responses at maxInvalidResponses, ending the loop inside
+// the finishing-headroom turns; synthesis then consumes the remaining mocks. The strikes
+// must fit inside the single budget turn plus the slack turns — fail loudly if not.
+const MAX_INVALID_RESPONSES = 3;
+assert.equal(MAX_INVALID_RESPONSES <= 1 + POST_LIMIT_ANSWER_SLACK_TURNS, true);
+const EMPTY_STRIKES = Array.from({ length: MAX_INVALID_RESPONSES }, () => ({}));
 
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {
   const events: Record<string, JsonSerializable>[] = [];
@@ -14,13 +22,9 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
-      maxInvalidResponses: 3,
+      maxInvalidResponses: MAX_INVALID_RESPONSES,
       mockResponses: [
-        // Empty responses strike out at maxInvalidResponses (3), ending the loop
-        // inside the finishing-headroom turns; synthesis consumes the next mock.
-        {},
-        {},
-        {},
+        ...EMPTY_STRIKES,
         { content: 'The definition lives in src/foo.ts:1.' },
       ],
       mockCommandResults: {},
@@ -44,13 +48,9 @@ test('synthesis that returns empty text twice then succeeds on attempt 3 sets fi
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
-      maxInvalidResponses: 3,
+      maxInvalidResponses: MAX_INVALID_RESPONSES,
       mockResponses: [
-        // Empty responses strike out at maxInvalidResponses (3), ending the loop
-        // inside the finishing-headroom turns; synthesis consumes the next mocks.
-        {},
-        {},
-        {},
+        ...EMPTY_STRIKES,
         { content: '' },
         { content: '' },
         { content: 'Summary emitted on third attempt.' },
@@ -77,13 +77,9 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
       {
         ...MOCK_LOOP_DEFAULTS,
         maxTurns: 1,
-        maxInvalidResponses: 3,
+        maxInvalidResponses: MAX_INVALID_RESPONSES,
         mockResponses: [
-          // Empty responses strike out at maxInvalidResponses (3), ending the loop
-          // inside the finishing-headroom turns; synthesis consumes the next mocks.
-          {},
-          {},
-          {},
+          ...EMPTY_STRIKES,
           { content: '' },
           { content: '' },
           { content: '' },

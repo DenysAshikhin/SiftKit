@@ -65,10 +65,10 @@ import { ReadWindowGovernor } from './read-window-governor.js';
 import {
   allocateLlamaCppSlotId,
   buildAssistantReplayMessage,
+  buildToolLimitReachedSummary,
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
-  formatToolCallLimitReached,
   isPlannerMaintainPerStepThinkingEnabled,
   POST_LIMIT_ANSWER_SLACK_TURNS,
   resolvePlannerThinkingFlags,
@@ -129,7 +129,7 @@ export function enforceToolCallLimit(
   const requestsTools = actions.some((action) => action.kind === 'tool');
   if (requestsTools && executedToolBatches >= toolCallLimit) {
     throw new NativePlannerResponseError(
-      `${formatToolCallLimitReached(executedToolBatches, toolCallLimit)} Do not call tools again; return your final answer as content.`,
+      `${buildToolLimitReachedSummary(executedToolBatches, toolCallLimit)} Do not call tools again; return your final answer as content.`,
     );
   }
   return actions;

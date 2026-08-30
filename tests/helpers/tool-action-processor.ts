@@ -23,6 +23,9 @@ import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-p
 import type { LoopCounters } from '../../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchTaskKind } from '../../src/repo-search/task-kind.js';
 
+// Shared between the ProgressReporter display and the enforced deps budget — they must agree.
+const TOOL_CALL_LIMIT = 5;
+
 export function makeProcessor(
   root: string,
   allowedPlannerToolNames: string[] = ['ls'],
@@ -88,7 +91,7 @@ export function makeProcessor(
       progressWriter: new SilentProgressWriter(),
       taskId: 'task-alignment',
       maxTurns: 5,
-      toolCallLimit: 5,
+      toolCallLimit: TOOL_CALL_LIMIT,
       taskStartedAt: Date.now(),
     }),
     transcript,
@@ -96,7 +99,7 @@ export function makeProcessor(
     mutatedPaths: new Set<string>(),
     successfulToolCalls: [],
     commands,
-    toolCallLimit: 5,
+    toolCallLimit: TOOL_CALL_LIMIT,
     counters,
     visionEnabled: options.visionEnabled ?? false,
     visionImageRetention: options.visionImageRetention ?? 8,

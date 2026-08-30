@@ -30,3 +30,18 @@ test('countdown outranks percent thresholds at small limits', () => {
   // limit 8: 75% threshold is ceil(6) but remaining 2 is inside the countdown window.
   assert.match(String(buildToolBudgetNotice(6, 8)), /2 tool-call batches remaining/u);
 });
+
+test('percent notices only fire while more than the countdown window remains', () => {
+  // limit 14: the 25% threshold is ceil(3.5) = 4 with remaining 10 (> window 9) → percent notice.
+  assert.match(String(buildToolBudgetNotice(4, 14)), /25% of the tool-call budget used \(4\/14/u);
+  // one more batch: remaining 9 enters the countdown window, which outranks percents.
+  assert.match(String(buildToolBudgetNotice(5, 14)), /9 tool-call batches remaining \(5\/14 used\)/u);
+});
+
+test('tiny limits never mislabel: percent collisions are covered by the countdown window', () => {
+  // ceil(percent·limit) collisions require limit < 4, where remaining is always ≤ 9, so the
+  // countdown or limit-reached message wins and the percent loop is never consulted.
+  assert.match(String(buildToolBudgetNotice(1, 2)), /1 tool-call batch remaining \(1\/2 used\)/u);
+  assert.match(String(buildToolBudgetNotice(1, 3)), /2 tool-call batches remaining \(1\/3 used\)/u);
+  assert.match(String(buildToolBudgetNotice(2, 2)), /Tool-call limit reached \(2\/2 batches used\)/u);
+});
