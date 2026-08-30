@@ -366,7 +366,6 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
   assert.equal(commandEvent?.perToolCapTokens, baselinePerToolCapTokens);
   assert.equal(Number(commandEvent?.resultTokenCount) <= Number(commandEvent?.perToolCapTokens), true);
-  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
   assert.match(String(commandEvent?.insertedResultText || ''), /^src\/example-1\.ts:1:/u);
   assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');
@@ -746,57 +745,6 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
   );
 });
 
-test('runTaskLoop does not print a red console warning when successful output is fitted', async () => {
-  const writes: string[] = [];
-  const originalWrite = process.stderr.write;
-  process.stderr.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    writes.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
-    if (typeof callback === 'function') {
-      callback();
-    } else if (typeof encodingOrCallback === 'function') {
-      encodingOrCallback();
-    }
-    return true;
-  };
-  try {
-    const totalContextTokens = 20000;
-    await runTaskLoop(
-      {
-        id: 'task-token-guard-console-warning',
-        question: 'Find planner text.',
-      },
-      {
-        ...MOCK_LOOP_DEFAULTS,
-        maxTurns: 2,
-        maxInvalidResponses: 2,
-        minToolCallsBeforeFinish: 0,
-        totalContextTokens,
-        mockResponses: [
-          { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
-          { content: "done" },
-          { content: '{"verdict":"pass","reason":"supported"}' },
-        ],
-        mockCommandResults: {
-          "git operation=\"grep\" path=\"src\" pattern=\"planner\"": {
-            exitCode: 0,
-            stdout: 'x'.repeat(10000),
-            stderr: '',
-          },
-        },
-      }
-    );
-  } finally {
-    process.stderr.write = originalWrite;
-  }
-
-  const redWarning = writes.find((line) => /\x1b\[31m.*requested output would consume/u.test(line));
-  assert.equal(Boolean(redWarning), false);
-});
-
 test('preflightPlannerPromptBudget reports overflow against context budget', async () => {
   const preflight = await preflightPlannerPromptBudget({
     messages: [
@@ -1075,7 +1023,6 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       remainingTokenAllowance: commandEvent?.remainingTokenAllowance,
     }),
   );
-  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
   assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');
 });
@@ -1300,9 +1247,14 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
         },
       }),
       maxTurns: 3,
-      maxInvalidResponses: 3,
+      // Above the post-budget strike count (3 slack turns) so the run reaches
+      // the turn cap instead of the invalid-response limit.
+      maxInvalidResponses: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner2","path":"src"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner3","path":"src"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner2","path":"src"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner3","path":"src"} }] },
@@ -1323,9 +1275,10 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
   );
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 3);
+  // 3 budget turns + FORCED_FINISH_MAX_ATTEMPTS slack turns.
+  assert.equal(turnRequests.length, 6);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[2].thinkingEnabled, false);
+  assert.equal(turnRequests[5].thinkingEnabled, false);
   assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
   assert.equal(result.reason, 'max_turns');
 });

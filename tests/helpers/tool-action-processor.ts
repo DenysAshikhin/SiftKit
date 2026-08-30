@@ -96,6 +96,8 @@ export function makeProcessor(
     mutatedPaths: new Set<string>(),
     successfulToolCalls: [],
     commands,
+    toolBatchTally: { executed: 0 },
+    toolCallLimit: 5,
     counters,
     visionEnabled: options.visionEnabled ?? false,
     visionImageRetention: options.visionImageRetention ?? 8,

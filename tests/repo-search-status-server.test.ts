@@ -1226,6 +1226,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: 'Terminal synthesis answer: src/example.ts:1.' },
+          { content: '{"verdict":"pass","reason":"supported"}' },
         ],
         mockCommandResults: {
           "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },

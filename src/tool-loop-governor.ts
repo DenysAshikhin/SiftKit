@@ -142,8 +142,7 @@ function extractEvidenceKeys(promptResultText: string): string[] {
     .filter(Boolean)
     .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => !/^exit_code=\d+(?: \(no output\))?$/iu.test(line))
-    .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line))
-    .filter((line) => !/^error:\srequested output would consume/iu.test(line));
+    .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line));
   if (lines.length === 0) {
     return [];
   }

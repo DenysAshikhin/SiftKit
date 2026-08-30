@@ -28,6 +28,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { createJsonLogger } from '../src/repo-search/logging.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -895,8 +896,13 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
-      maxInvalidResponses: 3,
+      // Above the post-budget strike count (3 slack turns) so the run reaches
+      // the turn cap instead of the invalid-response limit.
+      maxInvalidResponses: 4,
       mockResponses: [
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
         { content: 'Synthesized best-effort answer referencing src\\summary.ts:907.' },
@@ -912,9 +918,42 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
   );
 
   assert.equal(result.reason, 'max_turns');
-  assert.equal(result.turnsUsed, 2);
+  // 2 budget turns + FORCED_FINISH_MAX_ATTEMPTS slack turns.
+  assert.equal(result.turnsUsed, 5);
   assert.equal(result.commands.length, 2);
   assert.equal(result.finalOutput, 'Synthesized best-effort answer referencing src\\summary.ts:907.');
+});
+
+test('runTaskLoop strikes out a model that ignores the limit-reached notice', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-limit-strike-out',
+      question: 'Find planner prompt location.',
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 1,
+      maxInvalidResponses: 3,
+      mockResponses: [
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { content: 'best-effort strike-out synthesis' },
+      ],
+      mockCommandResults: {
+        "git operation=\"grep\" path=\"src\\\\summary.ts\" pattern=\"buildPlannerPrompt\"": {
+          exitCode: 0,
+          stdout: '907:function buildPlannerPrompt(options: {',
+          stderr: '',
+        },
+      },
+    }
+  );
+
+  assert.equal(result.reason, 'invalid_response_limit');
+  assert.equal(result.commands.length, 1);
+  assert.equal(result.finalOutput, 'best-effort strike-out synthesis');
 });
 
 test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
@@ -1271,8 +1310,13 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
     {
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
-      maxInvalidResponses: 3,
+      // Above the post-budget strike count (3 slack turns) so the run reaches
+      // the turn cap instead of the invalid-response limit.
+      maxInvalidResponses: 4,
       mockResponses: [
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
+        { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"buildPlannerPrompt","path":"src\\summary.ts"} }] },
         { content: 'best-effort answer with evidence' },
       ],
@@ -1568,4 +1612,47 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
     assert.equal(starts[index].toolCallId, results[index].toolCallId);
   }
   assert.notEqual(starts[0].toolCallId, starts[1].toolCallId);
+});
+
+test('runTaskLoop counts a multi-call batch as one tool-budget unit and leaves a finishing turn after exhaustion', async () => {
+  const logger = createJsonLogger('db://test-batch-budget');
+  const result = await runTaskLoop(
+    { id: 'task-batch-budget', question: 'Exercise the batch budget.' },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      logger,
+      mockResponses: [
+        {
+          toolCalls: [
+            { name: 'git', arguments: { operation: 'grep', pattern: 'alpha', path: 'src' } },
+            { name: 'git', arguments: { operation: 'grep', pattern: 'beta', path: 'src' } },
+          ],
+        },
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'gamma', path: 'src' } }] },
+        { content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {
+        'git operation="grep" path="src" pattern="alpha"': { exitCode: 0, stdout: 'alpha hit', stderr: '' },
+        'git operation="grep" path="src" pattern="beta"': { exitCode: 0, stdout: 'beta hit', stderr: '' },
+        'git operation="grep" path="src" pattern="gamma"': { exitCode: 0, stdout: 'gamma hit', stderr: '' },
+      },
+    },
+  );
+
+  // Old semantics: the 2-call batch consumed the whole budget (2/2) and the
+  // second batch was rejected. New semantics: 2 batches used, then a slack turn
+  // lets the model finish.
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commands.length, 3);
+  assert.equal(result.rejectedCalls, 0);
+
+  // Budget notices land at the end of each batch's last tool result and reach
+  // the transcript (logged via turn_new_messages on the following turn).
+  const logText = logger.getText();
+  assert.match(logText, /1 tool-call batch remaining \(1\/2 used\)/u);
+  assert.match(logText, /Tool-call limit reached \(2\/2 batches used\)/u);
 });

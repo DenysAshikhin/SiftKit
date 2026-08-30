@@ -8,14 +8,19 @@ function tool(callId: string): AgentLoopAction {
   return { kind: 'tool', callId, toolName: 'read', args: { path: 'README.md' } };
 }
 
-test('tool-call limit accepts a batch that exactly fills the remaining budget', () => {
-  const actions = [tool('a'), tool('b')];
-  assert.equal(enforceToolCallLimit(actions, 43, 45), actions);
+test('a multi-call batch is one budget unit: allowed with exactly one batch remaining', () => {
+  const actions = [tool('a'), tool('b'), tool('c')];
+  assert.equal(enforceToolCallLimit(actions, 44, 45), actions);
 });
 
-test('tool-call limit rejects a batch before any call can exceed the displayed denominator', () => {
+test('tool calls are rejected once the batch budget is exhausted', () => {
   assert.throws(
-    () => enforceToolCallLimit([tool('a'), tool('b')], 44, 45),
-    /2 tool calls with 1 remaining/u,
+    () => enforceToolCallLimit([tool('a')], 45, 45),
+    /Tool-call limit reached \(45\/45 batches used\)/u,
   );
+});
+
+test('content-only responses pass even at the limit', () => {
+  const actions: AgentLoopAction[] = [];
+  assert.equal(enforceToolCallLimit(actions, 45, 45), actions);
 });

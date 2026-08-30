@@ -58,7 +58,7 @@ import { throwIfAborted } from '../../lib/abort.js';
 import { SilentProgressWriter } from '../../lib/progress-writer.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
-import { ForcedFinishController } from './forced-finish.js';
+import { FORCED_FINISH_MAX_ATTEMPTS, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { PromptPreparer } from './prompt-preparer.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
@@ -75,6 +75,7 @@ import {
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
+  type ToolBatchTally,
   type TurnOutcome,
 } from './task-loop-support.js';
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
@@ -121,14 +122,13 @@ function getRepoSearchModelData(context: AgentLoopResponseContext): RepoSearchMo
 
 export function enforceToolCallLimit(
   actions: AgentLoopAction[],
-  completedToolCalls: number,
+  executedToolBatches: number,
   toolCallLimit: number,
 ): AgentLoopAction[] {
-  const requestedToolCalls = actions.filter((action) => action.kind === 'tool').length;
-  const remainingToolCalls = toolCallLimit - completedToolCalls;
-  if (requestedToolCalls > remainingToolCalls) {
+  const requestsTools = actions.some((action) => action.kind === 'tool');
+  if (requestsTools && executedToolBatches >= toolCallLimit) {
     throw new NativePlannerResponseError(
-      `Planner requested ${requestedToolCalls} tool calls with ${Math.max(remainingToolCalls, 0)} remaining. Finish now.`,
+      `Tool-call limit reached (${executedToolBatches}/${toolCallLimit} batches used). Do not call tools again; return your final answer as content.`,
     );
   }
   return actions;
@@ -180,6 +180,7 @@ export class TaskLoop {
   private readonly toolActions: ToolActionProcessor;
 
   private readonly commands: TaskCommand[] = [];
+  private readonly toolBatchTally: ToolBatchTally = { executed: 0 };
   private readonly turnThinking: Record<number, string> = {};
   private readonly counters: LoopCounters = {
     invalidResponses: 0,
@@ -345,6 +346,8 @@ export class TaskLoop {
       mutatedPaths: this.mutatedPaths,
       successfulToolCalls: this.successfulToolCalls,
       commands: this.commands,
+      toolBatchTally: this.toolBatchTally,
+      toolCallLimit: this.toolCallLimit,
       counters: this.counters,
       visionEnabled: this.visionEnabled,
       visionImageRetention: this.visionImageRetention,
@@ -408,7 +411,10 @@ export class TaskLoop {
     const actionAdapter = new RepoSearchActionAdapter(this.plannerToolDefinitions, this);
     const toolAdapter = new RepoSearchToolAdapter(this);
     await new AgentLoop({
-      maxTurns: this.maxTurns,
+      // Tool batches consume the budget (1 per tool-bearing turn); the slack
+      // turns exist so the model can still deliver its final answer after the
+      // limit-reached notice instead of dying on the turn cap.
+      maxTurns: this.maxTurns + FORCED_FINISH_MAX_ATTEMPTS,
       promptAdapter,
       actionAdapter,
       toolAdapter,
@@ -545,7 +551,7 @@ export class TaskLoop {
   }
 
   validateActions(actions: AgentLoopAction[]): AgentLoopAction[] {
-    return enforceToolCallLimit(actions, this.commands.length, this.toolCallLimit);
+    return enforceToolCallLimit(actions, this.toolBatchTally.executed, this.toolCallLimit);
   }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {

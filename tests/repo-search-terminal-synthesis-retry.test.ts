@@ -16,6 +16,10 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
+        // Empty responses strike out at maxInvalidResponses (3), ending the loop
+        // inside the finishing-headroom turns; synthesis consumes the next mock.
+        {},
+        {},
         {},
         { content: 'The definition lives in src/foo.ts:1.' },
       ],
@@ -42,6 +46,10 @@ test('synthesis that returns empty text twice then succeeds on attempt 3 sets fi
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
+        // Empty responses strike out at maxInvalidResponses (3), ending the loop
+        // inside the finishing-headroom turns; synthesis consumes the next mocks.
+        {},
+        {},
         {},
         { content: '' },
         { content: '' },
@@ -71,6 +79,10 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
         maxTurns: 1,
         maxInvalidResponses: 3,
         mockResponses: [
+          // Empty responses strike out at maxInvalidResponses (3), ending the loop
+          // inside the finishing-headroom turns; synthesis consumes the next mocks.
+          {},
+          {},
           {},
           { content: '' },
           { content: '' },

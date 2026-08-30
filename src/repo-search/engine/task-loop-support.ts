@@ -30,6 +30,29 @@ export const DEFAULT_MAX_INVALID_RESPONSES = 3;
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
 
+/** Executed tool batches (one per planner response that ran tools); shared by reference between TaskLoop and ToolActionProcessor. */
+export type ToolBatchTally = { executed: number };
+
+const TOOL_BUDGET_PERCENT_NOTICES = [25, 50, 75] as const;
+const TOOL_BUDGET_COUNTDOWN_WINDOW = 9;
+
+/** In-band budget notice appended to the last tool result of a batch; null when no threshold was crossed. */
+export function buildToolBudgetNotice(executedBatches: number, toolCallLimit: number): string | null {
+  const remaining = toolCallLimit - executedBatches;
+  if (remaining <= 0) {
+    return `[tool budget] Tool-call limit reached (${executedBatches}/${toolCallLimit} batches used). You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
+  }
+  if (remaining <= TOOL_BUDGET_COUNTDOWN_WINDOW) {
+    return `[tool budget] ${remaining} tool-call batch${remaining === 1 ? '' : 'es'} remaining (${executedBatches}/${toolCallLimit} used). Prioritize verification and finishing.`;
+  }
+  for (const percent of TOOL_BUDGET_PERCENT_NOTICES) {
+    if (executedBatches === Math.ceil((percent / 100) * toolCallLimit)) {
+      return `[tool budget] ${percent}% of the tool-call budget used (${executedBatches}/${toolCallLimit} batches).`;
+    }
+  }
+  return null;
+}
+
 const DEFAULT_ENGINE_WEB_SEARCH_CONFIG: WebSearchConfig = {
   EnabledDefault: false,
   Providers: {

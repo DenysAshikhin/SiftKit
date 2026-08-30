@@ -1,16 +1,15 @@
-import { colorize } from '../../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { SiftConfig } from '../../config/index.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 
-const ANSI_RED_CODE = 31;
-
-function writeRedConsoleLine(message: string): void {
-  if (!message) return;
-  process.stderr.write(`${colorize(String(message), ANSI_RED_CODE, { isTTY: true })}\n`);
-}
+// A failing command's tail is still evidence — test runners and compilers print
+// their verdicts and failure summaries last — but failure dumps are low-density,
+// so the kept tail gets a small fixed budget instead of the growing per-tool cap.
+// ~75-125 lines: enough for a runner summary plus failing-test names, never
+// enough for repeated failures to starve the remaining allowance.
+export const FAILED_COMMAND_TAIL_CAP_TOKENS = 1_024;
 
 export type FittedToolResult = {
   resultText: string;
@@ -83,45 +82,36 @@ export class ToolResultBudgeter {
     let resultTokenCountEstimated = candidateResultTokenResult.estimated;
     let fittedReturnedSegmentCount: number | null = null;
 
-    if (candidateResultTokenCount > options.perToolCapTokens || candidateResultTokenCount > options.remainingTokenAllowance) {
-      if (options.commandSucceededForFitting) {
-        const segments = resultText.split(/\r?\n/u).filter((line) => line.length > 0);
-        const budgeter = this;
-        const fitter = new ToolOutputFitter({
-          async countToolOutputTokens(text: string): Promise<number> {
-            return budgeter.countTokenValue(text);
-          },
-        });
-        const fitResult = await fitter.fitSegments({
-          headerText: undefined,
-          segments,
-          separator: '\n',
-          maxTokens: Math.min(options.perToolCapTokens, Math.max(1, options.remainingTokenAllowance)),
-          unit: options.outputUnit,
-          keep: options.keep,
-        });
-        fittedReturnedSegmentCount = fitResult.returnedLineCount;
-        resultText = fitResult.visibleText;
-        const fitTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_fit', {
-          taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
-        });
-        const resultTokenResult = await this.countTokens(resultText);
-        resultTokenCount = resultTokenResult.tokenCount;
-        fitTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = resultTokenResult.estimated;
-      } else {
-        resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${options.remainingTokenAllowance}, per tool call allowance: ${options.perToolCapTokens}`;
-        writeRedConsoleLine(`repo_search warning: ${resultText}`);
-        const rejectionToolTokenSpan = this.useEstimatedTokensOnly
-          ? null
-          : this.timingRecorder?.start('repo.tool.tokenize_rejection', {
-            taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
-          });
-        const resultTokenResult = await this.countTokens(resultText);
-        resultTokenCount = resultTokenResult.tokenCount;
-        rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = resultTokenResult.estimated;
-      }
+    const successBudgetTokens = Math.min(options.perToolCapTokens, Math.max(1, options.remainingTokenAllowance));
+    const maxResultTokens = options.commandSucceededForFitting
+      ? successBudgetTokens
+      : Math.min(FAILED_COMMAND_TAIL_CAP_TOKENS, successBudgetTokens);
+
+    if (candidateResultTokenCount > maxResultTokens) {
+      const segments = resultText.split(/\r?\n/u).filter((line) => line.length > 0);
+      const budgeter = this;
+      const fitter = new ToolOutputFitter({
+        async countToolOutputTokens(text: string): Promise<number> {
+          return budgeter.countTokenValue(text);
+        },
+      });
+      const fitResult = await fitter.fitSegments({
+        headerText: undefined,
+        segments,
+        separator: '\n',
+        maxTokens: maxResultTokens,
+        unit: options.outputUnit,
+        keep: options.commandSucceededForFitting ? options.keep : 'tail',
+      });
+      fittedReturnedSegmentCount = fitResult.returnedLineCount;
+      resultText = fitResult.visibleText;
+      const fitTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_fit', {
+        taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
+      });
+      const resultTokenResult = await this.countTokens(resultText);
+      resultTokenCount = resultTokenResult.tokenCount;
+      fitTokenSpan?.end({ tokenCount: resultTokenCount });
+      resultTokenCountEstimated = resultTokenResult.estimated;
     }
 
     return { resultText, resultTokenCount, resultTokenCountEstimated, fittedReturnedSegmentCount, rawResultTokenCount };

@@ -227,6 +227,9 @@ function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: re
 const COMPLETION_REVIEW_INSTRUCTION =
   'Before finishing, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
 
+const RUN_SHELL_GUIDANCE =
+  `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`.`;
+
 function buildNativePlannerInstructions(toolNames: readonly string[]): string {
   if (toolNames.length === 0) {
     return 'No repository tools are available for this request; answer only from the supplied context.';
@@ -250,6 +253,7 @@ function buildRestrictedToolSystemPrompt(options: {
     options.context.hasRepoFileListing
       ? 'A repository file listing is provided in the system context.'
       : 'No startup repository file listing is available.',
+    ...(options.toolNames.includes('run') ? [RUN_SHELL_GUIDANCE] : []),
     'Finish only when the requested work is complete, with a concise final output.',
     ...(options.role === 'repository coding agent' ? [COMPLETION_REVIEW_INSTRUCTION] : []),
   ].join('\n');
@@ -344,7 +348,7 @@ export function buildAgentSystemPrompt(
     '',
     'Guidelines:',
     '- Be concise. Show file paths clearly when working with files.',
-    `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available.`,
+    RUN_SHELL_GUIDANCE,
     '- Prefer forward slashes for paths (`dashboard/node_modules`, `src/lib/foo.ts`), including inside `run` commands. If a native executable requires backslashes, JSON-escape each one as `\\\\`; an unescaped backslash in JSON can silently corrupt the argument.',
     '- Long `run` output is truncated to its tail, so final summaries and errors survive.',
     `- Commands for test, build, lint, and typecheck retain a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines (summary and failure lines survive) under \`outputMode: "auto"\`; always use "auto" for these. Do not add tail pipelines or temporary redirection.`,

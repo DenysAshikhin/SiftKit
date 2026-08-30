@@ -248,7 +248,9 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
         const parsed = asObject(parseJsonValueText(body || '{}'));
-        if (requestCount === 1) {
+        // Empty responses for every loop turn (maxTurns 1 + the finishing-headroom
+        // slack turns) so the run exhausts and terminal synthesis streams the answer.
+        if (requestCount <= 4) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '' } }] })}\n\n`);
           res.write('data: [DONE]\n\n');

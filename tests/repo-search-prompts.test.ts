@@ -364,3 +364,12 @@ test('buildCompactionSummaryInstruction preserves system instructions outside th
   );
   assert.doesNotMatch(instruction, /Nothing else survives\./u);
 });
+
+test('restricted agent prompt with run declares the PowerShell shell and forbids nesting', () => {
+  const context = buildTestContext(process.cwd(), false, true);
+  const withRun = buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read', 'run']));
+  assert.match(withRun, /executes in PowerShell/u);
+  assert.match(withRun, /never wrap them in `powershell -Command`/u);
+  const withoutRun = buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read']));
+  assert.doesNotMatch(withoutRun, /executes in PowerShell/u);
+});
