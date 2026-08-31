@@ -44,6 +44,7 @@ import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { archiveBytes, archiveEntries, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 class PassthroughSummarizer implements ProjectionSummaryService {
   async summarize(): Promise<SummarizeProjectionResult> {
@@ -123,12 +124,6 @@ function rebuild(archive: Map<string, Buffer>): string {
   return uploadPath;
 }
 
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
-  }
-}
-
 /** A full service plus a context view over its graph, for tests that seed then drive the API. */
 function buildServiceContext(): { service: AssistantService; context: AssistantTestContext } {
   const runtimeRoot = createManagedTempDir('siftkit-assistant-restore-');
@@ -141,7 +136,8 @@ function buildServiceContext(): { service: AssistantService; context: AssistantT
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
   return {

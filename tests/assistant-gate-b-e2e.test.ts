@@ -14,15 +14,10 @@ import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-d
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
-  }
-}
 
 function statement(kind: 'direct_fact' | 'correction', objectName: string): string {
   return JSON.stringify({
@@ -50,7 +45,8 @@ function buildService(responses: readonly string[], clock: FixedClock): Assistan
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
 }

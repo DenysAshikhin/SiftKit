@@ -99,6 +99,7 @@ import { StatusServerAssistantConfigWriter } from './assistant-config-writer.js'
 import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.js';
 import { AssistantRateLimiter } from './assistant-rate-limiter.js';
 import { StatusServerIdleGate } from './assistant-idle-gate.js';
+import { StatusServerResidencyGate } from './assistant-residency-gate.js';
 
 // ---------------------------------------------------------------------------
 // Re-exports (preserves the public API expected by consumers & tests)
@@ -341,6 +342,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         inference: new LlamaCppAssistantInference(initialConfig, ctx.appliedModelPresetState),
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
+        residencyGate: new StatusServerResidencyGate(
+          disableManagedLlamaStartup ? null : presetRuntimeCoordinator,
+        ),
         config: initialConfig.Assistant,
         configWriter: new StatusServerAssistantConfigWriter(configPath),
         imageCapability: new ManagedRuntimeImageCapabilityProvider(

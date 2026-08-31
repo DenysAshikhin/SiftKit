@@ -20,12 +20,7 @@ import {
   TEST_DEVICE_ID, seedTestDevice, signEnvelope, unsignedEnvelope,
 } from './helpers/mobile-envelope.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
-  }
-}
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 function verifierFor(context: AssistantTestContext): EnvelopeVerifier {
   return new EnvelopeVerifier(context.graph.devices);
@@ -129,7 +124,8 @@ function buildService(): AssistantService {
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
 }

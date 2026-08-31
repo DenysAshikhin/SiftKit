@@ -52,6 +52,9 @@ export class ModelIdleController {
     if (!expectedPresetId || !action || this.ctx.activeModelRequests.size > 0 || this.ctx.modelRequestQueue.length > 0) return;
     // `applyIdleResidencyAction` owns applied-preset, request, switch, and ready-state checks;
     // re-deriving those facts from config here would introduce a second source of truth.
+    // Background assistant work talks to the inference server directly and cannot wake a frozen
+    // model, so it is stopped before residency changes rather than left to fail against it.
+    await this.ctx.assistantControl?.onModelResidencyChanging();
     try {
       await this.ctx.presetRuntimeCoordinator?.applyIdleResidencyAction(
         expectedPresetId,

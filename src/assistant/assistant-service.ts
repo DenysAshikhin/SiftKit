@@ -36,7 +36,9 @@ import { CandidateConsolidator } from './ingestion/consolidator.js';
 import { ConversationExtractor } from './ingestion/conversation-extractor.js';
 import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversation-ingestor.js';
 import { IngestionPipeline } from './ingestion/pipeline.js';
-import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
+import {
+  AssistantJobRunner, type InteractivityGate, type ModelResidencyGate,
+} from './jobs/job-runner.js';
 import { AssistantResourcePolicy } from './jobs/resource-policy.js';
 import { EnvelopeVerifier, type EnvelopeVerdict } from './mobile/envelope-verifier.js';
 import { CaptureQueueStore } from './images/capture-queue-store.js';
@@ -117,6 +119,7 @@ export interface AssistantServiceOptions {
   readonly inference: AssistantInferenceClient;
   readonly tokens: TokenCounter;
   readonly idleGate: InteractivityGate;
+  readonly residencyGate: ModelResidencyGate;
   readonly config: AssistantConfig;
   readonly configWriter: AssistantConfigWriter;
   /** Absent in headless composition (CLI, tests): no runtime means no image analysis. */
@@ -184,8 +187,8 @@ export class AssistantService implements AssistantRuntime {
   private currentConfig: AssistantConfig;
   private ownerPersonId: string | null;
   private maxJobsPerDrain: number;
-  /** How many maintenance operations are queued or running; drains stay out while nonzero. */
-  private maintenancePending = 0;
+  /** How many exclusive operations are queued or running; drains stay out while nonzero. */
+  private drainBlockers = 0;
   /** Serializes maintenance operations against each other. */
   private maintenanceChain: Promise<void> = Promise.resolve();
   /** The drain currently executing, so maintenance can wait for it to unwind. */
@@ -332,6 +335,7 @@ export class AssistantService implements AssistantRuntime {
       }),
       retention: this.captureRetention,
       idleGate: options.idleGate,
+      residencyGate: options.residencyGate,
       resourcePolicy: this.resourcePolicy,
       jobPriorities: options.config.Background.JobPriorities,
       leaseOwner: `status-server:${process.pid}`,
@@ -614,24 +618,36 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
+   * Called by the host before it freezes or unloads the model (§12.4). Background model work
+   * cannot survive the transition and cannot wake the model back up, so the drain is preempted
+   * and awaited before residency changes.
+   */
+  async onModelResidencyChanging(): Promise<void> {
+    this.drainBlockers += 1;
+    try {
+      await this.preemptAndAwaitActiveDrain();
+    } finally {
+      this.drainBlockers -= 1;
+    }
+  }
+
+  /**
    * Serializes whole-database maintenance — factory reset, restore — against the drain loop and
    * against other maintenance. No new drain starts while any maintenance is pending, the drain
    * already in flight is preempted and awaited before `work` runs, and concurrent maintenance
    * operations execute one at a time in call order.
    */
   async runMaintenance<T>(work: () => Promise<T>): Promise<T> {
-    this.maintenancePending += 1;
+    this.drainBlockers += 1;
     const run = this.maintenanceChain.then(async () => {
-      this.runner.requestPreemption();
-      // A drain failure is the drain's problem; maintenance only needs it to be finished.
-      await this.activeDrain?.catch(() => undefined);
+      await this.preemptAndAwaitActiveDrain();
       return work();
     });
     this.maintenanceChain = run.then(() => undefined, () => undefined);
     try {
       return await run;
     } finally {
-      this.maintenancePending -= 1;
+      this.drainBlockers -= 1;
     }
   }
 
@@ -665,8 +681,9 @@ export class AssistantService implements AssistantRuntime {
 
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
-    if (this.maintenancePending > 0) return;
+    if (this.drainBlockers > 0) return;
     if (!this.enabled) return;
+    if (this.activeDrain !== null) return;
     const drain = this.performDrain();
     this.activeDrain = drain;
     try {
@@ -674,6 +691,12 @@ export class AssistantService implements AssistantRuntime {
     } finally {
       if (this.activeDrain === drain) this.activeDrain = null;
     }
+  }
+
+  private async preemptAndAwaitActiveDrain(): Promise<void> {
+    this.runner.requestPreemption();
+    // A drain failure is the drain's concern; exclusive work only needs it to be finished.
+    await this.activeDrain?.catch(() => undefined);
   }
 
   private async performDrain(): Promise<void> {

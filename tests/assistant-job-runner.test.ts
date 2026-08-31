@@ -43,6 +43,20 @@ class StaticIdleGate {
   }
 }
 
+class StaticResidencyGate {
+  constructor(private resident: boolean) {}
+
+  isModelResident(): boolean {
+    return this.resident;
+  }
+
+  setResident(resident: boolean): void {
+    this.resident = resident;
+  }
+}
+
+const RESIDENT = new StaticResidencyGate(true);
+
 class NoLimitResourcePolicy implements ResourcePolicy {
   canStartBackgroundWork(): ResourceDecision {
     return { kind: 'allowed' };
@@ -131,6 +145,7 @@ test('draining a queued conversation job produces an assertion and a projection'
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -190,6 +205,7 @@ test('many mutations between drains leave at most one queued projection_maintena
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -221,6 +237,7 @@ test('a busy host claims nothing', async () => {
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(false),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -274,6 +291,7 @@ test('preemption returns the job to the queue without spending an attempt', asyn
       ),
       projections: projectionCompiler(graph),
       idleGate,
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -305,6 +323,7 @@ test('a job whose evidence vanished fails and eventually dead-letters', async ()
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -334,6 +353,7 @@ test('recovery re-queues a lease abandoned by a crashed runner', async () => {
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -374,6 +394,7 @@ test('the daily GPU cap skips model-backed jobs but still drains deterministic w
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy,
       jobPriorities: DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities,
       leaseOwner: 'runner_test',
@@ -445,6 +466,7 @@ test('runner executes every Gate C job branch with configured priority order', a
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
       projections: projectionCompiler(graph),
       idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
       resourcePolicy: new NoLimitResourcePolicy(),
       jobPriorities: JOB_PRIORITIES,
       leaseOwner: 'runner_test',
@@ -456,6 +478,139 @@ test('runner executes every Gate C job branch with configured priority order', a
     assert.deepEqual(
       calls, ['question_answer_ingestion', 'question_planning', 'image_extraction'],
     );
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
+  });
+});
+
+test('a frozen model claims no model-backed job and spends no attempt', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
+    new ConversationIngestor(pipeline).ingestTurn({
+      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.',
+      assistantMessageId: 'm2', assistantText: '',
+    });
+    graph.jobs.enqueue({
+      ownerId, jobType: 'image_extraction', payload: { evidenceId: 'evidence_1' },
+      idempotencyKey: 'image-extraction:residency-gate',
+    }, JOB_PRIORITIES.ImageExtraction);
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: new StaticResidencyGate(false),
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, 10);
+
+    assert.equal(summary.claimed, 0);
+    assert.equal(summary.failed, 0);
+    const queued = graph.jobs.listByStatus(ownerId, 'queued');
+    const conversation = queued.find((job) => job.job_type === 'conversation_ingestion');
+    const image = queued.find((job) => job.job_type === 'image_extraction');
+    assert.equal(conversation?.attempts, 0, 'a sleeping model must not burn the attempt budget');
+    assert.equal(image?.attempts, 0, 'image extraction must not be claimed against a sleeping model');
+  });
+});
+
+test('a model that freezes mid-call requeues the job without spending an attempt', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
+    new ConversationIngestor(pipeline).ingestTurn({
+      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.',
+      assistantMessageId: 'm2', assistantText: '',
+    });
+
+    const residencyGate = new StaticResidencyGate(true);
+    let recordedGpuUse = 0;
+
+    class FreezingInference extends FakeAssistantInference {
+      constructor() {
+        super([]);
+      }
+
+      async complete(): Promise<never> {
+        residencyGate.setResident(false);
+        throw new Error('HTTP 500: inline_model_loading is not True in config.yml.');
+      }
+    }
+
+    class CountingResourcePolicy extends NoLimitResourcePolicy {
+      recordGpuUse(): void {
+        recordedGpuUse += 1;
+      }
+    }
+
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(
+        graph, new StructuredOutputRunner(new FreezingInference()),
+      ),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(
+        graph, new StructuredOutputRunner(new FakeAssistantInference([])),
+      ),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate,
+      resourcePolicy: new CountingResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, 10);
+
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.preempted, 1);
+    assert.equal(recordedGpuUse, 0, 'a call that never reached a resident model is not GPU time');
+    const queued = graph.jobs.listByStatus(ownerId, 'queued')
+      .filter((job) => job.job_type === 'conversation_ingestion');
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0]?.attempts, 0);
+  });
+});
+
+test('a frozen model still lets deterministic jobs drain', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    graph.jobs.enqueue({
+      ownerId, jobType: 'capture_retention', payload: { reason: 'schedule' },
+      idempotencyKey: 'capture_retention:schedule',
+    }, JOB_PRIORITIES.CaptureRetention);
+    graph.jobs.enqueue({
+      ownerId, jobType: 'projection_maintenance', payload: { reason: 'schedule' },
+      idempotencyKey: 'projection_maintenance:schedule',
+    }, JOB_PRIORITIES.ProjectionMaintenance);
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: new StaticResidencyGate(false),
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, 10);
+
+    assert.equal(summary.completed, 2);
     assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
   });
 });

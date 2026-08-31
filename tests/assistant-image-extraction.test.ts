@@ -23,6 +23,7 @@ import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter
 import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -115,12 +116,6 @@ function buildFixture(
   };
 }
 
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
-  }
-}
-
 function captureDto(
   capturedAtUtc: string, pixelSha256: string, perceptualHash = 'f0e1d2c3b4a59687',
 ): CaptureSubmissionDto {
@@ -166,7 +161,8 @@ test('a drain with a capable runtime extracts every unprocessed capture oldest-f
     configWriter: new MemoryAssistantConfigWriter(config),
     inference,
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(true),
     config,
   });

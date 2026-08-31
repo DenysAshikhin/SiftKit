@@ -25,6 +25,7 @@ import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
   + 'FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -38,12 +39,6 @@ class StubImageCapability implements AssistantImageCapabilityProvider {
       visionCapable: this.capable,
       healthy: this.capable,
     };
-  }
-}
-
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
   }
 }
 
@@ -101,7 +96,8 @@ function buildService(runtimeRoot: string, clock: FixedClock): AssistantService 
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(false),
     config,
   });

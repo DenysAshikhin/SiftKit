@@ -8,6 +8,7 @@ import type { IdGenerator } from '../ids.js';
 import {
   AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
   ConversationIngestionPayloadSchema, ProjectionMaintenancePayloadSchema,
+  MODEL_BACKED_JOB_TYPES,
   QuestionAnswerIngestionPayloadSchema,
   QuestionPlanningPayloadSchema, ProjectionSummarizationPayloadSchema,
   ImageExtractionPayloadSchema, CaptureRetentionPayloadSchema,
@@ -18,6 +19,8 @@ import {
   type ImageExtractionPayload, type CaptureRetentionPayload,
 } from '../jobs/job-types.js';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.js';
+
+const MODEL_BACKED_JOB_TYPE_PLACEHOLDERS = MODEL_BACKED_JOB_TYPES.map(() => '?').join(', ');
 
 export interface EnqueueJobInput {
   readonly ownerId: string;
@@ -91,13 +94,15 @@ export class JobStore {
     const candidate = this.database.prepare(`
       SELECT id FROM assistant_jobs
       WHERE owner_id = ? AND status = 'queued' AND available_at_utc <= ?
-        AND (? = 1 OR job_type NOT IN (
-          'conversation_ingestion', 'candidate_consolidation', 'question_planning',
-          'question_answer_ingestion', 'projection_summarization'
-        ))
+        AND (? = 1 OR job_type NOT IN (${MODEL_BACKED_JOB_TYPE_PLACEHOLDERS}))
       ORDER BY priority DESC, available_at_utc ASC, created_at_utc ASC, id ASC
       LIMIT 1
-    `).get(input.ownerId, nowUtc, input.modelWorkAllowed ? 1 : 0);
+    `).get(
+      input.ownerId,
+      nowUtc,
+      input.modelWorkAllowed ? 1 : 0,
+      ...MODEL_BACKED_JOB_TYPES,
+    );
     if (candidate === undefined || candidate === null) {
       return null;
     }

@@ -32,16 +32,11 @@ import {
   configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo,
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {
     return { instanceId: 'exl3:1', visionCapable: true, healthy: true };
-  }
-}
-
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
   }
 }
 
@@ -141,7 +136,8 @@ function drainService(
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(),
     config,
   });

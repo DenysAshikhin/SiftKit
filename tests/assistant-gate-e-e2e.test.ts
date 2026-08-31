@@ -25,6 +25,7 @@ import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { archiveEntries, archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -42,12 +43,6 @@ class PassthroughSummarizer implements ProjectionSummaryService {
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {
     return { instanceId: 'exl3:1', visionCapable: true, healthy: true };
-  }
-}
-
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
   }
 }
 
@@ -107,7 +102,8 @@ function buildService(
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(),
     config,
   });

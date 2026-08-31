@@ -11,10 +11,7 @@ import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-d
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-
-class AlwaysIdle {
-  isIdle(): boolean { return true; }
-}
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 const ANSWER_EXTRACTION = JSON.stringify({ statements: [{
   statementKind: 'direct_fact',
@@ -49,7 +46,8 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
     configWriter: new MemoryAssistantConfigWriter(config),
     inference,
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
 
@@ -135,7 +133,8 @@ test('Gate C: disabled service remains inert and unavailable desktop state never
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
   try {

@@ -19,13 +19,16 @@
 
 ## File Structure
 
-- Create `tests/helpers/assistant-gates.ts` — shared `AlwaysIdle` / `AlwaysResident` test doubles (`AlwaysIdle` is currently copy-pasted into ten test files).
+- Create `tests/helpers/assistant-gates.ts` — shared `ALWAYS_IDLE` / `ALWAYS_RESIDENT` test values (`AlwaysIdle` is currently copy-pasted into ten test files).
 - Modify `src/assistant/jobs/job-runner.ts` — add `ModelResidencyGate`, gate claiming, harden the failure path.
+- Modify `src/assistant/jobs/job-types.ts` — define the canonical model-backed job tuple.
+- Modify `src/assistant/storage/job-store.ts` — bind that tuple into the claim-time exclusion.
 - Modify `src/assistant/assistant-service.ts` — thread `residencyGate` through options; add `onModelResidencyChanging()`.
 - Create `src/status-server/assistant-residency-gate.ts` — `StatusServerResidencyGate` over `PresetRuntimeCoordinator.getStatus()`.
 - Modify `src/status-server/index.ts` — construct and inject the gate.
 - Modify `src/status-server/model-idle-controller.ts` — preempt the drain before freeze/unload.
-- Create `tests/assistant-residency-gate.test.ts` — gate unit tests plus the idle-controller wiring assertion.
+- Create `tests/assistant-residency-gate.test.ts` — gate unit tests.
+- Modify `tests/model-residency-actions.test.ts` — behaviorally prove freeze waits for the drain.
 - Modify `tests/assistant-job-runner.test.ts` — residency behaviour tests.
 - Modify `tests/assistant-service.test.ts` — `onModelResidencyChanging` test.
 - Modify the nine other test files that construct `AssistantService` — supply `residencyGate`.
@@ -48,11 +51,11 @@
 import type { InteractivityGate } from '../../src/assistant/jobs/job-runner.js';
 
 /** The host is always quiet, so every drain in these suites is allowed to claim. */
-export class AlwaysIdle implements InteractivityGate {
+export const ALWAYS_IDLE = {
   isIdle(): boolean {
     return true;
-  }
-}
+  },
+} satisfies InteractivityGate;
 ```
 
 - [ ] **Step 2: Delete each local copy and import the shared one**
@@ -60,7 +63,7 @@ export class AlwaysIdle implements InteractivityGate {
 In each of the ten files listed above, delete the local `class AlwaysIdle { ... }` declaration and add this import next to the file's other `./helpers/...` imports:
 
 ```ts
-import { AlwaysIdle } from './helpers/assistant-gates.js';
+import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
 ```
 
 - [ ] **Step 3: Verify no local copies remain**
@@ -86,6 +89,8 @@ git commit -m "test: share the AlwaysIdle assistant gate double"
 
 **Files:**
 - Modify: `src/assistant/jobs/job-runner.ts:15-18` (interfaces), `:20-34` (options), `:73-127` (drain)
+- Modify: `src/assistant/jobs/job-types.ts:12-19` (canonical model-backed types)
+- Modify: `src/assistant/storage/job-store.ts:94-97` (claim-time model-backed exclusion list)
 - Modify: `src/assistant/assistant-service.ts:39` (import), `:119` (options), `:318-338` (runner construction)
 - Create: `src/status-server/assistant-residency-gate.ts`
 - Modify: `src/status-server/index.ts:101` (import), `:343` (wiring)
@@ -126,6 +131,10 @@ test('a frozen model claims no model-backed job and spends no attempt', async ()
       userMessageId: 'm1', userText: 'I use PowerShell.',
       assistantMessageId: 'm2', assistantText: '',
     });
+    graph.jobs.enqueue({
+      ownerId, jobType: 'image_extraction', payload: { evidenceId: 'evidence_1' },
+      idempotencyKey: 'image-extraction:residency-gate',
+    }, JOB_PRIORITIES.ImageExtraction);
     const inference = new FakeAssistantInference([]);
     const runner = new AssistantJobRunner({
       graph,
@@ -146,10 +155,11 @@ test('a frozen model claims no model-backed job and spends no attempt', async ()
 
     assert.equal(summary.claimed, 0);
     assert.equal(summary.failed, 0);
-    const queued = graph.jobs.listByStatus(ownerId, 'queued')
-      .filter((job) => job.job_type === 'conversation_ingestion');
-    assert.equal(queued.length, 1);
-    assert.equal(queued[0]?.attempts, 0, 'a sleeping model must not burn the attempt budget');
+    const queued = graph.jobs.listByStatus(ownerId, 'queued');
+    const conversation = queued.find((job) => job.job_type === 'conversation_ingestion');
+    const image = queued.find((job) => job.job_type === 'image_extraction');
+    assert.equal(conversation?.attempts, 0, 'a sleeping model must not burn the attempt budget');
+    assert.equal(image?.attempts, 0, 'image extraction must not be claimed against a sleeping model');
   });
 });
 
@@ -211,6 +221,22 @@ In `AssistantJobRunnerOptions`, directly after `readonly idleGate: Interactivity
 ```
 
 - [ ] **Step 4: Gate claiming on residency**
+
+In `src/assistant/jobs/job-types.ts`, export the single canonical model-backed tuple and use it in
+`isModelBackedJobType`:
+
+```ts
+export const MODEL_BACKED_JOB_TYPES = [
+  'conversation_ingestion', 'candidate_consolidation', 'question_answer_ingestion',
+  'question_planning', 'projection_summarization', 'image_extraction',
+] as const satisfies readonly AssistantJobType[];
+```
+
+In `src/assistant/storage/job-store.ts`, derive SQL placeholders from that tuple and bind the tuple
+values after the existing claim parameters. This keeps SQL-level exclusion and
+`isModelBackedJobType` on the same source of truth. It is required for the test above to report
+`summary.claimed === 0`; relying only on the runner's post-claim check would consume and refund an
+attempt on every drain.
 
 In `src/assistant/jobs/job-runner.ts`, add this private method to `AssistantJobRunner`, directly above `drain`:
 
@@ -284,27 +310,27 @@ import type {
 } from '../../src/assistant/jobs/job-runner.js';
 
 /** The host is always quiet, so every drain in these suites is allowed to claim. */
-export class AlwaysIdle implements InteractivityGate {
+export const ALWAYS_IDLE = {
   isIdle(): boolean {
     return true;
-  }
-}
+  },
+} satisfies InteractivityGate;
 
 /** These suites never exercise residency; the model is treated as loaded throughout. */
-export class AlwaysResident implements ModelResidencyGate {
+export const ALWAYS_RESIDENT = {
   isModelResident(): boolean {
     return true;
-  }
-}
+  },
+} satisfies ModelResidencyGate;
 ```
 
 In each of the ten test files from Task 1, change the helper import to:
 
 ```ts
-import { AlwaysIdle, AlwaysResident } from './helpers/assistant-gates.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 ```
 
-and add `residencyGate: new AlwaysResident(),` immediately after each `idleGate: new AlwaysIdle(),` line.
+and add `residencyGate: ALWAYS_RESIDENT,` immediately after each `idleGate: ALWAYS_IDLE,` line.
 
 - [ ] **Step 7: Write the failing status-server gate test**
 
@@ -313,7 +339,6 @@ Create `tests/assistant-residency-gate.test.ts`:
 ```ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 
 import type { InferenceModelState, InferenceRuntimeStatus } from '@siftkit/contracts';
 import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.js';
@@ -350,18 +375,7 @@ test('only a ready model counts as resident', () => {
 test('an unmanaged runtime is never gated', () => {
   assert.equal(new StatusServerResidencyGate(null).isModelResident(), true);
 });
-
-test.skip('the idle controller preempts the assistant before it changes residency', async () => {
-  const source = await readFile('src/status-server/model-idle-controller.ts', 'utf8');
-
-  const preemptIndex = source.indexOf('onModelResidencyChanging');
-  const actionIndex = source.indexOf('applyIdleResidencyAction');
-  assert.notEqual(preemptIndex, -1, 'the idle controller must preempt the drain');
-  assert.ok(preemptIndex < actionIndex, 'preemption must happen before freeze or unload');
-});
 ```
-
-The third test is skipped here on purpose; Task 4 implements it and un-skips it.
 
 - [ ] **Step 8: Run the gate test to verify it fails**
 
@@ -413,7 +427,7 @@ In the `AssistantService.create({ ... })` literal, directly after `idleGate: new
 - [ ] **Step 11: Run the tests to verify they pass**
 
 Run: `npx tsx --test tests/assistant-residency-gate.test.ts tests/assistant-job-runner.test.ts`
-Expected: PASS (the idle-controller test still reported as skipped).
+Expected: PASS.
 
 Run: `npm run typecheck`
 Expected: no errors. A missing `residencyGate` at any `AssistantService.create` call site is the intended loud failure — fix each call site rather than giving the option a default.
@@ -421,7 +435,7 @@ Expected: no errors. A missing `residencyGate` at any `AssistantService.create` 
 - [ ] **Step 12: Commit**
 
 ```bash
-git add src/assistant/jobs/job-runner.ts src/assistant/assistant-service.ts src/status-server/assistant-residency-gate.ts src/status-server/index.ts tests/helpers/assistant-gates.ts tests/assistant-residency-gate.test.ts tests/assistant-job-runner.test.ts tests/assistant-backup-restore.test.ts tests/assistant-capture-retention.test.ts tests/assistant-desktop-state.test.ts tests/assistant-gate-b-e2e.test.ts tests/assistant-gate-c-e2e.test.ts tests/assistant-gate-d-e2e.test.ts tests/assistant-gate-e-e2e.test.ts tests/assistant-image-extraction.test.ts tests/assistant-mobile-envelope.test.ts tests/assistant-service.test.ts
+git add src/assistant/jobs/job-types.ts src/assistant/jobs/job-runner.ts src/assistant/storage/job-store.ts src/assistant/assistant-service.ts src/status-server/assistant-residency-gate.ts src/status-server/index.ts tests/helpers/assistant-gates.ts tests/assistant-residency-gate.test.ts tests/assistant-job-runner.test.ts tests/assistant-backup-restore.test.ts tests/assistant-capture-retention.test.ts tests/assistant-desktop-state.test.ts tests/assistant-gate-b-e2e.test.ts tests/assistant-gate-c-e2e.test.ts tests/assistant-gate-d-e2e.test.ts tests/assistant-gate-e-e2e.test.ts tests/assistant-image-extraction.test.ts tests/assistant-mobile-envelope.test.ts tests/assistant-service.test.ts
 git commit -m "feat: hold assistant background model work while the model is not resident"
 ```
 
@@ -518,12 +532,12 @@ In `src/assistant/jobs/job-runner.ts`, inside `drain`'s `catch (error)` block, d
           // attempt back and stop the drain until the model is resident again.
           this.options.graph.jobs.requeuePreempted(job.id);
           preempted += 1;
-          modelStarted = false;
+          shouldRecordGpuUse = false;
           break;
         }
 ```
 
-`modelStarted` is already declared with `let` above the `try` and read by the `finally`, so clearing it here suppresses the `recordGpuUse` call.
+`shouldRecordGpuUse` is already declared with `let` above the `try` and read by the `finally`, so clearing it here suppresses the `recordGpuUse` call.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -542,15 +556,21 @@ git commit -m "fix: requeue assistant jobs when the model sleeps mid-call instea
 ### Task 4: Preempt the drain before freezing or unloading
 
 Closes the race at its source: the idle controller stops background work and waits for the in-flight drain before it asks the runtime to freeze or unload.
+While that drain unwinds, the service also blocks new drains so the periodic tick cannot reset
+preemption and start a second model call before the runtime enters its residency transition.
+`drainJobs()` is single-flight as well: a normal 20-second tick cannot overwrite `activeDrain`
+while a previous long-running drain is still in progress.
 
 **Files:**
 - Modify: `src/assistant/assistant-service.ts:610-613` (add `onModelResidencyChanging` after `onInteractiveRequest`)
 - Modify: `src/status-server/model-idle-controller.ts:46-65` (`expire`)
-- Test: `tests/assistant-service.test.ts`, `tests/assistant-residency-gate.test.ts`
+- Test: `tests/assistant-service.test.ts`, `tests/model-residency-actions.test.ts`
 
-- [ ] **Step 1: Un-skip the wiring assertion and write the failing service test**
+- [ ] **Step 1: Write deterministic failing service and controller integration tests**
 
-In `tests/assistant-residency-gate.test.ts`, change `test.skip('the idle controller preempts...` back to `test('the idle controller preempts...`.
+In `tests/assistant-service.test.ts`, extend `GateInference` with a `callStarted` promise that is
+resolved as the first statement of `complete()`. Await that promise in the new test instead of a
+timer so the test knows the drain is inside the model call.
 
 Append to `tests/assistant-service.test.ts`:
 
@@ -558,7 +578,7 @@ Append to `tests/assistant-service.test.ts`:
 test('a residency change preempts the drain and waits for it to finish', async () => {
   try {
     const inference = new GateInference();
-    const service = buildService([], true, inference);
+    const service = buildService({ inference });
     service.ingestChatTurn({
       ownerId: service.ownerId, sessionId: 'chat_residency',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
@@ -569,8 +589,7 @@ test('a residency change preempts the drain and waits for it to finish', async (
     const order: string[] = [];
     const drain = service.drainJobs();
     void drain.then(() => order.push('drain'));
-    // Let the drain claim its job and block on the model call.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await inference.callStarted;
 
     const residency = service.onModelResidencyChanging().then(() => order.push('residency'));
     inference.release();
@@ -586,14 +605,38 @@ test('a residency change preempts the drain and waits for it to finish', async (
 
 Mirror the teardown of the neighbouring tests in this file exactly; if they use a helper other than `closeRuntimeDatabase()`, use theirs.
 
+In `tests/model-residency-actions.test.ts`, add a behavioral integration test using the existing
+`createCoordinatorFixture`, `BlockingRecordingInferenceRuntime`, and `createDeferred` helpers:
+
+1. Return `ctx` from `createCoordinatorFixture` and construct a real enabled `AssistantService`
+   against `getRuntimeDatabase(fixture.configPath)` with `ALWAYS_IDLE`,
+   `StatusServerResidencyGate(fixture.coordinator)`, and a blocking inference fake whose
+   `callStarted` and `releaseCall()` are deferreds.
+2. Assign that service to `fixture.ctx.assistant` and `fixture.ctx.assistantControl`, enqueue a
+   conversation turn, start `drainJobs()`, and await the inference fake's `callStarted.promise`.
+3. Arm the controller for a 1 ms frozen transition. While inference remains blocked, use the
+   suite's bounded `Promise.race` pattern to prove `transitionStarted.promise` is still pending and
+   assert the captured abort signal is aborted.
+4. Release inference, await the drain, then await `transitionStarted`; assert the exact order is
+   `['drain', 'freeze']` and the runtime events are `['freeze:exl3']`.
+5. In `finally`, release both held transitions, await the drain if started, then call fixture
+   cleanup. Do not use casts, source-text assertions, or fixed sleeps.
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npx tsx --test tests/assistant-service.test.ts tests/assistant-residency-gate.test.ts`
-Expected: FAIL — `service.onModelResidencyChanging` is not a function, and the source assertion cannot find `onModelResidencyChanging` in `model-idle-controller.ts`.
+Run: `npm run build:test` then
+`npm run test -- tests/assistant-service.test.ts tests/model-residency-actions.test.ts`
+Expected: FAIL because `service.onModelResidencyChanging` is not a function and freeze starts while
+the assistant drain is still blocked.
 
 - [ ] **Step 3: Add the service hook**
 
 In `src/assistant/assistant-service.ts`, directly after `onInteractiveRequest()`:
+
+First rename `maintenancePending` to `drainBlockers`; keep the existing maintenance increments,
+decrements, and `drainJobs()` guard on that shared counter. Add an `activeDrain !== null` early
+return to `drainJobs()` so the timer cannot start overlapping drains. Extract the shared
+`preemptAndAwaitActiveDrain()` helper used by maintenance and residency changes. Then add:
 
 ```ts
   /**
@@ -602,10 +645,12 @@ In `src/assistant/assistant-service.ts`, directly after `onInteractiveRequest()`
    * and awaited before residency changes.
    */
   async onModelResidencyChanging(): Promise<void> {
-    if (!this.enabled) return;
-    this.runner.requestPreemption();
-    // A drain failure is the drain's problem; residency only needs it to be finished.
-    await this.activeDrain?.catch(() => undefined);
+    this.drainBlockers += 1;
+    try {
+      await this.preemptAndAwaitActiveDrain();
+    } finally {
+      this.drainBlockers -= 1;
+    }
   }
 ```
 
@@ -621,8 +666,10 @@ In `src/status-server/model-idle-controller.ts`, inside `expire()`, insert immed
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `npx tsx --test tests/assistant-service.test.ts tests/assistant-residency-gate.test.ts`
-Expected: PASS, no skipped tests in `assistant-residency-gate.test.ts`.
+Run: `npm run build:test` then
+`npm run test -- tests/assistant-service.test.ts tests/model-residency-actions.test.ts`
+Expected: PASS. The service hook waits for the drain, and the real idle controller does not enter
+freeze until that hook has completed.
 
 - [ ] **Step 6: Run the full verification set**
 
@@ -638,7 +685,7 @@ Expected: no errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/assistant/assistant-service.ts src/status-server/model-idle-controller.ts tests/assistant-service.test.ts tests/assistant-residency-gate.test.ts
+git add src/assistant/assistant-service.ts src/status-server/model-idle-controller.ts tests/assistant-service.test.ts tests/model-residency-actions.test.ts
 git commit -m "feat: stop assistant background work before the model freezes or unloads"
 ```
 

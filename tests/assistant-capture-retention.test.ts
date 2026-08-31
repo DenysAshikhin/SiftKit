@@ -19,6 +19,7 @@ import {
   MemoryAssistantConfigWriter, withAssistantContext, type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 
 const BYTES_PER_GB = 1024 ** 3;
 
@@ -247,12 +248,6 @@ function captureDto(
   };
 }
 
-class AlwaysIdle {
-  isIdle(): boolean {
-    return true;
-  }
-}
-
 function buildService(runtimeRoot: string, clock: FixedClock, observation: AssistantConfig['Observation']): AssistantService {
   const config = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true, Observation: observation };
   return AssistantService.create({
@@ -263,7 +258,8 @@ function buildService(runtimeRoot: string, clock: FixedClock, observation: Assis
     configWriter: new MemoryAssistantConfigWriter(config),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
-    idleGate: new AlwaysIdle(),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
     config,
   });
 }

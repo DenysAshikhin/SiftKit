@@ -8,14 +8,21 @@ export const ASSISTANT_JOB_TYPES = [
 export const AssistantJobTypeSchema = z.enum(ASSISTANT_JOB_TYPES);
 export type AssistantJobType = z.infer<typeof AssistantJobTypeSchema>;
 
+export const MODEL_BACKED_JOB_TYPES = [
+  'conversation_ingestion',
+  'candidate_consolidation',
+  'question_answer_ingestion',
+  'question_planning',
+  'projection_summarization',
+  'image_extraction',
+] as const satisfies readonly AssistantJobType[];
+
+const MODEL_BACKED_JOB_TYPE_SET: ReadonlySet<AssistantJobType> =
+  new Set<AssistantJobType>(MODEL_BACKED_JOB_TYPES);
+
 /** §12.1. Gate B enqueues three of these; the rest arrive with their gate. */
 export function isModelBackedJobType(jobType: AssistantJobType): boolean {
-  return jobType === 'conversation_ingestion'
-    || jobType === 'candidate_consolidation'
-    || jobType === 'question_answer_ingestion'
-    || jobType === 'question_planning'
-    || jobType === 'projection_summarization'
-    || jobType === 'image_extraction';
+  return MODEL_BACKED_JOB_TYPE_SET.has(jobType);
 }
 
 export const ConversationIngestionPayloadSchema = z.object({

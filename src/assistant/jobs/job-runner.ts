@@ -17,6 +17,11 @@ export interface InteractivityGate {
   isIdle(): boolean;
 }
 
+/** Reports whether the inference model can currently accept background work. */
+export interface ModelResidencyGate {
+  isModelResident(): boolean;
+}
+
 export interface AssistantJobRunnerOptions {
   readonly graph: AssistantGraph;
   readonly extractor: ConversationExtractor;
@@ -28,6 +33,7 @@ export interface AssistantJobRunnerOptions {
   readonly images: Pick<ImageExtractor, 'run'>;
   readonly retention: Pick<CaptureRetentionService, 'run'>;
   readonly idleGate: InteractivityGate;
+  readonly residencyGate: ModelResidencyGate;
   readonly resourcePolicy: ResourcePolicy;
   readonly jobPriorities: AssistantConfig['Background']['JobPriorities'];
   readonly leaseOwner: string;
@@ -70,6 +76,11 @@ export class AssistantJobRunner {
     this.inFlight?.abort();
   }
 
+  private modelWorkAvailable(): boolean {
+    return this.options.resourcePolicy.canStartModelWork().kind === 'allowed'
+      && this.options.residencyGate.isModelResident();
+  }
+
   async drain(ownerId: string, maxJobs: number): Promise<DrainSummary> {
     this.preemptionRequested = false;
     const recovered = this.options.graph.jobs.recoverExpiredLeases(ownerId);
@@ -81,7 +92,7 @@ export class AssistantJobRunner {
     while (claimed < maxJobs) {
       if (this.preemptionRequested || !this.options.idleGate.isIdle()) break;
       if (this.options.resourcePolicy.canStartBackgroundWork().kind === 'blocked') break;
-      const modelWorkAllowed = this.options.resourcePolicy.canStartModelWork().kind === 'allowed';
+      const modelWorkAllowed = this.modelWorkAvailable();
       const job = this.options.graph.jobs.claimNext({
         ownerId,
         leaseOwner: this.options.leaseOwner,
@@ -95,13 +106,13 @@ export class AssistantJobRunner {
       this.inFlight = controller;
       const modelBacked = isModelBackedJobType(job.job_type);
       const gpuStartedAtMs = Date.now();
-      let modelStarted = false;
+      let shouldRecordGpuUse = false;
       try {
-        if (modelBacked && this.options.resourcePolicy.canStartModelWork().kind === 'blocked') {
+        if (modelBacked && !this.modelWorkAvailable()) {
           this.options.graph.jobs.requeuePreempted(job.id);
           break;
         }
-        modelStarted = modelBacked;
+        shouldRecordGpuUse = modelBacked;
         await this.execute(ownerId, job, controller.signal);
         this.options.graph.jobs.complete(job.id);
         completed += 1;
@@ -111,12 +122,20 @@ export class AssistantJobRunner {
           preempted += 1;
           break;
         }
+        if (modelBacked && !this.options.residencyGate.isModelResident()) {
+          // The model went to sleep under the call. That is residency, not a bad job: give the
+          // attempt back and stop the drain until the model is resident again.
+          this.options.graph.jobs.requeuePreempted(job.id);
+          preempted += 1;
+          shouldRecordGpuUse = false;
+          break;
+        }
         this.options.graph.jobs.fail(
           job.id, error instanceof Error ? error.message : String(error),
         );
         failed += 1;
       } finally {
-        if (modelStarted) {
+        if (shouldRecordGpuUse) {
           this.options.resourcePolicy.recordGpuUse(gpuStartedAtMs, Date.now());
         }
         this.inFlight = null;

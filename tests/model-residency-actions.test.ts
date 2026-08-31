@@ -7,11 +7,19 @@ import test from 'node:test';
 
 import { InferenceModelStateSchema } from '@siftkit/contracts';
 
-import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { AssistantService } from '../src/assistant/assistant-service.js';
+import { FixedClock } from '../src/assistant/clock.js';
+import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
+import { SequentialIdGenerator } from '../src/assistant/ids.js';
+import type {
+  AssistantInferenceClient, AssistantInferenceRequest, AssistantInferenceResult,
+} from '../src/assistant/inference/client.js';
+import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from '../src/config/defaults.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { getManagedLlamaConfig } from '../src/config/normalization.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
+import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedLlamaRuntime } from '../src/status-server/managed-llama-runtime.js';
@@ -21,7 +29,9 @@ import { ModelIdleController } from '../src/status-server/model-idle-controller.
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { TabbyModelClient } from '../src/status-server/tabby-model-client.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
+import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createFakeExl3Capabilities, writeFakeExl3Venv } from './helpers/tabby-fake.js';
@@ -104,6 +114,27 @@ class BlockingRecordingInferenceRuntime extends RecordingInferenceRuntime {
   }
 }
 
+/** Blocks its model call until released, so a drain can be caught inside the inference round-trip. */
+class BlockingAssistantInference implements AssistantInferenceClient {
+  readonly callStarted = createDeferred();
+  readonly callAborted = createDeferred();
+  private readonly releaseCallDeferred = createDeferred();
+  abortSignal: AbortSignal | null = null;
+
+  releaseCall(): void {
+    this.releaseCallDeferred.resolve();
+  }
+
+  async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
+    this.abortSignal = request.abortSignal;
+    request.abortSignal?.addEventListener('abort', () => this.callAborted.resolve(), { once: true });
+    if (request.abortSignal?.aborted === true) this.callAborted.resolve();
+    this.callStarted.resolve();
+    await this.releaseCallDeferred.promise;
+    return { text: '{}', backendId: 'fake', modelId: 'fake-model' };
+  }
+}
+
 function makeLock(): ModelRequestLock {
   return {
     token: 'req-1',
@@ -158,6 +189,7 @@ function createCoordinatorFixture(options: FixtureOptions = {}) {
     activeModelRequests,
     controller,
     coordinator,
+    ctx,
     events,
     exl3Runtime,
     configPath,
@@ -985,5 +1017,63 @@ test('Tabby freeze uses the startup timeout for the host transfer', async () => 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await flushQueue.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('idle freeze preempts a blocked assistant drain and waits for it before freezing', async () => {
+  const fixture = createCoordinatorFixture({ idleAction: 'freeze', blockedTransition: 'freeze' });
+  const inference = new BlockingAssistantInference();
+  let drain: Promise<void> | null = null;
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    fixture.events.length = 0;
+
+    const service = AssistantService.create({
+      database: getRuntimeDatabase(fixture.configPath),
+      runtimeRoot: dirname(fixture.configPath),
+      clock: new FixedClock('2026-08-05T09:00:00.000Z'),
+      ids: new SequentialIdGenerator(),
+      configWriter: new MemoryAssistantConfigWriter({ ...DEFAULT_ASSISTANT_CONFIG, Enabled: true }),
+      inference,
+      tokens: new EstimateTokenCounter(4),
+      idleGate: ALWAYS_IDLE,
+      residencyGate: new StatusServerResidencyGate(fixture.coordinator),
+      config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
+    });
+    fixture.ctx.assistant = service;
+    fixture.ctx.assistantControl = service;
+    service.ingestChatTurn({
+      ownerId: service.ownerId, sessionId: 'chat_residency',
+      capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.',
+      assistantMessageId: 'm2', assistantText: 'Noted.',
+    });
+
+    const order: string[] = [];
+    drain = service.drainJobs();
+    void drain.then(() => order.push('drain'));
+    await inference.callStarted.promise;
+
+    let freezeStarted = false;
+    void fixture.exl3Runtime.transitionStarted.promise.then(() => { freezeStarted = true; });
+    fixture.controller.armAfterRequest({ ...fixture.preset, SleepIdleSeconds: 0.001 }, Date.now());
+    await inference.callAborted.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(freezeStarted, false, 'freeze must not start while the assistant drain is still blocked');
+    assert.equal(inference.abortSignal?.aborted, true, 'the preemption must abort the blocked model call');
+
+    inference.releaseCall();
+    await drain;
+    await fixture.exl3Runtime.transitionStarted.promise.then(() => order.push('freeze'));
+    assert.deepEqual(order, ['drain', 'freeze']);
+
+    fixture.exl3Runtime.releaseTransition();
+    await waitForEvent(fixture.events, 'freeze:exl3');
+    assert.deepEqual(fixture.events, ['freeze:exl3']);
+  } finally {
+    inference.releaseCall();
+    fixture.exl3Runtime.releaseTransition();
+    if (drain) await drain;
+    await fixture.cleanup();
   }
 });
