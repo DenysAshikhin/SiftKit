@@ -18,7 +18,7 @@ async function runProtectedData(
 ): Promise<Buffer> {
   const command = [
     'Add-Type -AssemblyName System.Security;',
-    '$payload = [Convert]::FromBase64String([Console]::In.ReadToEnd());',
+    "$payload = [Convert]::FromBase64String(@($input) -join '');",
     `[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::${operation}(`,
     '$payload, $null,',
     "[Security.Cryptography.DataProtectionScope]::CurrentUser))",

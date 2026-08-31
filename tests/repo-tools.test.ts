@@ -25,6 +25,7 @@ import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engi
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { resolveImageTokenBudget } from '../src/llm-protocol/image-token-budget.js';
+import { fingerprintToolCall } from '../src/tool-loop-governor.js';
 import { makeTestPreset } from './helpers/model-presets.js';
 import {
   RepoNativeToolCallSchema,
@@ -731,6 +732,32 @@ test('run executes a command in the repository root', async () => {
   const result = await executeRepoTool(nativeCall('run', { command: 'Write-Output marker-ok' }), makeContext(root));
   assert.ok(result.ok);
   assert.match(result.output, /marker-ok/u);
+});
+
+test('run keeps the PowerShell host wrapper out of visible commands, fingerprints, and transcripts', async () => {
+  const root = makeRepo();
+  const args = { command: 'Write-Output marker-clean' };
+  const result = await executeRepoTool(nativeCall('run', args), makeContext(root));
+  assert.ok(result.ok);
+
+  const requestedCommand = buildRepoToolRequestedCommand('run', args);
+  assert.equal(result.requestedCommand, requestedCommand);
+  assert.equal(result.command, requestedCommand);
+  assert.doesNotMatch(result.command, /InputEncoding|OutputEncoding|ScriptBlock/u);
+
+  const fingerprint = fingerprintToolCall({
+    toolName: 'run',
+    command: result.command,
+    args,
+  });
+  assert.doesNotMatch(fingerprint, /InputEncoding|OutputEncoding|ScriptBlock/u);
+
+  const transcriptAction = buildEffectiveTranscriptAction({
+    toolName: 'run',
+    rawArgs: args,
+    commandToRun: result.command,
+  });
+  assert.deepEqual(transcriptAction, { toolName: 'run', args });
 });
 
 test('run declares tail-biased output truncation on its execution result', async () => {

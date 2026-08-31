@@ -16,6 +16,23 @@ export const POWERSHELL_BASE_ARGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass']
 export const RUN_SHELL_LABEL = `PowerShell (Windows, ${POWERSHELL_EXECUTABLE})`;
 
 /**
+ * Sets native stdout decoding, native stdin encoding, and shim stdin decoding to UTF-8.
+ * User source is parsed separately so first-position grammar remains valid and host details
+ * never enter requested commands, duplicate fingerprints, or transcripts.
+ */
+const POWERSHELL_UTF8_PRELUDE =
+  '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [Text.UTF8Encoding]::new($false); ';
+
+function buildPowerShellInvocation(command: string, pipeStdin: boolean): string {
+  const commandWithExitGuard = `${command}\nif (-not $?) { exit 1 }`;
+  const escapedCommand = commandWithExitGuard.replaceAll("'", "''");
+  const invokeCommand = `& ([ScriptBlock]::Create('${escapedCommand}'))`;
+  return pipeStdin
+    ? `${POWERSHELL_UTF8_PRELUDE}[Console]::In.ReadToEnd() | ${invokeCommand}`
+    : `${POWERSHELL_UTF8_PRELUDE}${invokeCommand}`;
+}
+
+/**
  * Bounds for the `run` tool's timeout, in milliseconds. Both the tool schema shown to models
  * and the argument validation read these, so the advertised limits cannot drift from the
  * enforced ones.
@@ -44,12 +61,16 @@ export function spawnPowerShellSync(
   command: string,
   options: PowerShellSyncOptions = {},
 ): SpawnSyncReturns<string> {
-  return spawnSync(POWERSHELL_EXECUTABLE, [...POWERSHELL_BASE_ARGS, '-Command', command], {
-    cwd: options.cwd,
-    encoding: options.encoding ?? 'utf8',
-    stdio: options.stdio,
-    windowsHide: options.windowsHide ?? true,
-  });
+  return spawnSync(
+    POWERSHELL_EXECUTABLE,
+    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, false)],
+    {
+      cwd: options.cwd,
+      encoding: options.encoding ?? 'utf8',
+      stdio: options.stdio,
+      windowsHide: options.windowsHide ?? true,
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -73,8 +94,12 @@ export function spawnPowerShellAsync(
   command: string,
   options: PowerShellAsyncOptions = {},
 ): Promise<PowerShellAsyncResult> {
-  return runCapturedCommand(POWERSHELL_EXECUTABLE, [...POWERSHELL_BASE_ARGS, '-Command', command], {
-    ...options,
-    env: options.env ? { ...toStringRecord(process.env), ...options.env } : undefined,
-  });
+  return runCapturedCommand(
+    POWERSHELL_EXECUTABLE,
+    [...POWERSHELL_BASE_ARGS, '-Command', buildPowerShellInvocation(command, options.stdinData !== undefined)],
+    {
+      ...options,
+      env: options.env ? { ...toStringRecord(process.env), ...options.env } : undefined,
+    },
+  );
 }

@@ -290,6 +290,17 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
   assert.match(prompt, /tail/iu, 'must say long output is truncated to the tail');
 });
 
+test('buildAgentSystemPrompt states the exact UTF-8 boundaries and newline split idiom', () => {
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
+  assert.match(
+    prompt,
+    /Native command output, text piped to native commands, and stdin delivered through `\$input` use UTF-8/u,
+  );
+  assert.ok(prompt.includes('-split "`r?`n"'), 'must show the CRLF/LF-safe split idiom');
+  assert.match(prompt, /handle both CRLF and LF/u);
+  assert.doesNotMatch(prompt, /UTF-8 end-to-end|Native command output uses CRLF/u);
+});
+
 // A backslash inside a JSON string is an escape, so `dashboard\node_modules` arrives as a real
 // newline plus `ode_modules`. Inside a run command that is indistinguishable from an intended
 // statement separator and cannot be repaired, so the prompt has to prevent it. Native executables

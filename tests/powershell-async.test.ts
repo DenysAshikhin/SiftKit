@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnPowerShellAsync } from '../src/lib/powershell.js';
+import { spawnPowerShellAsync, spawnPowerShellSync } from '../src/lib/powershell.js';
 import {
   PROCESS_LIFETIME_MS,
   createProcessTreeFixture,
@@ -12,6 +12,10 @@ import {
  */
 function powerShellCommandFor(parentScript: string): string {
   return `& '${process.execPath}' '${parentScript}'`;
+}
+
+function nodeEvalCommand(source: string): string {
+  return `& '${process.execPath}' -e "${source}"`;
 }
 
 /**
@@ -54,4 +58,87 @@ test('spawnPowerShellAsync returns complete output for a command that finishes n
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /first/u);
   assert.match(result.stdout, /second/u);
+});
+
+test('native UTF-8 output is decoded correctly inside the PowerShell pipeline', async () => {
+  const emitSummary = nodeEvalCommand("console.log('\\u2139 tests 3413'); console.log('\\u2716 failing tests:')");
+  const result = await spawnPowerShellAsync(
+    `${emitSummary} | Select-String -Pattern '^\\u2139' | ForEach-Object { $_.Line }`,
+    { timeoutMs: 30_000 },
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'ℹ tests 3413\r\n');
+});
+
+test('PowerShell pipes non-ASCII text into native commands as UTF-8', async () => {
+  const readStdinBytes = nodeEvalCommand(
+    "const chunks = []; process.stdin.on('data', (chunk) => chunks.push(chunk)); process.stdin.on('end', () => process.stdout.write(Buffer.concat(chunks).toString('hex')));",
+  );
+  const result = await spawnPowerShellAsync(`'café ℹ' | ${readStdinBytes} | ForEach-Object { $_ }`, {
+    timeoutMs: 30_000,
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, '636166c3a920e284b90d0a\r\n');
+});
+
+test('stdinData is decoded as UTF-8 and delivered through $input', async () => {
+  const result = await spawnPowerShellAsync('$input | ForEach-Object { $_ }', {
+    timeoutMs: 30_000,
+    stdinData: 'café ℹ',
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'café ℹ\r\n');
+});
+
+test('captured output preserves native UTF-8 glyphs', async () => {
+  const emit = nodeEvalCommand("console.log('\\u2139 \\u2714 \\u2716 caf\\u00e9')");
+  const result = await spawnPowerShellAsync(`${emit} | ForEach-Object { $_ }`, { timeoutMs: 30_000 });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'ℹ ✔ ✖ café\r\n');
+});
+
+test('commands beginning with a param block execute through the async shim', async () => {
+  const result = await spawnPowerShellAsync('param(); Write-Output 42', { timeoutMs: 30_000 });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, '42\r\n');
+});
+
+test('commands beginning with a using statement execute through the async shim', async () => {
+  const result = await spawnPowerShellAsync(
+    'using namespace System.Text; [Encoding]::UTF8.WebName',
+    { timeoutMs: 30_000 },
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'utf-8\r\n');
+});
+
+test('a final native failure maps to the PowerShell process failure exit code', async () => {
+  const result = await spawnPowerShellAsync(nodeEvalCommand('process.exit(7)'), {
+    timeoutMs: 30_000,
+  });
+  assert.equal(result.exitCode, 1);
+});
+
+test('a successful statement after a native failure restores a successful exit', async () => {
+  const result = await spawnPowerShellAsync(
+    `${nodeEvalCommand('process.exit(7)')}; Write-Output recovered`,
+    { timeoutMs: 30_000 },
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'recovered\r\n');
+});
+
+test('a final non-terminating PowerShell error maps to process exit code 1', async () => {
+  const result = await spawnPowerShellAsync('Write-Error broken', { timeoutMs: 30_000 });
+  assert.equal(result.exitCode, 1);
+});
+
+test('sync shim decodes native UTF-8 output correctly inside the PowerShell pipeline', () => {
+  const emitSummary = nodeEvalCommand("console.log('\\u2139 tests 3413')");
+  const result = spawnPowerShellSync(
+    `${emitSummary} | Select-String -Pattern '^\\u2139' | ForEach-Object { $_.Line }`,
+    { encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, 'ℹ tests 3413\r\n');
 });
