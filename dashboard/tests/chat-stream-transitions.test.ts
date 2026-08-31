@@ -7,6 +7,8 @@ import { ChatSessionBusyError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse } from '../src/types';
 
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
 const SESSION: ChatSession = {
   id: 's1',
   title: 'Session',
@@ -68,7 +70,7 @@ class StoreDrain {
   readonly completions: string[] = [];
 
   async drain(stream: AsyncGenerator<ChatStreamEvent>, sessionId: string, thinking: boolean): Promise<void> {
-    for await (const transition of toRuntimeTransitions(sessionId, 'message', stream, thinking)) {
+    for await (const transition of toRuntimeTransitions(sessionId, 'message', OPERATION_ID, stream, thinking)) {
       this.store = this.store.apply(transition);
       if (transition.kind === 'done') {
         this.completions.push(transition.sessionId);
@@ -94,7 +96,7 @@ async function* mismatchedStream(): AsyncGenerator<ChatStreamEvent> {
 
 async function collect(stream: AsyncGenerator<ChatStreamEvent>, thinking: boolean): Promise<string[]> {
   const kinds: string[] = [];
-  for await (const transition of toRuntimeTransitions('session-a', 'plan', stream, thinking)) {
+  for await (const transition of toRuntimeTransitions('session-a', 'plan', OPERATION_ID, stream, thinking)) {
     kinds.push(transition.kind);
   }
   return kinds;
@@ -149,15 +151,15 @@ test('two streams complete out of order without crossing session state', async (
   const runB = drain.drain(controlledStream('session-b', gateB), 'session-b', true);
 
   await Promise.all([gateA.waiting, gateB.waiting]);
-  assert.equal(drain.store.get('session-a').activity.kind, 'active');
-  assert.equal(drain.store.get('session-b').activity.kind, 'active');
+  assert.equal(drain.store.get('session-a').activity.kind, 'local');
+  assert.equal(drain.store.get('session-b').activity.kind, 'local');
   assert.equal(drain.store.get('session-a').liveMessages[0]?.content, 'answer-session-a');
   assert.equal(drain.store.get('session-b').liveMessages[0]?.content, 'answer-session-b');
 
   gateB.open();
   await runB;
   assert.deepEqual(drain.completions, ['session-b']);
-  assert.equal(drain.store.get('session-a').activity.kind, 'active');
+  assert.equal(drain.store.get('session-a').activity.kind, 'local');
   assert.equal(drain.store.get('session-b').activity.kind, 'idle');
 
   gateA.open();
@@ -183,7 +185,7 @@ test('a done payload for another session fails the initiating session', async ()
   assert.deepEqual(drain.completions, []);
 });
 
-test('a 409 from another client leaves the session in remote-busy mode', async () => {
+test('a 409 replaces local ownership with authoritative remote activity', async () => {
   async function* busyStream(): AsyncGenerator<ChatStreamEvent> {
     throw new ChatSessionBusyError({
       error: 'Chat session already has an active operation.',
@@ -194,6 +196,9 @@ test('a 409 from another client leaves the session in remote-busy mode', async (
 
   const drain = new StoreDrain();
   await drain.drain(busyStream(), 'session-a', true);
-  assert.equal(drain.store.get('session-a').activity.kind, 'idle');
-  assert.equal(drain.store.get('session-a').remoteBusy, true);
+  assert.deepEqual(drain.store.get('session-a').activity, {
+    kind: 'remote',
+    operationKind: 'repo-search',
+  });
+  assert.equal(drain.store.get('session-a').error, 'Chat session already has an active operation.');
 });

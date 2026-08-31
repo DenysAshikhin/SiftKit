@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatSessionResponse } from '../src/types';
 
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
 const SAMPLE_DONE: ChatSessionResponse = {
   session: {
     id: 's',
@@ -56,7 +58,7 @@ test('streamPlanMessage yields typed tool and done events in order', async () =>
   ]);
   try {
     const eventKinds: string[] = [];
-    for await (const event of streamPlanMessage('sess', { content: 'go' })) {
+    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
       eventKinds.push(event.kind);
     }
     assert.deepEqual(eventKinds, ['tool', 'done']);
@@ -74,7 +76,7 @@ test('streamChatMessage yields thinking, answer, and done events', async () => {
   ]);
   try {
     const eventKinds: string[] = [];
-    for await (const event of streamChatMessage('sess', { content: 'hi' })) {
+    for await (const event of streamChatMessage('sess', { content: 'hi', operationId: OPERATION_ID })) {
       eventKinds.push(event.kind);
     }
     assert.deepEqual(eventKinds, ['thinking', 'answer', 'done']);
@@ -91,7 +93,7 @@ test('streamRepoSearchMessage yields warning and done events', async () => {
   ]);
   try {
     const events: Array<{ kind: string; text?: string }> = [];
-    for await (const event of streamRepoSearchMessage('sess', { content: 'go' })) {
+    for await (const event of streamRepoSearchMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
       if (event.kind === 'warning') events.push({ kind: 'warning', text: event.text });
       else if (event.kind === 'done') events.push({ kind: 'done' });
     }
@@ -114,10 +116,10 @@ test('plan and repo-search stream requests include attached images', async () =>
     return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
   try {
-    for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image] })) {
+    for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID })) {
       void _event;
     }
-    for await (const _event of streamRepoSearchMessage('sess', { content: 'go', images: [image] })) {
+    for await (const _event of streamRepoSearchMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID })) {
       void _event;
     }
     assert.equal(bodies.length, 2);
@@ -135,7 +137,7 @@ test('streamPlanMessage throws on server error event', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -157,7 +159,7 @@ test('streamPlanMessage throws when done event is missing', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -178,7 +180,7 @@ test('streamPlanMessage throws on empty response body', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -203,7 +205,7 @@ test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -224,7 +226,7 @@ test('streamPlanMessage throws generic error on malformed 409', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -243,15 +245,23 @@ test('stopChatOperation posts to the session stop endpoint and validates the res
   const originalFetch = globalThis.fetch;
   let requestedUrl = '';
   let requestedMethod = '';
+  let requestedBody = '';
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     requestedUrl = String(input);
     requestedMethod = init?.method ?? '';
+    requestedBody = typeof init?.body === 'string' ? init.body : '';
     return new Response(JSON.stringify({ ok: true, operationKind: 'repo-agent' }), { status: 200 });
   };
   try {
-    assert.deepEqual(await stopChatOperation('session one'), { ok: true, operationKind: 'repo-agent' });
+    assert.deepEqual(
+      await stopChatOperation('session one', '4f9c1f9a-0000-4000-8000-000000000000'),
+      { ok: true, operationKind: 'repo-agent' },
+    );
     assert.equal(requestedUrl, '/dashboard/chat/sessions/session%20one/stop');
     assert.equal(requestedMethod, 'POST');
+    assert.deepEqual(JSON.parse(requestedBody), {
+      operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

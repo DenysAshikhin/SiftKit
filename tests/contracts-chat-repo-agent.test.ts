@@ -4,8 +4,16 @@ import {
   ChatSessionOperationKindSchema,
   ChatSessionBusyResponseSchema,
   ChatStreamApprovalSchema,
+  RepoAgentDecisionSchema,
+  ChatRepoAgentStreamRequestSchema,
+  ActiveChatRepoAgentResponseSchema,
+  ChatOperationStatusResponseSchema,
+  StopChatOperationRequestSchema,
+  StopChatOperationResponseSchema,
   PersistedChatMessageSchema,
 } from '@siftkit/contracts';
+
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 test('operation kind accepts repo-agent', () => {
   assert.equal(ChatSessionOperationKindSchema.parse('repo-agent'), 'repo-agent');
@@ -47,4 +55,51 @@ test('repo_agent_approval persisted message parses and old kinds still load', ()
     createdAtUtc: new Date().toISOString(),
   });
   assert.equal(legacy.kind, 'user_text');
+});
+
+test('repo-agent decisions share one strict public contract', () => {
+  assert.deepEqual(RepoAgentDecisionSchema.parse({ decision: 'approve' }), { decision: 'approve' });
+  assert.deepEqual(
+    RepoAgentDecisionSchema.parse({ decision: 'deny', reason: 'unsafe command' }),
+    { decision: 'deny', reason: 'unsafe command' },
+  );
+  assert.throws(() => RepoAgentDecisionSchema.parse({ decision: 'deny' }));
+  assert.throws(() => RepoAgentDecisionSchema.parse({ decision: 'abort', reason: 'extra' }));
+});
+
+test('chat repo-agent stream requests require a client operation id', () => {
+  const parsed = ChatRepoAgentStreamRequestSchema.parse({
+    content: 'update the repository',
+    repoRoot: 'C:\\repo',
+    approval: 'interactive',
+    operationId: OPERATION_ID,
+  });
+  assert.equal(parsed.operationId, OPERATION_ID);
+  assert.throws(() => ChatRepoAgentStreamRequestSchema.parse({ content: 'missing ownership' }));
+});
+
+test('active repo-agent responses expose only actionable nonterminal states', () => {
+  assert.deepEqual(ActiveChatRepoAgentResponseSchema.parse({
+    runId: OPERATION_ID,
+    status: 'running',
+  }), { runId: OPERATION_ID, status: 'running' });
+  assert.throws(() => ActiveChatRepoAgentResponseSchema.parse({
+    runId: OPERATION_ID,
+    status: 'approval_timeout',
+  }));
+});
+
+test('operation status and Stop contracts validate ownership without exposing it in status', () => {
+  assert.deepEqual(StopChatOperationRequestSchema.parse({ operationId: OPERATION_ID }), {
+    operationId: OPERATION_ID,
+  });
+  assert.deepEqual(StopChatOperationResponseSchema.parse({ ok: true, operationKind: 'repo-search' }), {
+    ok: true,
+    operationKind: 'repo-search',
+  });
+  const status = ChatOperationStatusResponseSchema.parse({
+    operationKind: 'repo-agent',
+    startedAtUtc: '2026-08-31T12:00:00.000Z',
+  });
+  assert.equal('operationId' in status, false);
 });

@@ -5,6 +5,8 @@ import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store';
 import type { ChatMessage, ChatSession } from '../src/types';
 
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
   return {
     id: 'm1', role: 'assistant', content: '',
@@ -25,7 +27,7 @@ function session(messages: ChatMessage[]): ChatSession {
 test('active session with a running tool live message returns tool', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, toolCallLimit: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
@@ -37,7 +39,7 @@ test('active session with a running tool live message returns tool', () => {
 test('active streaming assistant with no running tool returns streaming', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
@@ -77,11 +79,11 @@ test('isSessionBusy covers local operations, foreign conflicts, and recovered ap
   assert.equal(isSessionBusy(null), false);
   assert.equal(isSessionBusy(idle), false);
   const active = new ChatSessionRuntimeStore()
-    .apply({ kind: 'begin', sessionId: 's', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 's', operationKind: 'message', operationId: OPERATION_ID })
     .get('s');
   assert.equal(isSessionBusy(active), true);
   const foreignBusy = new ChatSessionRuntimeStore()
-    .apply({ kind: 'failure', sessionId: 's', message: 'busy', remoteBusy: true })
+    .apply({ kind: 'remote-begin', sessionId: 's', operationKind: 'repo-search' })
     .get('s');
   assert.equal(isSessionBusy(foreignBusy), true);
   const recoveredApproval = new ChatSessionRuntimeStore()

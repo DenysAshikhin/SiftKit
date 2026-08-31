@@ -34,7 +34,7 @@ import {
   readChatSessionFromPath,
   saveChatSession,
 } from '../state/chat-sessions.js';
-import type { ChatRepoAgentDecisionRecord } from './routes/chat-repo-agent.js';
+import type { ChatRepoAgentDecisionRecord } from './chat-repo-agent-types.js';
 import { buildUserContent, parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import {
   parseWebToolCommand,
@@ -533,8 +533,7 @@ export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: str
   };
 }
 
-export function appendChatMessagesWithUsage(
-  runtimeRoot: string,
+export function buildChatSessionWithAppendedTurn(
   session: ChatSession,
   content: string,
   assistantContent: string,
@@ -727,6 +726,24 @@ export function appendChatMessagesWithUsage(
     updatedAtUtc: now,
     messages: retainedMessages,
   };
+  return updated;
+}
+
+export function appendChatMessagesWithUsage(
+  runtimeRoot: string,
+  session: ChatSession,
+  content: string,
+  assistantContent: string,
+  usage: Partial<ChatUsage> = {},
+  options: AppendChatOptions = { turns: [] },
+): ChatSession & { messages: PersistedChatMessage[] } {
+  const updated = buildChatSessionWithAppendedTurn(
+    session,
+    content,
+    assistantContent,
+    usage,
+    options,
+  );
   saveChatSession(runtimeRoot, updated);
   return updated;
 }
@@ -761,8 +778,7 @@ export function appendChatRepoAgentMessages(
   if (!session) {
     throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
   }
-  const persisted = appendChatMessagesWithUsage(
-    runtimeRoot,
+  const persisted = buildChatSessionWithAppendedTurn(
     session,
     input.content,
     buildRepoAgentResultMarkdown(input.result),
@@ -774,8 +790,8 @@ export function appendChatRepoAgentMessages(
     throw new Error(`Repo-agent persistence did not produce an assistant answer: ${sessionId}`);
   }
   const approvalMessages = input.decisions.map((decision): PersistedChatMessage => {
-    const reason = decision.decision === 'deny' ? ` — ${decision.reason ?? ''}` : '';
-    const content = `${decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
+    const reason = decision.decision.decision === 'deny' ? ` — ${decision.decision.reason}` : '';
+    const content = `${decision.decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
     return {
       id: randomUUID(),
       role: 'user',
@@ -789,10 +805,10 @@ export function appendChatRepoAgentMessages(
       thinkingTokensEstimated: false,
       createdAtUtc: decision.decidedAtUtc,
       sourceRunId: input.result.runId,
-      approvalDecision: decision.decision,
+      approvalDecision: decision.decision.decision,
       approvalToolName: decision.approval.toolName,
       approvalCommand: decision.approval.command,
-      approvalReason: decision.reason,
+      approvalReason: decision.decision.decision === 'deny' ? decision.decision.reason : null,
     };
   });
   saveChatSession(runtimeRoot, {

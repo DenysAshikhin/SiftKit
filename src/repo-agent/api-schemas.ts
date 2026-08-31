@@ -1,4 +1,10 @@
-import { ImageDataUrlSchema } from '@siftkit/contracts';
+import {
+  ImageDataUrlSchema,
+  RepoAgentAbortDecisionSchema,
+  RepoAgentApproveDecisionSchema,
+  RepoAgentDecisionSchema,
+  RepoAgentDenyDecisionSchema,
+} from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
 import { ApprovalModeSchema } from '../repo-search/engine/approval-gate.js';
@@ -21,18 +27,7 @@ export const RepoAgentStartRequestSchema = z.strictObject({
 });
 export type RepoAgentStartRequest = z.infer<typeof RepoAgentStartRequestSchema>;
 
-const RepoAgentApproveDecisionSchema = z.strictObject({ decision: z.literal('approve') });
-const RepoAgentDenyDecisionSchema = z.strictObject({
-  decision: z.literal('deny'),
-  reason: z.string().trim().min(1),
-});
-const RepoAgentAbortDecisionSchema = z.strictObject({ decision: z.literal('abort') });
-
-export const RepoAgentDecisionSchema = z.discriminatedUnion('decision', [
-  RepoAgentApproveDecisionSchema,
-  RepoAgentDenyDecisionSchema,
-  RepoAgentAbortDecisionSchema,
-]);
+export { RepoAgentDecisionSchema };
 export type RepoAgentDecision = z.infer<typeof RepoAgentDecisionSchema>;
 
 export const RepoAgentDecideRequestSchema = z.discriminatedUnion('decision', [

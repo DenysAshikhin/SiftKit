@@ -2,16 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { ChatSessionResponseSchema, ChatStreamApprovalSchema } from '@siftkit/contracts';
+import {
+  ActiveChatRepoAgentResponseSchema,
+  ChatSessionResponseSchema,
+  ChatStreamApprovalSchema,
+} from '@siftkit/contracts';
 
 import type { JsonObject } from '../src/lib/json-types.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
+const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
+const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
 
 class EngineGate {
   readonly promise: Promise<void>;
@@ -52,8 +59,8 @@ async function waitForApproval(harness: StreamedOperationHarness, sessionId: str
       `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`,
     );
     if (response.statusCode === 200) {
-      const state = asObject(response.body.state);
-      if (state.status === 'approval_required') {
+      const active = ActiveChatRepoAgentResponseSchema.parse(response.body);
+      if (active.status === 'approval_required') {
         return response.body;
       }
     }
@@ -72,7 +79,8 @@ async function waitForRunStatus(
     const response = await requestJson(
       `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`,
     );
-    if (response.statusCode === 200 && asObject(response.body.state).status === expectedStatus) {
+    if (response.statusCode === 200
+      && ActiveChatRepoAgentResponseSchema.parse(response.body).status === expectedStatus) {
       return;
     }
     await delay(10);
@@ -100,6 +108,7 @@ async function startApprovalRun(
         content: 'write a file',
         repoRoot: process.cwd(),
         approval: 'interactive',
+        operationId: OPERATION_A,
         maxTurns: 4,
         mockResponses: [
           { toolCalls: [{ name: 'write', arguments: { path: filename, content: 'approved' } }] },
@@ -156,14 +165,35 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   });
   assert.equal(seeded.statusCode, 200);
 
+  getRuntimeDatabase().exec(`
+    CREATE TEMP TRIGGER require_repo_agent_approval_before_answer
+    BEFORE INSERT ON chat_messages
+    WHEN NEW.kind = 'assistant_answer'
+      AND NEW.source_run_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM chat_messages
+        WHERE session_id = NEW.session_id
+          AND kind = 'repo_agent_approval'
+          AND source_run_id = NEW.source_run_id
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'repo-agent approval must precede its answer');
+    END;
+  `);
+
   const stream = startApprovalRun(harness, sessionId, 'approved.txt');
   const active = await waitForApproval(harness, sessionId);
+  const parsedActive = ActiveChatRepoAgentResponseSchema.parse(active);
+  assert.equal(parsedActive.status, 'approval_required');
+  assert.equal(parsedActive.approval.command.includes('approved.txt'), true);
+  assert.equal('state' in active, false);
   const runId = active.runId;
   assert.equal(typeof runId, 'string');
 
   const busy = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
     method: 'POST',
-    body: JSON.stringify({ content: 'must be rejected while agent runs' }),
+    body: JSON.stringify({ content: 'must be rejected while agent runs', operationId: OPERATION_B }),
   });
   assert.equal(busy.statusCode, 409);
   assert.equal(busy.body.operationKind, 'repo-agent');
@@ -253,6 +283,7 @@ test('chat repo-agent decide rejects a run that is generating instead of parked'
         content: 'hold generation',
         repoRoot: process.cwd(),
         approval: 'off',
+        operationId: OPERATION_A,
         mockResponses: repoAgentFinishResponses('released'),
         mockCommandResults: {},
       }),

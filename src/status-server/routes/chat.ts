@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   PersistedChatMessageSchema,
   ChatStreamTextDeltaSchema,
+  StopChatOperationRequestSchema,
   type PersistedChatMessage as WireChatMessage,
   type ChatSession as WireChatSession,
   type ChatSessionResponse,
@@ -443,6 +444,30 @@ function appendStoppedChatTurn(
     {},
     { turns: [], images },
   );
+}
+
+function finishStoppedChatStream(options: {
+  signal: AbortSignal;
+  runtimeRoot: string;
+  session: ChatSession;
+  content: string;
+  images: string[];
+  partialAnswer: string;
+  configPath: string;
+  writer: SseResponseWriter;
+}): boolean {
+  if (!options.signal.aborted) {
+    return false;
+  }
+  const updatedSession = appendStoppedChatTurn(
+    options.runtimeRoot,
+    options.session,
+    options.content,
+    options.images,
+    options.partialAnswer,
+  );
+  options.writer.writeEvent('done', buildChatSessionResponse(readConfig(options.configPath), updatedSession));
+  return true;
 }
 
 class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -1025,6 +1050,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
 
 class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
+  protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
     res: ServerResponse,
@@ -1176,16 +1202,16 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
-      if (abortController.signal.aborted) {
-        const updatedSession = appendStoppedChatTurn(
-          runtimeRoot,
-          activeSession,
-          userContent,
-          selectedImagesForError?.images ?? messageRequest.images,
-          progressWriter.getAnswerText(),
-        );
-        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
-      } else {
+      if (!finishStoppedChatStream({
+        signal: abortController.signal,
+        runtimeRoot,
+        session: activeSession,
+        content: userContent,
+        images: selectedImagesForError?.images ?? messageRequest.images,
+        partialAnswer: progressWriter.getAnswerText(),
+        configPath,
+        writer: sseWriter,
+      })) {
         sseWriter.writeEvent('error', {
           error: formatChatEngineError(
             error instanceof Error ? error : String(error),
@@ -1269,6 +1295,7 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
 
 class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'plan' as const;
+  protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
     res: ServerResponse,
@@ -1334,16 +1361,16 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       });
     } catch (error) {
       progressWriter.flushPending();
-      if (abortController.signal.aborted) {
-        const updatedSession = appendStoppedChatTurn(
-          runtimeRoot,
-          activeSession,
-          request.value.content,
-          request.value.images,
-          progressWriter.getAnswerText(),
-        );
-        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
-      } else {
+      if (!finishStoppedChatStream({
+        signal: abortController.signal,
+        runtimeRoot,
+        session: activeSession,
+        content: request.value.content,
+        images: request.value.images,
+        partialAnswer: progressWriter.getAnswerText(),
+        configPath,
+        writer: sseWriter,
+      })) {
         sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       }
     } finally {
@@ -1421,6 +1448,7 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
 
 class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'repo-search' as const;
+  protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
     res: ServerResponse,
@@ -1486,16 +1514,16 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       });
     } catch (error) {
       progressWriter.flushPending();
-      if (abortController.signal.aborted) {
-        const updatedSession = appendStoppedChatTurn(
-          runtimeRoot,
-          activeSession,
-          request.value.content,
-          request.value.images,
-          progressWriter.getAnswerText(),
-        );
-        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
-      } else {
+      if (!finishStoppedChatStream({
+        signal: abortController.signal,
+        runtimeRoot,
+        session: activeSession,
+        content: request.value.content,
+        images: request.value.images,
+        partialAnswer: progressWriter.getAnswerText(),
+        configPath,
+        writer: sseWriter,
+      })) {
         sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       }
     } finally {
@@ -1550,7 +1578,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
   }
 }
 
-export class StopChatOperationEndpoint implements RouteEndpoint {
+export class GetChatOperationEndpoint implements RouteEndpoint {
   handle(
     ctx: ServerContext,
     _req: IncomingMessage,
@@ -1559,8 +1587,40 @@ export class StopChatOperationEndpoint implements RouteEndpoint {
   ): void {
     const sessionId = decodeURIComponent(match.captures[0] ?? '');
     const active = ctx.chatSessionOperations.getActive(sessionId);
-    if (!active?.abort) {
-      sendJson(res, 409, { error: 'No stoppable operation is active for this session.' });
+    if (!active) {
+      sendJson(res, 404, { error: 'No active operation for this session.' });
+      return;
+    }
+    sendJson(res, 200, {
+      operationKind: active.operationKind,
+      startedAtUtc: new Date(active.startedAtMs).toISOString(),
+    });
+  }
+}
+
+export class StopChatOperationEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const sessionId = decodeURIComponent(match.captures[0] ?? '');
+    let parsedBody: JsonObject;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch (error) {
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const parsed = StopChatOperationRequestSchema.safeParse(parsedBody);
+    if (!parsed.success) {
+      sendJson(res, 400, { error: 'operationId must be a UUID.' });
+      return;
+    }
+    const active = ctx.chatSessionOperations.getActive(sessionId);
+    if (!active?.abort || active.operationId !== parsed.data.operationId) {
+      sendJson(res, 409, { error: 'No matching stoppable operation is active for this session.' });
       return;
     }
     active.abort();
@@ -1585,6 +1645,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/stream$/u, endpoint: new StreamChatRepoAgentEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/decide$/u, endpoint: new ChatRepoAgentDecideEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation$/u, endpoint: new GetChatOperationEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/stop$/u, endpoint: new StopChatOperationEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
 ]);

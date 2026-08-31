@@ -246,7 +246,7 @@ export function ChatTab({
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
-  const ownsActiveOperation = selectedRuntime?.activity.kind === 'active';
+  const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
   const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
 
   React.useEffect(() => {

@@ -11,10 +11,11 @@ import type { ChatSessionOperationKind } from '../types';
 export async function* toRuntimeTransitions(
   sessionId: string,
   operationKind: ChatSessionOperationKind,
+  operationId: string,
   stream: AsyncGenerator<ChatStreamEvent>,
   thinkingEnabled: boolean,
 ): AsyncGenerator<ChatSessionRuntimeTransition> {
-  yield { kind: 'begin', sessionId, operationKind };
+  yield { kind: 'begin', sessionId, operationKind, operationId };
   let completed = false;
   try {
     for await (const event of stream) {
@@ -48,11 +49,19 @@ export async function* toRuntimeTransitions(
       throw new Error('Chat stream ended before the done event');
     }
   } catch (error) {
+    if (error instanceof ChatSessionBusyError) {
+      yield {
+        kind: 'remote-begin',
+        sessionId,
+        operationKind: error.response.operationKind,
+      };
+      yield { kind: 'control-error', sessionId, message: getErrorMessage(error) };
+      return;
+    }
     yield {
       kind: 'failure',
       sessionId,
       message: getErrorMessage(error),
-      remoteBusy: error instanceof ChatSessionBusyError,
     };
   }
 }

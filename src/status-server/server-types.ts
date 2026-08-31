@@ -20,7 +20,7 @@ import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
-import type { ChatRepoAgentRunBinding } from './routes/chat-repo-agent.js';
+import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 

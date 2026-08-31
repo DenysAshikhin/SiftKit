@@ -169,6 +169,45 @@ export const ChatSessionBusyResponseSchema = z.object({
 });
 export type ChatSessionBusyResponse = z.infer<typeof ChatSessionBusyResponseSchema>;
 
+export const RepoAgentApproveDecisionSchema = z.strictObject({ decision: z.literal('approve') });
+export const RepoAgentDenyDecisionSchema = z.strictObject({
+  decision: z.literal('deny'),
+  reason: z.string().trim().min(1),
+});
+export const RepoAgentAbortDecisionSchema = z.strictObject({ decision: z.literal('abort') });
+export const RepoAgentDecisionSchema = z.discriminatedUnion('decision', [
+  RepoAgentApproveDecisionSchema,
+  RepoAgentDenyDecisionSchema,
+  RepoAgentAbortDecisionSchema,
+]);
+export type RepoAgentDecision = z.infer<typeof RepoAgentDecisionSchema>;
+
+export const ChatRepoAgentStreamRequestSchema = z.strictObject({
+  content: z.string().trim().min(1),
+  images: z.array(ImageDataUrlSchema).optional(),
+  repoRoot: z.string().trim().min(1).optional(),
+  approval: z.enum(['interactive', 'auto', 'off']).optional(),
+  maxTurns: z.number().int().positive().optional(),
+  operationId: z.string().uuid(),
+});
+export type ChatRepoAgentStreamRequest = z.infer<typeof ChatRepoAgentStreamRequestSchema>;
+
+export const ChatOperationStatusResponseSchema = z.strictObject({
+  operationKind: ChatSessionOperationKindSchema,
+  startedAtUtc: z.string().datetime(),
+});
+export type ChatOperationStatusResponse = z.infer<typeof ChatOperationStatusResponseSchema>;
+
+export const ChatOperationIdSchema = z.string().uuid();
+export type ChatOperationId = z.infer<typeof ChatOperationIdSchema>;
+export const StopChatOperationRequestSchema = z.strictObject({ operationId: ChatOperationIdSchema });
+export type StopChatOperationRequest = z.infer<typeof StopChatOperationRequestSchema>;
+export const StopChatOperationResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  operationKind: ChatSessionOperationKindSchema,
+});
+export type StopChatOperationResponse = z.infer<typeof StopChatOperationResponseSchema>;
+
 export const ChatStreamTextDeltaSchema = z.object({
   turn: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
@@ -191,3 +230,14 @@ export const ChatStreamApprovalSchema = z.object({
   reviewPayload: z.string().nullable(),
 });
 export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
+
+const ChatStreamApprovalWithoutRunIdSchema = ChatStreamApprovalSchema.omit({ runId: true });
+export const ActiveChatRepoAgentResponseSchema = z.discriminatedUnion('status', [
+  z.strictObject({ runId: z.string().uuid(), status: z.literal('running') }),
+  z.strictObject({
+    runId: z.string().uuid(),
+    status: z.literal('approval_required'),
+    approval: ChatStreamApprovalWithoutRunIdSchema,
+  }),
+]);
+export type ActiveChatRepoAgentResponse = z.infer<typeof ActiveChatRepoAgentResponseSchema>;

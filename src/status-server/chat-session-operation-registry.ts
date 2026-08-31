@@ -6,6 +6,7 @@ export type ChatSessionOperation = {
   token: string;
   sessionId: string;
   operationKind: ChatSessionOperationKind;
+  operationId: string;
   startedAtMs: number;
   abort?: () => void;
 };
@@ -26,6 +27,7 @@ export class ChatSessionOperationRegistry {
   acquire(
     sessionId: string,
     operationKind: ChatSessionOperationKind,
+    operationId: string,
     nowMs: number,
   ): ChatSessionOperationAcquireResult {
     requireSessionId(sessionId);
@@ -37,6 +39,7 @@ export class ChatSessionOperationRegistry {
       token: randomUUID(),
       sessionId,
       operationKind,
+      operationId,
       startedAtMs: nowMs,
     };
     this.activeBySessionId.set(sessionId, lease);

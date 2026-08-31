@@ -10,6 +10,8 @@ import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
+
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
 import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
 import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
@@ -180,6 +182,8 @@ test('resolved and persisted repo-agent approvals render compact audit rows', ()
   });
   assert.match(markup, /✓ Approved/u);
   assert.match(markup, /✕ Rejected/u);
+  assert.match(markup, />User</u);
+  assert.doesNotMatch(markup, />You</u);
   assert.match(markup, /wrong file/u);
   assert.doesNotMatch(markup, /class="approval-card"/u);
 });
@@ -187,7 +191,7 @@ test('resolved and persisted repo-agent approvals render compact audit rows', ()
 test('a locally active operation replaces the send control with an enabled Stop button', async () => {
   let stops = 0;
   const store = buildDefaultStore(SESSION_A.id)
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent' });
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     selectedRuntime: store.get(SESSION_A.id),
@@ -204,10 +208,9 @@ test('a locally active operation replaces the send control with an enabled Stop 
 
 test('an operation owned by another client keeps the mode button disabled without showing Stop', () => {
   const store = buildDefaultStore(SESSION_A.id).apply({
-    kind: 'failure',
+    kind: 'remote-begin',
     sessionId: SESSION_A.id,
-    message: 'Chat session already has an active operation.',
-    remoteBusy: true,
+    operationKind: 'repo-agent',
   });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
@@ -398,7 +401,9 @@ test('chat tab renders session lane, controls, messages, and composer', () => {
 });
 
 test('busy A stays visible while selected B remains interactive', () => {
-  const store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
+  const store = buildDefaultStore('session-b').apply({
+    kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
+  });
   const markup = render({
     selectedSessionId: 'session-b',
     selectedSession: SESSION_B,
@@ -412,7 +417,9 @@ test('busy A stays visible while selected B remains interactive', () => {
 });
 
 test('selected busy A disables mutable controls except Stop', () => {
-  const store = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
+  const store = buildDefaultStore('session-a').apply({
+    kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
+  });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   assert.match(markup, /class="send stop"[^>]*>Stop/u);
   assert.match(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
@@ -440,7 +447,7 @@ test('selected session alone supplies errors and warnings', () => {
 
 test('a running tool message renders a neutral friendly activity row', () => {
   const store = buildDefaultStore('session-a')
-    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, toolCallLimit: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
@@ -563,7 +570,7 @@ test('a submitted message renders as a pending bubble instead of staying in the 
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id)
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE })
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [{ dataUrl: IMAGE, note: null }] });
   const markup = render({
     selectedRuntime: store.get(SESSION_A.id),
@@ -579,7 +586,7 @@ test('a submitted message renders as a pending bubble instead of staying in the 
 test('the pending bubble survives a warning that arrives before the stream', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id)
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
     .apply({ kind: 'warning', sessionId: SESSION_A.id, text: 'repo root is dirty' });
   const markup = render({
@@ -593,7 +600,7 @@ test('the pending bubble survives a warning that arrives before the stream', () 
 test('the pending bubble clears once the assistant starts streaming', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id)
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
     .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'here it is' } });
   const markup = render({
@@ -753,6 +760,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
         timeoutMs: 10_000,
         body: JSON.stringify({
           content: triggerQuestion,
+          operationId: OPERATION_ID,
           webSearchOverride: 'off',
           maxTurns: 1,
           availableModels: ['mock'],
@@ -866,7 +874,9 @@ function buildThinkingStore(options: {
   return new ChatSessionRuntimeStore()
     .ensureSession(SESSION_B.id)
     .apply({ kind: 'submit', sessionId: SESSION_B.id, content: options.content, images: options.images })
-    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: options.operationKind })
+    .apply({
+      kind: 'begin', sessionId: SESSION_B.id, operationKind: options.operationKind, operationId: OPERATION_ID,
+    })
     .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: options.marker } });
 }
 

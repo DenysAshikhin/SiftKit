@@ -15,6 +15,8 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
+const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
 class RecordingAssistant {
   readonly enabled = true;
   readonly ownerId = 'own_test';
@@ -83,6 +85,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
         timeoutMs: 5_000,
         body: JSON.stringify({
           content: 'Which shell do I use?',
+          operationId: CHAT_OPERATION_ID,
           webSearchOverride: 'off',
           availableModels: ['mock'],
           model: 'mock',

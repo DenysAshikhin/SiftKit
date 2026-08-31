@@ -16,6 +16,7 @@ const CHAT_ANSWER = '4';
 const MOCK_FINISH_RESPONSE = `{"action":"finish","output":"${CHAT_ANSWER}"}`;
 const MOCK_TOOL_RESPONSE = "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}}";
 const MOCK_TOOL_COMMAND = "git operation=\"grep\" path=\".\" pattern=\"test\"";
+const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 const BACKEND_USAGE = {
   prompt_tokens: 123,
@@ -43,6 +44,7 @@ function buildChatCompletion(content: string, withUsage: boolean) {
 function buildAgentTurnBody(repoRoot: string): string {
   return JSON.stringify({
     content: 'Find tests',
+    operationId: CHAT_OPERATION_ID,
     repoRoot,
     maxTurns: 2,
     mockCommandResults: {
@@ -159,6 +161,7 @@ test('a streamed chat message persists usage speculative tokens when no managed 
     const sessionId = await fixture.createSession('spec-fallback-stream');
     const session = await fixture.postSseTurn(sessionId, 'messages/stream', JSON.stringify({
       content: CHAT_PROMPT,
+      operationId: CHAT_OPERATION_ID,
       webSearchOverride: 'off',
     }));
     assertFallbackSpeculativeTokens(session);

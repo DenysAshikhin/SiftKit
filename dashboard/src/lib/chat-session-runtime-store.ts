@@ -21,7 +21,8 @@ import type { RepoAgentDecision } from '../api';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }
-  | { kind: 'active'; operationKind: ChatSessionOperationKind };
+  | { kind: 'local'; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'remote'; operationKind: ChatSessionOperationKind };
 
 export type SubmittedChatInput = { content: string; images: PendingImage[] };
 export type ResolvedRepoAgentApproval = {
@@ -33,7 +34,6 @@ export type ResolvedRepoAgentApproval = {
 export type ChatSessionRuntime = {
   sessionId: string;
   activity: ChatSessionActivity;
-  remoteBusy: boolean;
   liveMessages: ChatMessage[];
   error: string | null;
   warnings: string[];
@@ -51,7 +51,9 @@ export type ChatSessionRuntime = {
 };
 
 export type ChatSessionRuntimeTransition =
-  | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind }
+  | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionOperationKind }
+  | { kind: 'remote-clear'; sessionId: string }
   | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'narration'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
@@ -63,7 +65,8 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
-  | { kind: 'failure'; sessionId: string; message: string; remoteBusy?: boolean }
+  | { kind: 'failure'; sessionId: string; message: string }
+  | { kind: 'control-error'; sessionId: string; message: string }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
@@ -74,7 +77,6 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
   return {
     sessionId,
     activity: { kind: 'idle' },
-    remoteBusy: false,
     liveMessages: [],
     error: null,
     warnings: [],
@@ -136,9 +138,18 @@ function applyTransition(
     case 'begin':
       return {
         ...runtime,
-        activity: { kind: 'active', operationKind: transition.operationKind },
-        remoteBusy: false,
+        activity: {
+          kind: 'local',
+          operationKind: transition.operationKind,
+          operationId: transition.operationId,
+        },
       };
+    case 'remote-begin':
+      return { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } };
+    case 'remote-clear':
+      return runtime.activity.kind === 'remote'
+        ? { ...runtime, activity: { kind: 'idle' }, error: null }
+        : runtime;
     case 'thinking':
       return {
         ...runtime,
@@ -190,7 +201,6 @@ function applyTransition(
       return {
         ...runtime,
         activity: { kind: 'idle' },
-        remoteBusy: false,
         contextUsage: transition.response.contextUsage,
         liveMessages: [],
         error: null,
@@ -205,7 +215,6 @@ function applyTransition(
       return {
         ...runtime,
         activity: { kind: 'idle' },
-        remoteBusy: transition.remoteBusy === true,
         error: transition.message,
         liveMessages: [],
         draft: runtime.submittedInput ? runtime.submittedInput.content : runtime.draft,
@@ -215,6 +224,8 @@ function applyTransition(
         pendingApproval: null,
         resolvedApproval: null,
       };
+    case 'control-error':
+      return { ...runtime, error: transition.message };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
     case 'draft':

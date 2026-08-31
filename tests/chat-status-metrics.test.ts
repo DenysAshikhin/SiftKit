@@ -6,6 +6,8 @@ import { startStubStatusServer } from './_runtime-helpers.js';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
 import { asObject, requestJson, requestSse } from './helpers/dashboard-http.js';
 
+const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
 // A chat turn is reported to /status twice when both the dashboard route and the engine
 // post for the same turn: every character, token and millisecond lands in the runtime
 // totals once per poster. These E2Es drive the real endpoints against a live status
@@ -147,6 +149,7 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
       timeoutMs: 10_000,
       body: JSON.stringify({
         content: CHAT_PROMPT,
+        operationId: CHAT_OPERATION_ID,
         webSearchOverride: 'off',
         availableModels: ['mock'],
         model: 'mock',

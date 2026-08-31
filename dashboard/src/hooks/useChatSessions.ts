@@ -7,13 +7,13 @@ import {
 import { toError } from '../../../src/lib/errors.js';
 import {
   condenseChatSession,
-  ActiveRepoAgentApprovalStateSchema,
   createChatSession,
   deleteChatMessage,
   deleteChatMessageImage,
   deleteChatSession,
   decideRepoAgent,
   getActiveRepoAgentRun,
+  getChatOperationStatus,
   getChatSession,
   getChatSessions,
   getInferenceRuntimeStatus,
@@ -40,6 +40,8 @@ export type CreateChatSessionRequest = {
   title: string;
   presetId?: string;
 };
+
+const REMOTE_OPERATION_POLL_MS = 100;
 
 export function pickFirstSessionId(sessions: ChatSession[]): string {
   return sessions[0]?.id ?? '';
@@ -120,8 +122,12 @@ export function useChatSessions(deps: {
       return;
     }
     let cancelled = false;
-    void Promise.all([getChatSession(selectedSessionId), getActiveRepoAgentRun(selectedSessionId)])
-      .then(([response, activeRun]) => {
+    void Promise.all([
+      getChatSession(selectedSessionId),
+      getActiveRepoAgentRun(selectedSessionId),
+      getChatOperationStatus(selectedSessionId),
+    ])
+      .then(([response, activeRun, activeOperation]) => {
         if (!cancelled) {
           setSessions((previous) => upsertSession(previous, response.session));
           setRuntimeStore((previous) => previous.apply({
@@ -129,16 +135,32 @@ export function useChatSessions(deps: {
             sessionId: response.session.id,
             contextUsage: response.contextUsage,
           }));
-          const state = ActiveRepoAgentApprovalStateSchema.safeParse(activeRun?.state);
-          if (activeRun && state.success) {
+          if (activeRun?.status === 'approval_required') {
             setRuntimeStore((previous) => previous.apply({
               kind: 'approval',
               sessionId: response.session.id,
-              approval: { runId: activeRun.runId, ...state.data.approval },
+              approval: { runId: activeRun.runId, ...activeRun.approval },
             }));
           } else {
             setRuntimeStore((previous) => previous.apply({
               kind: 'approval-clear',
+              sessionId: response.session.id,
+            }));
+          }
+          if (activeOperation) {
+            setRuntimeStore((previous) => {
+              const runtime = previous.get(response.session.id);
+              return runtime.activity.kind === 'local'
+                ? previous
+                : previous.apply({
+                    kind: 'remote-begin',
+                    sessionId: response.session.id,
+                    operationKind: activeOperation.operationKind,
+                  });
+            });
+          } else {
+            setRuntimeStore((previous) => previous.apply({
+              kind: 'remote-clear',
               sessionId: response.session.id,
             }));
           }
@@ -153,6 +175,65 @@ export function useChatSessions(deps: {
       cancelled = true;
     };
   }, [selectedSessionId]);
+
+  const selectedRuntime = runtimeStore.getAll().find(
+    (runtime) => runtime.sessionId === selectedSessionId,
+  ) ?? null;
+  const selectedRemoteOperationKind = selectedRuntime?.activity.kind === 'remote'
+    ? selectedRuntime.activity.operationKind
+    : null;
+
+  useEffect(() => {
+    if (!selectedSessionId || selectedRemoteOperationKind === null) {
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async (): Promise<void> => {
+      try {
+        const activeOperation = await getChatOperationStatus(selectedSessionId);
+        if (cancelled) {
+          return;
+        }
+        if (activeOperation) {
+          if (activeOperation.operationKind !== selectedRemoteOperationKind) {
+            setRuntimeStore((previous) => previous.apply({
+              kind: 'remote-begin',
+              sessionId: selectedSessionId,
+              operationKind: activeOperation.operationKind,
+            }));
+          }
+          timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
+          return;
+        }
+        const response = await getChatSession(selectedSessionId);
+        if (cancelled) {
+          return;
+        }
+        setSessions((previous) => upsertSession(previous, response.session));
+        setRuntimeStore((previous) => previous
+          .apply({ kind: 'context-usage', sessionId: selectedSessionId, contextUsage: response.contextUsage })
+          .apply({ kind: 'approval-clear', sessionId: selectedSessionId })
+          .apply({ kind: 'remote-clear', sessionId: selectedSessionId }));
+      } catch (error) {
+        if (!cancelled) {
+          setRuntimeStore((previous) => previous.apply({
+            kind: 'control-error',
+            sessionId: selectedSessionId,
+            message: toError(error).message,
+          }));
+          timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
+        }
+      }
+    };
+    timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+    };
+  }, [selectedSessionId, selectedRemoteOperationKind]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
     setSessions((previous) => upsertSession(previous, response.session));
@@ -354,10 +435,17 @@ export function useChatSessions(deps: {
   async function runChatStream(
     sessionId: string,
     operationKind: ChatSessionOperationKind,
+    operationId: string,
     stream: AsyncGenerator<ChatStreamEvent>,
   ): Promise<void> {
     const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
-    for await (const transition of toRuntimeTransitions(sessionId, operationKind, stream, thinkingEnabled)) {
+    for await (const transition of toRuntimeTransitions(
+      sessionId,
+      operationKind,
+      operationId,
+      stream,
+      thinkingEnabled,
+    )) {
       setRuntimeStore((previous) => previous.apply(transition));
       if (transition.kind === 'done') {
         setSessions((previous) => upsertSession(previous, transition.response.session));
@@ -414,12 +502,15 @@ export function useChatSessions(deps: {
       }
     }
     submitRuntimeInputs(selectedSession.id, inputs.draft, inputs.pendingImages);
+    const operationId = crypto.randomUUID();
     await runChatStream(
       selectedSession.id,
       'message',
+      operationId,
       streamChatMessage(selectedSession.id, {
         content: inputs.draft,
         images: inputs.pendingImages.map((image) => image.dataUrl),
+        operationId,
       }),
     );
   }
@@ -431,11 +522,13 @@ export function useChatSessions(deps: {
       return;
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
-    await runChatStream(session.id, 'plan', streamPlanMessage(session.id, {
+    const operationId = crypto.randomUUID();
+    await runChatStream(session.id, 'plan', operationId, streamPlanMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      operationId,
     }));
   }
 
@@ -446,11 +539,13 @@ export function useChatSessions(deps: {
       return;
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
-    await runChatStream(session.id, 'repo-search', streamRepoSearchMessage(session.id, {
+    const operationId = crypto.randomUUID();
+    await runChatStream(session.id, 'repo-search', operationId, streamRepoSearchMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      operationId,
     }));
   }
 
@@ -461,11 +556,13 @@ export function useChatSessions(deps: {
       return;
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
-    await runChatStream(session.id, 'repo-agent', streamRepoAgentMessage(session.id, {
+    const operationId = crypto.randomUUID();
+    await runChatStream(session.id, 'repo-agent', operationId, streamRepoAgentMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      operationId,
     }));
   }
 
@@ -488,10 +585,18 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
+    const activity = runtimeStore.get(selectedSessionId).activity;
+    if (activity.kind !== 'local') {
+      return;
+    }
     try {
-      await stopChatOperation(selectedSessionId);
+      await stopChatOperation(selectedSessionId, activity.operationId);
     } catch (error) {
-      recordSessionError(selectedSessionId, toError(error));
+      setRuntimeStore((previous) => previous.apply({
+        kind: 'control-error',
+        sessionId: selectedSessionId,
+        message: toError(error).message,
+      }));
     }
   }
 

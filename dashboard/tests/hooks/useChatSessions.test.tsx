@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { ActiveChatRepoAgentResponse } from '@siftkit/contracts';
 import { renderHook, waitFor } from '../react-test-environment.js';
 
 import {
@@ -13,7 +14,8 @@ import {
 import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
 import { MANAGED_PRESET } from '../fixtures.js';
 import type { ChatMessage, ChatSession } from '../../src/types';
-import type { JsonValue } from '../../../src/lib/json-types.js';
+
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -78,13 +80,15 @@ test('upsertSession updates A without replacing selected B', () => {
 test('adding a new session leaves another session streaming', () => {
   const runtimeStore = new ChatSessionRuntimeStore()
     .ensureSession('session-a')
-    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
   const sessions = upsertSession(
     [{ ...SESSION, id: 'session-a' }],
     { ...SESSION, id: 'session-b' },
   );
   assert.equal(sessions[0]?.id, 'session-b');
-  assert.deepEqual(runtimeStore.get('session-a').activity, { kind: 'active', operationKind: 'message' });
+  assert.deepEqual(runtimeStore.get('session-a').activity, {
+    kind: 'local', operationKind: 'message', operationId: OPERATION_ID,
+  });
 });
 
 test('useChatSessions surfaces the initial selected session id without an immediate fetch result', () => {
@@ -166,6 +170,8 @@ class ChatFetchFixture {
   detailRequestCount = 0;
   streamRequestCount = 0;
   stopRequestCount = 0;
+  operationStatusRequestCount = 0;
+  private streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly originalFetch = globalThis.fetch;
   private restored = false;
 
@@ -174,7 +180,10 @@ class ChatFetchFixture {
     detailResponse: ChatFixtureResponse;
     streamResponse: ChatFixtureResponse;
     runtimeStatus?: typeof RUNTIME_STATUS;
-    activeRun?: { runId: string; state: JsonValue };
+    activeRun?: ActiveChatRepoAgentResponse;
+    operationStatuses?: Array<'active' | 'missing'>;
+    holdStream?: boolean;
+    stopStatus?: number;
   }) {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = String(input);
@@ -194,8 +203,28 @@ class ChatFetchFixture {
           ? new Response(JSON.stringify(this.options.activeRun), { status: 200 })
           : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
       }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/operation`) {
+        const sequence = this.options.operationStatuses ?? ['missing'];
+        const index = Math.min(this.operationStatusRequestCount, sequence.length - 1);
+        const status = sequence[index];
+        this.operationStatusRequestCount += 1;
+        return status === 'active'
+          ? new Response(JSON.stringify({
+              operationKind: 'repo-agent',
+              startedAtUtc: '2026-08-31T12:00:00.000Z',
+            }), { status: 200 })
+          : new Response(JSON.stringify({ error: 'No active operation' }), { status: 404 });
+      }
       if (url === `/dashboard/chat/sessions/${this.options.session.id}/messages/stream`) {
         this.streamRequestCount += 1;
+        if (this.options.holdStream) {
+          return new Response(new ReadableStream<Uint8Array>({
+            start: (controller) => { this.streamController = controller; },
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          });
+        }
         return new Response(`event: done\ndata: ${JSON.stringify(this.options.streamResponse)}\n\n`, {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream' },
@@ -203,13 +232,30 @@ class ChatFetchFixture {
       }
       if (url === `/dashboard/chat/sessions/${this.options.session.id}/stop`) {
         this.stopRequestCount += 1;
-        return new Response(JSON.stringify({ ok: true, operationKind: 'message' }), { status: 200 });
+        const status = this.options.stopStatus ?? 200;
+        return new Response(
+          JSON.stringify(status === 200
+            ? { ok: true, operationKind: 'message' }
+            : { error: 'Stop transport failed.' }),
+          { status },
+        );
       }
       if (url === '/runtime/inference' && this.options.runtimeStatus) {
         return new Response(JSON.stringify(this.options.runtimeStatus), { status: 200 });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     };
+  }
+
+  finishHeldStream(): void {
+    const controller = this.streamController;
+    if (!controller) {
+      throw new Error('No held stream is active.');
+    }
+    const event = `event: done\ndata: ${JSON.stringify(this.options.streamResponse)}\n\n`;
+    controller.enqueue(new TextEncoder().encode(event));
+    controller.close();
+    this.streamController = null;
   }
 
   restore(): void {
@@ -226,16 +272,15 @@ test('selecting a session restores a parked repo-agent approval', async () => {
     streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     activeRun: {
       runId: '4f9c1f9a-0000-4000-8000-000000000000',
-      state: {
-        status: 'approval_required',
-        approval: {
-          approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-          toolName: 'bash',
-          command: 'npm test',
-          reviewPayload: null,
-        },
+      status: 'approval_required',
+      approval: {
+        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+        toolName: 'bash',
+        command: 'npm test',
+        reviewPayload: null,
       },
     },
+    operationStatuses: ['active'],
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -245,7 +290,35 @@ test('selecting a session restores a parked repo-agent approval', async () => {
     }));
     await waitFor(() => {
       assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
     });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a recovered remote operation unlocks only after status disappears and the session refreshes', async () => {
+  const response = { session: SESSION, contextUsage: CONTEXT_USAGE };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: response,
+    streamResponse: response,
+    operationStatuses: ['active', 'missing'],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
+    });
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
+      assert.ok(fixture.detailRequestCount >= 2);
+      assert.ok(fixture.operationStatusRequestCount >= 2);
+    }, { timeout: 2_000 });
   } finally {
     fixture.restore();
   }
@@ -315,6 +388,7 @@ test('stopOperation posts for the selected session', async () => {
     session: SESSION,
     detailResponse: response,
     streamResponse: response,
+    holdStream: true,
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -325,8 +399,54 @@ test('stopOperation posts for the selected session', async () => {
       enqueueToast: () => {},
     }));
     await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
+    act(() => { hook.result.current.setSessionDraft('s1', 'stop this'); });
+    let sendPromise: Promise<void> | null = null;
+    act(() => { sendPromise = hook.result.current.sendMessage(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
     await act(async () => { await hook.result.current.stopOperation(); });
     assert.equal(fixture.stopRequestCount, 1);
+    fixture.finishHeldStream();
+    if (!sendPromise) {
+      throw new Error('Expected send promise.');
+    }
+    await act(async () => { await sendPromise; });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a failed Stop request preserves the locally active stream state', async () => {
+  const response = { session: SESSION, contextUsage: CONTEXT_USAGE };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: response,
+    streamResponse: response,
+    holdStream: true,
+    stopStatus: 503,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
+    act(() => { hook.result.current.setSessionDraft('s1', 'keep running'); });
+    let sendPromise: Promise<void> | null = null;
+    act(() => { sendPromise = hook.result.current.sendMessage(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+
+    await act(async () => { await hook.result.current.stopOperation(); });
+    const afterStopFailure = hook.result.current.runtimeStore.get('s1');
+    assert.equal(afterStopFailure.activity.kind, 'local');
+    assert.equal(afterStopFailure.error, 'Request failed (503): {"error":"Stop transport failed."}');
+    assert.equal(afterStopFailure.submittedInput?.content, 'keep running');
+
+    fixture.finishHeldStream();
+    if (!sendPromise) {
+      throw new Error('Expected send promise.');
+    }
+    await act(async () => { await sendPromise; });
   } finally {
     fixture.restore();
   }

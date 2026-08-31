@@ -7,7 +7,7 @@ export function deriveSessionIndicator(
   session: ChatSession,
   runtime: ChatSessionRuntime | null,
 ): SessionIndicator {
-  if (runtime && runtime.activity.kind === 'active') {
+  if (runtime && runtime.activity.kind !== 'idle') {
     const hasRunningTool = runtime.liveMessages.some((message) => message.toolCallStatus === 'running');
     return hasRunningTool ? 'tool' : 'streaming';
   }
@@ -24,8 +24,7 @@ export function deriveSessionIndicator(
 
 export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
   return runtime !== null && (
-    runtime.activity.kind === 'active'
-    || runtime.remoteBusy
+    runtime.activity.kind !== 'idle'
     || runtime.pendingApproval !== null
   );
 }

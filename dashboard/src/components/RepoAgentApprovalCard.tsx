@@ -45,7 +45,7 @@ export function RepoAgentApprovalRow({ decision, command, reason, decidedAtUtc }
     <div className={decision === 'approve' ? 'approval-row ok' : 'approval-row bad'}>
       <span className="verdict">{verdict}</span>
       <span className="cmd-inline">{command}</span>
-      <span>· <span className="who">You</span> · {formatDate(decidedAtUtc)}</span>
+      <span>· <span className="who">User</span> · {formatDate(decidedAtUtc)}</span>
       {reason ? <span>· {reason}</span> : null}
     </div>
   );

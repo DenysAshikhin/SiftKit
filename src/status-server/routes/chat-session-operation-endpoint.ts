@@ -1,8 +1,9 @@
 import { existsSync, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 
-import type { ChatSessionOperationKind } from '@siftkit/contracts';
+import { ChatOperationIdSchema, type ChatSessionOperationKind } from '@siftkit/contracts';
 
 import { toError } from '../../lib/errors.js';
 import type { JsonObject } from '../../lib/json-types.js';
@@ -114,6 +115,7 @@ export function parseChatRepoOperationRequest(
 export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndpoint {
   protected abstract readonly operationKind: ChatSessionOperationKind;
   protected readonly useSessionOperationLease: boolean = true;
+  protected readonly clientOwnedOperation: boolean = false;
 
   /** Returns null after sending its own 4xx response. */
   protected abstract parseRequest(
@@ -153,8 +155,20 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     if (value === null) {
       return;
     }
+    const operationId = this.clientOwnedOperation
+      ? ChatOperationIdSchema.safeParse(parsedBody.operationId)
+      : null;
+    if (operationId && !operationId.success) {
+      sendJson(res, 400, { error: 'operationId must be a UUID.' });
+      return;
+    }
     const acquisition = this.useSessionOperationLease
-      ? ctx.chatSessionOperations.acquire(sessionId, this.operationKind, Date.now())
+      ? ctx.chatSessionOperations.acquire(
+          sessionId,
+          this.operationKind,
+          operationId?.data ?? randomUUID(),
+          Date.now(),
+        )
       : null;
     if (acquisition?.kind === 'conflict') {
       rejectBusyChatSession(ctx, res, sessionId, this.operationKind, acquisition.active);

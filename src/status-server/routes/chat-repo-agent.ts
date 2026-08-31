@@ -2,14 +2,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   MockPlannerResponsesSchema,
-  type MockPlannerResponse,
 } from '../../planner-protocol/mock-response.js';
 import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
-import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
-import { ApprovalModeSchema, type ApprovalMode } from '../../repo-search/engine/approval-gate.js';
+import { ApprovalModeSchema } from '../../repo-search/engine/approval-gate.js';
 import {
   RepoSearchMockCommandResultSchema,
-  type RepoSearchMockCommandResult,
 } from '../../repo-search/types.js';
 import { z } from '../../lib/zod.js';
 import type { JsonObject } from '../../lib/json-types.js';
@@ -30,6 +27,7 @@ import {
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import { getRuntimeRoot } from '../paths.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
+import type { ChatRepoAgentRunBinding } from '../chat-repo-agent-types.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
@@ -42,27 +40,18 @@ import {
 import { ChatStreamProgressWriter, buildChatSessionResponse } from './chat.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
-export type ChatRepoAgentDecisionRecord = {
-  decision: 'approve' | 'deny' | 'abort';
-  reason: string | null;
-  approval: RepoAgentApproval;
-  decidedAtUtc: string;
-};
+const ChatRepoAgentRequestExtrasSchema = z.strictObject({
+  approval: ApprovalModeSchema,
+  maxTurns: z.number().int().positive().optional(),
+  mockResponses: MockPlannerResponsesSchema.optional(),
+  mockCommandResults: z.record(z.string(), RepoSearchMockCommandResultSchema).optional(),
+});
 
-export type ChatRepoAgentRunBinding = {
-  runId: string;
-  decisions: ChatRepoAgentDecisionRecord[];
-};
-
-type ChatRepoAgentRequest = ResolvedChatRepoRequest & {
-  approval: ApprovalMode;
-  maxTurns?: number;
-  mockResponses?: MockPlannerResponse[];
-  mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
-};
+type ChatRepoAgentRequest = ResolvedChatRepoRequest & z.infer<typeof ChatRepoAgentRequestExtrasSchema>;
 
 export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
   protected readonly operationKind = 'repo-agent' as const;
+  protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
     res: ServerResponse,
@@ -92,13 +81,13 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       sendJson(res, 400, { error: 'Invalid repo-agent request.' });
       return null;
     }
-    return {
-      ...base,
+    const extras = ChatRepoAgentRequestExtrasSchema.parse({
       approval: approval.data ?? 'interactive',
       maxTurns: maxTurns.data,
       mockResponses: mockResponses.data,
       mockCommandResults: mockCommandResults.data,
-    };
+    });
+    return { ...base, ...extras };
   }
 
   protected async run(
@@ -216,8 +205,7 @@ export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
       return;
     }
     binding.decisions.push({
-      decision: parsed.data.decision,
-      reason: parsed.data.decision === 'deny' ? parsed.data.reason : null,
+      decision: parsed.data,
       approval,
       decidedAtUtc: new Date().toISOString(),
     });
@@ -239,6 +227,24 @@ export class GetChatRepoAgentActiveEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'No active repo-agent run for this session.' });
       return;
     }
-    sendJson(res, 200, { runId: binding.runId, state: session.getState() });
+    const state = session.getState();
+    if (state.status === 'running') {
+      sendJson(res, 200, { runId: binding.runId, status: state.status });
+      return;
+    }
+    if (state.status === 'approval_required') {
+      sendJson(res, 200, {
+        runId: binding.runId,
+        status: state.status,
+        approval: {
+          approvalId: state.approval.approvalId,
+          toolName: state.approval.toolName,
+          command: state.approval.command,
+          reviewPayload: state.approval.reviewPayload ?? null,
+        },
+      });
+      return;
+    }
+    sendJson(res, 404, { error: 'No active repo-agent run for this session.' });
   }
 }

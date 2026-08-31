@@ -48,6 +48,7 @@ import type { RunEvent } from '../dashboard/src/types.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 
+const CHAT_STREAM_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
 function toRunEvents(value: OptionalJsonValue): RunEvent[] {
@@ -1131,7 +1132,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
       method: 'POST',
       timeoutMs: 3000,
-      body: JSON.stringify(planRequestBody),
+      body: JSON.stringify({ ...planRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(planSse.statusCode, 200);
     assert.deepEqual(
@@ -1202,6 +1203,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Find tests',
+        operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: tempRoot,
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
@@ -1337,7 +1339,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
     const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
       method: 'POST',
       timeoutMs: 3000,
-      body: JSON.stringify(imageRequestBody),
+      body: JSON.stringify({ ...imageRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(repoResponse.statusCode, 200);
     const repoDoneSession = d(repoResponse.events.find((event) => event.event === 'done')?.payload).session;
@@ -1499,7 +1501,11 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
     const streamResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
       timeoutMs: 5_000,
-      body: JSON.stringify({ content: 'Describe it again.', images: [secondOversizedImage] }),
+      body: JSON.stringify({
+        content: 'Describe it again.',
+        images: [secondOversizedImage],
+        operationId: CHAT_STREAM_OPERATION_ID,
+      }),
     });
     assert.equal(streamResponse.statusCode, 200, JSON.stringify(streamResponse.events));
     assert.equal(streamResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(streamResponse.events));
@@ -1682,7 +1688,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
     const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
       method: 'POST',
       timeoutMs: 5_000,
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({ ...requestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(repoResponse.statusCode, 200, JSON.stringify(repoResponse.events));
     assert.equal(repoResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(repoResponse.events));
@@ -1797,6 +1803,7 @@ test('plan stream endpoint rejects images when image retention is zero', async (
       method: 'POST',
       body: JSON.stringify({
         content: 'plan it',
+        operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: tempRoot,
         images: [PNG],
         mockResponses: [{ content: 'done' }],
@@ -1949,6 +1956,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
       timeoutMs: 5_000,
       body: JSON.stringify({
         content: 'Stream a bounded response.',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'off',
         availableModels: ['chat-delta-model.gguf'],
         model: 'chat-delta-model.gguf',
@@ -2037,6 +2045,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
         timeoutMs: 5000,
         body: JSON.stringify({
           content: 'What is 2+2?',
+          operationId: CHAT_STREAM_OPERATION_ID,
           webSearchOverride: 'off',
           availableModels: ['mock'],
           model: 'mock',
@@ -2103,6 +2112,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2158,6 +2168,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Check that price again.',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2247,6 +2258,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'What does the iron bar page say?',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2285,6 +2297,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Repeat the exact fetched evidence from the page.',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2346,6 +2359,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2385,6 +2399,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
       timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Check that price again.',
+        operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'on',
         availableModels: ['mock'],
         model: 'mock',
@@ -2649,11 +2664,11 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
     ] as const;
     const conflictRoutes = [
       { suffix: 'messages', body: { content: 'conflict', assistantContent: 'blocked' } },
-      { suffix: 'messages/stream', body: { content: 'conflict' } },
+      { suffix: 'messages/stream', body: { content: 'conflict', operationId: CHAT_STREAM_OPERATION_ID } },
       { suffix: 'plan', body: { content: 'conflict', repoRoot: process.cwd() } },
-      { suffix: 'plan/stream', body: { content: 'conflict', repoRoot: process.cwd() } },
+      { suffix: 'plan/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID } },
       { suffix: 'repo-search', body: { content: 'conflict', repoRoot: process.cwd() } },
-      { suffix: 'repo-search/stream', body: { content: 'conflict', repoRoot: process.cwd() } },
+      { suffix: 'repo-search/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID } },
     ] as const;
 
     for (const activeSession of activeSessions) {
@@ -2831,6 +2846,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
       `${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`,
       JSON.stringify({
         content: 'must not persist after disconnect',
+        operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: process.cwd(),
         maxTurns: 1,
         availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
@@ -3360,6 +3376,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Find package name',
+        operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: tempRoot,
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -161,11 +162,20 @@ export class DashboardModelQueueHarness {
           let sessionId = '';
           const userContents = readUserContents(body);
           for (const content of userContents) {
-            const matchedSessionId = this.chatSessionIdByContent.get(content) ?? '';
-            if (matchedSessionId) {
-              sessionId = matchedSessionId;
+            const exactSessionId = this.chatSessionIdByContent.get(content);
+            if (exactSessionId) {
+              sessionId = exactSessionId;
               break;
             }
+            const wrappedMatches = [...this.chatSessionIdByContent]
+              .filter(([registeredContent]) => content.includes(registeredContent));
+            if (wrappedMatches.length > 1) {
+              response.statusCode = 500;
+              response.end('{"error":"Ambiguous controlled chat session."}');
+              return;
+            }
+            sessionId = wrappedMatches[0]?.[1] ?? '';
+            if (sessionId) break;
           }
           if (!sessionId) {
             response.statusCode = 500;
@@ -309,12 +319,22 @@ export class DashboardModelQueueHarness {
     return sessionId;
   }
 
-  startChatStream(sessionId: string, content: string): Promise<SseResponse> {
+  startChatStream(sessionId: string, content: string, operationId = randomUUID()): Promise<SseResponse> {
+    return this.startChatOperationStream('message', sessionId, content, operationId);
+  }
+
+  startChatOperationStream(
+    operationKind: 'message' | 'plan' | 'repo-search',
+    sessionId: string,
+    content: string,
+    operationId = randomUUID(),
+  ): Promise<SseResponse> {
     this.chatSessionIdByContent.set(content, sessionId);
-    return requestSse(`${this.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+    const segment = operationKind === 'message' ? 'messages' : operationKind;
+    return requestSse(`${this.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/${segment}/stream`, {
       method: 'POST',
       timeoutMs: 30_000,
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, operationId, repoRoot: this.tempRoot }),
     });
   }
 

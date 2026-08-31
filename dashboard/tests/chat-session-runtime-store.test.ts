@@ -5,6 +5,7 @@ import type { ChatSessionResponse } from '../src/types';
 
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
 const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 const SAMPLE_RESPONSE: ChatSessionResponse = {
   session: {
@@ -38,12 +39,14 @@ test('apply routes every transition through one copy-on-write path', () => {
     .ensureSession('session-a')
     .ensureSession('session-b');
   const next = store
-    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'hello' })
     .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'hi there' } })
     .apply({ kind: 'warning', sessionId: 'session-a', text: 'careful' });
 
-  assert.deepEqual(next.get('session-a').activity, { kind: 'active', operationKind: 'message' });
+  assert.deepEqual(next.get('session-a').activity, {
+    kind: 'local', operationKind: 'message', operationId: OPERATION_ID,
+  });
   assert.equal(next.get('session-a').draft, 'hello');
   assert.equal(next.get('session-a').liveMessages[0]?.content, 'hi there');
   assert.deepEqual(next.get('session-a').warnings, ['careful']);
@@ -82,14 +85,14 @@ test('session B cannot clear session A streaming state or draft', () => {
     .ensureSession('session-a')
     .ensureSession('session-b')
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'draft-a' })
-    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'answer-a' } })
-    .apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'plan' });
+    .apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'plan', operationId: OPERATION_ID });
 
   assert.equal(initial.get('session-a').draft, 'draft-a');
   assert.equal(initial.get('session-a').liveMessages[0]?.content, 'answer-a');
-  assert.equal(initial.get('session-a').activity.kind, 'active');
-  assert.equal(initial.get('session-b').activity.kind, 'active');
+  assert.equal(initial.get('session-a').activity.kind, 'local');
+  assert.equal(initial.get('session-b').activity.kind, 'local');
 });
 
 test('ensureSession creates a runtime with idle activity and empty defaults', () => {
@@ -109,14 +112,15 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
   assert.equal(runtime.awaitingResponse, false);
 });
 
-test('begin sets active activity with operation kind', () => {
+test('begin sets local activity with operation kind and ownership id', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' });
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID });
   const activity = store.get('s1').activity;
-  assert.equal(activity.kind, 'active');
-  if (activity.kind === 'active') {
+  assert.equal(activity.kind, 'local');
+  if (activity.kind === 'local') {
     assert.equal(activity.operationKind, 'message');
+    assert.equal(activity.operationId, OPERATION_ID);
   }
 });
 
@@ -257,7 +261,7 @@ test('applyWarning appends a warning string', () => {
 test('applyDone sets idle activity and applies context usage', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
   assert.equal(runtime.activity.kind, 'idle');
@@ -267,7 +271,7 @@ test('applyDone sets idle activity and applies context usage', () => {
 test('applyFailure sets error and idle activity', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.equal(runtime.error, 'boom');
@@ -334,9 +338,11 @@ test('getAll returns runtimes in insertion order', () => {
 
 test('immutable previous snapshots remain unchanged after mutation', () => {
   const store1 = new ChatSessionRuntimeStore().ensureSession('s1');
-  const store2 = store1.apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' });
+  const store2 = store1.apply({
+    kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID,
+  });
   assert.equal(store1.get('s1').activity.kind, 'idle');
-  assert.equal(store2.get('s1').activity.kind, 'active');
+  assert.equal(store2.get('s1').activity.kind, 'local');
 });
 
 test('plan inputs initialize once on ensureSession but do not overwrite dirty draft', () => {
@@ -572,4 +578,55 @@ test('approval state is set by approval and cleared by submit, done, and failure
     pending.apply({ kind: 'approval-clear', sessionId: 's1' }).get('s1').pendingApproval,
     null,
   );
+});
+
+test('local activity retains the client operation id used by Stop', () => {
+  const activity = new ChatSessionRuntimeStore()
+    .apply({
+      kind: 'begin',
+      sessionId: 's1',
+      operationKind: 'repo-agent',
+      operationId: OPERATION_ID,
+    })
+    .get('s1').activity;
+  assert.deepEqual(activity, {
+    kind: 'local',
+    operationKind: 'repo-agent',
+    operationId: OPERATION_ID,
+  });
+});
+
+test('remote activity clears only when authoritative status reports no lease', () => {
+  const remote = new ChatSessionRuntimeStore()
+    .apply({ kind: 'remote-begin', sessionId: 's1', operationKind: 'plan' })
+    .apply({ kind: 'control-error', sessionId: 's1', message: 'Session is busy' });
+  assert.deepEqual(remote.get('s1').activity, { kind: 'remote', operationKind: 'plan' });
+  const cleared = remote.apply({ kind: 'remote-clear', sessionId: 's1' }).get('s1');
+  assert.deepEqual(cleared.activity, { kind: 'idle' });
+  assert.equal(cleared.error, null);
+});
+
+test('a Stop control error preserves the live local operation and pending approval', () => {
+  const approval = {
+    runId: OPERATION_ID,
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash',
+    command: 'npm test',
+    reviewPayload: null,
+  };
+  const runtime = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'keep me', images: [IMAGE_A] })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'repo-agent', operationId: OPERATION_ID })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
+    .apply({ kind: 'approval', sessionId: 's1', approval })
+    .apply({ kind: 'control-error', sessionId: 's1', message: 'Stop request failed' })
+    .get('s1');
+
+  assert.deepEqual(runtime.activity, {
+    kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
+  });
+  assert.equal(runtime.liveMessages.find((message) => message.id === 'live-answer')?.content, 'partial');
+  assert.equal(runtime.submittedInput?.content, 'keep me');
+  assert.deepEqual(runtime.pendingApproval, approval);
+  assert.equal(runtime.error, 'Stop request failed');
 });

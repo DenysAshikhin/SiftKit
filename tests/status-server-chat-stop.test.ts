@@ -11,6 +11,9 @@ import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 
+const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
+const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
+
 // Task 9 discovery:
 // 1. Each chat engine request already accepts `abortSignal`; the three stream endpoints currently omit it.
 // 2. `acquireModelRequestWithWait` can cancel only from HTTP close/abort, not an arbitrary AbortSignal.
@@ -48,7 +51,7 @@ async function waitForRepoAgentStatus(
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`);
-    if (response.statusCode === 200 && asObject(response.body.state).status === status) {
+    if (response.statusCode === 200 && response.body.status === status) {
       const runId = response.body.runId;
       if (typeof runId === 'string' && runId) return runId;
     }
@@ -78,45 +81,87 @@ class EngineGate {
   }
 }
 
-test('POST stop returns 409 when no stoppable operation is active', async (t) => {
+test('POST stop rejects malformed ownership before checking active state', async (t) => {
   const harness = await startHarness('siftkit-chat-stop-empty-', t);
   const sessionId = await createSession(harness, 'No active operation');
   const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
     method: 'POST', body: '{}',
   });
-  assert.equal(response.statusCode, 409);
+  assert.equal(response.statusCode, 400);
+  const noActive = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
+    method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+  });
+  assert.equal(noActive.statusCode, 409);
 });
 
-test('stopping a chat stream persists the marker, releases its lease, and advances the queue', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-stream-', { parallelSlots: 1 });
+test('another client cannot stop an operation and status never exposes its ownership id', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-owner-', { parallelSlots: 1 });
   await harness.start();
   try {
-    const sessionA = await harness.createChatSession('A', 'model-a');
-    const sessionB = await harness.createChatSession('B', 'model-a');
-    const streamA = harness.startChatStream(sessionA, 'stop me');
+    const sessionId = await harness.createChatSession('Owned', 'model-a');
+    const stream = harness.startChatStream(sessionId, 'owned request', OPERATION_A);
     await harness.waitForActiveRequests('dashboard_chat_stream', 1);
-    const streamB = harness.startChatStream(sessionB, 'next request');
-    await harness.waitForQueuedRequest('dashboard_chat_stream');
+    const status = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/operation`);
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.body.operationKind, 'message');
+    assert.equal('operationId' in status.body, false);
 
-    const stopped = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/stop`, {
-      method: 'POST', body: '{}',
+    const rejected = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_B }),
     });
-    assert.equal(stopped.statusCode, 200);
-    assert.equal(stopped.body.operationKind, 'message');
-    assert.match(readDoneAssistantContent(await streamA), /Stopped by user\./u);
-
-    await harness.waitForActiveRequests('dashboard_chat_stream', 1);
-    harness.releaseChatResponse('queue advanced');
-    assert.equal(readDoneAssistantContent(await streamB), 'queue advanced');
-
-    const available = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/messages`, {
-      method: 'POST', body: JSON.stringify({ content: 'after stop', assistantContent: 'available' }),
-    });
-    assert.equal(available.statusCode, 200);
+    assert.equal(rejected.statusCode, 409);
+    harness.releaseChatResponse('still running');
+    assert.equal(readDoneAssistantContent(await stream), 'still running');
+    const released = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/operation`);
+    assert.equal(released.statusCode, 404);
   } finally {
     await harness.close();
   }
 });
+
+const STOPPABLE_STREAM_CASES = [
+  { operationKind: 'message', requestKind: 'dashboard_chat_stream' },
+  { operationKind: 'plan', requestKind: 'dashboard_plan_stream' },
+  { operationKind: 'repo-search', requestKind: 'dashboard_repo_search_stream' },
+] as const;
+
+for (const streamCase of STOPPABLE_STREAM_CASES) {
+  test(`stopping a ${streamCase.operationKind} stream persists the marker, releases its lease, and advances the queue`, async () => {
+    const harness = new DashboardModelQueueHarness(`siftkit-chat-stop-${streamCase.operationKind}-`, { parallelSlots: 1 });
+    await harness.start();
+    try {
+      const sessionA = await harness.createChatSession('A', 'model-a');
+      const sessionB = await harness.createChatSession('B', 'model-a');
+      const streamA = harness.startChatOperationStream(
+        streamCase.operationKind,
+        sessionA,
+        `stop ${streamCase.operationKind}`,
+        OPERATION_A,
+      );
+      await harness.waitForActiveRequests(streamCase.requestKind, 1);
+      const streamB = harness.startChatStream(sessionB, 'next request');
+      await harness.waitForQueuedRequest('dashboard_chat_stream');
+
+      const stopped = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/stop`, {
+        method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+      });
+      assert.equal(stopped.statusCode, 200);
+      assert.equal(stopped.body.operationKind, streamCase.operationKind);
+      assert.match(readDoneAssistantContent(await streamA), /Stopped by user\./u);
+
+      await harness.waitForActiveRequests('dashboard_chat_stream', 1);
+      harness.releaseChatResponse('queue advanced');
+      assert.equal(readDoneAssistantContent(await streamB), 'queue advanced');
+
+      const available = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/messages`, {
+        method: 'POST', body: JSON.stringify({ content: 'after stop', assistantContent: 'available' }),
+      });
+      assert.equal(available.statusCode, 200);
+    } finally {
+      await harness.close();
+    }
+  });
+}
 
 test('stopping a repo-agent parked at approval persists an aborted terminal result', async (t) => {
   const harness = await startHarness('siftkit-chat-stop-agent-', t);
@@ -125,6 +170,7 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
     method: 'POST', timeoutMs: 20_000,
     body: JSON.stringify({
       content: 'write a file', repoRoot: process.cwd(), approval: 'interactive', maxTurns: 4,
+      operationId: OPERATION_A,
       mockResponses: [
         { toolCalls: [{ name: 'write', arguments: { path: 'stopped.txt', content: 'no' } }] },
         ...repoAgentFinishResponses('unreachable'),
@@ -134,7 +180,7 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
   });
   const runId = await waitForRepoAgentStatus(harness, sessionId, 'approval_required');
   const stopped = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
-    method: 'POST', body: '{}',
+    method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
   });
   assert.equal(stopped.statusCode, 200);
   assert.equal(stopped.body.operationKind, 'repo-agent');
@@ -163,12 +209,13 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
     method: 'POST', timeoutMs: 20_000,
     body: JSON.stringify({
       content: 'hold generation', repoRoot: process.cwd(), approval: 'off',
+      operationId: OPERATION_A,
       mockResponses: repoAgentFinishResponses('unreachable'), mockCommandResults: {},
     }),
   });
   const runId = await waitForRepoAgentStatus(harness, sessionId, 'running');
   const stopped = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
-    method: 'POST', body: '{}',
+    method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
   });
   assert.equal(stopped.statusCode, 200);
   gate.release();
