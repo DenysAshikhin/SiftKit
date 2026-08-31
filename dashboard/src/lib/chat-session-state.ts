@@ -23,5 +23,9 @@ export function deriveSessionIndicator(
 }
 
 export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
-  return runtime !== null && runtime.activity.kind === 'active';
+  return runtime !== null && (
+    runtime.activity.kind === 'active'
+    || runtime.remoteBusy
+    || runtime.pendingApproval !== null
+  );
 }

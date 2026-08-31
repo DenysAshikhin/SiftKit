@@ -405,7 +405,7 @@ export async function executeRepoSearchRequest(
       streamFinishAsAnswer: taskKind === 'chat',
       minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
       systemPromptOverride,
-      historyMessages: taskKind === 'chat' ? (request.history || []) : undefined,
+      historyMessages: request.history ?? (taskKind === 'chat' ? [] : undefined),
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,
       logger: runLogger,

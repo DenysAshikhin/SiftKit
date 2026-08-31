@@ -2,11 +2,14 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import { mockSiftConfig, usableWebSearchConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { z } from '../src/lib/zod.js';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
+import { withTestEnvAndServer } from './_test-helpers.js';
 
 // Execution posts run status; these tests assert on scorecard and progress events only.
 const deadEndpoints = new DeadEndpointEnv();
@@ -350,4 +353,83 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
   const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'Hello');
   assert.equal(tasks[0].thinkingTokens, 0);
+});
+
+// The first `turn_new_messages` transcript event carries the exact message list of the first
+// model request: system prompt, the history the engine was given, then the initial user turn.
+const PlannerLogMessageSchema = z.object({
+  role: z.string(),
+  content: z.string().optional(),
+});
+type PlannerLogMessage = z.infer<typeof PlannerLogMessageSchema>;
+const LoggedTranscriptEventSchema = z.object({
+  kind: z.string(),
+  messages: z.array(z.unknown()).optional(),
+});
+
+function readFirstTurnMessages(result: RepoSearchExecutionResult): PlannerLogMessage[] {
+  const transcriptId = parseRuntimeArtifactUri(result.transcriptPath);
+  assert.ok(transcriptId);
+  const transcript = readRuntimeArtifact(transcriptId);
+  const lines = String(transcript?.contentText || '').trim().split('\n').filter((line) => line.trim().length > 0);
+  const events = lines.map((line) => LoggedTranscriptEventSchema.parse(JSON.parse(line)));
+  const firstTurn = events.find((event) => event.kind === 'turn_new_messages');
+  if (!firstTurn?.messages) {
+    throw new Error('Expected the transcript to log the first turn messages.');
+  }
+  return firstTurn.messages.map((message) => PlannerLogMessageSchema.parse(message));
+}
+
+const REPO_SEARCH_TOOL_CALLS = [
+  { toolCalls: [{ name: 'ls', arguments: { path: '.', limit: 1 } }] },
+  { toolCalls: [{ name: 'ls', arguments: { path: 'src', limit: 1 } }] },
+  { toolCalls: [{ name: 'find', arguments: { pattern: '*.ts' } }] },
+  { toolCalls: [{ name: 'grep', arguments: { pattern: 'target' } }] },
+  { toolCalls: [{ name: 'read', arguments: { path: 'src/main.ts' } }] },
+];
+
+test('repo-search task kind honors supplied history in the model call', async () => {
+  await withTestEnvAndServer(async (context) => {
+    const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      prompt: 'find the target symbol',
+      repoRoot: context.tempRoot,
+      config: MOCK_CONFIG,
+      taskKind: 'repo-search',
+      history: [
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' },
+      ],
+      statusBackendUrl: context.stub.statusUrl,
+      availableModels: ['mock'],
+      model: 'mock',
+      mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
+      mockCommandResults: {},
+    });
+    const messages = readFirstTurnMessages(result);
+    assert.deepEqual(messages.map((message) => message.role), ['system', 'user', 'assistant', 'user']);
+    assert.equal(messages[1].content, 'earlier question');
+    assert.equal(messages[2].content, 'earlier answer');
+    assert.match(String(messages[3].content), /find the target symbol/u);
+  });
+});
+
+test('repo-search task kind without history leaves the model call historyless', async () => {
+  await withTestEnvAndServer(async (context) => {
+    const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      prompt: 'find the target symbol',
+      repoRoot: context.tempRoot,
+      config: MOCK_CONFIG,
+      taskKind: 'repo-search',
+      statusBackendUrl: context.stub.statusUrl,
+      availableModels: ['mock'],
+      model: 'mock',
+      mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
+      mockCommandResults: {},
+    });
+    const messages = readFirstTurnMessages(result);
+    assert.deepEqual(messages.map((message) => message.role), ['system', 'user']);
+    assert.match(String(messages[1].content), /find the target symbol/u);
+  });
 });

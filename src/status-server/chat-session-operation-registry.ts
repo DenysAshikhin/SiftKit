@@ -7,6 +7,7 @@ export type ChatSessionOperation = {
   sessionId: string;
   operationKind: ChatSessionOperationKind;
   startedAtMs: number;
+  abort?: () => void;
 };
 
 export type ChatSessionOperationAcquireResult =
@@ -54,6 +55,20 @@ export class ChatSessionOperationRegistry {
   getActiveOperation(sessionId: string): ChatSessionOperation | null {
     requireSessionId(sessionId);
     return this.activeBySessionId.get(sessionId) ?? null;
+  }
+
+  registerAbort(lease: ChatSessionOperation, abort: () => void): boolean {
+    const active = this.activeBySessionId.get(lease.sessionId);
+    if (!active || active.token !== lease.token) {
+      return false;
+    }
+    active.abort = abort;
+    return true;
+  }
+
+  getActive(sessionId: string): ChatSessionOperation | undefined {
+    requireSessionId(sessionId);
+    return this.activeBySessionId.get(sessionId);
   }
 
   getActiveCount(): number {

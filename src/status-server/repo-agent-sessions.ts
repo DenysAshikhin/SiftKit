@@ -199,6 +199,13 @@ export class RepoAgentSession implements ApprovalGateObserver {
     return this.gate.submit(this.state.approval.approvalId, decision);
   }
 
+  abort(): void {
+    if (isTerminalStatus(this.state.status)) {
+      return;
+    }
+    this.abortController.abort(new Error('Stopped by user.'));
+  }
+
   waitForBoundary(
     sinceRevision: number,
     abortSignal?: AbortSignal,
@@ -322,7 +329,11 @@ export class RepoAgentSession implements ApprovalGateObserver {
         }));
       }
     } catch (error) {
-      this.settleFailure(toError(error).message);
+      if (this.abortController.signal.aborted && !isTerminalStatus(this.state.status)) {
+        this.settleAborted();
+      } else {
+        this.settleFailure(toError(error).message);
+      }
     } finally {
       lock?.release();
       if (this.gate) {
@@ -365,6 +376,33 @@ export class RepoAgentSession implements ApprovalGateObserver {
         id: this.requestId,
         event: 'session_failure_persistence_failed',
         fields: `Failed to persist repo-agent failure: ${persistenceError.message}. Original failure: ${failureMessage}`,
+      });
+      this.unpersistedTerminalState = true;
+      this.applyState(fallbackState);
+    }
+  }
+
+  private settleAborted(): void {
+    if (isTerminalStatus(this.state.status)) {
+      return;
+    }
+    const abortedState = {
+      runId: this.runId,
+      revision: this.state.revision + 1,
+      updatedAtUtc: new Date().toISOString(),
+      status: 'aborted' as const,
+      pid: process.pid,
+    };
+    try {
+      this.applyState(this.store.transition(this.runId, this.state.revision, abortedState));
+    } catch (error) {
+      const persistenceError = toError(error);
+      const fallbackState = RepoAgentRunStateSchema.parse(abortedState);
+      serverLogger.error({
+        scope: 'rs',
+        id: this.requestId,
+        event: 'session_abort_persistence_failed',
+        fields: `Failed to persist repo-agent abort: ${persistenceError.message}`,
       });
       this.unpersistedTerminalState = true;
       this.applyState(fallbackState);

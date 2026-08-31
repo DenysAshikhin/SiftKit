@@ -641,4 +641,21 @@ export const MIGRATIONS: readonly Migration[] = [
       }
     },
   },
+  {
+    version: 54,
+    up: (database) => {
+      if (!tableHasColumn(database, 'chat_messages', 'approval_decision')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN approval_decision TEXT;');
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'approval_tool_name')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN approval_tool_name TEXT;');
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'approval_command')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN approval_command TEXT;');
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'approval_reason')) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN approval_reason TEXT;');
+      }
+    },
+  },
 ];

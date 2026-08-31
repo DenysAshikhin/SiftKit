@@ -82,6 +82,27 @@
 .settings-toggle.active { border-color: var(--acc); color: var(--acc); }
 .send { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer; flex: none; }
 .send:disabled { opacity: 0.55; cursor: default; }
+.send.stop { background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); border: 1px solid #8d4b53; color: #ffd7d2; }
+.send.stop:hover { filter: brightness(1.08); }
+
+.approval-card { justify-self: stretch; max-width: 100%; border: 1px solid #4d4026; border-radius: 10px; background: #1a1610; padding: 10px 12px; display: grid; gap: 8px; }
+.approval-card-head { color: var(--run); font-size: 0.78rem; font-weight: 600; }
+.approval-command { margin: 0; padding: 7px 10px; white-space: pre-wrap; word-break: break-all; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); }
+.approval-payload { margin: 0; color: var(--dim); font-size: 0.76rem; }
+.approval-actions { display: flex; align-items: center; gap: 7px; }
+.approval-reject { font: inherit; font-size: 0.76rem; padding: 6px 13px; border-radius: 7px; border: 1px solid #8d4b53; color: #ffd7d2; background: linear-gradient(180deg, #3a2028 0%, #28161c 100%); cursor: pointer; }
+.approval-reject:disabled { opacity: 0.55; cursor: default; }
+.approval-reject-form { display: grid; gap: 7px; }
+.approval-reject-form textarea { min-height: 52px; resize: vertical; background: var(--panel2); border: 1px solid #5a2f33; border-radius: 7px; color: var(--ink); font: inherit; padding: 7px 10px; }
+.approval-abort:hover { color: var(--bad); border-color: #8d4b53; }
+.approval-row { justify-self: stretch; max-width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-left: 2px solid var(--line); color: var(--dim); font-size: 0.72rem; }
+.approval-row.ok { border-left-color: var(--ok); }
+.approval-row.bad { border-left-color: #8d4b53; }
+.approval-row.ok .verdict { color: var(--ok); }
+.approval-row.bad .verdict { color: var(--bad); }
+.approval-row .verdict, .approval-row .who { font-weight: 600; }
+.approval-row .who { color: var(--ink); }
+.approval-row .cmd-inline { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem; }
 
 .composer-settings-popover { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); }
 .composer-settings-popover.warning { border-color: #5a4a2a; }

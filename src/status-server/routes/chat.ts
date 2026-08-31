@@ -115,6 +115,11 @@ import {
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
+import {
+  ChatRepoAgentDecideEndpoint,
+  GetChatRepoAgentActiveEndpoint,
+  StreamChatRepoAgentEndpoint,
+} from './chat-repo-agent.js';
 import type { ChatMessageRequest } from '../chat-route-request-normalizers.js';
 import type { JsonObject } from '../../lib/json-types.js';
 
@@ -207,7 +212,7 @@ function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSe
   };
 }
 
-function buildChatSessionResponse(config: SiftConfig, session: ChatSession): ChatSessionResponse {
+export function buildChatSessionResponse(config: SiftConfig, session: ChatSession): ChatSessionResponse {
   return {
     session: toWireChatSession(config, withPromptContext(config, session)),
     contextUsage: buildContextUsage(config, session),
@@ -281,6 +286,7 @@ function buildChatRepoOperationRequest(options: {
   parsedBody: ReturnType<typeof parseJsonBody>;
   requestId: string;
   progressWriter: ProgressWriter<RepoSearchProgressEvent>;
+  abortSignal?: AbortSignal;
 }): ChatRepoOperationRequest {
   return {
     runtimeRoot: options.runtimeRoot,
@@ -299,6 +305,7 @@ function buildChatRepoOperationRequest(options: {
     mockResponses: readRouteMockResponses(options.reader, 'mockResponses'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
     managedLlamaRunId: options.ctx.managedLlama.lastStartupLogs?.runId ?? null,
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
   };
 }
 
@@ -307,7 +314,7 @@ type SessionSpeculativeMetrics = {
   speculativeGeneratedTokens: number | null;
 };
 
-class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly writer: SseResponseWriter,
     private readonly phaseTracker: ChatTurnPhaseTracker | null,
@@ -325,9 +332,13 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly thinkingDeltas = new LiveTextDeltaTracker();
   private readonly narrationDeltas = new LiveTextDeltaTracker();
   private readonly answerDeltas = new LiveTextDeltaTracker();
+  private latestAnswerText = '';
   private flushTimer: NodeJS.Timeout | null = null;
 
   write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'answer') {
+      this.latestAnswerText = event.answerText;
+    }
     if (event.kind === 'thinking') {
       this.phaseTracker?.observeThinking(event.thinkingText);
       this.thinkingDeltas.pushSnapshot(event.turn, event.thinkingText, Date.now());
@@ -367,6 +378,10 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     this.emitDueDeltas(true);
   }
 
+  getAnswerText(): string {
+    return this.latestAnswerText;
+  }
+
   private emitDueDeltas(force: boolean): void {
     const now = Date.now();
     this.emitTrackerDeltas(this.thinkingDeltas, 'thinking', now, force);
@@ -398,6 +413,36 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
       this.writer.writeEvent(event, ChatStreamTextDeltaSchema.parse(delta));
     }
   }
+}
+
+const STOPPED_BY_USER_MARKER = '*Stopped by user.*';
+
+function registerChatAbort<T>(
+  ctx: ServerContext,
+  request: ChatSessionOperationRequest<T>,
+  controller: AbortController,
+): void {
+  if (!request.lease || !ctx.chatSessionOperations.registerAbort(request.lease, () => controller.abort())) {
+    throw new Error(`Failed to register abort for chat session ${request.sessionId}.`);
+  }
+}
+
+function appendStoppedChatTurn(
+  runtimeRoot: string,
+  session: ChatSession,
+  content: string,
+  images: string[],
+  partialAnswer: string,
+): ChatSession {
+  const partial = partialAnswer.trimEnd();
+  return appendChatMessagesWithUsage(
+    runtimeRoot,
+    session,
+    content,
+    partial ? `${partial}\n\n${STOPPED_BY_USER_MARKER}` : STOPPED_BY_USER_MARKER,
+    {},
+    { turns: [], images },
+  );
 }
 
 class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -998,6 +1043,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const messageRequest = request.value;
+    const abortController = new AbortController();
+    registerChatAbort(ctx, request, abortController);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -1074,6 +1121,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         initialUserImages: selectedImages.images,
         ...(mockResponses ? { mockResponses } : {}),
         progressWriter,
+        abortSignal: abortController.signal,
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
@@ -1128,13 +1176,24 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
-      sseWriter.writeEvent('error', {
-        error: formatChatEngineError(
-          error instanceof Error ? error : String(error),
-          selectedImagesForError?.images ?? [],
-          selectedImagesForError?.visionMaxImagePixels,
-        ),
-      });
+      if (abortController.signal.aborted) {
+        const updatedSession = appendStoppedChatTurn(
+          runtimeRoot,
+          activeSession,
+          userContent,
+          selectedImagesForError?.images ?? messageRequest.images,
+          progressWriter.getAnswerText(),
+        );
+        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
+      } else {
+        sseWriter.writeEvent('error', {
+          error: formatChatEngineError(
+            error instanceof Error ? error : String(error),
+            selectedImagesForError?.images ?? [],
+            selectedImagesForError?.visionMaxImagePixels,
+          ),
+        });
+      }
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -1227,6 +1286,8 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
   ): Promise<void> {
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
+    const abortController = new AbortController();
+    registerChatAbort(ctx, request, abortController);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -1264,6 +1325,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
         progressWriter,
+        abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();
       sseWriter.writeEvent('done', {
@@ -1272,7 +1334,18 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       });
     } catch (error) {
       progressWriter.flushPending();
-      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      if (abortController.signal.aborted) {
+        const updatedSession = appendStoppedChatTurn(
+          runtimeRoot,
+          activeSession,
+          request.value.content,
+          request.value.images,
+          progressWriter.getAnswerText(),
+        );
+        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
+      } else {
+        sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -1365,6 +1438,8 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
   ): Promise<void> {
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
+    const abortController = new AbortController();
+    registerChatAbort(ctx, request, abortController);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -1402,6 +1477,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
         progressWriter,
+        abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();
       sseWriter.writeEvent('done', {
@@ -1410,7 +1486,18 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       });
     } catch (error) {
       progressWriter.flushPending();
-      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      if (abortController.signal.aborted) {
+        const updatedSession = appendStoppedChatTurn(
+          runtimeRoot,
+          activeSession,
+          request.value.content,
+          request.value.images,
+          progressWriter.getAnswerText(),
+        );
+        sseWriter.writeEvent('done', buildChatSessionResponse(readConfig(configPath), updatedSession));
+      } else {
+        sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -1462,6 +1549,24 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
     }
   }
 }
+
+export class StopChatOperationEndpoint implements RouteEndpoint {
+  handle(
+    ctx: ServerContext,
+    _req: IncomingMessage,
+    res: ServerResponse,
+    match: RouteMatch,
+  ): void {
+    const sessionId = decodeURIComponent(match.captures[0] ?? '');
+    const active = ctx.chatSessionOperations.getActive(sessionId);
+    if (!active?.abort) {
+      sendJson(res, 409, { error: 'No stoppable operation is active for this session.' });
+      return;
+    }
+    active.abort();
+    sendJson(res, 200, { ok: true, operationKind: active.operationKind });
+  }
+}
 const CHAT_ROUTES = new RouteTable([
   { method: 'GET', path: '/dashboard/chat/sessions', endpoint: new ListChatSessionsEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new GetChatSessionEndpoint() },
@@ -1477,6 +1582,10 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan\/stream$/u, endpoint: new StreamChatPlanEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search$/u, endpoint: new CreateRepoSearchEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamRepoSearchEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/stream$/u, endpoint: new StreamChatRepoAgentEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/decide$/u, endpoint: new ChatRepoAgentDecideEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/stop$/u, endpoint: new StopChatOperationEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
 ]);
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
+import { ChatSessionBusyError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse } from '../src/types';
 
@@ -123,6 +124,23 @@ test('narration events always become narration transitions', async () => {
   assert.deepEqual(await collect(narrationStream(), false), ['begin', 'narration', 'done']);
 });
 
+test('approval events become session-scoped approval transitions', async () => {
+  async function* approvalStream(): AsyncGenerator<ChatStreamEvent> {
+    yield {
+      kind: 'approval',
+      approval: {
+        runId: '4f9c1f9a-0000-4000-8000-000000000000',
+        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+        toolName: 'bash',
+        command: 'npm test',
+        reviewPayload: null,
+      },
+    };
+    yield { kind: 'done', payload: response('session-a') };
+  }
+  assert.deepEqual(await collect(approvalStream(), true), ['begin', 'approval', 'done']);
+});
+
 test('two streams complete out of order without crossing session state', async () => {
   const drain = new StoreDrain();
   const gateA = new Gate();
@@ -163,4 +181,19 @@ test('a done payload for another session fails the initiating session', async ()
   assert.match(drain.store.get('session-a').error ?? '', /session mismatch/);
   assert.equal(drain.store.get('session-b').activity.kind, 'idle');
   assert.deepEqual(drain.completions, []);
+});
+
+test('a 409 from another client leaves the session in remote-busy mode', async () => {
+  async function* busyStream(): AsyncGenerator<ChatStreamEvent> {
+    throw new ChatSessionBusyError({
+      error: 'Chat session already has an active operation.',
+      sessionId: 'session-a',
+      operationKind: 'repo-search',
+    });
+  }
+
+  const drain = new StoreDrain();
+  await drain.drain(busyStream(), 'session-a', true);
+  assert.equal(drain.store.get('session-a').activity.kind, 'idle');
+  assert.equal(drain.store.get('session-a').remoteBusy, true);
 });

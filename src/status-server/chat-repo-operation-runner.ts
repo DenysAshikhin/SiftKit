@@ -27,6 +27,7 @@ import {
 } from '../state/chat-sessions.js';
 import {
   appendChatMessagesWithUsage,
+  buildChatHistoryMessages,
   buildPersistTurnsFromRepoSearchResult,
   buildPlanMarkdownFromRepoSearch,
   buildPlanRequestPrompt,
@@ -74,6 +75,7 @@ export type ChatRepoOperationRequest = {
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   managedLlamaRunId: string | null;
+  abortSignal?: AbortSignal;
 };
 
 export type ChatRepoOperationResult = {
@@ -151,6 +153,7 @@ export class ChatRepoOperationRunner {
         presetId: selected.preset.id,
         taskKind: operation,
         prompt: this.buildPrompt(operation, request.content),
+        history: buildChatHistoryMessages(effectiveConfig, session),
         initialUserImages: admittedImages,
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
@@ -164,6 +167,7 @@ export class ChatRepoOperationRunner {
         mockCommandResults: request.mockCommandResults,
         requestId: request.requestId,
         progressWriter: progress,
+        ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
       });
     } catch (error) {
       const diagnosis = diagnoseManagedLlamaOom(

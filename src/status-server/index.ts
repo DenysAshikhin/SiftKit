@@ -264,6 +264,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     metrics,
     statusRuns: new StatusRunRegistry(),
     chatSessionOperations: new ChatSessionOperationRegistry(),
+    chatRepoAgentRuns: new Map(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),

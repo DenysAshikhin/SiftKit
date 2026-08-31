@@ -28,6 +28,11 @@ import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { streamSessionBoundary } from './repo-search.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
+import type { RepoAgentSession } from '../repo-agent-sessions.js';
+import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.js';
+import type { ApprovalMode } from '../../repo-search/engine/approval-gate.js';
+import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
+import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
@@ -52,56 +57,88 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       return;
     }
     const input = parsedRequest.data;
-    const approvalMode = input.approval ?? 'auto';
-    const repoSearchRequest: RepoSearchRouteRequest = {
-      prompt: input.prompt,
-      repoRoot: input.repoRoot ?? process.cwd(),
-      model: input.model ?? null,
-      ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
-      images: input.images ?? [],
-    };
-    const config = readConfig(ctx.configPath);
-    const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
-    upsertRepoSearchAdmission(admission);
-    const runId = randomUUID();
-    ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: repoSearchRequest.prompt,
-      repoRoot: admission.repoRoot,
-      approval: approvalMode,
-      ...(repoSearchRequest.model === null ? {} : { model: repoSearchRequest.model }),
-      ...(input.logFile === undefined ? {} : { logFile: input.logFile }),
-      images: repoSearchRequest.images,
-    }));
-    const session = ctx.repoAgentSessions.start({
-      runId,
-      requestId: admission.requestId,
-      admission,
-      approvalMode,
-      locks: new ServerModelLockAdapter(ctx),
-      approvalGates: ctx.approvalGates,
-      engineRequest: {
-        presetId: 'repo-agent',
-        taskKind: 'repo-agent',
-        prompt: repoSearchRequest.prompt,
-        requestId: admission.requestId,
-        startedAtUtc: admission.startedAtUtc,
-        additionalPromptPrefix: input.promptPrefix,
-        repoRoot: admission.repoRoot,
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config,
-        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
-        model: input.model ?? undefined,
-        maxTurns: input.maxTurns,
-        logFile: input.logFile,
-        availableModels: input.availableModels,
-        mockResponses: input.mockResponses,
-        mockCommandResults: input.mockCommandResults,
-        initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
-      },
+    const { session } = startRepoAgentRun(ctx, {
+      prompt: input.prompt, repoRoot: input.repoRoot,
+      approvalMode: input.approval ?? 'auto',
+      model: input.model, maxTurns: input.maxTurns, logFile: input.logFile,
+      images: input.images, promptPrefix: input.promptPrefix,
+      availableModels: input.availableModels,
+      mockResponses: input.mockResponses, mockCommandResults: input.mockCommandResults,
     });
     await streamSessionBoundary(session, req, res, 0);
   }
+}
+
+export type StartRepoAgentRunInput = {
+  prompt: string;
+  repoRoot: string | undefined;
+  approvalMode: ApprovalMode;
+  model?: string | null;
+  maxTurns?: number;
+  logFile?: string;
+  images?: string[];
+  promptPrefix?: string;
+  /** Chat-launched runs pass the session's replayed conversation; standalone callers omit it. */
+  history?: RepoSearchExecutionRequest['history'];
+  availableModels?: string[];
+  mockResponses?: MockPlannerResponseInput[];
+  mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+};
+
+export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
+  runId: string;
+  session: RepoAgentSession;
+  admission: RepoSearchAdmissionRecord;
+} {
+  const repoSearchRequest: RepoSearchRouteRequest = {
+    prompt: input.prompt,
+    repoRoot: input.repoRoot ?? process.cwd(),
+    model: input.model ?? null,
+    ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
+    images: input.images ?? [],
+  };
+  const config = readConfig(ctx.configPath);
+  const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
+  upsertRepoSearchAdmission(admission);
+  const runId = randomUUID();
+  ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
+    runId,
+    task: repoSearchRequest.prompt,
+    repoRoot: admission.repoRoot,
+    approval: input.approvalMode,
+    ...(repoSearchRequest.model === null ? {} : { model: repoSearchRequest.model }),
+    ...(input.logFile === undefined ? {} : { logFile: input.logFile }),
+    images: repoSearchRequest.images,
+  }));
+  const session = ctx.repoAgentSessions.start({
+    runId,
+    requestId: admission.requestId,
+    admission,
+    approvalMode: input.approvalMode,
+    locks: new ServerModelLockAdapter(ctx),
+    approvalGates: ctx.approvalGates,
+    engineRequest: {
+      presetId: 'repo-agent',
+      taskKind: 'repo-agent',
+      prompt: repoSearchRequest.prompt,
+      requestId: admission.requestId,
+      startedAtUtc: admission.startedAtUtc,
+      additionalPromptPrefix: input.promptPrefix,
+      repoRoot: admission.repoRoot,
+      statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      config,
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      model: input.model ?? undefined,
+      maxTurns: input.maxTurns,
+      logFile: input.logFile,
+      availableModels: input.availableModels,
+      mockResponses: input.mockResponses,
+      mockCommandResults: input.mockCommandResults,
+      ...(input.history === undefined ? {} : { history: input.history }),
+      initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
+    },
+  });
+  return { runId, session, admission };
 }
 
 export class RepoAgentDecideEndpoint implements RouteEndpoint {

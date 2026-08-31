@@ -20,12 +20,14 @@ import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
   closeRuntimeDatabase,
 } from '../src/state/runtime-db.js';
-import type { ChatSession } from '../src/state/chat-sessions.js';
+import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 import { ManagedLlamaStartupError } from '../src/status-server/managed-llama.js';
+import { buildChatHistoryMessages, resolveChatSessionConfig } from '../src/status-server/chat.js';
+import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
 
 class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
@@ -145,6 +147,28 @@ function createSession(): ChatSession {
     createdAtUtc: '2026-07-28T00:00:00.000Z',
     updatedAtUtc: '2026-07-28T00:00:00.000Z',
     messages: [],
+  };
+}
+
+type ChatFixtureMessageOverrides = {
+  id: string;
+  role?: 'user' | 'assistant';
+  kind?: 'user_text' | 'assistant_answer' | 'compaction_summary';
+  content?: string;
+  compressedIntoSummary?: boolean;
+};
+
+function chatFixtureMessage(overrides: ChatFixtureMessageOverrides): ChatMessage {
+  return {
+    id: overrides.id,
+    role: overrides.role ?? 'assistant',
+    kind: overrides.kind ?? 'assistant_answer',
+    content: overrides.content ?? '',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-07-28T00:00:00.000Z',
+    ...(overrides.compressedIntoSummary === undefined ? {} : { compressedIntoSummary: overrides.compressedIntoSummary }),
   };
 }
 
@@ -273,6 +297,47 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
         progressWriter.events.map((event) => event.kind),
         ['context_warning', 'thinking', 'tool_start', 'tool_result'],
       );
+    } finally {
+      closeRuntimeDatabase();
+      fs.rmSync(runtimeRoot, { force: true, recursive: true });
+    }
+  }
+});
+
+test('chat repo operations inherit the chat conversation history without a system prompt', async () => {
+  for (const operation of ['plan', 'repo-search'] as const) {
+    const runtimeRoot = createManagedTempDir(`siftkit-chat-history-${operation}-`);
+    const engineService = new StubStatusEngineService(buildResult(`${operation} complete`));
+    try {
+      const runner = new ChatRepoOperationRunner();
+      const request = createRequest(runtimeRoot, engineService, new RecordingProgressWriter());
+      request.session.messages = [
+        chatFixtureMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'pre-compaction question', compressedIntoSummary: true }),
+        chatFixtureMessage({ id: 's0', kind: 'compaction_summary', content: 'SUMMARY OF THE FIRST EXCHANGE' }),
+        chatFixtureMessage({ id: 'u1', role: 'user', kind: 'user_text', content: 'post-compaction question' }),
+        chatFixtureMessage({ id: 'a1', kind: 'assistant_answer', content: 'post-compaction answer' }),
+      ];
+      if (operation === 'plan') {
+        await runner.runPlan(request);
+      } else {
+        await runner.runRepoSearch(request);
+      }
+      const engineRequest = engineService.request;
+      if (!engineRequest) {
+        throw new Error('Expected the engine request to be captured.');
+      }
+      const selected = new ChatOperationPresetSelector(request.config.Presets).select(request.session, operation);
+      const expectedHistory = buildChatHistoryMessages(
+        resolveChatSessionConfig(request.config, selected.session),
+        { ...selected.session, planRepoRoot: request.repoRoot },
+      );
+      assert.deepEqual(engineRequest.history, expectedHistory);
+      const contents = expectedHistory.map((message) => String(message.content));
+      assert.ok(contents.some((content) => content.includes('SUMMARY OF THE FIRST EXCHANGE')));
+      assert.ok(contents.some((content) => content.includes('post-compaction question')));
+      assert.ok(contents.some((content) => content.includes('post-compaction answer')));
+      assert.ok(!contents.some((content) => content.includes('pre-compaction question')));
+      assert.equal('systemPrompt' in engineRequest, false);
     } finally {
       closeRuntimeDatabase();
       fs.rmSync(runtimeRoot, { force: true, recursive: true });

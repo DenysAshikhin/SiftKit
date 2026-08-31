@@ -42,7 +42,7 @@ export function useChatController(deps: {
   const selectedChatPreset = getPresetById(deps.dashboardConfig, selectedSession?.presetId);
   const chatMode = getPresetFamily(deps.dashboardConfig, selectedSession);
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
-  const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
+  const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search' || chatMode === 'repo-agent';
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
   const lastTurnTelemetry = getLastTurnTelemetry(selectedSession);
 
@@ -126,6 +126,9 @@ export function useChatController(deps: {
     onCondense: chatSessionsHook.condense,
     onSendPlan: chatSessionsHook.sendPlan,
     onSendRepoSearch: chatSessionsHook.sendRepoSearch,
+    onSendRepoAgent: chatSessionsHook.sendRepoAgent,
+    onSubmitRepoAgentDecision: chatSessionsHook.submitRepoAgentDecision,
+    onStopOperation: chatSessionsHook.stopOperation,
     onSendMessage: chatSessionsHook.sendMessage,
     onPendingImagesChange: (images: PendingImage[]) => {
       if (chatSessionsHook.selectedSessionId) {

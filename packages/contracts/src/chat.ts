@@ -89,6 +89,16 @@ export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
 });
 export type ChatToolCallMessage = z.infer<typeof ChatToolCallMessageSchema>;
 
+export const ChatRepoAgentApprovalMessageSchema = ChatMessageBaseSchema.extend({
+  role: z.literal('user'),
+  kind: z.literal('repo_agent_approval'),
+  approvalDecision: z.enum(['approve', 'deny', 'abort']),
+  approvalToolName: z.string().min(1),
+  approvalCommand: z.string().min(1),
+  approvalReason: z.string().nullable(),
+});
+export type ChatRepoAgentApprovalMessage = z.infer<typeof ChatRepoAgentApprovalMessageSchema>;
+
 const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum([
     'user_text',
@@ -106,12 +116,14 @@ const LiveOnlyChatMessageSchema = ChatMessageBaseSchema.extend({
 
 export const PersistedChatMessageSchema = z.discriminatedUnion('kind', [
   ChatToolCallMessageSchema,
+  ChatRepoAgentApprovalMessageSchema,
   PersistedChatNonToolMessageSchema,
 ]);
 export type PersistedChatMessage = z.infer<typeof PersistedChatMessageSchema>;
 
 export const LiveChatMessageSchema = z.discriminatedUnion('kind', [
   ChatToolCallMessageSchema,
+  ChatRepoAgentApprovalMessageSchema,
   PersistedChatNonToolMessageSchema,
   LiveOnlyChatMessageSchema,
 ]);
@@ -148,7 +160,7 @@ export type ChatSessionResponse = z.infer<typeof ChatSessionResponseSchema>;
 export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSchema) });
 export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
 
-export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'condense']);
+export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'repo-agent', 'condense']);
 export type ChatSessionOperationKind = z.infer<typeof ChatSessionOperationKindSchema>;
 export const ChatSessionBusyResponseSchema = z.object({
   error: z.literal('Chat session already has an active operation.'),
@@ -170,3 +182,12 @@ export const ChatStreamProgressSchema = z.object({
   elapsedMs: z.number().nonnegative(),
 });
 export type ChatStreamProgress = z.infer<typeof ChatStreamProgressSchema>;
+
+export const ChatStreamApprovalSchema = z.object({
+  runId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+  toolName: z.string().min(1),
+  command: z.string().min(1),
+  reviewPayload: z.string().nullable(),
+});
+export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;

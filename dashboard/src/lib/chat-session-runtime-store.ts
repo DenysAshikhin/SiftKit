@@ -15,18 +15,25 @@ import {
 import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
-import type { ChatStreamProgress, ChatStreamTextDelta } from '@siftkit/contracts';
+import type { ChatStreamApproval, ChatStreamProgress, ChatStreamTextDelta } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
+import type { RepoAgentDecision } from '../api';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }
   | { kind: 'active'; operationKind: ChatSessionOperationKind };
 
 export type SubmittedChatInput = { content: string; images: PendingImage[] };
+export type ResolvedRepoAgentApproval = {
+  approval: ChatStreamApproval;
+  decision: RepoAgentDecision;
+  decidedAtUtc: string;
+};
 
 export type ChatSessionRuntime = {
   sessionId: string;
   activity: ChatSessionActivity;
+  remoteBusy: boolean;
   liveMessages: ChatMessage[];
   error: string | null;
   warnings: string[];
@@ -39,6 +46,8 @@ export type ChatSessionRuntime = {
   awaitingResponse: boolean;
   planRepoRootInput: string;
   planMaxTurnsInput: string;
+  pendingApproval: ChatStreamApproval | null;
+  resolvedApproval: ResolvedRepoAgentApproval | null;
 };
 
 export type ChatSessionRuntimeTransition =
@@ -47,11 +56,14 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'narration'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
   | { kind: 'progress'; sessionId: string; progress: ChatStreamProgress }
+  | { kind: 'approval'; sessionId: string; approval: ChatStreamApproval }
+  | { kind: 'approval-decision'; sessionId: string; resolution: ResolvedRepoAgentApproval }
+  | { kind: 'approval-clear'; sessionId: string }
   | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
-  | { kind: 'failure'; sessionId: string; message: string }
+  | { kind: 'failure'; sessionId: string; message: string; remoteBusy?: boolean }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
@@ -62,6 +74,7 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
   return {
     sessionId,
     activity: { kind: 'idle' },
+    remoteBusy: false,
     liveMessages: [],
     error: null,
     warnings: [],
@@ -73,6 +86,8 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
     awaitingResponse: false,
     planRepoRootInput: '',
     planMaxTurnsInput: '',
+    pendingApproval: null,
+    resolvedApproval: null,
   };
 }
 
@@ -119,7 +134,11 @@ function applyTransition(
 ): ChatSessionRuntime {
   switch (transition.kind) {
     case 'begin':
-      return { ...runtime, activity: { kind: 'active', operationKind: transition.operationKind } };
+      return {
+        ...runtime,
+        activity: { kind: 'active', operationKind: transition.operationKind },
+        remoteBusy: false,
+      };
     case 'thinking':
       return {
         ...runtime,
@@ -142,6 +161,12 @@ function applyTransition(
         liveMessages: upsertLiveMessageInto(runtime.liveMessages, progressMessage),
       };
     }
+    case 'approval':
+      return { ...runtime, awaitingResponse: false, pendingApproval: transition.approval };
+    case 'approval-decision':
+      return { ...runtime, pendingApproval: null, resolvedApproval: transition.resolution };
+    case 'approval-clear':
+      return { ...runtime, pendingApproval: null, resolvedApproval: null };
     case 'answer':
       return applyAnswer(runtime, transition.delta);
     case 'warning':
@@ -154,6 +179,8 @@ function applyTransition(
         pendingImages: [],
         submittedInput: { content: transition.content, images: transition.images },
         awaitingResponse: true,
+        pendingApproval: null,
+        resolvedApproval: null,
         liveMessages: upsertLiveMessageInto(
           runtime.liveMessages,
           buildLiveUserMessage(transition.content, transition.images.map((image) => image.dataUrl)),
@@ -163,6 +190,7 @@ function applyTransition(
       return {
         ...runtime,
         activity: { kind: 'idle' },
+        remoteBusy: false,
         contextUsage: transition.response.contextUsage,
         liveMessages: [],
         error: null,
@@ -170,17 +198,22 @@ function applyTransition(
         pendingImages: [],
         submittedInput: null,
         awaitingResponse: false,
+        pendingApproval: null,
+        resolvedApproval: null,
       };
     case 'failure':
       return {
         ...runtime,
         activity: { kind: 'idle' },
+        remoteBusy: transition.remoteBusy === true,
         error: transition.message,
         liveMessages: [],
         draft: runtime.submittedInput ? runtime.submittedInput.content : runtime.draft,
         pendingImages: runtime.submittedInput ? runtime.submittedInput.images : runtime.pendingImages,
         submittedInput: null,
         awaitingResponse: false,
+        pendingApproval: null,
+        resolvedApproval: null,
       };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };

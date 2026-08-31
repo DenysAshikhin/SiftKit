@@ -70,7 +70,7 @@ test('runtime failure overrides completed persisted messages', () => {
   assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
 });
 
-test('isSessionBusy is true only while an operation is active', () => {
+test('isSessionBusy covers local operations, foreign conflicts, and recovered approvals', () => {
   const idle: ChatSessionRuntime = new ChatSessionRuntimeStore()
     .ensureSession('s')
     .get('s');
@@ -80,4 +80,22 @@ test('isSessionBusy is true only while an operation is active', () => {
     .apply({ kind: 'begin', sessionId: 's', operationKind: 'message' })
     .get('s');
   assert.equal(isSessionBusy(active), true);
+  const foreignBusy = new ChatSessionRuntimeStore()
+    .apply({ kind: 'failure', sessionId: 's', message: 'busy', remoteBusy: true })
+    .get('s');
+  assert.equal(isSessionBusy(foreignBusy), true);
+  const recoveredApproval = new ChatSessionRuntimeStore()
+    .apply({
+      kind: 'approval',
+      sessionId: 's',
+      approval: {
+        runId: '4f9c1f9a-0000-4000-8000-000000000000',
+        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+        toolName: 'bash',
+        command: 'npm test',
+        reviewPayload: null,
+      },
+    })
+    .get('s');
+  assert.equal(isSessionBusy(recoveredApproval), true);
 });

@@ -49,6 +49,24 @@ test('parseChatStreamPacket parses warning events', () => {
   );
 });
 
+test('parseChatStreamPacket validates approval events', () => {
+  const approval = {
+    runId: '4f9c1f9a-0000-4000-8000-000000000000',
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash',
+    command: 'npm test',
+    reviewPayload: null,
+  };
+  assert.deepEqual(
+    parseChatStreamPacket(`event: approval\ndata: ${JSON.stringify(approval)}`),
+    { kind: 'approval', approval },
+  );
+  assert.equal(
+    parseChatStreamPacket('event: approval\ndata: {"runId":"not-a-uuid"}'),
+    null,
+  );
+});
+
 test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', () => {
   const start = parseChatStreamPacket(
     'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"toolCallLimit":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","promptTokenCount":42}'

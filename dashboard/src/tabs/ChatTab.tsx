@@ -23,6 +23,8 @@ import { ToolActivityRow } from '../components/ToolActivityRow';
 import { PendingImageStrip } from '../components/PendingImageStrip';
 import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
+import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
+import type { RepoAgentDecision } from '../api';
 import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
@@ -114,6 +116,9 @@ export type ChatTabProps = {
   onCondense(): Promise<void>;
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
+  onSendRepoAgent(): Promise<void>;
+  onSubmitRepoAgentDecision(decision: RepoAgentDecision): Promise<void>;
+  onStopOperation(): Promise<void>;
   onSendMessage(): Promise<void>;
   onPendingImagesChange(images: PendingImage[]): void;
   onPendingImagesAppend(sessionId: string, images: PendingImage[]): void;
@@ -140,6 +145,7 @@ function SessionIndicatorMark({ indicator }: { indicator: SessionIndicator }) {
 function getSendLabel(chatMode: DashboardPresetExecutionFamily | null): string {
   if (chatMode === 'plan') { return 'Generate Plan'; }
   if (chatMode === 'repo-search') { return 'Search'; }
+  if (chatMode === 'repo-agent') { return 'Run Agent'; }
   if (chatMode === 'summary') { return 'Summarize'; }
   return 'Send';
 }
@@ -207,6 +213,9 @@ export function ChatTab({
   onCondense,
   onSendPlan,
   onSendRepoSearch,
+  onSendRepoAgent,
+  onSubmitRepoAgentDecision,
+  onStopOperation,
   onSendMessage,
   onPendingImagesChange,
   onPendingImagesAppend,
@@ -237,6 +246,7 @@ export function ChatTab({
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
+  const ownsActiveOperation = selectedRuntime?.activity.kind === 'active';
   const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
 
   React.useEffect(() => {
@@ -285,6 +295,7 @@ export function ChatTab({
   function dispatchSend(): void {
     if (chatMode === 'plan') { void onSendPlan(); return; }
     if (chatMode === 'repo-search') { void onSendRepoSearch(); return; }
+    if (chatMode === 'repo-agent') { void onSendRepoAgent(); return; }
     void onSendMessage();
   }
 
@@ -386,6 +397,17 @@ export function ChatTab({
                   && !turn.showRecentActivity) {
                   const message = turn.main;
                   if (!message) { return null; }
+                  if (message.kind === 'repo_agent_approval') {
+                    return (
+                      <RepoAgentApprovalRow
+                        key={message.id}
+                        decision={message.approvalDecision}
+                        command={message.approvalCommand}
+                        reason={message.approvalReason}
+                        decidedAtUtc={message.createdAtUtc}
+                      />
+                    );
+                  }
                   return (
                     <MessageBubble
                       key={message.id}
@@ -413,6 +435,22 @@ export function ChatTab({
                   />
                 );
               })}
+              {selectedRuntime?.resolvedApproval ? (
+                <RepoAgentApprovalRow
+                  decision={selectedRuntime.resolvedApproval.decision.decision}
+                  command={selectedRuntime.resolvedApproval.approval.command}
+                  reason={selectedRuntime.resolvedApproval.decision.decision === 'deny'
+                    ? selectedRuntime.resolvedApproval.decision.reason
+                    : null}
+                  decidedAtUtc={selectedRuntime.resolvedApproval.decidedAtUtc}
+                />
+              ) : null}
+              {selectedRuntime?.pendingApproval ? (
+                <RepoAgentApprovalCard
+                  approval={selectedRuntime.pendingApproval}
+                  onDecide={(decision) => { void onSubmitRepoAgentDecision(decision); }}
+                />
+              ) : null}
               {selectedRuntime?.awaitingResponse ? (
                 <section className="recent-activity" aria-label="Recent activity">
                   <div className="recent-activity-header">
@@ -485,11 +523,12 @@ export function ChatTab({
                 </button>
                 <textarea
                   className="input"
-                  placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
+                  placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'repo-agent' ? 'Describe the task for the repo agent…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
                   value={draft}
                   onChange={(event) => onChangeDraft(event.target.value)}
                   onPaste={handleComposerPaste}
                   rows={2}
+                  disabled={selectedSessionBusy}
                 />
                 {contextUsage ? (
                   <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
@@ -512,14 +551,24 @@ export function ChatTab({
                     }}
                   />
                 </label>
-                <button
-                  type="button"
-                  className="send"
-                  onClick={dispatchSend}
-                  disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}
-                >
-                  {getSendLabel(chatMode)}
-                </button>
+                {ownsActiveOperation ? (
+                  <button
+                    type="button"
+                    className="send stop"
+                    onClick={() => { void onStopOperation(); }}
+                  >
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="send"
+                    onClick={dispatchSend}
+                    disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}
+                  >
+                    {getSendLabel(chatMode)}
+                  </button>
+                )}
               </div>
               <ChatStatsBar
                 lastTurn={lastTurnTelemetry}

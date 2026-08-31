@@ -8,6 +8,8 @@ import {
   ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
   ChatSessionBusyResponseSchema,
+  ChatSessionOperationKindSchema,
+  ChatStreamApprovalSchema,
   AssistantMemoryHistoryEntryDtoSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantMutationResponseSchema,
@@ -47,7 +49,7 @@ import {
 } from '@siftkit/contracts';
 import { ChatStreamReader } from './lib/chat-stream-parser.js';
 import type { ChatStreamEvent } from './lib/chat-stream-parser.js';
-import type { JsonValue, JsonSerializable } from '../../src/lib/json-types.js';
+import { JsonValueSchema, type JsonValue, type JsonSerializable } from '../../src/lib/json-types.js';
 
 export async function parseJsonResponse<S extends z.ZodTypeAny>(response: Response, schema: S): Promise<z.infer<S>> {
   if (!response.ok) {
@@ -541,5 +543,81 @@ export function streamRepoSearchMessage(
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
     payload,
+  );
+}
+
+export type RepoAgentDecision =
+  | { decision: 'approve' }
+  | { decision: 'deny'; reason: string }
+  | { decision: 'abort' };
+
+const RepoAgentDecisionResponseSchema = z.object({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+});
+const ActiveRepoAgentRunSchema = z.object({
+  runId: z.string().uuid(),
+  state: JsonValueSchema,
+});
+const StopChatOperationResponseSchema = z.object({
+  ok: z.literal(true),
+  operationKind: ChatSessionOperationKindSchema,
+}).strict();
+const RepoAgentApprovalWithoutRunIdSchema = ChatStreamApprovalSchema.omit({ runId: true });
+export const ActiveRepoAgentApprovalStateSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('approval_required'), approval: RepoAgentApprovalWithoutRunIdSchema }).passthrough(),
+  z.object({ status: z.literal('approval_timeout'), approval: RepoAgentApprovalWithoutRunIdSchema }).passthrough(),
+]);
+
+export function streamRepoAgentMessage(
+  sessionId: string,
+  payload: {
+    content: string;
+    images?: string[];
+    repoRoot?: string;
+    approval?: 'interactive' | 'auto' | 'off';
+    maxTurns?: number;
+  },
+): AsyncGenerator<ChatStreamEvent> {
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/stream`,
+    payload,
+  );
+}
+
+export function decideRepoAgent(
+  sessionId: string,
+  decision: RepoAgentDecision,
+): Promise<z.infer<typeof RepoAgentDecisionResponseSchema>> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/decide`,
+    RepoAgentDecisionResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(decision),
+    },
+  );
+}
+
+export async function getActiveRepoAgentRun(
+  sessionId: string,
+): Promise<z.infer<typeof ActiveRepoAgentRunSchema> | null> {
+  const response = await fetch(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/active`,
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  return await parseJsonResponse(response, ActiveRepoAgentRunSchema);
+}
+
+export function stopChatOperation(
+  sessionId: string,
+): Promise<z.infer<typeof StopChatOperationResponseSchema>> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/stop`,
+    StopChatOperationResponseSchema,
+    { method: 'POST' },
   );
 }

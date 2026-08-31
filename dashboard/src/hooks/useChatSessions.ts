@@ -7,16 +7,21 @@ import {
 import { toError } from '../../../src/lib/errors.js';
 import {
   condenseChatSession,
+  ActiveRepoAgentApprovalStateSchema,
   createChatSession,
   deleteChatMessage,
   deleteChatMessageImage,
   deleteChatSession,
+  decideRepoAgent,
+  getActiveRepoAgentRun,
   getChatSession,
   getChatSessions,
   getInferenceRuntimeStatus,
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
+  streamRepoAgentMessage,
+  stopChatOperation,
   updateChatSession,
 } from '../api';
 import {
@@ -115,8 +120,8 @@ export function useChatSessions(deps: {
       return;
     }
     let cancelled = false;
-    void getChatSession(selectedSessionId)
-      .then((response) => {
+    void Promise.all([getChatSession(selectedSessionId), getActiveRepoAgentRun(selectedSessionId)])
+      .then(([response, activeRun]) => {
         if (!cancelled) {
           setSessions((previous) => upsertSession(previous, response.session));
           setRuntimeStore((previous) => previous.apply({
@@ -124,6 +129,19 @@ export function useChatSessions(deps: {
             sessionId: response.session.id,
             contextUsage: response.contextUsage,
           }));
+          const state = ActiveRepoAgentApprovalStateSchema.safeParse(activeRun?.state);
+          if (activeRun && state.success) {
+            setRuntimeStore((previous) => previous.apply({
+              kind: 'approval',
+              sessionId: response.session.id,
+              approval: { runId: activeRun.runId, ...state.data.approval },
+            }));
+          } else {
+            setRuntimeStore((previous) => previous.apply({
+              kind: 'approval-clear',
+              sessionId: response.session.id,
+            }));
+          }
         }
       })
       .catch((error) => {
@@ -436,6 +454,47 @@ export function useChatSessions(deps: {
     }));
   }
 
+  async function sendRepoAgent(): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const inputs = readRuntimeInputs(session.id);
+    if (!inputs.draft) {
+      return;
+    }
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
+    await runChatStream(session.id, 'repo-agent', streamRepoAgentMessage(session.id, {
+      content: inputs.draft,
+      images: inputs.pendingImages.map((image) => image.dataUrl),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+    }));
+  }
+
+  async function submitRepoAgentDecision(
+    decision: Parameters<typeof decideRepoAgent>[1],
+  ): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const approval = runtimeStore.get(session.id).pendingApproval;
+    await decideRepoAgent(session.id, decision);
+    if (approval) {
+      setRuntimeStore((previous) => previous.apply({
+        kind: 'approval-decision',
+        sessionId: session.id,
+        resolution: { approval, decision, decidedAtUtc: new Date().toISOString() },
+      }));
+    }
+  }
+
+  async function stopOperation(): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    try {
+      await stopChatOperation(selectedSessionId);
+    } catch (error) {
+      recordSessionError(selectedSessionId, toError(error));
+    }
+  }
+
   return {
     sessions,
     selectedSessionId,
@@ -462,6 +521,9 @@ export function useChatSessions(deps: {
     sendMessage,
     sendPlan,
     sendRepoSearch,
+    sendRepoAgent,
+    submitRepoAgentDecision,
+    stopOperation,
   };
 }
 

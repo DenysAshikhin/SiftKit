@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../../src/lib/errors.js';
+import { ChatSessionBusyError } from '../api';
 import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store';
 import type { ChatStreamEvent } from './chat-stream-parser';
 import type { ChatSessionOperationKind } from '../types';
@@ -29,6 +30,8 @@ export async function* toRuntimeTransitions(
         yield { kind: 'tool', sessionId, toolEvent: event.tool };
       } else if (event.kind === 'progress') {
         yield { kind: 'progress', sessionId, progress: event.progress };
+      } else if (event.kind === 'approval') {
+        yield { kind: 'approval', sessionId, approval: event.approval };
       } else if (event.kind === 'answer') {
         yield { kind: 'answer', sessionId, delta: event.delta };
       } else if (event.kind === 'done') {
@@ -45,6 +48,11 @@ export async function* toRuntimeTransitions(
       throw new Error('Chat stream ended before the done event');
     }
   } catch (error) {
-    yield { kind: 'failure', sessionId, message: getErrorMessage(error) };
+    yield {
+      kind: 'failure',
+      sessionId,
+      message: getErrorMessage(error),
+      remoteBusy: error instanceof ChatSessionBusyError,
+    };
   }
 }

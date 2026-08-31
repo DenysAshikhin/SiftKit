@@ -102,6 +102,8 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
     onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
+    onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {},
+    onStopOperation: async () => {},
     onPendingImagesChange: () => {},
     onPendingImagesAppend: () => {},
     onPendingImageError: () => {},
@@ -113,6 +115,108 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
 function render(overrides: Partial<ChatTabProps> = {}): string {
   return renderToStaticMarkup(React.createElement(ChatTab, buildProps(overrides)));
 }
+
+test('repo-agent composer uses the Run Agent label', () => {
+  assert.match(render({ chatMode: 'repo-agent', isRepoToolMode: true }), />Run Agent<\/button>/u);
+});
+
+test('repo-agent pending approval renders actions and reject requires a reason', async () => {
+  const decisions: Array<{ decision: string; reason?: string }> = [];
+  const approval = {
+    runId: '4f9c1f9a-0000-4000-8000-000000000000',
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash',
+    command: 'npm test',
+    reviewPayload: 'Run focused tests first.',
+  };
+  const store = buildDefaultStore(SESSION_A.id).apply({ kind: 'approval', sessionId: SESSION_A.id, approval });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+    onSubmitRepoAgentDecision: async (decision) => { decisions.push(decision); },
+  })} />);
+  assert.equal(screen.getByText('npm test').textContent, 'npm test');
+  assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
+  assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
+  assert.ok(screen.getByRole('button', { name: 'Approve' }));
+  assert.ok(screen.getByRole('button', { name: 'Abort' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reject…' }));
+  const submit = screen.getByRole('button', { name: 'Submit rejection' });
+  assert.equal(submit.hasAttribute('disabled'), true);
+  fireEvent.change(screen.getByLabelText('Rejection reason'), { target: { value: 'wrong file' } });
+  assert.equal(submit.hasAttribute('disabled'), false);
+  await act(async () => { fireEvent.click(submit); });
+  assert.deepEqual(decisions, [{ decision: 'deny', reason: 'wrong file' }]);
+});
+
+test('resolved and persisted repo-agent approvals render compact audit rows', () => {
+  const approval = {
+    runId: '4f9c1f9a-0000-4000-8000-000000000000',
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash',
+    command: 'npm test',
+    reviewPayload: null,
+  };
+  const store = buildDefaultStore(SESSION_A.id).apply({
+    kind: 'approval-decision',
+    sessionId: SESSION_A.id,
+    resolution: { approval, decision: { decision: 'deny', reason: 'wrong file' }, decidedAtUtc: '2026-07-19T00:00:00Z' },
+  });
+  const persistedSession: ChatSession = {
+    ...SESSION_A,
+    messages: [{
+      id: 'approval-row', role: 'user', kind: 'repo_agent_approval', content: 'approve bash: npm test',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+      createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: approval.runId,
+      approvalDecision: 'approve', approvalToolName: 'bash', approvalCommand: 'npm test', approvalReason: null,
+    }],
+  };
+  const markup = render({
+    selectedSession: persistedSession,
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.match(markup, /✓ Approved/u);
+  assert.match(markup, /✕ Rejected/u);
+  assert.match(markup, /wrong file/u);
+  assert.doesNotMatch(markup, /class="approval-card"/u);
+});
+
+test('a locally active operation replaces the send control with an enabled Stop button', async () => {
+  let stops = 0;
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent' });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+    onStopOperation: async () => { stops += 1; },
+  })} />);
+  const stop = screen.getByRole('button', { name: 'Stop' });
+  assert.equal(stop.hasAttribute('disabled'), false);
+  assert.match(stop.className, /stop/u);
+  await act(async () => { fireEvent.click(stop); });
+  assert.equal(stops, 1);
+  assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), true);
+});
+
+test('an operation owned by another client keeps the mode button disabled without showing Stop', () => {
+  const store = buildDefaultStore(SESSION_A.id).apply({
+    kind: 'failure',
+    sessionId: SESSION_A.id,
+    message: 'Chat session already has an active operation.',
+    remoteBusy: true,
+  });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  })} />);
+  assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
+  assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
+});
 
 function installImageReadControls(): {
   complete(index: number, dataUrl: string): void;
@@ -307,10 +411,10 @@ test('busy A stays visible while selected B remains interactive', () => {
   assert.doesNotMatch(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
 });
 
-test('selected busy A disables only its mutable controls', () => {
+test('selected busy A disables mutable controls except Stop', () => {
   const store = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
-  assert.match(markup, /class="send"[^>]*disabled/u);
+  assert.match(markup, /class="send stop"[^>]*>Stop/u);
   assert.match(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
   assert.doesNotMatch(markup, /class="ghost-btn acc new"[^>]*disabled/u);
 });
@@ -612,7 +716,9 @@ test('a real compacting stream persists and immediately renders one boundary', a
     const preset = getActiveModelPreset(config);
     preset.Model = 'mock';
     preset.NumCtx = 9_000;
-    preset.MaxTokens = 512;
+    // Compaction reserves two thirds of generation for reasoning and guarantees
+    // a 512-token summary-output floor, so the fixture needs the full 3x budget.
+    preset.MaxTokens = 1_536;
     writeConfig(getRuntimeDatabasePath(), config);
 
     const created = ChatSessionResponseSchema.parse((await requestJson(

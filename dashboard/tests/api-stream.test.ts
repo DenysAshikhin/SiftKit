@@ -237,3 +237,22 @@ test('streamPlanMessage throws generic error on malformed 409', async () => {
     restoreFetch();
   }
 });
+
+test('stopChatOperation posts to the session stop endpoint and validates the response', async () => {
+  const { stopChatOperation } = await import('../src/api');
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  let requestedMethod = '';
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedMethod = init?.method ?? '';
+    return new Response(JSON.stringify({ ok: true, operationKind: 'repo-agent' }), { status: 200 });
+  };
+  try {
+    assert.deepEqual(await stopChatOperation('session one'), { ok: true, operationKind: 'repo-agent' });
+    assert.equal(requestedUrl, '/dashboard/chat/sessions/session%20one/stop');
+    assert.equal(requestedMethod, 'POST');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -10,6 +10,7 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
+import { PersistedChatMessageSchema } from '@siftkit/contracts';
 import {
   appendChatMessagesWithUsage,
   buildChatHistoryMessages,
@@ -31,7 +32,7 @@ const COMPACTION_FIXTURE_TIMESTAMP = '2026-08-20T00:00:00.000Z';
 type NonToolChatMessage = Exclude<ChatMessage, { kind: 'assistant_tool_call' }>;
 
 function compactionMessage(overrides: Partial<NonToolChatMessage> & { id: string }): ChatMessage {
-  return {
+  return PersistedChatMessageSchema.parse({
     content: '',
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
@@ -41,7 +42,7 @@ function compactionMessage(overrides: Partial<NonToolChatMessage> & { id: string
     ...overrides,
     role: overrides.role ?? 'assistant',
     kind: overrides.kind ?? 'assistant_answer',
-  };
+  });
 }
 
 function saveCompactionSession(runtimeRoot: string, messages: ChatMessage[]): ChatSession {

@@ -13,6 +13,7 @@ import {
 import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
 import { MANAGED_PRESET } from '../fixtures.js';
 import type { ChatMessage, ChatSession } from '../../src/types';
+import type { JsonValue } from '../../../src/lib/json-types.js';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -164,6 +165,7 @@ class ChatFetchFixture {
   readonly sentBodies: string[] = [];
   detailRequestCount = 0;
   streamRequestCount = 0;
+  stopRequestCount = 0;
   private readonly originalFetch = globalThis.fetch;
   private restored = false;
 
@@ -172,6 +174,7 @@ class ChatFetchFixture {
     detailResponse: ChatFixtureResponse;
     streamResponse: ChatFixtureResponse;
     runtimeStatus?: typeof RUNTIME_STATUS;
+    activeRun?: { runId: string; state: JsonValue };
   }) {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = String(input);
@@ -186,12 +189,21 @@ class ChatFetchFixture {
         this.detailRequestCount += 1;
         return new Response(JSON.stringify(this.options.detailResponse), { status: 200 });
       }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/active`) {
+        return this.options.activeRun
+          ? new Response(JSON.stringify(this.options.activeRun), { status: 200 })
+          : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
+      }
       if (url === `/dashboard/chat/sessions/${this.options.session.id}/messages/stream`) {
         this.streamRequestCount += 1;
         return new Response(`event: done\ndata: ${JSON.stringify(this.options.streamResponse)}\n\n`, {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream' },
         });
+      }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/stop`) {
+        this.stopRequestCount += 1;
+        return new Response(JSON.stringify({ ok: true, operationKind: 'message' }), { status: 200 });
       }
       if (url === '/runtime/inference' && this.options.runtimeStatus) {
         return new Response(JSON.stringify(this.options.runtimeStatus), { status: 200 });
@@ -206,6 +218,38 @@ class ChatFetchFixture {
     globalThis.fetch = this.originalFetch;
   }
 }
+
+test('selecting a session restores a parked repo-agent approval', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeRun: {
+      runId: '4f9c1f9a-0000-4000-8000-000000000000',
+      state: {
+        status: 'approval_required',
+        approval: {
+          approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+          toolName: 'bash',
+          command: 'npm test',
+          reviewPayload: null,
+        },
+      },
+    },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
+    });
+  } finally {
+    fixture.restore();
+  }
+});
 
 test('a compacting stream completion installs the boundary and corrected usage without refetching', async () => {
   const compactedSession: ChatSession = {
@@ -260,6 +304,29 @@ test('a compacting stream completion installs the boundary and corrected usage w
     assert.equal(runtime.contextUsage?.totalUsedTokens, 12);
     assert.equal(runtime.contextUsage?.shouldCondense, false);
     assert.equal(fixture.detailRequestCount, 1);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('stopOperation posts for the selected session', async () => {
+  const response = { session: SESSION, contextUsage: CONTEXT_USAGE };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: response,
+    streamResponse: response,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1',
+      refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }),
+      confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
+    await act(async () => { await hook.result.current.stopOperation(); });
+    assert.equal(fixture.stopRequestCount, 1);
   } finally {
     fixture.restore();
   }

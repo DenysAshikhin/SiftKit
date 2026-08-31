@@ -108,7 +108,7 @@ test('ChatSessionBusyResponseSchema preserves the conflicting session', () => {
 test('chat session operation kinds cover every leased chat endpoint', () => {
   assert.deepEqual(
     ChatSessionOperationKindSchema.options,
-    ['message', 'plan', 'repo-search', 'condense'],
+    ['message', 'plan', 'repo-search', 'repo-agent', 'condense'],
   );
 });
 

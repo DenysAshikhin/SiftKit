@@ -3,6 +3,7 @@ import { basename, dirname, join, parse, resolve } from 'node:path';
 import {
   ImageMetadataSchema,
   ModelRuntimePresetSchema,
+  ChatRepoAgentApprovalMessageSchema,
   PersistedChatMessageSchema,
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
@@ -104,6 +105,10 @@ const MessageRowSchema = z.object({
   tool_call_prompt_token_count: z.number().nullable(),
   tool_call_output_snippet: z.string().nullable(),
   tool_call_output: z.string().nullable(),
+  approval_decision: z.string().nullable(),
+  approval_tool_name: z.string().nullable(),
+  approval_command: z.string().nullable(),
+  approval_reason: z.string().nullable(),
   created_at_utc: z.string(),
   source_run_id: z.string().nullable(),
   compressed_into_summary: z.number(),
@@ -190,6 +195,7 @@ function normalizeMessageKind(value: string | null | undefined, roleValue: strin
     || value === 'assistant_tool_call'
     || value === 'tool_image'
     || value === 'compaction_summary'
+    || value === 'repo_agent_approval'
   ) {
     return value;
   }
@@ -253,6 +259,18 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     toolCallOutputSnippet: row.tool_call_output_snippet,
     toolCallOutput: row.tool_call_output,
     toolCallStatus: kind === 'assistant_tool_call' ? 'done' : undefined,
+    approvalDecision: kind === 'repo_agent_approval'
+      ? ChatRepoAgentApprovalMessageSchema.shape.approvalDecision.parse(row.approval_decision)
+      : undefined,
+    approvalToolName: kind === 'repo_agent_approval'
+      ? ChatRepoAgentApprovalMessageSchema.shape.approvalToolName.parse(row.approval_tool_name)
+      : undefined,
+    approvalCommand: kind === 'repo_agent_approval'
+      ? ChatRepoAgentApprovalMessageSchema.shape.approvalCommand.parse(row.approval_command)
+      : undefined,
+    approvalReason: kind === 'repo_agent_approval'
+      ? ChatRepoAgentApprovalMessageSchema.shape.approvalReason.parse(row.approval_reason)
+      : undefined,
     createdAtUtc: row.created_at_utc,
     sourceRunId: row.source_run_id,
     compressedIntoSummary: row.compressed_into_summary === 1,
@@ -356,6 +374,10 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       tool_call_prompt_token_count,
       tool_call_output_snippet,
       tool_call_output,
+      approval_decision,
+      approval_tool_name,
+      approval_command,
+      approval_reason,
       created_at_utc,
       source_run_id,
       compressed_into_summary,
@@ -660,6 +682,10 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         tool_call_prompt_token_count,
         tool_call_output_snippet,
         tool_call_output,
+        approval_decision,
+        approval_tool_name,
+        approval_command,
+        approval_reason,
         created_at_utc,
         source_run_id,
         compressed_into_summary,
@@ -668,7 +694,13 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         image_meta,
         removed_image_count,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -677,6 +709,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       const activitySubject = messageKind === 'assistant_tool_call'
         ? ToolActivitySubjectSchema.parse(message.toolCallActivitySubject)
         : null;
+      const approvalMessage = message.kind === 'repo_agent_approval' ? message : null;
       insertMessage.run(
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
@@ -719,6 +752,10 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
         typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
         typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,
+        approvalMessage?.approvalDecision ?? null,
+        approvalMessage?.approvalToolName ?? null,
+        approvalMessage?.approvalCommand ?? null,
+        approvalMessage?.approvalReason ?? null,
         typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
         typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
         message.compressedIntoSummary === true ? 1 : 0,

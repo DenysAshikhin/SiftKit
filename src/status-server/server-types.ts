@@ -20,6 +20,7 @@ import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
+import type { ChatRepoAgentRunBinding } from './routes/chat-repo-agent.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -136,6 +137,7 @@ export type ServerContext = {
   // Run state
   statusRuns: StatusRunRegistry;
   chatSessionOperations: ChatSessionOperationRegistry;
+  chatRepoAgentRuns: Map<string, ChatRepoAgentRunBinding>;
   approvalGates: Map<string, ApprovalGate>;
   activeModelRequests: Map<string, ModelRequestLock>;
   modelRequestQueue: ModelRequestWaiter[];

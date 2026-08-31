@@ -1,10 +1,12 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
 import {
   ChatSessionResponseSchema,
+  ChatStreamApprovalSchema,
   ChatStreamProgressSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
   type ChatSessionResponse,
+  type ChatStreamApproval,
   type ChatStreamProgress,
   type ChatStreamTextDelta,
   type ChatStreamToolEvent,
@@ -18,6 +20,7 @@ export type ChatStreamEvent =
   | { kind: 'warning'; text: string }
   | { kind: 'tool'; tool: ChatStreamToolEvent }
   | { kind: 'progress'; progress: ChatStreamProgress }
+  | { kind: 'approval'; approval: ChatStreamApproval }
   | { kind: 'answer'; delta: ChatStreamTextDelta }
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'error'; message: string };
@@ -64,6 +67,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     case 'progress': {
       const result = ChatStreamProgressSchema.safeParse(record);
       return result.success ? { kind: 'progress', progress: result.data } : null;
+    }
+    case 'approval': {
+      const result = ChatStreamApprovalSchema.safeParse(record);
+      return result.success ? { kind: 'approval', approval: result.data } : null;
     }
     case 'answer': {
       const result = ChatStreamTextDeltaSchema.safeParse(record);

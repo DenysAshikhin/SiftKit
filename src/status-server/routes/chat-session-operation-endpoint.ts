@@ -35,6 +35,7 @@ export type ChatSessionOperationRequest<TParsed> = {
   session: ChatSession;
   parsedBody: JsonObject;
   value: TParsed;
+  lease: ChatSessionOperation | null;
 };
 
 function readChatSessionIdFromMatch(routeMatch: RouteMatch): string {
@@ -160,7 +161,14 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       return;
     }
     try {
-      await this.run(ctx, req, res, { sessionId, sessionPath, session, parsedBody, value });
+      await this.run(ctx, req, res, {
+        sessionId,
+        sessionPath,
+        session,
+        parsedBody,
+        value,
+        lease: acquisition?.kind === 'acquired' ? acquisition.lease : null,
+      });
     } finally {
       if (acquisition?.kind === 'acquired') {
         ctx.chatSessionOperations.release(acquisition.lease);

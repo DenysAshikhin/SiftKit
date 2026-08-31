@@ -544,3 +544,32 @@ test('progress transitions upsert a single live-progress message in place', () =
   assert.equal(progressMessages[0]?.kind, 'assistant_progress');
   assert.equal(progressMessages[0]?.content, 'GREEN wiring');
 });
+
+test('approval state is set by approval and cleared by submit, done, and failure', () => {
+  const approval = {
+    runId: '4f9c1f9a-0000-4000-8000-000000000000',
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash',
+    command: 'npm test',
+    reviewPayload: null,
+  };
+  const pending = new ChatSessionRuntimeStore()
+    .apply({ kind: 'approval', sessionId: 's1', approval });
+  assert.deepEqual(pending.get('s1').pendingApproval, approval);
+  assert.equal(
+    pending.apply({ kind: 'submit', sessionId: 's1', content: 'again', images: [] }).get('s1').pendingApproval,
+    null,
+  );
+  assert.equal(
+    pending.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').pendingApproval,
+    null,
+  );
+  assert.equal(
+    pending.apply({ kind: 'failure', sessionId: 's1', message: 'boom' }).get('s1').pendingApproval,
+    null,
+  );
+  assert.equal(
+    pending.apply({ kind: 'approval-clear', sessionId: 's1' }).get('s1').pendingApproval,
+    null,
+  );
+});

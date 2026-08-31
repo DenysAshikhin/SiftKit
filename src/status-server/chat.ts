@@ -10,6 +10,7 @@ import { computeResponseReserveTokens } from '../lib/response-reserve.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger } from '../repo-search/types.js';
+import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import {
   buildCompactionSummaryMessage,
@@ -29,8 +30,11 @@ import {
   type ChatSession,
   type ChatMessage as PersistedChatMessage,
   estimateTokenCount,
+  getChatSessionPath,
+  readChatSessionFromPath,
   saveChatSession,
 } from '../state/chat-sessions.js';
+import type { ChatRepoAgentDecisionRecord } from './routes/chat-repo-agent.js';
 import { buildUserContent, parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import {
   parseWebToolCommand,
@@ -344,6 +348,11 @@ export function buildChatHistoryMessages(
         const toolText = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
         history.push({ role: 'user', content: buildUserContent(toolText, toolImages) });
       }
+      continue;
+    }
+    if (kind === 'repo_agent_approval') {
+      history.push({ role: 'user', content: `[repo-agent approval] ${message.content}` });
+      pendingThinking = '';
       continue;
     }
     const content = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
@@ -720,6 +729,85 @@ export function appendChatMessagesWithUsage(
   };
   saveChatSession(runtimeRoot, updated);
   return updated;
+}
+
+export function buildRepoAgentResultMarkdown(result: RepoAgentRunResult): string {
+  switch (result.status) {
+    case 'completed':
+      return result.output;
+    case 'failed':
+      return `Repo-agent run failed: ${result.error}${result.output ? `\n\n${result.output}` : ''}`;
+    case 'aborted':
+      return 'Repo-agent run stopped by user.';
+    case 'approval_timeout':
+      return `Repo-agent run timed out waiting for approval of \`${result.approval.command}\`.`;
+    case 'approval_required':
+      throw new Error('approval_required is not terminal for interactive chat runs.');
+  }
+}
+
+export function appendChatRepoAgentMessages(
+  runtimeRoot: string,
+  sessionId: string,
+  input: {
+    content: string;
+    images: string[];
+    decisions: ChatRepoAgentDecisionRecord[];
+    result: RepoAgentRunResult;
+  },
+): ChatSession {
+  const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+  const session = readChatSessionFromPath(sessionPath);
+  if (!session) {
+    throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
+  }
+  const persisted = appendChatMessagesWithUsage(
+    runtimeRoot,
+    session,
+    input.content,
+    buildRepoAgentResultMarkdown(input.result),
+    {},
+    { turns: [], sourceRunId: input.result.runId, images: input.images },
+  );
+  const assistantMessage = persisted.messages[persisted.messages.length - 1];
+  if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
+    throw new Error(`Repo-agent persistence did not produce an assistant answer: ${sessionId}`);
+  }
+  const approvalMessages = input.decisions.map((decision): PersistedChatMessage => {
+    const reason = decision.decision === 'deny' ? ` — ${decision.reason ?? ''}` : '';
+    const content = `${decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
+    return {
+      id: randomUUID(),
+      role: 'user',
+      kind: 'repo_agent_approval',
+      content,
+      inputTokensEstimate: estimateTokenCount(content),
+      outputTokensEstimate: 0,
+      thinkingTokens: 0,
+      inputTokensEstimated: true,
+      outputTokensEstimated: false,
+      thinkingTokensEstimated: false,
+      createdAtUtc: decision.decidedAtUtc,
+      sourceRunId: input.result.runId,
+      approvalDecision: decision.decision,
+      approvalToolName: decision.approval.toolName,
+      approvalCommand: decision.approval.command,
+      approvalReason: decision.reason,
+    };
+  });
+  saveChatSession(runtimeRoot, {
+    ...persisted,
+    messages: [
+      ...persisted.messages.slice(0, -1),
+      ...approvalMessages,
+      assistantMessage,
+    ],
+  });
+  const authoritative = readChatSessionFromPath(sessionPath);
+  if (!authoritative) {
+    throw new Error(`Chat session disappeared after repo-agent persistence: ${sessionId}`);
+  }
+  return authoritative;
 }
 
 
