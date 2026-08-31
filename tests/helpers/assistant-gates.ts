@@ -4,8 +4,8 @@ import type {
 
 /** The host is always quiet, so every drain in these suites is allowed to claim. */
 export const ALWAYS_IDLE = {
-  isIdle(): boolean {
-    return true;
+  evaluate() {
+    return { kind: 'allowed' as const };
   },
 } satisfies InteractivityGate;
 

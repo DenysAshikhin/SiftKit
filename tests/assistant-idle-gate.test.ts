@@ -3,26 +3,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { evaluateIdle } from '../src/status-server/assistant-idle-gate.js';
+import { evaluateIdleDecision } from '../src/status-server/assistant-idle-gate.js';
 
 test('idle requires shell-reported input quiet for the full threshold', () => {
-  assert.equal(evaluateIdle(false, 180, 180), true);
-  assert.equal(evaluateIdle(false, 179, 180), false);
-  assert.equal(evaluateIdle(false, 500, 180), true);
+  assert.deepEqual(evaluateIdleDecision(false, 180, 180), { kind: 'allowed' });
+  assert.deepEqual(evaluateIdleDecision(false, 179, 180), {
+    kind: 'blocked',
+    reason: 'input_idle_below_threshold',
+    details: { inputIdleSeconds: 179, requiredIdleSeconds: 180 },
+  });
+  assert.deepEqual(evaluateIdleDecision(false, 500, 180), { kind: 'allowed' });
 });
 
 test('server busyness overrides reported input idleness', () => {
-  assert.equal(evaluateIdle(true, 500, 180), false);
+  assert.deepEqual(evaluateIdleDecision(true, 500, 180), {
+    kind: 'blocked', reason: 'server_busy', details: {},
+  });
 });
 
 test('missing shell input data means not idle, never a fallback path', () => {
-  assert.equal(evaluateIdle(false, null, 180), false);
-  assert.equal(evaluateIdle(true, null, 180), false);
+  assert.deepEqual(evaluateIdleDecision(false, null, 180), {
+    kind: 'blocked', reason: 'environment_heartbeat_missing', details: {},
+  });
+  assert.deepEqual(evaluateIdleDecision(true, null, 180), {
+    kind: 'blocked', reason: 'server_busy', details: {},
+  });
 });
 
 test('a zero threshold drains as soon as input stops and the server is quiet', () => {
-  assert.equal(evaluateIdle(false, 0, 0), true);
-  assert.equal(evaluateIdle(true, 0, 0), false);
+  assert.deepEqual(evaluateIdleDecision(false, 0, 0), { kind: 'allowed' });
+  assert.deepEqual(evaluateIdleDecision(true, 0, 0), {
+    kind: 'blocked', reason: 'server_busy', details: {},
+  });
 });
 
 test('the gate has no quiet-window fallback and reads the configured threshold', () => {

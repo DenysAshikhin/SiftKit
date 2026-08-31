@@ -34,8 +34,10 @@ import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
 class StaticIdleGate {
   constructor(private idle: boolean) {}
 
-  isIdle(): boolean {
-    return this.idle;
+  evaluate() {
+    return this.idle
+      ? { kind: 'allowed' as const }
+      : { kind: 'blocked' as const, reason: 'server_busy' as const, details: {} };
   }
 
   setIdle(idle: boolean): void {
@@ -154,6 +156,7 @@ test('draining a queued conversation job produces an assertion and a projection'
 
     const summary = await runner.drain(ownerId, 10);
     assert.ok(summary.completed >= 1);
+    assert.deepEqual(graph.backgroundDecisions.list(ownerId), []);
     assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
     assert.equal(graph.jobs.countByStatus(ownerId, 'failed'), 0);
     const ownerPerson = graph.nodes.findByCanonicalKey(
@@ -246,6 +249,7 @@ test('a busy host claims nothing', async () => {
     const summary = await runner.drain(ownerId, 10);
     assert.equal(summary.claimed, 0);
     assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'server_busy');
   });
 });
 
@@ -304,6 +308,7 @@ test('preemption returns the job to the queue without spending an attempt', asyn
     assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
     const queued = graph.jobs.listByStatus(ownerId, 'queued')[0];
     assert.equal(queued?.attempts, 0, 'preemption is not failure');
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'preemption_requested');
   });
 });
 
@@ -404,6 +409,7 @@ test('the daily GPU cap skips model-backed jobs but still drains deterministic w
     const summary = await runner.drain(ownerId, 5);
     assert.deepEqual(summary, { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
     assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.job_type, 'conversation_ingestion');
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'daily_gpu_limit');
   });
 });
 
@@ -519,6 +525,7 @@ test('a frozen model claims no model-backed job and spends no attempt', async ()
     const image = queued.find((job) => job.job_type === 'image_extraction');
     assert.equal(conversation?.attempts, 0, 'a sleeping model must not burn the attempt budget');
     assert.equal(image?.attempts, 0, 'image extraction must not be claimed against a sleeping model');
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'model_not_resident');
   });
 });
 
@@ -579,6 +586,7 @@ test('a model that freezes mid-call requeues the job without spending an attempt
       .filter((job) => job.job_type === 'conversation_ingestion');
     assert.equal(queued.length, 1);
     assert.equal(queued[0]?.attempts, 0);
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'model_not_resident');
   });
 });
 

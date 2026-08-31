@@ -1,4 +1,6 @@
-import type { InteractivityGate } from '../assistant/jobs/job-runner.js';
+import type {
+  BackgroundWorkAdmissionDecision, InteractivityGate,
+} from '../assistant/jobs/job-runner.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../config/defaults.js';
 import { isIdle } from './server-ops.js';
 import type { ServerContext } from './server-types.js';
@@ -9,15 +11,24 @@ import type { ServerContext } from './server-types.js';
  * No fresh shell heartbeat means no input data, which means not idle — background work waits
  * for the shell instead of guessing (§12.4).
  */
-export function evaluateIdle(
+export function evaluateIdleDecision(
   busy: boolean,
   inputIdleSeconds: number | null,
   thresholdSeconds: number,
-): boolean {
-  if (busy || inputIdleSeconds === null) {
-    return false;
+): BackgroundWorkAdmissionDecision {
+  if (busy) {
+    return { kind: 'blocked', reason: 'server_busy', details: {} };
   }
-  return inputIdleSeconds >= thresholdSeconds;
+  if (inputIdleSeconds === null) {
+    return { kind: 'blocked', reason: 'environment_heartbeat_missing', details: {} };
+  }
+  return inputIdleSeconds >= thresholdSeconds
+    ? { kind: 'allowed' }
+    : {
+      kind: 'blocked',
+      reason: 'input_idle_below_threshold',
+      details: { inputIdleSeconds, requiredIdleSeconds: thresholdSeconds },
+    };
 }
 
 export class StatusServerIdleGate implements InteractivityGate {
@@ -25,7 +36,7 @@ export class StatusServerIdleGate implements InteractivityGate {
 
   constructor(private readonly ctx: ServerContext) {}
 
-  isIdle(): boolean {
+  evaluate(): BackgroundWorkAdmissionDecision {
     const control = this.ctx.assistantControl;
     const background = control === null
       ? DEFAULT_ASSISTANT_CONFIG.Background
@@ -41,6 +52,8 @@ export class StatusServerIdleGate implements InteractivityGate {
     } else {
       this.reportedMissingInputData = false;
     }
-    return evaluateIdle(!isIdle(this.ctx), inputIdleSeconds, background.IdleSecondsBeforeProcessing);
+    return evaluateIdleDecision(
+      !isIdle(this.ctx), inputIdleSeconds, background.IdleSecondsBeforeProcessing,
+    );
   }
 }

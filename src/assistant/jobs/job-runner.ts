@@ -1,3 +1,7 @@
+import type {
+  AssistantBackgroundWorkBlockReason,
+  AssistantBackgroundWorkDecisionDto,
+} from '@siftkit/contracts';
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { AssistantConfig } from '../../config/types.js';
 import type { CandidateConsolidator } from '../ingestion/consolidator.js';
@@ -14,8 +18,16 @@ import type { ResourcePolicy } from './resource-policy.js';
 
 /** The host tells the runner when background model work is allowed (§12.4). */
 export interface InteractivityGate {
-  isIdle(): boolean;
+  evaluate(): BackgroundWorkAdmissionDecision;
 }
+
+export type BackgroundWorkAdmissionDecision =
+  | { readonly kind: 'allowed' }
+  | {
+    readonly kind: 'blocked';
+    readonly reason: AssistantBackgroundWorkBlockReason;
+    readonly details: AssistantBackgroundWorkDecisionDto['details'];
+  };
 
 /** Reports whether the inference model can currently accept background work. */
 export interface ModelResidencyGate {
@@ -76,9 +88,14 @@ export class AssistantJobRunner {
     this.inFlight?.abort();
   }
 
-  private modelWorkAvailable(): boolean {
-    return this.options.resourcePolicy.canStartModelWork().kind === 'allowed'
-      && this.options.residencyGate.isModelResident();
+  private modelWorkDecision(): BackgroundWorkAdmissionDecision {
+    const resource = this.options.resourcePolicy.canStartModelWork();
+    if (resource.kind === 'blocked') {
+      return { kind: 'blocked', reason: resource.reason, details: {} };
+    }
+    return this.options.residencyGate.isModelResident()
+      ? { kind: 'allowed' }
+      : { kind: 'blocked', reason: 'model_not_resident', details: {} };
   }
 
   async drain(ownerId: string, maxJobs: number): Promise<DrainSummary> {
@@ -90,16 +107,37 @@ export class AssistantJobRunner {
     let preempted = 0;
 
     while (claimed < maxJobs) {
-      if (this.preemptionRequested || !this.options.idleGate.isIdle()) break;
-      if (this.options.resourcePolicy.canStartBackgroundWork().kind === 'blocked') break;
-      const modelWorkAllowed = this.modelWorkAvailable();
+      if (this.preemptionRequested) {
+        this.recordBlock(ownerId, 'preemption_requested', {});
+        break;
+      }
+      const interactivity = this.options.idleGate.evaluate();
+      if (interactivity.kind === 'blocked') {
+        this.recordBlock(ownerId, interactivity.reason, interactivity.details);
+        break;
+      }
+      const backgroundResource = this.options.resourcePolicy.canStartBackgroundWork();
+      if (backgroundResource.kind === 'blocked') {
+        this.recordBlock(ownerId, backgroundResource.reason, {});
+        break;
+      }
+      const modelWork = this.modelWorkDecision();
       const job = this.options.graph.jobs.claimNext({
         ownerId,
         leaseOwner: this.options.leaseOwner,
         leaseSeconds: this.options.leaseSeconds,
-        modelWorkAllowed,
+        modelWorkAllowed: modelWork.kind === 'allowed',
       });
-      if (job === null) break;
+      if (job === null) {
+        if (this.options.graph.jobs.countByStatus(ownerId, 'queued') > 0) {
+          if (modelWork.kind === 'blocked') {
+            this.recordBlock(ownerId, modelWork.reason, modelWork.details);
+          } else {
+            this.recordBlock(ownerId, 'no_claimable_job', {});
+          }
+        }
+        break;
+      }
       claimed += 1;
 
       const controller = new AbortController();
@@ -108,9 +146,13 @@ export class AssistantJobRunner {
       const gpuStartedAtMs = Date.now();
       let shouldRecordGpuUse = false;
       try {
-        if (modelBacked && !this.modelWorkAvailable()) {
-          this.options.graph.jobs.requeuePreempted(job.id);
-          break;
+        if (modelBacked) {
+          const currentModelWork = this.modelWorkDecision();
+          if (currentModelWork.kind === 'blocked') {
+            this.options.graph.jobs.requeuePreempted(job.id);
+            this.recordBlock(ownerId, currentModelWork.reason, currentModelWork.details);
+            break;
+          }
         }
         shouldRecordGpuUse = modelBacked;
         await this.execute(ownerId, job, controller.signal);
@@ -120,6 +162,7 @@ export class AssistantJobRunner {
         if (this.preemptionRequested || error instanceof JobPreemptedError) {
           this.options.graph.jobs.requeuePreempted(job.id);
           preempted += 1;
+          this.recordBlock(ownerId, 'preemption_requested', {});
           break;
         }
         if (modelBacked && !this.options.residencyGate.isModelResident()) {
@@ -128,6 +171,7 @@ export class AssistantJobRunner {
           this.options.graph.jobs.requeuePreempted(job.id);
           preempted += 1;
           shouldRecordGpuUse = false;
+          this.recordBlock(ownerId, 'model_not_resident', {});
           break;
         }
         this.options.graph.jobs.fail(
@@ -143,6 +187,14 @@ export class AssistantJobRunner {
     }
 
     return { claimed, completed, failed, preempted, recovered };
+  }
+
+  private recordBlock(
+    ownerId: string,
+    reason: AssistantBackgroundWorkBlockReason,
+    details: AssistantBackgroundWorkDecisionDto['details'],
+  ): void {
+    this.options.graph.backgroundDecisions.record(ownerId, reason, details);
   }
 
   private async execute(ownerId: string, job: JobRow, signal: AbortSignal): Promise<void> {

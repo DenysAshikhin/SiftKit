@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { CaptureScopeSchema } from '@siftkit/contracts';
 import type {
   AssistantConfig,
+  AssistantBackgroundWorkDecisionDto,
   AssistantMemoryHistoryEntryDto,
   AssistantValidationCandidateDto,
   DesktopStateDto,
@@ -11,6 +12,7 @@ import type {
 import {
   bootstrapAssistantToken,
   fetchAssistantEvidencePixels,
+  getAssistantBackgroundDecisions,
   getAssistantDesktopState,
   getAssistantMemoryHistory,
   getAssistantPendingCaptures,
@@ -31,6 +33,51 @@ type AssistantSettingsProps = {
 type CapturePreview =
   | { kind: 'url'; url: string }
   | { kind: 'error'; error: string };
+
+const BACKGROUND_REASON_LABELS = {
+  drain_blocked: 'Drain blocked',
+  assistant_disabled: 'Assistant disabled',
+  drain_already_running: 'Drain already running',
+  preemption_requested: 'Preemption requested',
+  server_busy: 'Server busy',
+  environment_heartbeat_missing: 'Environment heartbeat missing',
+  input_idle_below_threshold: 'Input idle below threshold',
+  on_battery: 'Running on battery',
+  battery_below_minimum: 'Battery below minimum',
+  daily_gpu_limit: 'Daily GPU limit reached',
+  model_not_resident: 'Model not resident',
+  image_capability_unavailable: 'Image capability unavailable',
+  no_claimable_job: 'No queued job is currently claimable',
+} satisfies Record<AssistantBackgroundWorkDecisionDto['reason'], string>;
+
+function BackgroundWorkDecisions(props: {
+  items: readonly AssistantBackgroundWorkDecisionDto[];
+  loading: boolean;
+}) {
+  return (
+    <section className="assistant-feed">
+      <h2>Background work decisions</h2>
+      {props.loading ? <p className="hint">Loading background-work decisions…</p> : null}
+      {!props.loading && props.items.length === 0 ? (
+        <p className="hint">No background-work blocks have been recorded.</p>
+      ) : null}
+      {props.items.map((item, index) => (
+        <article className="assistant-feed-card" key={`${item.recordedAtUtc}:${item.reason}:${index}`}>
+          <div className="assistant-card-heading">
+            <h3>{BACKGROUND_REASON_LABELS[item.reason]}</h3>
+            <span className="bdg">{new Date(item.recordedAtUtc).toLocaleString()}</span>
+          </div>
+          <p className="hint">
+            {item.queuedJobCount} queued jobs · {item.pendingCaptureCount} pending captures
+          </p>
+          {Object.entries(item.details).map(([name, value]) => (
+            <p className="assistant-proof" key={name}>{name}: {String(value)}</p>
+          ))}
+        </article>
+      ))}
+    </section>
+  );
+}
 
 function Toggle(props: { label: string; value: boolean; onChange(value: boolean): void }) {
   return (
@@ -287,6 +334,9 @@ export function AssistantSettings(props: AssistantSettingsProps) {
   const [history, setHistory] = React.useState<AssistantMemoryHistoryEntryDto[]>([]);
   const [desktopState, setDesktopState] = React.useState<DesktopStateDto | null>(null);
   const [pendingCaptures, setPendingCaptures] = React.useState<PendingCaptureDto[]>([]);
+  const [backgroundDecisions, setBackgroundDecisions] = React.useState<
+    AssistantBackgroundWorkDecisionDto[]
+  >([]);
   const [capturePreviews, setCapturePreviews] = React.useState<Record<string, CapturePreview>>({});
   const [zoomedCapture, setZoomedCapture] = React.useState<PendingCaptureDto | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -297,11 +347,14 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     void (async () => {
       try {
         const nextToken = await bootstrapAssistantToken();
-        const [nextValidation, nextHistory, nextDesktopState, nextCaptures] = await Promise.all([
+        const [
+          nextValidation, nextHistory, nextDesktopState, nextCaptures, nextBackgroundDecisions,
+        ] = await Promise.all([
           getAssistantValidation(nextToken),
           getAssistantMemoryHistory(nextToken),
           getAssistantDesktopState(nextToken),
           getAssistantPendingCaptures(nextToken),
+          getAssistantBackgroundDecisions(nextToken),
         ]);
         if (!active) return;
         setToken(nextToken);
@@ -309,6 +362,7 @@ export function AssistantSettings(props: AssistantSettingsProps) {
         setHistory(nextHistory);
         setDesktopState(nextDesktopState);
         setPendingCaptures(nextCaptures.captures);
+        setBackgroundDecisions(nextBackgroundDecisions);
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : String(caught));
       } finally {
@@ -381,6 +435,7 @@ export function AssistantSettings(props: AssistantSettingsProps) {
         <>
           <AssistantConfiguration {...props} desktopState={desktopState} />
           <AssistantMaintenance token={token} />
+          <BackgroundWorkDecisions items={backgroundDecisions} loading={loading} />
         </>
       ) : null}
       {view === 'validation' ? (

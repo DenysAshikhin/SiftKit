@@ -46,7 +46,7 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
       '/assistant/status', '/assistant/config', '/assistant/search?q=PowerShell',
       '/assistant/graph/nodes', '/assistant/graph/assertions', '/assistant/evidence',
       '/assistant/projections', '/assistant/questions/current', '/assistant/policies',
-      '/assistant/validation', '/assistant/history',
+      '/assistant/validation', '/assistant/history', '/assistant/background-decisions',
     ]) {
       const response = await requestJson(`${baseUrl}${route}`, { headers });
       assert.equal(response.statusCode, 200, route);

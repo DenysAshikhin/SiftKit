@@ -289,6 +289,10 @@ test('a drain enqueues a scheduled retention run that expires stale captures', a
       expired[0]?.details_json ?? '', /"reason":"schedule"/u,
       'the drain-scheduled pass records its provenance',
     );
+    assert.equal(
+      service.listBackgroundWorkDecisions()[0]?.reason,
+      'image_capability_unavailable',
+    );
   } finally {
     closeRuntimeDatabase();
   }

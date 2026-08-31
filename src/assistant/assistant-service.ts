@@ -1,6 +1,7 @@
 import type { RuntimeDatabase } from '../state/runtime-db.js';
 import type {
   ActivityEventDto,
+  AssistantBackgroundWorkDecisionDto,
   AssistantFactoryResetPreview,
   AssistantQuestionDto,
   AssistantRestorePreviewResponse,
@@ -488,6 +489,10 @@ export class AssistantService implements AssistantRuntime {
     return pending.sort((a, b) => a.enqueuedAtUtc.localeCompare(b.enqueuedAtUtc));
   }
 
+  listBackgroundWorkDecisions(): AssistantBackgroundWorkDecisionDto[] {
+    return this.graph.backgroundDecisions.list(this.ownerId);
+  }
+
   /** Shell-reported seconds since keyboard/mouse input; null when the shell is gone or stale. */
   desktopInputIdleSeconds(): number | null {
     return this.environment.readInputIdleSeconds();
@@ -681,9 +686,20 @@ export class AssistantService implements AssistantRuntime {
 
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
-    if (this.drainBlockers > 0) return;
-    if (!this.enabled) return;
-    if (this.activeDrain !== null) return;
+    if (this.drainBlockers > 0) {
+      this.graph.backgroundDecisions.record(
+        this.ownerId, 'drain_blocked', { drainBlockers: this.drainBlockers },
+      );
+      return;
+    }
+    if (!this.enabled) {
+      this.graph.backgroundDecisions.record(this.ownerId, 'assistant_disabled', {});
+      return;
+    }
+    if (this.activeDrain !== null) {
+      this.graph.backgroundDecisions.record(this.ownerId, 'drain_already_running', {});
+      return;
+    }
     const drain = this.performDrain();
     this.activeDrain = drain;
     try {
@@ -727,7 +743,14 @@ export class AssistantService implements AssistantRuntime {
    * from the capability at capture time (spec §5), but a drain owes them the same work.
    */
   private enqueueWaitingCaptures(): void {
-    if (!isUsableCapability(this.imageCapability.read())) return;
+    if (!isUsableCapability(this.imageCapability.read())) {
+      if (this.captureQueue.countInStates(this.ownerId, PENDING_CAPTURE_STATES) > 0) {
+        this.graph.backgroundDecisions.record(
+          this.ownerId, 'image_capability_unavailable', {},
+        );
+      }
+      return;
+    }
     let remaining = this.maxJobsPerDrain;
     for (const state of PENDING_CAPTURE_STATES) {
       if (remaining <= 0) return;

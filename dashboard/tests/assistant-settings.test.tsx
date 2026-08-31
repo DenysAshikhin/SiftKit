@@ -46,6 +46,7 @@ test('loads pending proof and memory history and saves notes with its in-memory 
         proofs: [{ evidenceId: 'evidence-1', sourceType: 'conversation', sourceRef: 'chat-1' }],
         createdAtUtc: '2026-08-10T10:01:00.000Z',
       }] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
       if (input === '/assistant/captures/pending') return json({ captures: [] });
       if (input.endsWith('/notes')) return json({ ok: true, graphVersion: 1 });
       throw new Error(`Unexpected request: ${input}`);
@@ -83,6 +84,7 @@ test('observation settings render consent, capture controls, deny lists, and the
       if (input === '/assistant/desktop/state') return json(desktopStateBody(false, 3));
       if (input === '/assistant/validation') return json({ items: [] });
       if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
       if (input === '/assistant/captures/pending') return json({ captures: [] });
       throw new Error(`Unexpected request: ${input}`);
     },
@@ -131,6 +133,7 @@ test('observation settings render consent, capture controls, deny lists, and the
   await screen.findByText(/Key custody: local file key/u);
   await screen.findByText(/No vision-capable model is active/u);
   await screen.findByText(/3 captures are waiting for image analysis/u);
+  await screen.findByText('No background-work blocks have been recorded.');
 });
 
 test('deny-list fields resync when the config changes from outside', { concurrency: false }, async () => {
@@ -141,6 +144,7 @@ test('deny-list fields resync when the config changes from outside', { concurren
       if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
       if (input === '/assistant/validation') return json({ items: [] });
       if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
       if (input === '/assistant/captures/pending') return json({ captures: [] });
       throw new Error(`Unexpected request: ${input}`);
     },
@@ -194,6 +198,7 @@ test('pending validation lists captures with object-URL previews and a lightbox'
       if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 1));
       if (input === '/assistant/validation') return json({ items: [] });
       if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
       if (input === '/assistant/captures/pending') return json({ captures: [{
         evidenceId: 'ev_1',
         state: 'awaiting_image_capability',
@@ -224,4 +229,45 @@ test('pending validation lists captures with object-URL previews and a lightbox'
   fireEvent.click(screen.getByRole('button', { name: 'Enlarge capture ev_1' }));
   screen.getByRole('dialog');
   assert.equal(screen.getAllByRole('img').length, 2, 'the lightbox shows the same preview');
+});
+
+test('configuration shows persisted background-work decisions newest-first', { concurrency: false }, async () => {
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: string) => {
+      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 2));
+      if (input === '/assistant/validation') return json({ items: [] });
+      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [
+        {
+          recordedAtUtc: '2026-08-31T12:01:00.000Z',
+          reason: 'input_idle_below_threshold',
+          queuedJobCount: 29,
+          pendingCaptureCount: 941,
+          details: { inputIdleSeconds: 12, requiredIdleSeconds: 180 },
+        },
+        {
+          recordedAtUtc: '2026-08-31T12:00:00.000Z',
+          reason: 'server_busy',
+          queuedJobCount: 28,
+          pendingCaptureCount: 940,
+          details: {},
+        },
+      ] });
+      throw new Error(`Unexpected request: ${input}`);
+    },
+  });
+
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+
+  await screen.findByText('Background work decisions');
+  const decisions = screen.getAllByRole('article');
+  assert.match(decisions[0]?.textContent ?? '', /Input idle below threshold/u);
+  assert.match(decisions[1]?.textContent ?? '', /Server busy/u);
+  screen.getByText(/29 queued jobs/u);
+  screen.getByText(/941 pending captures/u);
+  screen.getByText(/inputIdleSeconds: 12/u);
+  screen.getByText(/requiredIdleSeconds: 180/u);
 });

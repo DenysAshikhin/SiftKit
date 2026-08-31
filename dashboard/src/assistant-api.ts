@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   AssistantAssertionDtoSchema,
+  AssistantBackgroundDecisionHistoryResponseSchema,
   AssistantAssertionExplanationSchema,
   AssistantDeletionPreviewSchema,
   AssistantEvidenceDeletionPreviewSchema,
@@ -19,6 +20,7 @@ import {
   DesktopStateDtoSchema,
   PendingCapturesResponseSchema,
   type AssistantAssertionExplanation,
+  type AssistantBackgroundWorkDecisionDto,
   type AssistantDeletionPreview,
   type AssistantEvidenceDeletionPreview,
   type AssistantFactoryResetPreview,
@@ -109,6 +111,14 @@ export function getAssistantDesktopState(token: string): Promise<DesktopStateDto
 
 export function getAssistantPendingCaptures(token: string): Promise<PendingCapturesResponse> {
   return request('/assistant/captures/pending', token, PendingCapturesResponseSchema);
+}
+
+export function getAssistantBackgroundDecisions(
+  token: string,
+): Promise<AssistantBackgroundWorkDecisionDto[]> {
+  return request(
+    '/assistant/background-decisions', token, AssistantBackgroundDecisionHistoryResponseSchema,
+  ).then((result) => result.items);
 }
 
 /** Decrypted evidence bytes for a per-item reveal. Held in memory only; never cached. */

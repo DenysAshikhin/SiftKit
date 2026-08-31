@@ -151,6 +151,7 @@ test('a disabled service is inert until a validated config refresh enables it', 
     const queued = service.graph.jobs.listByStatus(service.ownerId, 'queued');
     assert.equal(queued.length, 1);
     assert.equal(queued[0]?.attempts, 0, 'disabled assistants must not claim deterministic work');
+    assert.equal(service.listBackgroundWorkDecisions()[0]?.reason, 'assistant_disabled');
 
     service.refreshConfig({ ...DEFAULT_ASSISTANT_CONFIG, Enabled: true });
     assert.equal(service.enabled, true);
@@ -171,6 +172,18 @@ test('a chat turn is ingested without any model call', () => {
     });
     assert.equal(service.graph.jobs.countByStatus(service.ownerId, 'queued'), 2);
     assert.equal(service.graph.evidence.countEvidence(service.ownerId), 2);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('an unavailable image runtime is not logged when no capture is waiting', async () => {
+  try {
+    const service = buildService();
+
+    await service.drainJobs();
+
+    assert.deepEqual(service.listBackgroundWorkDecisions(), []);
   } finally {
     closeRuntimeDatabase();
   }
@@ -292,6 +305,7 @@ test('a residency change blocks a second drain while the first drain is unwindin
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(inference.calls, 1, 'no new model call may start during a residency change');
+    assert.equal(service.listBackgroundWorkDecisions()[0]?.reason, 'drain_blocked');
 
     inference.release();
     await Promise.all([firstDrain, secondDrain, residency]);
@@ -319,6 +333,7 @@ test('concurrent drain ticks do not start overlapping model calls', async () => 
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(inference.calls, 1, 'periodic ticks must not overlap active drains');
+    assert.equal(service.listBackgroundWorkDecisions()[0]?.reason, 'drain_already_running');
 
     inference.release();
     await Promise.all([firstDrain, secondDrain]);

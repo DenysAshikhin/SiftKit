@@ -8,6 +8,7 @@ import { RouteTable } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import {
   backupEndpoint,
+  backgroundDecisionsEndpoint,
   configPatchEndpoint,
   configReadEndpoint,
   custodyEndpoint,
@@ -78,6 +79,7 @@ import { header, sendError } from './assistant/helpers.js';
 
 const routes = new RouteTable([
   { method: 'GET', path: '/assistant/status', endpoint: statusEndpoint },
+  { method: 'GET', path: '/assistant/background-decisions', endpoint: backgroundDecisionsEndpoint },
   { method: 'GET', path: '/assistant/config', endpoint: configReadEndpoint },
   { method: 'PATCH', path: '/assistant/config', endpoint: configPatchEndpoint },
   { method: 'GET', path: '/assistant/keys/custody', endpoint: custodyEndpoint },

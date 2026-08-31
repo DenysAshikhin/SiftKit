@@ -15,6 +15,47 @@ export const AssistantStatusResponseSchema = z.object({
 }).strict();
 export type AssistantStatusResponse = z.infer<typeof AssistantStatusResponseSchema>;
 
+export const AssistantBackgroundWorkBlockReasonSchema = z.enum([
+  'drain_blocked',
+  'assistant_disabled',
+  'drain_already_running',
+  'preemption_requested',
+  'server_busy',
+  'environment_heartbeat_missing',
+  'input_idle_below_threshold',
+  'on_battery',
+  'battery_below_minimum',
+  'daily_gpu_limit',
+  'model_not_resident',
+  'image_capability_unavailable',
+  'no_claimable_job',
+]);
+export type AssistantBackgroundWorkBlockReason = z.infer<
+  typeof AssistantBackgroundWorkBlockReasonSchema
+>;
+
+const AssistantBackgroundWorkDecisionDetailSchema = z.union([
+  z.string(), z.number(), z.boolean(), z.null(),
+]);
+
+export const AssistantBackgroundWorkDecisionDtoSchema = z.object({
+  recordedAtUtc: z.string(),
+  reason: AssistantBackgroundWorkBlockReasonSchema,
+  queuedJobCount: z.number().int().min(0),
+  pendingCaptureCount: z.number().int().min(0),
+  details: z.record(z.string(), AssistantBackgroundWorkDecisionDetailSchema),
+}).strict();
+export type AssistantBackgroundWorkDecisionDto = z.infer<
+  typeof AssistantBackgroundWorkDecisionDtoSchema
+>;
+
+export const AssistantBackgroundDecisionHistoryResponseSchema = z.object({
+  items: z.array(AssistantBackgroundWorkDecisionDtoSchema).max(100),
+}).strict();
+export type AssistantBackgroundDecisionHistoryResponse = z.infer<
+  typeof AssistantBackgroundDecisionHistoryResponseSchema
+>;
+
 export const AssistantConfigPatchRequestSchema = z.object({
   assistant: AssistantConfigSchema,
 }).strict();

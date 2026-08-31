@@ -11,6 +11,7 @@ import type { IdGenerator } from './ids.js';
 import { assistantEvidenceDir } from './layout.js';
 import { AssertionStore } from './storage/assertion-store.js';
 import { AuditStore } from './storage/audit-store.js';
+import { BackgroundWorkDecisionStore } from './storage/background-work-decision-store.js';
 import { CandidateStore } from './storage/candidate-store.js';
 import { EvidenceStore } from './storage/evidence-store.js';
 import { DeviceStore } from './storage/device-store.js';
@@ -46,6 +47,7 @@ export class AssistantGraph {
   readonly identity: IdentityStore;
   readonly devices: DeviceStore;
   readonly audit: AuditStore;
+  readonly backgroundDecisions: BackgroundWorkDecisionStore;
   readonly nodes: NodeStore;
   readonly assertions: AssertionStore;
   readonly evidence: EvidenceStore;
@@ -71,6 +73,7 @@ export class AssistantGraph {
     this.identity = new IdentityStore(database);
     this.devices = new DeviceStore(database, clock);
     this.audit = new AuditStore(database, clock, ids);
+    this.backgroundDecisions = new BackgroundWorkDecisionStore(database, clock);
     this.nodes = new NodeStore(database, clock, ids);
     this.assertions = new AssertionStore(database, clock, ids);
     this.policies = new PolicyStore(database, clock, ids);
