@@ -100,7 +100,10 @@ test('buildCompletedLiveToolMessage preserves estimated token metadata', () => {
 
 const REPO_AGENT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 
-/** The assistant's live turn, exactly as ChatTab groups it for rendering. */
+/**
+ * The assistant's live turn. ChatTab groups persisted history plus the live tail; a runtime-store
+ * session carries only the live tail, so that list is the whole visible input here.
+ */
 function liveTurnFor(store: ChatSessionRuntimeStore, sessionId: string): ChatTurn {
   const runtime = store.get(sessionId);
   const turns = groupMessagesIntoTurns(

@@ -17,6 +17,7 @@
   },
   "include": [
     "src",
+    "tests",
     "../src/config/types.ts",
     "../src/types/better-sqlite3.d.ts",
     "../src/web-search/types.ts",
@@ -29,5 +30,25 @@
     "../tests/dashboard-model-presets-section.test.ts",
     "../tests/dashboard-presets-section.test.ts",
     "../tests/dashboard-runs-controller-e2e.test.ts"
+  ],
+  "//exclude": "Pre-existing debt, NOT a design: dashboard/tests was covered by no tsc project until now, so these 17 files accumulated 694 type errors (about 450 of them in repo-root src/ dragged in through chat-tab.test.tsx, which this project checks under noUncheckedIndexedAccess + exactOptionalPropertyTypes that root src/ is not written for). Every other dashboard test, and every new one, is checked. Shrink this list; never add to it.",
+  "exclude": [
+    "tests/assistant-tab.test.tsx",
+    "tests/chat-composer-inputs.test.ts",
+    "tests/chat-session-state.test.ts",
+    "tests/chat-stream-parser.test.ts",
+    "tests/chat-tab.test.tsx",
+    "tests/filter-chips.test.tsx",
+    "tests/format.test.ts",
+    "tests/hooks/useChatSessions.test.tsx",
+    "tests/lib/chatMessages.test.ts",
+    "tests/lib/chatTurns.test.ts",
+    "tests/lib/format.test.ts",
+    "tests/live-thinking-message.test.ts",
+    "tests/message-images.test.tsx",
+    "tests/metrics-tab.test.tsx",
+    "tests/model-preset-groups-component.test.tsx",
+    "tests/rail.test.tsx",
+    "tests/tool-activity-ring.test.ts"
   ]
 }

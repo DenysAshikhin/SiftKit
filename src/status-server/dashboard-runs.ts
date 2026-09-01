@@ -205,6 +205,39 @@ export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boo
   return SERVER_LOGGED_PROGRESS_KINDS.has(event.kind);
 }
 
+/**
+ * Per-token text derived from the model stream. These reach only a subscriber that asked for
+ * live text and are never server-logged, so they must not fall through to the default fan-out.
+ * The map is exhaustive over the event union on purpose: a new kind fails to compile here
+ * instead of silently defaulting to being forwarded to every subscriber.
+ * `progress_update` is deliberately in both this map and SERVER_LOGGED_PROGRESS_KINDS: the
+ * repo-agent session treats it as live text, the plain repo-search run path logs it.
+ */
+const LIVE_TEXT_PROGRESS_KINDS: Record<RepoSearchProgressEvent['kind'], boolean> = {
+  thinking: true,
+  narration: true,
+  progress_update: true,
+  answer: false,
+  activity_summary: false,
+  approval_auto: false,
+  approval_request: false,
+  context_warning: false,
+  llm_start: false,
+  llm_end: false,
+  model_inventory_start: false,
+  model_inventory_done: false,
+  preflight_start: false,
+  preflight_tokenize_start: false,
+  preflight_tokenize_done: false,
+  preflight_done: false,
+  tool_start: false,
+  tool_result: false,
+};
+
+export function isLiveTextProgressEvent(event: RepoSearchProgressEvent): boolean {
+  return LIVE_TEXT_PROGRESS_KINDS[event.kind];
+}
+
 function turnLabel(event: { turn: number; maxTurns: number }): string {
   return `t${Math.max(1, Math.trunc(event.turn))}/${Math.max(1, Math.trunc(event.maxTurns))}`;
 }

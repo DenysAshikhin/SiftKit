@@ -26,7 +26,11 @@ import type {
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
 } from '../repo-search/types.js';
-import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from './dashboard-runs.js';
+import {
+  buildRepoSearchProgressLogBody,
+  isLiveTextProgressEvent,
+  isServerLoggedProgressEvent,
+} from './dashboard-runs.js';
 import {
   markRepoSearchAdmissionFailed,
   type RepoSearchAdmissionRecord,
@@ -34,9 +38,6 @@ import {
 import { serverLogger } from './server-logger.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
-
-// Derived from token deltas and scoped to the attached subscriber; never server-logged.
-const LIVE_TEXT_KINDS = new Set<RepoSearchProgressEvent['kind']>(['thinking', 'narration', 'progress_update']);
 
 function normalizeFailureMessage(message: string): string {
   const normalized = message.trim();
@@ -284,7 +285,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
     if (event.kind === 'answer') {
       return;
     }
-    if (LIVE_TEXT_KINDS.has(event.kind)) {
+    if (isLiveTextProgressEvent(event)) {
       if (this.subscriber?.wantsLiveText) {
         this.subscriber.writeProgress(event);
       }

@@ -135,14 +135,26 @@ class RecordingSubscriber implements RepoAgentSessionSubscriber {
 }
 
 class ScriptedProgressEngine implements RepoAgentEngine {
-  seenWriter: ProgressWriter<RepoSearchProgressEvent> | null = null;
+  /** Resolves with the writer the session hands the engine, so tests await instead of polling. */
+  readonly writerReceived: Promise<ProgressWriter<RepoSearchProgressEvent>>;
+  private announceWriter: ((writer: ProgressWriter<RepoSearchProgressEvent>) => void) | null = null;
 
-  constructor(private readonly events: readonly RepoSearchProgressEvent[]) {}
+  constructor(private readonly events: readonly RepoSearchProgressEvent[]) {
+    this.writerReceived = new Promise((resolve) => {
+      this.announceWriter = resolve;
+    });
+  }
 
   async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
-    this.seenWriter = request.progressWriter ?? null;
+    const writer = request.progressWriter;
+    if (!writer) {
+      throw new Error('ScriptedProgressEngine requires a progress writer.');
+    }
+    const announceWriter = this.announceWriter;
+    this.announceWriter = null;
+    announceWriter?.(writer);
     for (const event of this.events) {
-      request.progressWriter?.write(event);
+      writer.write(event);
     }
     return makeEngineResult('done');
   }
@@ -223,20 +235,10 @@ function makeEngineRequest(tempRoot: string): RepoAgentEngineRequest {
   };
 }
 
-async function waitForCondition(condition: () => boolean, description: string): Promise<void> {
-  const deadline = Date.now() + 1_000;
-  while (!condition()) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for ${description}.`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
-async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs = 1_000): Promise<T> {
+async function waitWithTimeout<T>(promise: Promise<T>, description: string, timeoutMs = 1_000): Promise<T> {
   let timeoutHandle: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error('timed out waiting for session settlement')), timeoutMs);
+    timeoutHandle = setTimeout(() => reject(new Error(`timed out waiting for ${description}`)), timeoutMs);
     timeoutHandle.unref();
   });
   try {
@@ -935,12 +937,12 @@ test('Empty engine failure still publishes a non-empty authoritative failed stat
   }, t);
   const session = harness.start();
 
-    const boundary = await waitWithTimeout(session.waitForBoundary(0));
+    const boundary = await waitWithTimeout(session.waitForBoundary(0), 'the first session boundary');
     assert.equal(boundary.status, 'failed');
     if (boundary.status === 'failed') {
       assert.ok(boundary.error.trim().length > 0);
     }
-    await waitWithTimeout(session.settled);
+    await waitWithTimeout(session.settled, 'session settlement');
     const state = harness.store.readState(harness.runId);
     assert.equal(state.status, 'failed');
     if (state.status === 'failed') {
@@ -1046,11 +1048,7 @@ test('session progress writer reports wantsLiveText from the attached subscriber
   const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
   const session = harness.start();
 
-  await waitForCondition(() => engine.seenWriter !== null, 'the engine to receive the progress writer');
-  const writer = engine.seenWriter;
-  if (!writer) {
-    throw new Error('Expected the engine to receive a progress writer.');
-  }
+  const writer = await waitWithTimeout(engine.writerReceived, 'the engine to receive the progress writer');
   assert.equal(writer.wantsLiveText, false, 'no subscriber attached');
 
   const detach = session.attach({ wantsLiveText: true, writeProgress: () => undefined });

@@ -9,6 +9,7 @@ import {
   ChatStreamTextDeltaSchema,
 } from '@siftkit/contracts';
 
+import { applyTextDelta } from '../dashboard/src/lib/stream-text-delta.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
@@ -95,20 +96,6 @@ function readDoneResponse(response: SseResponse): ReturnType<typeof ChatSessionR
   const done = response.events.find((event) => event.event === 'done');
   assert.ok(done?.payload, 'Expected a done SSE event.');
   return ChatSessionResponseSchema.parse(done.payload);
-}
-
-/** Mirrors dashboard/src/lib/stream-text-delta.ts: offset 0 is a keyframe. */
-function applyTextDelta(previous: string, delta: { offset: number; text: string }): string {
-  if (delta.offset === 0) {
-    return delta.text;
-  }
-  if (delta.offset === previous.length) {
-    return previous + delta.text;
-  }
-  if (delta.offset < previous.length) {
-    return previous.slice(0, delta.offset) + delta.text;
-  }
-  return previous;
 }
 
 function cipherThinkingMockResponses() {

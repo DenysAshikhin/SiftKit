@@ -98,21 +98,29 @@ async function* mismatchedStream(): AsyncGenerator<ChatStreamEvent> {
 
 async function collect(
   stream: AsyncGenerator<ChatStreamEvent>,
+  operationKind: ChatSessionOperationKind,
   thinking: boolean,
-  operationKind: ChatSessionOperationKind = 'plan',
-): Promise<string[]> {
-  const kinds: string[] = [];
+): Promise<ChatSessionRuntimeTransition[]> {
+  const transitions: ChatSessionRuntimeTransition[] = [];
   for await (const transition of toRuntimeTransitions('session-a', operationKind, OPERATION_ID, stream, thinking)) {
-    kinds.push(transition.kind);
+    transitions.push(transition);
   }
-  return kinds;
+  return transitions;
+}
+
+async function collectKinds(
+  stream: AsyncGenerator<ChatStreamEvent>,
+  operationKind: ChatSessionOperationKind,
+  thinking: boolean,
+): Promise<string[]> {
+  return (await collect(stream, operationKind, thinking)).map((transition) => transition.kind);
 }
 
 test('the first transition begins the operation for the requested session', async () => {
   async function* empty(): AsyncGenerator<ChatStreamEvent> {
     yield { kind: 'done', payload: response('session-a') };
   }
-  assert.deepEqual(await collect(empty(), true), ['begin', 'done']);
+  assert.deepEqual(await collectKinds(empty(), 'plan', true), ['begin', 'done']);
 });
 
 test('thinking events are dropped when thinking is disabled', async () => {
@@ -120,8 +128,8 @@ test('thinking events are dropped when thinking is disabled', async () => {
     yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'pondering' } };
     yield { kind: 'done', payload: response('session-a') };
   }
-  assert.deepEqual(await collect(thinkingStream(), false), ['begin', 'done']);
-  assert.deepEqual(await collect(thinkingStream(), true), ['begin', 'thinking', 'done']);
+  assert.deepEqual(await collectKinds(thinkingStream(), 'plan', false), ['begin', 'done']);
+  assert.deepEqual(await collectKinds(thinkingStream(), 'plan', true), ['begin', 'thinking', 'done']);
 });
 
 test('repo-agent streams yield thinking transitions', async () => {
@@ -129,17 +137,14 @@ test('repo-agent streams yield thinking transitions', async () => {
     yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'inspecting the cipher' } };
     yield { kind: 'done', payload: response('session-a') };
   }
-  const transitions: ChatSessionRuntimeTransition[] = [];
-  for await (const transition of toRuntimeTransitions('session-a', 'repo-agent', OPERATION_ID, repoAgentThinkingStream(), true)) {
-    transitions.push(transition);
-  }
+  const transitions = await collect(repoAgentThinkingStream(), 'repo-agent', true);
   assert.deepEqual(transitions.map((entry) => entry.kind), ['begin', 'thinking', 'done']);
   assert.deepEqual(transitions[1], {
     kind: 'thinking',
     sessionId: 'session-a',
     delta: { turn: 1, offset: 0, text: 'inspecting the cipher' },
   });
-  assert.deepEqual(await collect(repoAgentThinkingStream(), false, 'repo-agent'), ['begin', 'done']);
+  assert.deepEqual(await collectKinds(repoAgentThinkingStream(), 'repo-agent', false), ['begin', 'done']);
 });
 
 test('narration events always become narration transitions', async () => {
@@ -147,7 +152,7 @@ test('narration events always become narration transitions', async () => {
     yield { kind: 'narration', delta: { turn: 1, offset: 0, text: 'Reading files' } };
     yield { kind: 'done', payload: response('session-a') };
   }
-  assert.deepEqual(await collect(narrationStream(), false), ['begin', 'narration', 'done']);
+  assert.deepEqual(await collectKinds(narrationStream(), 'plan', false), ['begin', 'narration', 'done']);
 });
 
 test('approval events become session-scoped approval transitions', async () => {
@@ -164,7 +169,7 @@ test('approval events become session-scoped approval transitions', async () => {
     };
     yield { kind: 'done', payload: response('session-a') };
   }
-  assert.deepEqual(await collect(approvalStream(), true), ['begin', 'approval', 'done']);
+  assert.deepEqual(await collectKinds(approvalStream(), 'plan', true), ['begin', 'approval', 'done']);
 });
 
 test('two streams complete out of order without crossing session state', async () => {

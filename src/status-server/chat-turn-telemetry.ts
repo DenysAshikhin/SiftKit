@@ -1,12 +1,26 @@
 import {
   getActiveModelPreset,
+  getConfiguredLlamaBaseUrl,
+  SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
 } from '../config/index.js';
+import type { MockPlannerResponse } from '../planner-protocol/mock-response.js';
 import { countTokensWithFallbackDetailed } from '../repo-search/prompt-budget.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import type { PersistTurn } from './chat.js';
 
 const CHAT_TOKEN_COUNT_TIMEOUT_MS = 1_000;
+
+/** Which config the telemetry counts tokens against: a mocked turn never reaches a tokenizer. */
+export function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlannerResponse[] | undefined): SiftConfig | undefined {
+  return Array.isArray(mockResponses) ? undefined : config;
+}
+
+/** The default llama base URL means no local tokenizer to reach, so counting falls back. */
+export function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
+  const baseUrl = getConfiguredLlamaBaseUrl(config);
+  return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
+}
 
 export type ChatInputTokenCount = {
   tokenCount: number;

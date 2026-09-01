@@ -18,7 +18,7 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   resolveChatSessionConfig,
 } from '../chat.js';
-import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
+import { ChatTurnTelemetry, getMockTokenConfig } from '../chat-turn-telemetry.js';
 import { readConfig } from '../config-store.js';
 import {
   parseJsonBody,
@@ -39,7 +39,7 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
-import { ChatStreamProgressWriter, buildChatSessionResponse, getMockTokenConfig } from './chat.js';
+import { ChatStreamProgressWriter, buildChatSessionResponse } from './chat.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({

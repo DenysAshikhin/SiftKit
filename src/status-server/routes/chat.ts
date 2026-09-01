@@ -32,10 +32,8 @@ import { readConfig } from '../config-store.js';
 import {
   applyHostLlamaRuntimeSettings,
   getActiveModelPreset,
-  getConfiguredLlamaBaseUrl,
   getConfiguredReasoning,
   notifyStatusBackend,
-  SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
 } from '../../config/index.js';
 import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
@@ -92,7 +90,11 @@ import {
   type ChatRepoOperationRequest,
 } from '../chat-repo-operation-runner.js';
 import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
-import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
+import {
+  ChatTurnTelemetry,
+  getLocalTokenConfig,
+  getMockTokenConfig,
+} from '../chat-turn-telemetry.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   diagnoseManagedLlamaOom,
@@ -223,15 +225,6 @@ export function buildChatSessionResponse(config: SiftConfig, session: ChatSessio
 function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof RepoSearchTotals): boolean {
   const count = getScorecardTotal(scorecard, key);
   return count !== null && count > 0;
-}
-
-export function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlannerResponse[] | undefined): SiftConfig | undefined {
-  return Array.isArray(mockResponses) ? undefined : config;
-}
-
-function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
-  const baseUrl = getConfiguredLlamaBaseUrl(config);
-  return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
 }
 
 function admitSelectedChatImages(
