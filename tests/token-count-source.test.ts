@@ -34,7 +34,10 @@ for (const engine of ['exl3', 'llama'] as const) {
 
       const preflight = await preflightPlannerPromptBudget({
         config,
-        prompt: PROMPT,
+        messages: [{ role: 'user', content: PROMPT }],
+        includeReasoningContent: false,
+        tools: [],
+        responseFormat: null,
         totalContextTokens: 128_000,
         responseReserveTokens: 4_000,
       });
@@ -56,7 +59,10 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
 
     const preflight = await preflightPlannerPromptBudget({
       config,
-      prompt: PROMPT,
+      messages: [{ role: 'user', content: PROMPT }],
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
@@ -70,20 +76,22 @@ test('a token count taken without a config reports the estimate source', async (
   assert.equal(counted.llamaTokenCount, null);
 });
 
-test('an estimated provider reserve downgrades a server-counted transcript to estimate', async () => {
+test('a tokenizer that refuses the wire prompt falls back to the estimate source', async () => {
   await withTestEnvAndServer(async ({ stub }) => {
     const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
 
     const preflight = await preflightPlannerPromptBudget({
       config,
-      prompt: PROMPT,
-      providerPromptReserveText: 'reserve text the tokenizer refuses',
+      messages: [{ role: 'user', content: PROMPT }],
+      includeReasoningContent: false,
+      tools: [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }],
+      responseFormat: null,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   }, {
-    // Only the transcript gets a server count; the reserve falls back to the estimate.
+    // The server only counts the bare prose, never the rendered wire prompt, so preflight must estimate.
     tokenizeTokenCount: (content) => (content === PROMPT ? STUB_TOKEN_COUNT : null),
   });
 });

@@ -777,6 +777,8 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
       { role: 'user', content: 'x '.repeat(10000) },
     ],
     includeReasoningContent: false,
+    tools: [],
+    responseFormat: null,
     totalContextTokens: 7000,
     responseReserveTokens: 4000,
   });
@@ -787,32 +789,41 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
   assert.equal(preflight.overflowTokens > 0, true);
 });
 
-test('preflightPlannerPromptBudget reserves provider prompt overhead against context budget', async () => {
-  const withoutReserve = await preflightPlannerPromptBudget({
+test('preflightPlannerPromptBudget counts tool schemas against context budget', async () => {
+  const withoutTools = await preflightPlannerPromptBudget({
     messages: [
       { role: 'system', content: 'system' },
       { role: 'user', content: 'short request' },
     ],
     includeReasoningContent: false,
+    tools: [],
+    responseFormat: null,
     totalContextTokens: 4200,
     responseReserveTokens: 4000,
   });
-  const withReserve = await preflightPlannerPromptBudget({
+  const withTools = await preflightPlannerPromptBudget({
     messages: [
       { role: 'system', content: 'system' },
       { role: 'user', content: 'short request' },
     ],
     includeReasoningContent: false,
-    providerPromptReserveText: 'provider tools and response schema '.repeat(900),
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'grep',
+        description: 'provider tools and response schema '.repeat(900),
+        parameters: { type: 'object' },
+      },
+    }],
+    responseFormat: null,
     totalContextTokens: 4200,
     responseReserveTokens: 4000,
   });
 
-  assert.equal(withoutReserve.ok, true);
-  assert.equal(withReserve.ok, false);
-  assert.equal(withReserve.providerPromptReserveTokenCount > 0, true);
-  assert.equal(withReserve.promptTokenCount > withoutReserve.promptTokenCount, true);
-  assert.equal(withReserve.promptTokenCount > withReserve.maxPromptBudget, true);
+  assert.equal(withoutTools.ok, true);
+  assert.equal(withTools.ok, false);
+  assert.equal(withTools.promptTokenCount > withoutTools.promptTokenCount, true);
+  assert.equal(withTools.promptTokenCount > withTools.maxPromptBudget, true);
 });
 
 test('runTaskLoop fails before any provider request when the repo-agent summarization prompt cannot fit', async () => {
@@ -889,11 +900,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
   const budgetEvent = events.find((event) => event.kind === 'turn_preflight_budget');
 
   assert.equal(result.reason, 'finish');
-  assert.equal(Number(budgetEvent?.providerPromptReserveTokenCount) > 0, true);
-  assert.equal(
-    Number(budgetEvent?.promptTokenCount),
-    Number(budgetEvent?.transcriptPromptTokenCount) + Number(budgetEvent?.providerPromptReserveTokenCount)
-  );
+  assert.equal(Number(budgetEvent?.promptTokenCount) > 0, true);
   assert.equal(Number(budgetEvent?.maxOutputTokens) > 0, true);
 });
 
@@ -938,8 +945,6 @@ test('runTaskLoop compacts an overflowing repo-agent history and continues from 
   assert.equal(compactionEvents.length, 1);
   assert.equal(Number(compactionEvents[0].droppedMessageCount) > 0, true);
   assert.equal(Number(compactionEvents[0].summaryTokenCount) > 0, true);
-  assert.equal(Number(compactionEvents[0].beforeProviderPromptReserveTokenCount) > 0, true);
-  assert.equal(Number(compactionEvents[0].providerPromptReserveTokenCount) > 0, true);
   assert.equal(
     Number(compactionEvents[0].afterPromptTokenCount) < Number(compactionEvents[0].beforePromptTokenCount),
     true,

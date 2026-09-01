@@ -8,6 +8,9 @@ import {
 } from '../src/repo-search/prompt-budget.js';
 import type { InferenceBackendId } from '../src/config/types.js';
 import type { SiftConfig } from '../src/config/index.js';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
+import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
+import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import { asRuntimeSiftConfig } from './helpers/mock-config.js';
 
@@ -137,39 +140,76 @@ test('no config uses the estimate without caching', async () => {
   assert.equal(result.tokenCount > 0, true);
 });
 
-test('preflight with counters tokenizes only the appended tail across turns', async () => {
+const GREP_TOOL = {
+  type: 'function',
+  function: { name: 'grep', description: 'search the repository', parameters: { type: 'object' } },
+} satisfies LlamaCppToolDefinition;
+
+const PREFLIGHT_BUDGET = { totalContextTokens: 9_000, responseReserveTokens: 1_000 };
+
+test('preflight counts tool schemas as part of the prompt', async () => {
   const seen: string[] = [];
   await withTestEnvAndServer(async ({ stub }) => {
     const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
-    const transcriptTokenCounter = new IncrementalTokenCounter();
-    const reserveTokenCounter = new IncrementalTokenCounter();
+    const messages: ChatMessage[] = [{ role: 'user', content: 'turn one' }];
+
+    const withoutTools = await preflightPlannerPromptBudget({
+      config,
+      messages,
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
+      ...PREFLIGHT_BUDGET,
+      promptTokenCounter: new IncrementalTokenCounter(),
+    });
+
+    const withTools = await preflightPlannerPromptBudget({
+      config,
+      messages,
+      includeReasoningContent: false,
+      tools: [GREP_TOOL],
+      responseFormat: null,
+      ...PREFLIGHT_BUDGET,
+      promptTokenCounter: new IncrementalTokenCounter(),
+    });
+
+    assert.ok(
+      withTools.promptTokenCount > withoutTools.promptTokenCount,
+      `tool schemas must raise the counted prompt: ${withTools.promptTokenCount} vs ${withoutTools.promptTokenCount}`,
+    );
+    assert.equal(withTools.promptChars > withoutTools.promptChars, true);
+  }, { tokenizeTokenCount: trackingTokenizer(seen) });
+});
+
+test('preflight tokenizes only the appended tail across turns', async () => {
+  const seen: string[] = [];
+  await withTestEnvAndServer(async ({ stub }) => {
+    const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
+    const counter = new IncrementalTokenCounter();
 
     const first = await preflightPlannerPromptBudget({
       config,
-      prompt: 'turn one',
-      providerPromptReserveText: 'reserve',
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
-      transcriptTokenCounter,
-      reserveTokenCounter,
+      messages: [{ role: 'user', content: 'turn one' }] satisfies ChatMessage[],
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
+      ...PREFLIGHT_BUDGET,
+      promptTokenCounter: counter,
     });
-    assert.equal(first.transcriptPromptTokenCount, 'turn one'.length);
-    assert.equal(first.providerPromptReserveTokenCount, 'reserve'.length);
 
     const second = await preflightPlannerPromptBudget({
       config,
-      prompt: 'turn one turn two',
-      providerPromptReserveText: 'reserve',
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
-      transcriptTokenCounter,
-      reserveTokenCounter,
+      messages: [{ role: 'user', content: 'turn one' }, { role: 'assistant', content: 'turn two' }] satisfies ChatMessage[],
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
+      ...PREFLIGHT_BUDGET,
+      promptTokenCounter: counter,
     });
-    assert.equal(second.transcriptPromptTokenCount, 'turn one turn two'.length);
-    assert.equal(second.providerPromptReserveTokenCount, 'reserve'.length);
-    // Full prompt + reserve once, then only the appended tail; the unchanged
-    // reserve text is served from cache.
-    assert.deepEqual(seen, ['turn one', 'reserve', ' turn two']);
+
+    assert.ok(second.promptTokenCount > first.promptTokenCount);
+    assert.equal(seen.length, 2, 'the second turn must tokenize a tail, not the whole prompt');
+    assert.ok(seen[1].length < seen[0].length, 'the second tokenize call must be the shorter tail');
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });
 
@@ -177,30 +217,40 @@ test('a delta-derived count near the budget forces one exact recount', async () 
   const seen: string[] = [];
   await withTestEnvAndServer(async ({ stub }) => {
     const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
-    const transcriptTokenCounter = new IncrementalTokenCounter();
+    const promptTokenCounter = new IncrementalTokenCounter();
 
     const base = 'a'.repeat(500);
-    const grown = base + 'b'.repeat(600);
+    const tail = 'b'.repeat(600);
+    const firstMessages: ChatMessage[] = [{ role: 'user', content: base }];
+    const secondMessages: ChatMessage[] = [...firstMessages, { role: 'assistant', content: tail }];
+    const firstText = renderWirePrompt({ messages: firstMessages, tools: [], responseFormat: null, includeReasoningContent: false });
+    const secondText = renderWirePrompt({ messages: secondMessages, tools: [], responseFormat: null, includeReasoningContent: false });
     // maxPromptBudget = 3000; threshold = 3000 - EXACT_RECOUNT_MARGIN_TOKENS = 952.
-    // The delta-derived count (1100) crosses it, so preflight must recount fully.
+    // The delta-derived count (~1160) crosses it, so preflight must recount fully.
     assert.equal(3000 - EXACT_RECOUNT_MARGIN_TOKENS, 952);
 
     await preflightPlannerPromptBudget({
       config,
-      prompt: base,
+      messages: firstMessages,
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
       totalContextTokens: 3000,
       responseReserveTokens: 0,
-      transcriptTokenCounter,
+      promptTokenCounter,
     });
     const second = await preflightPlannerPromptBudget({
       config,
-      prompt: grown,
+      messages: secondMessages,
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
       totalContextTokens: 3000,
       responseReserveTokens: 0,
-      transcriptTokenCounter,
+      promptTokenCounter,
     });
-    assert.equal(second.transcriptPromptTokenCount, grown.length);
-    assert.deepEqual(seen, [base, 'b'.repeat(600), grown]);
+    assert.equal(second.promptTokenCount, secondText.length);
+    assert.deepEqual(seen, [firstText, secondText.slice(firstText.length), secondText]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });
 
@@ -208,18 +258,28 @@ test('preflight without counters keeps the one-shot behavior', async () => {
   const seen: string[] = [];
   await withTestEnvAndServer(async ({ stub }) => {
     const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
+    const firstMessages: ChatMessage[] = [{ role: 'user', content: 'turn one' }];
+    const secondMessages: ChatMessage[] = [...firstMessages, { role: 'assistant', content: 'turn two' }];
+    const firstText = renderWirePrompt({ messages: firstMessages, tools: [], responseFormat: null, includeReasoningContent: false });
+    const secondText = renderWirePrompt({ messages: secondMessages, tools: [], responseFormat: null, includeReasoningContent: false });
     await preflightPlannerPromptBudget({
       config,
-      prompt: 'turn one',
+      messages: firstMessages,
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
     await preflightPlannerPromptBudget({
       config,
-      prompt: 'turn one turn two',
+      messages: secondMessages,
+      includeReasoningContent: false,
+      tools: [],
+      responseFormat: null,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
-    assert.deepEqual(seen, ['turn one', 'turn one turn two']);
+    assert.deepEqual(seen, [firstText, secondText]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });

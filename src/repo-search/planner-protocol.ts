@@ -1,6 +1,4 @@
 import type { SiftConfig } from '../config/types.js';
-import { getActiveInferenceBackend, getActiveModelPreset } from '../config/index.js';
-import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
@@ -19,7 +17,6 @@ import { buildLlamaJsonSchemaResponseFormat } from '../providers/structured-outp
 import { buildApprovalVerdictJsonSchema } from './approval-verdict.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
-import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
@@ -263,8 +260,6 @@ export function captureExecutingPlannerRequest(
   };
 }
 
-const reserveRequestBuilder = new InferenceRequestBuilder();
-
 export type PlannerRequestStage =
   | 'planner_action'
   | 'approval_verdict'
@@ -275,14 +270,6 @@ export type PlannerResponseConstraint =
   | { responseSchema: null; responseSchemaName?: never }
   | { responseSchema: JsonObject; responseSchemaName: string };
 
-type PlannerPromptReserveOptions = PlannerThinkingFlags & {
-  config: SiftConfig;
-  model: string;
-  messageRoles: readonly string[];
-  tools: readonly LlamaCppToolDefinition[];
-  maxTokens: number;
-} & PlannerResponseConstraint;
-
 function buildPlannerResponseFormat(constraint: PlannerResponseConstraint) {
   return constraint.responseSchema === null
     ? null
@@ -290,39 +277,6 @@ function buildPlannerResponseFormat(constraint: PlannerResponseConstraint) {
       name: constraint.responseSchemaName,
       schema: constraint.responseSchema,
     });
-}
-
-export function buildPlannerRequestPromptReserveText(options: PlannerPromptReserveOptions): string {
-  const backend = getActiveInferenceBackend(options.config);
-  const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
-  const responseFormat = buildPlannerResponseFormat(options);
-
-  // Derive the request shape from the real request builder so the reserve estimate
-  // cannot drift from what is actually sent; message contents are counted
-  // separately, so messages stay empty and template overhead is reserved below.
-  const requestShape = reserveRequestBuilder.build({
-    backend,
-    model: options.model,
-    messages: [],
-    tools: [...options.tools],
-    defaults: samplerDefaults,
-    maxTokens: options.maxTokens,
-    ...(responseFormat ? { responseFormat } : {}),
-    thinking: {
-      enabled: Boolean(options.thinkingEnabled),
-      reasoningContent: Boolean(options.thinkingEnabled && options.reasoningContentEnabled),
-      preserve: Boolean(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking),
-      effort: samplerDefaults.reasoningEffort,
-    },
-    llama: { cachePrompt: true },
-  });
-  return JSON.stringify({
-    ...requestShape,
-    message_template_reserve: options.messageRoles.map((role) => ({
-      role: String(role || 'unknown'),
-      template: '<|im_start|>role\\ncontent<|im_end|>',
-    })),
-  });
 }
 
 /**

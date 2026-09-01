@@ -18,7 +18,6 @@ import { z } from '../src/lib/zod.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import {
-  buildPlannerRequestPromptReserveText,
   captureExecutingPlannerRequest,
   PLANNER_REASONING_BUDGET_MESSAGE,
   requestRepoSearchPlannerProtocolAction,
@@ -235,16 +234,10 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   const budget = new TurnBudget({ totalContextTokens, maxTurns: 100, config });
   const replayPreflight = await preflightPlannerPromptBudget({
     config,
-    prompt: transcript.render(thinking.reasoningContentEnabled),
-    providerPromptReserveText: buildPlannerRequestPromptReserveText({
-      config,
-      model,
-      messageRoles: transcript.messageRoles(),
-      tools: plannerTools,
-      maxTokens: budget.totalContextTokens,
-      responseSchema: null,
-      ...thinking,
-    }),
+    messages: transcript.getMessages(),
+    includeReasoningContent: thinking.reasoningContentEnabled,
+    tools: plannerTools,
+    responseFormat: null,
     totalContextTokens: budget.totalContextTokens,
     responseReserveTokens: budget.responseReserveTokens,
   });

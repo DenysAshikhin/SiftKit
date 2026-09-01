@@ -96,17 +96,13 @@ test('a turn whose server prompt count diverges emits no drift record and no con
   assert.deepEqual(run.events.filter((event) => event.kind === 'context_warning'), []);
 });
 
-test('reported prompt tokens are the transcript count, excluding the provider reserve', async () => {
+test('reported prompt tokens are the full wire prompt count', async () => {
   const run = await runOneTurnAgainstServer();
 
   const budgetEvents = run.logged.filter((event) => event.kind === 'turn_preflight_budget');
   assert.equal(budgetEvents.length, 1, 'the run must take exactly one turn for this sum to be exact');
   const budget: JsonObject = JSON.parse(JSON.stringify(budgetEvents[0]));
-  const reserveTokenCount = Number(budget.providerPromptReserveTokenCount);
-  assert.ok(reserveTokenCount > 0, 'the reserve must be non-zero for this assertion to mean anything');
-
-  assert.equal(run.promptTokens, Number(budget.transcriptPromptTokenCount));
-  assert.equal(run.promptTokens, Number(budget.promptTokenCount) - reserveTokenCount);
+  assert.equal(run.promptTokens, Number(budget.promptTokenCount));
   // The server's own figure is never adopted as the prompt size.
   assert.notEqual(run.promptTokens, SERVER_REPORTED_PROMPT_TOKENS);
 });

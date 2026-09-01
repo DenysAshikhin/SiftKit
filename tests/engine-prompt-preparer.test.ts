@@ -129,7 +129,7 @@ test('prepareTurn returns a token count and output budget for a small prompt', a
 
   const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
-  assert.ok(prepared.promptTokens.reported > 0);
+  assert.ok(prepared.promptTokenCount > 0);
   assert.ok(prepared.maxOutputTokens > 0);
   assert.equal(prepared.compactionSummary, null);
   assert.equal(prepared.nextMockResponseIndex, 0);
@@ -206,8 +206,6 @@ test('prepareTurn returns a context_overflow outcome for an overflowing repo-sea
   assert.equal(forced.taskId, 't1');
   assert.equal(forced.turn, 1);
   assert.ok(Number(forced.promptTokenCount) > Number(forced.maxPromptBudget));
-  assert.ok(Number(forced.transcriptPromptTokenCount) > 0);
-  assert.ok(Number(forced.providerPromptReserveTokenCount) > 0);
   assert.ok(Number(forced.maxPromptBudget) > 0);
   assert.ok(Number(forced.overflowTokens) > 0);
   assert.ok(Number(forced.maxOutputTokens) > 0);
@@ -326,7 +324,7 @@ test('preflight counts preserved reasoning_content toward the prompt', async () 
   assert.equal(counted.compactionSummary, null);
   assert.equal(uncounted.compactionSummary, null);
   // ~8k chars of reasoning ≈ 2k estimated tokens; require a decisive gap.
-  assert.ok(counted.promptTokens.reported > uncounted.promptTokens.reported + 1_000);
+  assert.ok(counted.promptTokenCount > uncounted.promptTokenCount + 1_000);
 });
 
 test('preserved reasoning mass triggers compaction that plain content would not', async () => {
@@ -346,7 +344,7 @@ test('preserved reasoning mass triggers compaction that plain content would not'
   assert.ok(events.some((event) => event.kind === 'turn_preflight_compaction_applied'));
 });
 
-test('prepareTurn reports the transcript prompt size, not the request-envelope reserve', async () => {
+test('prepareTurn reports the full wire prompt size', async () => {
   const transcript = new TranscriptManager({
     systemPromptContent: 'SYSTEM',
     historyMessages: [],
@@ -365,15 +363,7 @@ test('prepareTurn reports the transcript prompt size, not the request-envelope r
   const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
   assert.equal(prepared.compactionSummary, null);
-  // The budget log records both halves; the reported count must be the transcript
-  // half alone, because the envelope reserve never occupies prompt context.
   const budgetEvent = events.find((event) => event.kind === 'turn_preflight_budget');
   assert.ok(budgetEvent);
-  const reserveTokenCount = Number(budgetEvent.providerPromptReserveTokenCount);
-  const transcriptTokenCount = Number(budgetEvent.transcriptPromptTokenCount);
-  assert.ok(reserveTokenCount > 0, 'the reserve must be non-zero for this assertion to mean anything');
-  assert.equal(prepared.promptTokens.reported, transcriptTokenCount);
-  assert.equal(prepared.promptTokens.reported, Number(budgetEvent.promptTokenCount) - reserveTokenCount);
-  // The budgeted reading keeps the reserve, because the request must still fit with it.
-  assert.equal(prepared.promptTokens.budgeted, Number(budgetEvent.promptTokenCount));
+  assert.equal(prepared.promptTokenCount, Number(budgetEvent.promptTokenCount));
 });

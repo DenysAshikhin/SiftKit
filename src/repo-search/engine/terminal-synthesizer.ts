@@ -1,9 +1,7 @@
 import type { SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
-import { computeResponseReserveTokens } from '../../lib/response-reserve.js';
 import {
   appendPlannerInstruction,
-  buildPlannerRequestPromptReserveText,
   requestTerminalSynthesis,
   type ChatMessage,
   type ExecutingPlannerRequest,
@@ -44,23 +42,12 @@ export class TerminalSynthesizer {
       input.messages,
       buildTerminalSynthesisInstruction(input.reason),
     );
-    const providerPromptReserveText = buildPlannerRequestPromptReserveText({
-      config: this.options.config,
-      model: this.options.model,
-      messageRoles: terminalMessages.map((message) => message.role),
-      tools: input.executing.tools,
-      maxTokens: computeResponseReserveTokens({
-        config: this.options.config,
-        totalContextTokens: this.options.totalContextTokens,
-      }),
-      responseSchema: null,
-      ...input.executing.flags,
-    });
     const preflight = await preflightPlannerPromptBudget({
       config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
       messages: terminalMessages,
       includeReasoningContent: input.executing.flags.reasoningContentEnabled,
-      providerPromptReserveText,
+      tools: input.executing.tools,
+      responseFormat: null,
       totalContextTokens: this.options.totalContextTokens,
       responseReserveTokens: 0,
     });

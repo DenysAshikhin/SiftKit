@@ -1,6 +1,5 @@
 import type { SiftConfig } from '../../config/index.js';
 import {
-  buildPlannerRequestPromptReserveText,
   requestContextCompactionSummary,
   type ChatMessage,
   type CompactionCacheOrigin,
@@ -149,20 +148,12 @@ export class TranscriptCompactor {
       ? input.cacheOrigin.executing
       : input.cacheOrigin;
     const generationTokenCeiling = Math.max(0, Math.floor(this.options.responseReserveTokens));
-    const providerPromptReserveText = buildPlannerRequestPromptReserveText({
-      config: this.options.config,
-      model: this.options.model,
-      messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
-      tools: state.tools,
-      maxTokens: generationTokenCeiling,
-      responseSchema: null,
-      ...state.flags,
-    });
     const preflight = await preflightPlannerPromptBudget({
       config: this.tokenCountConfig,
       messages: summaryRequestMessages,
       includeReasoningContent: state.flags.reasoningContentEnabled,
-      providerPromptReserveText,
+      tools: state.tools,
+      responseFormat: null,
       totalContextTokens: this.options.totalContextTokens,
       responseReserveTokens: 0,
     });
