@@ -59,7 +59,6 @@ import {
   RepoNativeToolCallSchema,
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.js';
-import type { TurnPromptTokens } from '../../agent-loop/types.js';
 import { getAbortError, throwIfAborted } from '../../lib/abort.js';
 import {
   buildPendingAssistantMessage,
@@ -199,7 +198,7 @@ export class ToolActionProcessor {
     turn: number,
     toolActions: readonly AgentLoopToolAction[],
     responseThinkingText: string,
-    promptTokens: TurnPromptTokens,
+    promptTokenCount: number,
     inForcedFinishMode: boolean,
     responseContent = '',
   ): Promise<TurnOutcome> {
@@ -226,7 +225,7 @@ export class ToolActionProcessor {
     const commandsAtBatchStart = this.deps.commands.length;
     for (const [batchIndex, toolAction] of toolActions.entries()) {
       state.batchIndex = batchIndex;
-      const outcome = await this.processToolAction(turn, toolAction, state, promptTokens, inForcedFinishMode);
+      const outcome = await this.processToolAction(turn, toolAction, state, promptTokenCount, inForcedFinishMode);
       if (outcome === 'stop_batch') {
         break;
       }
@@ -296,7 +295,7 @@ export class ToolActionProcessor {
     turn: number,
     toolAction: AgentLoopToolAction,
     state: TurnBatchState,
-    promptTokens: TurnPromptTokens,
+    promptTokenCount: number,
     inForcedFinishMode: boolean,
   ): Promise<ToolActionOutcome> {
     const { counters, forcedFinish } = this.deps;
@@ -379,7 +378,7 @@ export class ToolActionProcessor {
       normalizedKey: command,
       runFullOutputDecision,
     };
-    return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokens);
+    return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokenCount);
   }
 
   private validateToolAction(turn: number, toolAction: AgentLoopToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
@@ -807,7 +806,7 @@ export class ToolActionProcessor {
     context: AcceptedToolContext,
     prospectiveToolType: string,
     state: TurnBatchState,
-    promptTokens: TurnPromptTokens,
+    promptTokenCount: number,
   ): Promise<ToolActionOutcome> {
     const { normalizedToolName } = context;
     const { counters, forcedFinish } = this.deps;
@@ -817,7 +816,7 @@ export class ToolActionProcessor {
     this.progressToolCallSeq += 1;
     this.deps.progress.toolStart(
       progressToolCallId, turn, activity.activityKind, activity.activitySubject,
-      context.command, promptTokens.reported, this.deps.tokenUsage.snapshot().thinkingTokens,
+      context.command, promptTokenCount, this.deps.tokenUsage.snapshot().thinkingTokens,
     );
     this.deps.logger?.write({
       kind: 'turn_command_start',
@@ -901,14 +900,14 @@ export class ToolActionProcessor {
       baseOutput,
       zeroOutputWarningText,
       progressToolCallId,
-    }, state, promptTokens);
+    }, state, promptTokenCount);
   }
 
   private async fitToolResult(
     turn: number,
     context: ExecutedToolContext,
     state: TurnBatchState,
-    promptTokens: TurnPromptTokens,
+    promptTokenCount: number,
   ): Promise<FittedToolOutcome> {
     const {
       normalizedToolName, nativeExecution,
@@ -935,8 +934,8 @@ export class ToolActionProcessor {
     }
     resultText = applyToolOutputRepetitionGuard(resultText);
     const perToolCapTokens = this.deps.budget.perToolCapTokens(state.completedCommandCountAtTurnStart, state.batchCommandCount);
-    // The reserve occupies request space, so what still fits is measured against the budgeted size.
-    const remainingTokenAllowance = this.deps.budget.remainingToolAllowance(promptTokens.budgeted, state.acceptedToolPromptTokensThisTurn);
+    // The wire prompt is what occupies the request, so what still fits is measured against it.
+    const remainingTokenAllowance = this.deps.budget.remainingToolAllowance(promptTokenCount, state.acceptedToolPromptTokensThisTurn);
     const fitted = await this.deps.resultBudgeter.fit({
       taskId: this.deps.task.id,
       turn,
@@ -992,7 +991,7 @@ export class ToolActionProcessor {
     turn: number,
     context: ExecutedToolContext,
     state: TurnBatchState,
-    promptTokens: TurnPromptTokens,
+    promptTokenCount: number,
   ): Promise<ToolActionOutcome> {
     const {
       toolAction, normalizedToolName, fingerprint, normalizedKey,
@@ -1001,7 +1000,7 @@ export class ToolActionProcessor {
     const activity = context.activity;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
-    const fittedOutcome = await this.fitToolResult(turn, context, state, promptTokens);
+    const fittedOutcome = await this.fitToolResult(turn, context, state, promptTokenCount);
     const {
       commandToRun, resultText, resultTokenCount, resultTokenCountEstimated,
       rawResultTokenCount, lineReadStats, perToolCapTokens, remainingTokenAllowance,
@@ -1041,7 +1040,7 @@ export class ToolActionProcessor {
         outputSnippet: snippet,
         outputTokens: resultTokenCount,
         outputTokensEstimated: resultTokenCountEstimated,
-        promptTokenCount: promptTokens.reported,
+        promptTokenCount,
         thinkingTokenCount: tokenUsage.snapshot().thinkingTokens,
       });
     }
@@ -1052,7 +1051,7 @@ export class ToolActionProcessor {
       requestedCommand,
       executedCommand: commandToRun,
       exitCode: executed.exitCode, output: commandOutputText,
-      promptTokenCount: promptTokens.reported, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
+      promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
     tokenUsage.addToolTokens(resultTokenCount);
@@ -1078,7 +1077,7 @@ export class ToolActionProcessor {
       ...(imageMeta ? { imageMeta } : {}),
       outputTokens: resultTokenCount,
       outputTokensEstimated: resultTokenCountEstimated,
-      promptTokenCount: promptTokens.reported,
+      promptTokenCount,
     });
     const commandSucceeded = Number(executed.exitCode) === 0;
     this.invalidateAfterMutation(context, commandSucceeded);

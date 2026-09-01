@@ -64,7 +64,7 @@ test('executeBatch records one command entry per tool action so results stay ali
       { kind: 'tool', callId: 'test_call_13', toolName: 'ls', args: { path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   assert.equal(commands.length, 2);
@@ -82,7 +82,7 @@ test('executeBatch rejects malformed native-tool arguments before execution', as
     1,
     [{ kind: 'tool', callId: 'test_call_14', toolName: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -103,7 +103,7 @@ test('non-image command records omit optional image fields from their JSON shape
     1,
     [{ kind: 'tool', callId: 'test_call_15', toolName: 'ls', args: { path: '.' } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -122,7 +122,7 @@ test('an executed command entry records the turn prompt token count', async () =
     1,
     [{ kind: 'tool', callId: 'test_call_16', toolName: 'ls', args: { path: '.' } }],
     '',
-    { reported: 4321, budgeted: 4321 },
+    4321,
     false,
   );
 
@@ -150,7 +150,7 @@ test('a typed Git action executes through the native tool path', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
   const { processor, commands, counters, events } = makeProcessor(root, ['git']);
 
-  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_17', toolName: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_17', toolName: 'git', args: { operation: 'status' } }], '', 0, false);
 
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git operation="status"');
@@ -171,7 +171,7 @@ test('native command start is observable before delayed execution completes', as
     1,
     [{ kind: 'tool', callId: 'test_call_18', toolName: 'git', args: { operation: 'status' } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -189,7 +189,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
     1,
     [{ kind: 'tool', callId: 'test_call_19', toolName: 'ls', args: { path: '.' } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -213,7 +213,7 @@ test('a valid tool action decays the invalid-response counter', async () => {
   const { processor, counters } = makeProcessor(root);
   counters.invalidResponses = 2;
 
-  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_20', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_20', toolName: 'ls', args: { path: '.' } }], '', 0, false);
 
   assert.equal(counters.invalidResponses, 1);
 });
@@ -231,7 +231,7 @@ test('an invalid action followed by two valid ones leaves the counter at zero', 
       { kind: 'tool', callId: 'test_call_23', toolName: 'ls', args: { path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -247,7 +247,7 @@ test('a valid action whose command exits non-zero still decays the counter', asy
     1,
     [{ kind: 'tool', callId: 'test_call_24', toolName: 'git', args: { operation: 'log', limit: 1 } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -268,7 +268,7 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
       { kind: 'tool', callId: 'test_call_26', toolName: 'ls', args: { path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -289,7 +289,7 @@ test('a rejected call and a non-zero exit increment separate counters', async ()
       { kind: 'tool', callId: 'test_call_44', toolName: 'ls', args: { path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   assert.equal(counters.rejectedCalls, 1);
@@ -301,7 +301,7 @@ test('a rejected call and a non-zero exit increment separate counters', async ()
     1,
     [{ kind: 'tool', callId: 'test_call_45', toolName: 'git', args: { operation: 'log', limit: 1 } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   assert.equal(failing.counters.nonZeroExits, 1);
@@ -316,8 +316,8 @@ test('a batch whose only call is screened as a duplicate records the rejection',
   fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
   const { processor, counters } = makeProcessor(root);
 
-  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_60', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_61', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_60', toolName: 'ls', args: { path: '.' } }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_61', toolName: 'ls', args: { path: '.' } }], '', 0, false);
 
   assert.equal(counters.rejectedCalls, 1);
 });
@@ -331,7 +331,7 @@ test('malformed actions alternating with invalid Git operations still hit the in
     actions.push({ kind: 'tool', callId: 'test_call_28', toolName: 'git', args: { operation: `push-${index}` } });
   }
 
-  await processor.executeBatch(1, actions, '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, actions, '', 0, false);
 
   assert.equal(counters.invalidResponses, 3);
   assert.equal(counters.reason, 'invalid_response_limit');
@@ -356,7 +356,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
     1,
     [{ kind: 'tool', callId: 'test_call_29', toolName: 'grep', args: { pattern: 'alpha', path: '.' } }],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   const singleCallToolTokens = single.tokenUsage.snapshot().toolTokens;
@@ -375,7 +375,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
       { kind: 'tool', callId: 'test_call_32', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
   assert.equal(batch.commands.length, 3);
@@ -410,7 +410,7 @@ test('every member of a batch is capped at the same share regardless of position
       { kind: 'tool', callId: 'test_call_35', toolName: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
-    { reported: 0, budgeted: 0 },
+    0,
     false,
   );
 
@@ -429,9 +429,9 @@ test('a downgraded full run may be retried once despite duplicate screening', as
   const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
   const runAction: AgentLoopToolAction = { kind: 'tool', callId: 'test_call_36', toolName: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
-  await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(3, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+  await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+  await processor.executeBatch(3, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
 
   assert.equal(commands.length, 3);
   assert.equal(commands[0]?.safe, true);
@@ -463,8 +463,8 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
 
   assert.match(commands[0]?.output ?? '', /Notice: outputMode "full"/u);
   assert.doesNotMatch(commands[0]?.output ?? '', /validation-line-1\b/u);
@@ -492,10 +492,10 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [stable], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(3, [stable, stable], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(4, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [stable], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
+  await processor.executeBatch(3, [stable, stable], '', 0, false);
+  await processor.executeBatch(4, [validation], '', 0, false);
 
   assert.equal(commands[3]?.reason, 'duplicate command');
   assert.match(commands[4]?.output ?? '', /Notice: outputMode "full"/u);
@@ -528,9 +528,9 @@ test('an approval-denied granted retry is consumed', async () => {
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
+  await processor.executeBatch(3, [validation], '', 0, false);
 
   assert.match(commands[1]?.reason ?? '', /test denial/u);
   assert.equal(commands[2]?.reason, 'duplicate command');
@@ -551,9 +551,9 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_42', toolName: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_42', toolName: 'ls', args: {} }], '', 0, false);
+  await processor.executeBatch(3, [validation], '', 0, false);
 
   assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);
   assert.doesNotMatch(commands[2]?.output ?? '', /Notice: outputMode "full"/u);
@@ -567,9 +567,9 @@ test('budget notice still reaches the model when a batch collapses onto a duplic
   fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
   const { processor, transcript } = makeProcessor(root);
 
-  await processor.executeBatch(1, [{ kind: 'tool', callId: 'replay_1', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(2, [{ kind: 'tool', callId: 'replay_2', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
-  await processor.executeBatch(3, [{ kind: 'tool', callId: 'replay_3', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ kind: 'tool', callId: 'replay_1', toolName: 'ls', args: { path: '.' } }], '', 0, false);
+  await processor.executeBatch(2, [{ kind: 'tool', callId: 'replay_2', toolName: 'ls', args: { path: '.' } }], '', 0, false);
+  await processor.executeBatch(3, [{ kind: 'tool', callId: 'replay_3', toolName: 'ls', args: { path: '.' } }], '', 0, false);
 
   // Batch 3 took the replay path (no batchOutcomes); with the helper's maxTurns of 5
   // the countdown notice for turn 3 of 5 must land as a trailing user message.

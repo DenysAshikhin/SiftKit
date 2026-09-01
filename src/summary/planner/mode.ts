@@ -366,7 +366,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       return {
         outcome: 'stop',
         turnNumber,
-        promptTokens: { reported: 0, budgeted: 0 },
+        promptTokenCount: 0,
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
         toolDefinitions: [...this.protocolToolDefinitions],
@@ -389,7 +389,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.debugRecorder.record({
       kind: 'planner_prompt',
       promptChars: this.prompt.length,
-      promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
+      promptTokenCount: this.promptTokenCount,
       toolCallCount: this.toolResults.length,
       plannerBudget: this.promptBudget,
     });
@@ -397,14 +397,14 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       this.debugRecorder.finish({
         status: 'failed',
         reason: 'planner_headroom_exceeded',
-        promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
+        promptTokenCount: this.promptTokenCount,
         plannerBudget: this.promptBudget,
       });
       this.completionState.fail();
       return {
         outcome: 'stop',
         turnNumber: turn,
-        promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
+        promptTokenCount: this.promptTokenCount,
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
         toolDefinitions: [...this.protocolToolDefinitions],
@@ -414,7 +414,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return {
       outcome: 'continue',
       turnNumber: turn,
-      promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
+      promptTokenCount: this.promptTokenCount,
       maxOutputTokens: 0,
       messages: toProtocolMessages(this.messages),
       toolDefinitions: [...this.protocolToolDefinitions],

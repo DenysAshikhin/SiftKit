@@ -20,7 +20,7 @@ const controller: RepoSearchLoopController = {
   prepareTurn: async (turnNumber) => ({
     outcome: 'continue',
     turnNumber,
-    promptTokens: { reported: 0, budgeted: 0 },
+    promptTokenCount: 0,
     maxOutputTokens: 0,
     messages: [],
     toolDefinitions: [],
@@ -40,7 +40,7 @@ function responseContext(response: NormalizedLlamaCppChatResponse): AgentLoopRes
     preparedTurn: {
       outcome: 'continue',
       turnNumber: 1,
-      promptTokens: { reported: 0, budgeted: 0 },
+      promptTokenCount: 0,
       maxOutputTokens: 0,
       messages: [],
       toolDefinitions: [],

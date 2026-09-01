@@ -16,7 +16,6 @@ import type {
   AgentLoopToolAction,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-  TurnPromptTokens,
 } from '../../agent-loop/types.js';
 import { NativePlannerResponseError, NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
 import type { LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
@@ -458,7 +457,7 @@ export class TaskLoop {
     return {
       outcome: 'stop',
       turnNumber: turn,
-      promptTokens: { reported: overflow.promptTokenCount, budgeted: overflow.promptTokenCount },
+      promptTokenCount: overflow.promptTokenCount,
       maxOutputTokens: overflow.maxOutputTokens,
       messages: toProtocolChatMessages(this.transcript.getMessages()),
       toolDefinitions: [...this.plannerProtocolTools],
@@ -493,14 +492,14 @@ export class TaskLoop {
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
-    this.progress.llmStart(turn, prepared.promptTokens.reported, this.tokenUsage.snapshot().thinkingTokens);
+    this.progress.llmStart(turn, prepared.promptTokenCount, this.tokenUsage.snapshot().thinkingTokens);
     const newMessages = this.transcript.takeNewMessagesForLogging();
-    this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokens.reported });
+    this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokenCount });
 
     return {
       outcome: 'continue',
       turnNumber: turn,
-      promptTokens: prepared.promptTokens,
+      promptTokenCount: prepared.promptTokenCount,
       maxOutputTokens: prepared.maxOutputTokens,
       messages: toProtocolChatMessages(this.transcript.getMessages()),
       toolDefinitions: [...this.plannerProtocolTools],
@@ -516,15 +515,15 @@ export class TaskLoop {
       this.mockResponseIndex = response.nextMockResponseIndex;
     }
 
-    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokens.reported);
+    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount);
     // Emitted after the response is tallied so the line closing a turn already counts that turn's thinking.
-    this.progress.llmEnd(turn, prepared.promptTokens.reported, this.tokenUsage.snapshot().thinkingTokens);
+    this.progress.llmEnd(turn, prepared.promptTokenCount, this.tokenUsage.snapshot().thinkingTokens);
 
     this.options.logger?.write({
       kind: 'turn_model_response', taskId: this.task.id, turn,
       text: response.text, thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
-      promptTokens: prepared.promptTokens.reported,
+      promptTokens: prepared.promptTokenCount,
       completionTokens: resolvedTokens.completionTokens,
       completionTokensEstimated: resolvedTokens.completionTokensEstimated,
       thinkingTokens: resolvedTokens.thinkingTokens,
@@ -552,7 +551,7 @@ export class TaskLoop {
     };
     return {
       outcome: 'continue',
-      response: this.toNormalizedResponse(response, resolvedTokens, prepared.promptTokens.reported),
+      response: this.toNormalizedResponse(response, resolvedTokens, prepared.promptTokenCount),
       data,
     };
   }
@@ -608,7 +607,7 @@ export class TaskLoop {
       context.turnNumber,
       actions,
       String(response.thinkingText || '').trim(),
-      context.preparedTurn.promptTokens,
+      context.preparedTurn.promptTokenCount,
       context.preparedTurn.inForcedFinishMode,
       response.text,
     );
@@ -671,11 +670,11 @@ export class TaskLoop {
     };
   }
 
-  private async requestPlanner(turn: number, prepared: { promptTokens: TurnPromptTokens; maxOutputTokens: number }): Promise<PlannerActionResponse> {
+  private async requestPlanner(turn: number, prepared: { promptTokenCount: number; maxOutputTokens: number }): Promise<PlannerActionResponse> {
     const providerSpan = this.options.timingRecorder?.start('repo.llama.request', {
       taskId: this.task.id,
       turn,
-      promptTokenCount: prepared.promptTokens.reported,
+      promptTokenCount: prepared.promptTokenCount,
       maxOutputTokens: prepared.maxOutputTokens,
       mock: Array.isArray(this.options.mockResponses),
     });

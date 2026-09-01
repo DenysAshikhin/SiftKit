@@ -62,21 +62,11 @@ export type AgentLoopResult = {
 
 export type AgentLoopTurnOutcome = 'continue' | 'stop';
 
-/**
- * A turn's prompt measured two ways, kept apart because conflating them either inflates
- * every reported figure or under-budgets the request.
- */
-export type TurnPromptTokens = {
-  /** Tokens that actually occupy the model's context. Reported, displayed and persisted. */
-  reported: number;
-  /** The reported count plus the provider request-envelope reserve: the size budget decisions must fit. */
-  budgeted: number;
-};
-
 export type AgentLoopPreparedTurn = {
   outcome: AgentLoopTurnOutcome;
   turnNumber: number;
-  promptTokens: TurnPromptTokens;
+  /** Tokens the rendered wire prompt occupies. Reported, displayed, persisted, and budgeted against. */
+  promptTokenCount: number;
   maxOutputTokens: number;
   messages: LlamaCppChatMessage[];
   toolDefinitions: LlamaCppToolDefinition[];

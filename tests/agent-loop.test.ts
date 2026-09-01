@@ -97,7 +97,7 @@ class StubPromptAdapter implements AgentLoopPromptAdapter {
     return {
       outcome: 'continue',
       turnNumber,
-      promptTokens: { reported: turnNumber, budgeted: turnNumber },
+      promptTokenCount: turnNumber,
       maxOutputTokens: 128,
       messages: [{ role: 'user', content: 'search' }],
       toolDefinitions: [],
@@ -222,7 +222,7 @@ test('agent loop can stop at prepareTurn without fabricating a model response', 
     prepareTurn: async (turnNumber) => ({
       outcome: 'stop',
       turnNumber,
-      promptTokens: { reported: 0, budgeted: 0 },
+      promptTokenCount: 0,
       maxOutputTokens: 0,
       messages: [],
       toolDefinitions: [],
