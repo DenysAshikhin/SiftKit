@@ -4,7 +4,7 @@ Target: `turboderp-org/exllamav3`, base branch **`dev`** (the repo default is `m
 merged code PRs go to `dev` — see #280, #276, #274, #257).
 
 Local branch: `fix/autosplit-reserve-double-count` at `ceab221`, cut from `origin/dev` at
-`04b21ee` (v1.4.2). One commit, one file, +7/-2.
+`04b21ee`. One commit, one file, +7/-2.
 
 ## The defect
 
@@ -74,7 +74,7 @@ It OOMs with 1.6 GB physically free. Patched, the same configuration loads and s
 21,540 MiB.
 
 Verified on **pristine upstream**: upstream TabbyAPI `e632af4` plus the official prebuilt
-`exllamav3-1.4.2+cu128.torch2.9.0-cp313-cp313-win_amd64.whl` in a clean venv — reproduces
+upstream `exllamav3` cu128/torch2.9.0 cp313 wheel in a clean venv — reproduces
 unpatched, loads patched.
 
 Runtime check after loading at 130k context: a 119,881-token prompt completed in 89.9 s with a
@@ -198,7 +198,7 @@ against TabbyAPI or fixed. Independent of the PR above; file separately if at al
   only `util/memory.py` changed since the previous wheel's source commit, and the local CUDA
   toolkits are 12.1/12.4 against a cu128 torch, so recompiling would have built the extension
   against the wrong CUDA. The `.pyd` is carried through bit-identical (sha256 `d7f1aa04…`).
-- Reproduction rig: `c:\tmp\rsx\upstream-check` (upstream TabbyAPI clone + 1.4.2 venv),
+- Reproduction rig: `c:\tmp\rsx\upstream-check` (upstream TabbyAPI clone + matching venv),
   `c:\tmp\rsx\exl3-memprobe.py` (allocator instrumentation), `c:\tmp\rsx\exl3-probe2.ps1`
   (launch harness), `c:\tmp\rsx\bigprompt.py` (120k-token runtime check),
   `c:\tmp\rsx\probe2-*.records.txt` (captured ladders). Scratch — treat as disposable.

@@ -113,6 +113,8 @@ export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   /** Frames that failed JSON parsing and were skipped. Always 0 on a healthy stream. */
   invalidFrameCount: number;
   earlyStopReason?: string;
+  /** Backend-reported generation stop reason (TabbyAPI/exl3 `choices[].eos_reason`). */
+  backendEosReason?: string;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };

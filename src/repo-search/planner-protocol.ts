@@ -43,6 +43,8 @@ export type PlannerActionResponse = {
   generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  /** Backend-reported generation stop reason (TabbyAPI/exl3 `choices[].eos_reason`). */
+  backendEosReason?: string;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };
@@ -595,6 +597,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     statusCode: 200,
     elapsedMs: Date.now() - startedAt,
     ...(response.earlyStopReason ? { earlyTerminationReason: response.earlyStopReason } : {}),
+    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
   });
 
   const inlineThinking = !response.reasoningText && response.rawText.includes(THINK_OPEN_TAG)
@@ -602,8 +605,16 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     : null;
   const rawChoiceText = inlineThinking ? inlineThinking.text : response.rawText;
   const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
-  const effectiveRawText = response.stoppedEarly && response.earlyStopReason
-    ? [`SiftKit stopped the planner stream early: ${response.earlyStopReason}.`, rawChoiceText.trim()].filter(Boolean).join('\n')
+  const streamNotices = [
+    response.stoppedEarly && response.earlyStopReason
+      ? `SiftKit stopped the planner stream early: ${response.earlyStopReason}.`
+      : null,
+    response.backendEosReason === 'loop_detected'
+      ? 'The inference backend stopped this generation early: repetition loop detected.'
+      : null,
+  ].filter((notice): notice is string => notice !== null);
+  const effectiveRawText = streamNotices.length > 0
+    ? [...streamNotices, rawChoiceText.trim()].filter(Boolean).join('\n')
     : rawChoiceText;
   const content = inlineThinking || effectiveRawText !== response.rawText
     ? completeLiveContent(effectiveRawText, response.toolCalls.length > 0)
@@ -627,6 +638,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     generationDurationMs: response.usage.generationDurationMs ?? null,
     speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
+    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
     ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
   };
 }

@@ -95,7 +95,7 @@ output should be aware.
 
 ## 5. Housekeeping
 
-- TabbyAPI stash (stale 1.4.2→1.4.3 pin edit, superseded by the merge) dropped.
+- TabbyAPI stash (stale pin edit, superseded by the merge) dropped.
 - Merge plan + benchmark docs committed (`66ced409`).
 - Old `config.yml` keys `draft_dynamic:`/`sysmem_page_cache:` are silently dead in
   Tabby now; SiftKit is migrated, nothing else known to use them.

@@ -26,7 +26,7 @@
 - Upstream requires `check_package_version("exllamav3", "1.4.4")`; installed metadata is `1.4.4+unified.1` → passes, no reinstall needed.
 - Tabby env var naming is `TABBY_{section}_{field}`.upper() (`common/tabby_config.py:159`), so the new vars are `TABBY_DRAFT_MODEL_DYNAMIC_DRAFT` and `TABBY_MEMORY_SYSMEM_KV_CACHE`.
 - `Dict`/`Any` remain used in model.py (lines ~104, 704, 1195, 1263) after deleting `configure_drafting` — leave typing imports alone.
-- TabbyAPI working tree has ONE dirty file: `pyproject.toml` (stale uncommitted 1.4.2→1.4.3 pin bump, superseded by this merge).
+- TabbyAPI working tree has ONE dirty file: `pyproject.toml` (stale uncommitted pin bump, superseded by this merge).
 - **Pre-merge baselines (verified 2026-08-26):** Tabby suite = 156 tests OK in ~3s (explicit-module form; `tests/` has NO `__init__.py`, so `unittest discover` fails — never use it). SiftKit `managed-tabby` filter = 14 tests OK.
 - `merge.conflictstyle` is unset (default markers) — the conflict blocks quoted in Task 4 match what `git merge` will produce verbatim.
 - `tests/req_grammar.py` was rewritten by upstream `a99d928` and we never touched it → the merge auto-updates it to the LLGuidance version (verified: merged blob == upstream blob). No action needed.
@@ -50,7 +50,7 @@ Expected: exactly ` M pyproject.toml`. If anything else is dirty, STOP and repor
 - [ ] **Step 2: Stash the stale edit (recoverable, not discarded)**
 
 ```bash
-git stash push -m "stale 1.4.2->1.4.3 exl3 pin bump; superseded by merge pin 1.4.4+unified.1" -- pyproject.toml
+git stash push -m "stale exl3 pin bump; superseded by merge pin 1.4.4+unified.1" -- pyproject.toml
 ```
 
 - [ ] **Step 3: Verify clean tree and correct branch**

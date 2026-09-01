@@ -206,7 +206,7 @@ test('llama streaming client converts transient HTTP stream errors', async () =>
   );
 });
 
-test('llama streaming client covers empty packets, thinking fallback, malformed tool chunks, and repetition stop', async () => {
+test('llama streaming client covers empty packets, thinking fallback, and malformed tool chunks', async () => {
   const repeatedArgTags = `prefix ${'</arg_value>'.repeat(48)}`;
   const http = new StreamingHttpClient([
     {},
@@ -225,7 +225,7 @@ test('llama streaming client covers empty packets, thinking fallback, malformed 
         },
       }],
     },
-    { choices: [{ delta: { content: 'must not be read' } }] },
+    { choices: [{ delta: { content: ' trailing content' } }] },
   ]);
 
   const response = await new LlamaCppClient(http).chat({
@@ -237,12 +237,16 @@ test('llama streaming client covers empty packets, thinking fallback, malformed 
     allowedToolNames: [],
   });
 
-  assert.equal(response.text, 'prefix');
+  // The malformed tool_calls chunk in the content frame sets a native tool
+  // boundary, so `text` is visible text up to that point; `rawText` keeps the
+  // full stream, proving the trailing frame was read and nothing was truncated.
+  assert.equal(response.text, repeatedArgTags);
+  assert.equal(response.rawText, `${repeatedArgTags} trailing content`);
   assert.equal(response.reasoningText, 'deep ');
   assert.equal(response.toolCalls.length, 1);
   assert.equal(response.toolCalls[0]?.function.name, 'not_allowed');
-  assert.equal(response.stoppedEarly, true);
-  assert.match(response.earlyStopReason || '', /recent planner content tokens repeated/u);
+  assert.equal(response.stoppedEarly, false);
+  assert.equal(response.earlyStopReason, undefined);
 });
 
 test('llama streaming client rejects an empty stream as degenerate', async () => {
@@ -279,16 +283,11 @@ test('llama streaming client wraps non-error stream failures', async () => {
   );
 });
 
-test('llama streaming client throttles runaway checks to the 256-char stride', async () => {
-  const contentUpdates: LiveContentSnapshot[] = [];
-  // Frame 1 is 15 chars; each brace frame adds 8. Per-frame checking would
-  // stop at 111 chars (96 trailing braces, 13 callbacks). The throttled check
-  // first runs at 263 chars: 31 normal callbacks, then the stop callback.
-  const packets: JsonObject[] = [
-    { choices: [{ delta: { content: '{"action":"x"} ' } }] },
-    ...Array.from({ length: 60 }, (): JsonObject => ({ choices: [{ delta: { content: '}}}}}}}}' } }] })),
-  ];
-  const http = new StreamingHttpClient(packets);
+test('llama streaming client captures the backend eos_reason from the final frame', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { content: 'answer' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] },
+  ]);
 
   const response = await new LlamaCppClient(http).chat({
     config: streamingConfig,
@@ -297,26 +296,16 @@ test('llama streaming client throttles runaway checks to the 256-char stride', a
     tools: [],
     maxTokens: 64,
     allowedToolNames: [],
-    onContentDelta: (value) => contentUpdates.push(value),
   });
 
-  assert.equal(response.stoppedEarly, true);
-  assert.match(response.earlyStopReason || '', /runaway streamed planner content repeated/u);
-  assert.equal(response.text, `{"action":"x"} ${'}'.repeat(96)}`);
-  assert.equal(contentUpdates.length, 32);
+  assert.equal(response.backendEosReason, 'loop_detected');
 });
 
-test('llama streaming client detects a runaway completing after the last throttled check', async () => {
-  const contentUpdates: LiveContentSnapshot[] = [];
-  // 'prefix ' (7 chars) + 48 tag frames (12 chars each) = 583 chars total.
-  // Throttled checks run at 259 chars (21 tags) and 523 chars (43 tags) —
-  // both below the 48-tag trigger. The final 60 chars arrive unchecked, so
-  // only the end-of-stream check can catch the completed 48-tag flood.
-  const packets: JsonObject[] = [
-    { choices: [{ delta: { content: 'prefix ' } }] },
-    ...Array.from({ length: 48 }, (): JsonObject => ({ choices: [{ delta: { content: '</arg_value>' } }] })),
-  ];
-  const http = new StreamingHttpClient(packets);
+test('llama streaming client omits backendEosReason when no frame carries eos_reason', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { content: 'answer' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop' }] },
+  ]);
 
   const response = await new LlamaCppClient(http).chat({
     config: streamingConfig,
@@ -325,14 +314,7 @@ test('llama streaming client detects a runaway completing after the last throttl
     tools: [],
     maxTokens: 64,
     allowedToolNames: [],
-    onContentDelta: (value) => contentUpdates.push(value),
   });
 
-  assert.equal(response.stoppedEarly, true);
-  assert.match(response.earlyStopReason || '', /recent planner content tokens repeated/u);
-  assert.equal(response.text, 'prefix');
-  // 49 normal per-frame callbacks plus one truncation callback from the
-  // end-of-stream check. Per-frame checking stops inside the loop at frame
-  // 49 and produces only 49 callbacks.
-  assert.equal(contentUpdates.length, 50);
+  assert.equal(response.backendEosReason, undefined);
 });

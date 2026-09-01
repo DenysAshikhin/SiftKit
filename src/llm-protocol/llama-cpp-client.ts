@@ -371,22 +371,10 @@ export class LlamaCppClient {
     let speculativeAcceptedTokens: number | null = null;
     let speculativeGeneratedTokens: number | null = null;
     let earlyStopReason: string | null = null;
-    let lastRunawayCheckLength = 0;
+    let backendEosReason: string | null = null;
     let frameCount = 0;
     let invalidFrameCount = 0;
     let sawDoneSentinel = false;
-    const detectRunaway = (): boolean => {
-      const runaway = getRecentTokenRepetition(contentText)
-        || getRecentTokenRepetition(reasoningText)
-        || getRunawayStructuralTail(contentText)
-        || getRunawayStructuralTail(reasoningText);
-      if (!runaway) return false;
-      earlyStopReason = runaway.reason;
-      if (contentText) contentText = runaway.truncatedText;
-      const snapshot = contentClassifier.observeContent(contentText);
-      options.onContentDelta?.(snapshot);
-      return true;
-    };
     const budgetPreset = getActiveModelPreset(options.config);
     const configuredReasoningBudget = Number.isFinite(options.reasoningBudgetTokens)
       && Number(options.reasoningBudgetTokens) > 0
@@ -446,6 +434,8 @@ export class LlamaCppClient {
 
           const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
           const choice = isRecord(firstChoice) ? firstChoice : undefined;
+          const frameEosReason = getString(choice?.eos_reason);
+          if (frameEosReason) backendEosReason = frameEosReason;
           const delta = choice && isRecord(choice.delta) ? choice.delta : {};
           const deltaReasoning = getString(delta.reasoning_content) || getString(delta.thinking) || getString(delta.reasoning);
           const deltaContent = getString(delta.content);
@@ -480,19 +470,9 @@ export class LlamaCppClient {
             }
           }
 
-          const streamedLength = contentText.length + reasoningText.length;
-          if (streamedLength - lastRunawayCheckLength >= RUNAWAY_CHECK_INTERVAL_CHARS) {
-            lastRunawayCheckLength = streamedLength;
-            if (detectRunaway()) {
-              break streamFrames;
-            }
-          }
           if (deltaContent) {
             options.onContentDelta?.(contentClassifier.observeContent(contentText));
           }
-      }
-      if (!earlyStopReason) {
-        detectRunaway();
       }
       // An early stop breaks out before [DONE], so only a stream that ran to
       // completion is required to have produced one.
@@ -559,6 +539,7 @@ export class LlamaCppClient {
       stoppedEarly: earlyStopReason !== null,
       invalidFrameCount,
       ...(earlyStopReason ? { earlyStopReason } : {}),
+      ...(backendEosReason ? { backendEosReason } : {}),
     };
   }
 }
@@ -579,56 +560,8 @@ function isRecord(value: OptionalJsonValue): value is JsonObject {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-/**
- * The runaway detectors scan the full accumulated text, so the stream loop
- * runs them only after this many new streamed characters (~64 tokens), plus
- * once at stream end. Every detector trigger spans well over this window, so
- * the added latency cannot miss a live runaway.
- */
-const RUNAWAY_CHECK_INTERVAL_CHARS = 256;
-
 /** Cap on how much of a malformed frame is copied into the log event. */
 const INVALID_FRAME_LOG_CHARS = 512;
-
-function getRunawayStructuralTail(text: string): { reason: string; truncatedText: string } | null {
-  if (!/"action"\s*:/u.test(text)) return null;
-  const lastChar = text.at(-1) || '';
-  if (lastChar !== '}' && lastChar !== ']') return null;
-  let repeated = 0;
-  for (let index = text.length - 1; index >= 0 && text[index] === lastChar; index -= 1) {
-    repeated += 1;
-  }
-  if (repeated < 96) return null;
-  return {
-    reason: `runaway streamed planner content repeated '${lastChar}' ${repeated} times`,
-    truncatedText: text.slice(0, text.length - repeated + 96),
-  };
-}
-
-function getRecentTokenRepetition(text: string): { reason: string; truncatedText: string } | null {
-  const repeatedArgTag = /(?:<\/arg_value>){48,}$/u.exec(text);
-  if (repeatedArgTag?.index !== undefined) {
-    return {
-      reason: 'recent planner content tokens repeated every 1 tokens across the last 48 tokens after 200 tokens',
-      truncatedText: text.slice(0, repeatedArgTag.index).trim(),
-    };
-  }
-  const tokens = text.trim().split(/\s+/u).filter(Boolean);
-  if (tokens.length < 200) return null;
-  for (let period = 1; period <= 32; period += 1) {
-    const tail = tokens.slice(-period).join(' ');
-    if (!tail || tail.length < 48) continue;
-    const repeated = Array.from({ length: 3 }, () => tail).join(' ');
-    if (tokens.slice(-(period * 3)).join(' ') === repeated) {
-      const keepTokens = tokens.slice(0, tokens.length - (period * 2));
-      return {
-        reason: `recent planner content tokens repeated every ${period} tokens across the last ${period * 3} tokens after ${tokens.length} tokens`,
-        truncatedText: keepTokens.join(' '),
-      };
-    }
-  }
-  return null;
-}
 
 function getUsageValue(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;

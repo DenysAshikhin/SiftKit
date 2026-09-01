@@ -724,7 +724,7 @@ A venv still holding the old build must stop satisfying the pin, so a stale inst
 Replace the single line in `exllamav3/version.py`:
 
 ```python
-__version__ = "1.4.2+siftkit.freeze2"
+__version__ = "siftkit.freeze2"
 ```
 
 - [x] **Step 2: Update both TabbyAPI pins**
@@ -732,13 +732,13 @@ __version__ = "1.4.2+siftkit.freeze2"
 In `C:\Users\denys\Documents\GitHub\TabbyAPI\pyproject.toml`, in both the default and the `cu13` dependency lists, replace:
 
 ```toml
-    "exllamav3 == 1.4.2+siftkit.freeze",
+    "exllamav3 == siftkit.freeze",
 ```
 
 with:
 
 ```toml
-    "exllamav3 == 1.4.2+siftkit.freeze2",
+    "exllamav3 == siftkit.freeze2",
 ```
 
 - [x] **Step 3: Verify both call sites changed**
@@ -755,7 +755,7 @@ Expected: exactly two lines, both reading `siftkit.freeze2`.
 ```powershell
 cd C:\Users\denys\Documents\GitHub\exllamav3
 git add exllamav3\version.py
-git commit -m "build: mark the coverage-validating freeze build as 1.4.2+siftkit.freeze2"
+git commit -m "build: mark the coverage-validating freeze build as siftkit.freeze2"
 cd C:\Users\denys\Documents\GitHub\TabbyAPI
 git add pyproject.toml
 git commit -m "build: require the exllamav3 freeze build that validates snapshot coverage"
@@ -887,7 +887,7 @@ Update `FREEZE_UNSUPPORTED_REASON` (lines 26-28) to name the build:
 ```ts
 export const FREEZE_UNSUPPORTED_REASON =
   'The installed exllamav3 has no host-RAM freeze support that validates snapshot coverage. Install '
-  + 'exllamav3 1.4.2+siftkit.freeze2 or newer into the EXL3 engine venv, then restart the backend.';
+  + 'exllamav3 siftkit.freeze2 or newer into the EXL3 engine venv, then restart the backend.';
 ```
 
 - [x] **Step 5: Run the tests to verify they pass**
@@ -929,12 +929,12 @@ cd C:\Users\denys\Documents\GitHub\exllamav3
 C:\envs\rl313\Scripts\python.exe -m pip wheel . --no-build-isolation --no-deps -w dist
 ```
 
-Expected: prints `Version: 1.4.2+siftkit.freeze2` and produces `dist\exllamav3-1.4.2+siftkit.freeze2-cp313-cp313-win_amd64.whl`. No `nvcc` compile lines for unchanged sources; if a full CUDA rebuild starts, stop and confirm the `build/` cache is intact before continuing.
+Expected: prints `Version: siftkit.freeze2` and produces `dist\exllamav3-siftkit.freeze2-cp313-cp313-win_amd64.whl`. No `nvcc` compile lines for unchanged sources; if a full CUDA rebuild starts, stop and confirm the `build/` cache is intact before continuing.
 
 - [x] **Step 2: Install it into the engine venv**
 
 ```powershell
-$wheel = Get-ChildItem dist\exllamav3-1.4.2+siftkit.freeze2-*.whl | Select-Object -First 1
+$wheel = Get-ChildItem dist\exllamav3-siftkit.freeze2-*.whl | Select-Object -First 1
 C:\envs\rl313\Scripts\python.exe -m pip install --force-reinstall --no-deps $wheel.FullName
 ```
 
@@ -944,7 +944,7 @@ C:\envs\rl313\Scripts\python.exe -m pip install --force-reinstall --no-deps $whe
 C:\envs\rl313\Scripts\python.exe -c "from importlib.metadata import version; from exllamav3.model.model import Model; from exllamav3.modules.arch_specific.qwen3_vl import Qwen3VLPosEmbedding; from exllamav3.modules.arch_specific.glm4v import Glm4VPosEmbedding; from exllamav3.modules.arch_specific.gemma4 import Gemma4VisionPatchEmbedder; print(version('exllamav3')); print(hasattr(Model, '_validate_freeze_coverage')); print(all('get_tensors' in c.__dict__ for c in (Qwen3VLPosEmbedding, Glm4VPosEmbedding, Gemma4VisionPatchEmbedder)))"
 ```
 
-Expected output: `1.4.2+siftkit.freeze2`, then `True`, then `True`.
+Expected output: `siftkit.freeze2`, then `True`, then `True`.
 
 - [x] **Step 4: Confirm SiftKit now reports freeze support**
 
@@ -1077,7 +1077,7 @@ Read `backends/exllamav3/model.py:846-914`. The snapshot dict is built before `s
 ## Verification log — 2026-08-20
 
 Run against the active preset `exl3-3-6-27b-2` (`3.8_27b_4.6bpw`, vision enabled, `SpeculativeType: draft-mtp`)
-with `exllamav3 1.4.2+siftkit.freeze2` installed into `C:\envs\rl313`. TabbyAPI log:
+with `exllamav3 siftkit.freeze2` installed into `C:\envs\rl313`. TabbyAPI log:
 `TabbyAPI/logs/2026-08-20_11-49-15_894148.log`.
 
 **Runtime states.** `/runtime/inference` reported `"modelState":"ready"`, `"backend":"exl3"`,
