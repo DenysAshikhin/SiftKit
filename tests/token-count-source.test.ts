@@ -5,6 +5,7 @@ import {
   countTokensWithFallbackDetailed,
   preflightPlannerPromptBudget,
 } from '../src/repo-search/prompt-budget.js';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import type { InferenceBackendId } from '../src/config/types.js';
 import type { SiftConfig } from '../src/config/index.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
@@ -34,10 +35,11 @@ for (const engine of ['exl3', 'llama'] as const) {
 
       const preflight = await preflightPlannerPromptBudget({
         config,
-        messages: [{ role: 'user', content: PROMPT }],
-        includeReasoningContent: false,
-        tools: [],
-        responseFormat: null,
+        prompt: renderWirePrompt({
+          messages: [{ role: 'user', content: PROMPT }],
+          tools: [],
+          includeReasoningContent: false,
+        }),
         totalContextTokens: 128_000,
         responseReserveTokens: 4_000,
       });
@@ -59,10 +61,11 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
 
     const preflight = await preflightPlannerPromptBudget({
       config,
-      messages: [{ role: 'user', content: PROMPT }],
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: [{ role: 'user', content: PROMPT }],
+        tools: [],
+        includeReasoningContent: false,
+      }),
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
@@ -82,10 +85,11 @@ test('a tokenizer that refuses the wire prompt falls back to the estimate source
 
     const preflight = await preflightPlannerPromptBudget({
       config,
-      messages: [{ role: 'user', content: PROMPT }],
-      includeReasoningContent: false,
-      tools: [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }],
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: [{ role: 'user', content: PROMPT }],
+        tools: [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }],
+        includeReasoningContent: false,
+      }),
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });

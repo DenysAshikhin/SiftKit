@@ -18,16 +18,16 @@ test('renders each message as a ChatML block and appends the generation prompt',
       { role: 'user', content: 'HELLO' },
     ],
     tools: [],
-    responseFormat: null,
     includeReasoningContent: false,
   });
 
   assert.equal(
-    rendered,
+    rendered.text,
     block('system', 'SYS')
     + block('user', 'HELLO')
     + WIRE_GENERATION_PROMPT,
   );
+  assert.equal(rendered.imageCount, 0);
 });
 
 test('places tool schemas in the leading block', () => {
@@ -35,19 +35,18 @@ test('places tool schemas in the leading block', () => {
   const rendered = renderWirePrompt({
     messages: [{ role: 'system', content: 'SYS' }, { role: 'user', content: 'HI' }],
     tools,
-    responseFormat: null,
     includeReasoningContent: false,
   });
 
-  assert.ok(rendered.startsWith(block('system', `SYS\n${JSON.stringify(tools)}`)));
-  assert.ok(rendered.includes('"grep"'));
+  assert.ok(rendered.text.startsWith(block('system', `SYS\n${JSON.stringify(tools)}`)));
+  assert.ok(rendered.text.includes('"grep"'));
 });
 
 test('emits a standalone leading block when tools exist but messages do not', () => {
   const tools: LlamaCppToolDefinition[] = [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }];
-  const rendered = renderWirePrompt({ messages: [], tools, responseFormat: null, includeReasoningContent: false });
+  const rendered = renderWirePrompt({ messages: [], tools, includeReasoningContent: false });
 
-  assert.equal(rendered, block('system', JSON.stringify(tools)) + WIRE_GENERATION_PROMPT);
+  assert.equal(rendered.text, block('system', JSON.stringify(tools)) + WIRE_GENERATION_PROMPT);
 });
 
 test('renders tool_calls in wire shape, not transcript shape', () => {
@@ -60,27 +59,26 @@ test('renders tool_calls in wire shape, not transcript shape', () => {
       { role: 'tool', content: 'RESULT', tool_call_id: 'call_1' },
     ],
     tools: [],
-    responseFormat: null,
     includeReasoningContent: false,
   });
 
-  assert.ok(rendered.includes('"tool_call_id":"call_1"'));
-  assert.ok(!rendered.includes('tool_call_id=call_1'));
-  assert.ok(rendered.includes('"name":"grep"'));
+  assert.ok(rendered.text.includes('"tool_call_id":"call_1"'));
+  assert.ok(!rendered.text.includes('tool_call_id=call_1'));
+  assert.ok(rendered.text.includes('"name":"grep"'));
 });
 
 test('includes reasoning_content only when enabled, and never as a [reasoning] section', () => {
   const messages: ChatMessage[] = [{ role: 'assistant', content: 'ANSWER', reasoning_content: 'THINKING' }];
 
-  const on = renderWirePrompt({ messages, tools: [], responseFormat: null, includeReasoningContent: true });
-  const off = renderWirePrompt({ messages, tools: [], responseFormat: null, includeReasoningContent: false });
+  const on = renderWirePrompt({ messages, tools: [], includeReasoningContent: true });
+  const off = renderWirePrompt({ messages, tools: [], includeReasoningContent: false });
 
-  assert.ok(on.includes('THINKING'));
-  assert.ok(!on.includes('[reasoning]'));
-  assert.ok(!off.includes('THINKING'));
+  assert.ok(on.text.includes('THINKING'));
+  assert.ok(!on.text.includes('[reasoning]'));
+  assert.ok(!off.text.includes('THINKING'));
 });
 
-test('drops image parts and concatenates text parts', () => {
+test('drops image parts, concatenates text parts, and reports the dropped image count', () => {
   const rendered = renderWirePrompt({
     messages: [{
       role: 'user',
@@ -91,20 +89,20 @@ test('drops image parts and concatenates text parts', () => {
       ],
     }],
     tools: [],
-    responseFormat: null,
     includeReasoningContent: false,
   });
 
-  assert.equal(rendered, block('user', 'ALPHABETA') + WIRE_GENERATION_PROMPT);
+  assert.equal(rendered.text, block('user', 'ALPHABETA') + WIRE_GENERATION_PROMPT);
+  assert.equal(rendered.imageCount, 1);
 });
 
 test('appending a message keeps the previous rendering as a prefix', () => {
   const base: ChatMessage[] = [{ role: 'system', content: 'SYS' }, { role: 'user', content: 'ONE' }];
   const grown: ChatMessage[] = [...base, { role: 'assistant', content: 'TWO' }];
-  const options = { tools: [], responseFormat: null, includeReasoningContent: false };
+  const options = { tools: [], includeReasoningContent: false };
 
   const first = renderWirePrompt({ messages: base, ...options });
   const second = renderWirePrompt({ messages: grown, ...options });
 
-  assert.ok(second.startsWith(first.slice(0, first.length - WIRE_GENERATION_PROMPT.length)));
+  assert.ok(second.text.startsWith(first.text.slice(0, first.text.length - WIRE_GENERATION_PROMPT.length)));
 });

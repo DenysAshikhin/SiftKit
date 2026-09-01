@@ -155,20 +155,14 @@ test('preflight counts tool schemas as part of the prompt', async () => {
 
     const withoutTools = await preflightPlannerPromptBudget({
       config,
-      messages,
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: renderWirePrompt({ messages, tools: [], includeReasoningContent: false }),
       ...PREFLIGHT_BUDGET,
       promptTokenCounter: new IncrementalTokenCounter(),
     });
 
     const withTools = await preflightPlannerPromptBudget({
       config,
-      messages,
-      includeReasoningContent: false,
-      tools: [GREP_TOOL],
-      responseFormat: null,
+      prompt: renderWirePrompt({ messages, tools: [GREP_TOOL], includeReasoningContent: false }),
       ...PREFLIGHT_BUDGET,
       promptTokenCounter: new IncrementalTokenCounter(),
     });
@@ -189,20 +183,22 @@ test('preflight tokenizes only the appended tail across turns', async () => {
 
     const first = await preflightPlannerPromptBudget({
       config,
-      messages: [{ role: 'user', content: 'turn one' }] satisfies ChatMessage[],
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: [{ role: 'user', content: 'turn one' }] satisfies ChatMessage[],
+        tools: [],
+        includeReasoningContent: false,
+      }),
       ...PREFLIGHT_BUDGET,
       promptTokenCounter: counter,
     });
 
     const second = await preflightPlannerPromptBudget({
       config,
-      messages: [{ role: 'user', content: 'turn one' }, { role: 'assistant', content: 'turn two' }] satisfies ChatMessage[],
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: [{ role: 'user', content: 'turn one' }, { role: 'assistant', content: 'turn two' }] satisfies ChatMessage[],
+        tools: [],
+        includeReasoningContent: false,
+      }),
       ...PREFLIGHT_BUDGET,
       promptTokenCounter: counter,
     });
@@ -223,34 +219,28 @@ test('a delta-derived count near the budget forces one exact recount', async () 
     const tail = 'b'.repeat(600);
     const firstMessages: ChatMessage[] = [{ role: 'user', content: base }];
     const secondMessages: ChatMessage[] = [...firstMessages, { role: 'assistant', content: tail }];
-    const firstText = renderWirePrompt({ messages: firstMessages, tools: [], responseFormat: null, includeReasoningContent: false });
-    const secondText = renderWirePrompt({ messages: secondMessages, tools: [], responseFormat: null, includeReasoningContent: false });
+    const firstPrompt = renderWirePrompt({ messages: firstMessages, tools: [], includeReasoningContent: false });
+    const secondPrompt = renderWirePrompt({ messages: secondMessages, tools: [], includeReasoningContent: false });
     // maxPromptBudget = 3000; threshold = 3000 - EXACT_RECOUNT_MARGIN_TOKENS = 952.
     // The delta-derived count (~1160) crosses it, so preflight must recount fully.
     assert.equal(3000 - EXACT_RECOUNT_MARGIN_TOKENS, 952);
 
     await preflightPlannerPromptBudget({
       config,
-      messages: firstMessages,
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: firstPrompt,
       totalContextTokens: 3000,
       responseReserveTokens: 0,
       promptTokenCounter,
     });
     const second = await preflightPlannerPromptBudget({
       config,
-      messages: secondMessages,
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: secondPrompt,
       totalContextTokens: 3000,
       responseReserveTokens: 0,
       promptTokenCounter,
     });
-    assert.equal(second.promptTokenCount, secondText.length);
-    assert.deepEqual(seen, [firstText, secondText.slice(firstText.length), secondText]);
+    assert.equal(second.promptTokenCount, secondPrompt.text.length);
+    assert.deepEqual(seen, [firstPrompt.text, secondPrompt.text.slice(firstPrompt.text.length), secondPrompt.text]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });
 
@@ -260,26 +250,20 @@ test('preflight without counters keeps the one-shot behavior', async () => {
     const config = activateEngine(asRuntimeSiftConfig(stub.state.config), 'exl3');
     const firstMessages: ChatMessage[] = [{ role: 'user', content: 'turn one' }];
     const secondMessages: ChatMessage[] = [...firstMessages, { role: 'assistant', content: 'turn two' }];
-    const firstText = renderWirePrompt({ messages: firstMessages, tools: [], responseFormat: null, includeReasoningContent: false });
-    const secondText = renderWirePrompt({ messages: secondMessages, tools: [], responseFormat: null, includeReasoningContent: false });
+    const firstPrompt = renderWirePrompt({ messages: firstMessages, tools: [], includeReasoningContent: false });
+    const secondPrompt = renderWirePrompt({ messages: secondMessages, tools: [], includeReasoningContent: false });
     await preflightPlannerPromptBudget({
       config,
-      messages: firstMessages,
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: firstPrompt,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
     await preflightPlannerPromptBudget({
       config,
-      messages: secondMessages,
-      includeReasoningContent: false,
-      tools: [],
-      responseFormat: null,
+      prompt: secondPrompt,
       totalContextTokens: 128_000,
       responseReserveTokens: 4_000,
     });
-    assert.deepEqual(seen, [firstText, secondText]);
+    assert.deepEqual(seen, [firstPrompt.text, secondPrompt.text]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });

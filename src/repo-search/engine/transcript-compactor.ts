@@ -6,6 +6,7 @@ import {
 } from '../planner-protocol.js';
 import { buildCompactionSummaryInstruction } from '../prompts.js';
 import { countTokensWithFallback, preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { renderWirePrompt } from '../wire-prompt.js';
 import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
@@ -150,10 +151,11 @@ export class TranscriptCompactor {
     const generationTokenCeiling = Math.max(0, Math.floor(this.options.responseReserveTokens));
     const preflight = await preflightPlannerPromptBudget({
       config: this.tokenCountConfig,
-      messages: summaryRequestMessages,
-      includeReasoningContent: state.flags.reasoningContentEnabled,
-      tools: state.tools,
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: summaryRequestMessages,
+        tools: state.tools,
+        includeReasoningContent: state.flags.reasoningContentEnabled,
+      }),
       totalContextTokens: this.options.totalContextTokens,
       responseReserveTokens: 0,
     });

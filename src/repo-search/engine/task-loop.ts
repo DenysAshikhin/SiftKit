@@ -285,7 +285,6 @@ export class TaskLoop {
     });
     this.promptPreparer = new PromptPreparer({
       taskId: task.id,
-      model: String(options.model || ''),
       config: options.config,
       useEstimatedTokensOnly: this.useEstimatedTokensOnly,
       budget: this.budget,

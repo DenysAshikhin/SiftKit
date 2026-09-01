@@ -42,7 +42,6 @@ function makePreparer(
   };
   return new PromptPreparer({
     taskId: 't1',
-    model: 'mock-model',
     config,
     useEstimatedTokensOnly: true,
     budget,
@@ -150,7 +149,7 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
 
   const prepared = withKind(await prepareTurn(preparer, 1, 0), 'ready');
 
-  assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
+  assert.deepEqual(transcript.getMessages().map((message) => message.role), ['system', 'assistant', 'user']);
   assert.equal(transcript.render(false).includes(COMPACTION_SUMMARY_MARKER), true);
   assert.match(transcript.render(false), /SUMMARY BODY/u);
   assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
@@ -197,7 +196,7 @@ test('prepareTurn returns a context_overflow outcome for an overflowing repo-sea
   assert.ok(prepared.maxOutputTokens > 0);
   // The transcript is left exactly as the loop handed it over: no compaction, no epoch reset.
   assert.equal(transcript.generation, 0);
-  assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
+  assert.deepEqual(transcript.getMessages().map((message) => message.role), ['system', 'assistant', 'user']);
   assert.equal(events.filter((event) => event.kind === 'prompt_cache_epoch_reset').length, 0);
   assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
 

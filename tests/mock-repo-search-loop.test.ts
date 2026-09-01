@@ -13,7 +13,8 @@ import {
   buildScorecard,
   type TaskResult,
 } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
@@ -772,13 +773,14 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
 
 test('preflightPlannerPromptBudget reports overflow against context budget', async () => {
   const preflight = await preflightPlannerPromptBudget({
-    messages: [
-      { role: 'system', content: 'system' },
-      { role: 'user', content: 'x '.repeat(10000) },
-    ],
-    includeReasoningContent: false,
-    tools: [],
-    responseFormat: null,
+    prompt: renderWirePrompt({
+      messages: [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'x '.repeat(10000) },
+      ],
+      tools: [],
+      includeReasoningContent: false,
+    }),
     totalContextTokens: 7000,
     responseReserveTokens: 4000,
   });
@@ -790,32 +792,28 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
 });
 
 test('preflightPlannerPromptBudget counts tool schemas against context budget', async () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'short request' },
+  ];
   const withoutTools = await preflightPlannerPromptBudget({
-    messages: [
-      { role: 'system', content: 'system' },
-      { role: 'user', content: 'short request' },
-    ],
-    includeReasoningContent: false,
-    tools: [],
-    responseFormat: null,
+    prompt: renderWirePrompt({ messages, tools: [], includeReasoningContent: false }),
     totalContextTokens: 4200,
     responseReserveTokens: 4000,
   });
   const withTools = await preflightPlannerPromptBudget({
-    messages: [
-      { role: 'system', content: 'system' },
-      { role: 'user', content: 'short request' },
-    ],
-    includeReasoningContent: false,
-    tools: [{
-      type: 'function',
-      function: {
-        name: 'grep',
-        description: 'provider tools and response schema '.repeat(900),
-        parameters: { type: 'object' },
-      },
-    }],
-    responseFormat: null,
+    prompt: renderWirePrompt({
+      messages,
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'grep',
+          description: 'provider tools and response schema '.repeat(900),
+          parameters: { type: 'object' },
+        },
+      }],
+      includeReasoningContent: false,
+    }),
     totalContextTokens: 4200,
     responseReserveTokens: 4000,
   });

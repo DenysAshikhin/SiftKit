@@ -11,7 +11,7 @@ import {
 import type { LlamaCppToolDefinition } from '../../llm-protocol/types.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
 import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';
-import { renderWirePrompt } from '../wire-prompt.js';
+import { renderWirePrompt, type WirePrompt } from '../wire-prompt.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { TranscriptManager } from './transcript-manager.js';
@@ -55,7 +55,6 @@ export class PromptPreparer {
   constructor(
     private readonly options: {
       taskId: string;
-      model: string;
       config: SiftConfig;
       useEstimatedTokensOnly: boolean;
       budget: TurnBudget;
@@ -72,14 +71,13 @@ export class PromptPreparer {
 
   private readonly promptTokenCounter = new IncrementalTokenCounter();
 
-  /** Chars of the rendered wire prompt, for the progress events that fire before preflight counts it. */
-  private wirePromptChars(): number {
+  /** Rendered once per preflight: its char length feeds the progress events that fire before the count. */
+  private renderWirePromptForTurn(): WirePrompt {
     return renderWirePrompt({
       messages: this.options.transcript.getMessages(),
       tools: this.options.plannerTools,
-      responseFormat: null,
       includeReasoningContent: this.options.thinking.reasoningContentEnabled,
-    }).length;
+    });
   }
 
   private failOverflow(
@@ -121,7 +119,8 @@ export class PromptPreparer {
       turn,
       messageCount: transcript.length,
     });
-    let promptChars = this.wirePromptChars();
+    let prompt = this.renderWirePromptForTurn();
+    let promptChars = prompt.text.length;
     promptRenderSpan?.end({ promptChars });
     const preflightSpan = this.options.timingRecorder?.start('repo.prompt.preflight', {
       taskId,
@@ -135,10 +134,7 @@ export class PromptPreparer {
     }
     let preflight = await preflightPlannerPromptBudget({
       config: preflightConfig,
-      messages: transcript.getMessages(),
-      includeReasoningContent: this.options.thinking.reasoningContentEnabled,
-      tools: this.options.plannerTools,
-      responseFormat: null,
+      prompt,
       totalContextTokens: budget.totalContextTokens,
       responseReserveTokens: budget.responseReserveTokens,
       promptTokenCounter: this.promptTokenCounter,
@@ -223,16 +219,14 @@ export class PromptPreparer {
         turn,
         droppedMessageCount: compacted.droppedMessageCount,
       });
-      promptChars = this.wirePromptChars();
+      prompt = this.renderWirePromptForTurn();
+      promptChars = prompt.text.length;
       if (preflightConfig) {
         progress.tokenizeStart(turn, promptChars);
       }
       const afterCompaction = await preflightPlannerPromptBudget({
         config: preflightConfig,
-        messages: transcript.getMessages(),
-        includeReasoningContent: this.options.thinking.reasoningContentEnabled,
-        tools: this.options.plannerTools,
-        responseFormat: null,
+        prompt,
         totalContextTokens: budget.totalContextTokens,
         responseReserveTokens: budget.responseReserveTokens,
         promptTokenCounter: this.promptTokenCounter,

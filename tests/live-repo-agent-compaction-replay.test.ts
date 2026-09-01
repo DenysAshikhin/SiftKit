@@ -26,6 +26,7 @@ import {
   type ChatMessage,
 } from '../src/repo-search/planner-protocol.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
+import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
 import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
@@ -234,10 +235,11 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   const budget = new TurnBudget({ totalContextTokens, maxTurns: 100, config });
   const replayPreflight = await preflightPlannerPromptBudget({
     config,
-    messages: transcript.getMessages(),
-    includeReasoningContent: thinking.reasoningContentEnabled,
-    tools: plannerTools,
-    responseFormat: null,
+    prompt: renderWirePrompt({
+      messages: transcript.getMessages(),
+      tools: plannerTools,
+      includeReasoningContent: thinking.reasoningContentEnabled,
+    }),
     totalContextTokens: budget.totalContextTokens,
     responseReserveTokens: budget.responseReserveTokens,
   });
@@ -256,7 +258,6 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   };
   const preparer = new PromptPreparer({
     taskId: 'live-repo-agent-compaction-replay',
-    model,
     config,
     useEstimatedTokensOnly: false,
     budget,

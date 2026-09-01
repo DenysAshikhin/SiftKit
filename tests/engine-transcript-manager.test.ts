@@ -185,11 +185,11 @@ test('chat compaction tracks the current turn after persisted history and after 
   assert.equal(transcript.currentTurnStartIndex, 2);
 });
 
-test('render produces transcripts and messageRoles handles malformed input', () => {
+test('render produces transcripts and tolerates malformed input', () => {
   const transcript = makeTranscript();
-  // Intentionally malformed (no role) to exercise the 'unknown' role fallback;
+  // Intentionally malformed (no role) to exercise the renderer's roleless path;
   // brand it as ChatMessage through a runtime check instead of a cast.
   transcript.getMessages().push(z.custom<ChatMessage>(() => true).parse({ content: 'roleless' }));
   assert.ok(transcript.render(false).includes('QUESTION'));
-  assert.ok(transcript.messageRoles().includes('unknown'));
+  assert.ok(transcript.render(false).includes('roleless'));
 });

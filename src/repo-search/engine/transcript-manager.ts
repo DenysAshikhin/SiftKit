@@ -53,10 +53,6 @@ export class TranscriptManager {
     return this.messages;
   }
 
-  messageRoles(): string[] {
-    return this.messages.map((message) => String(message.role || 'unknown'));
-  }
-
   render(includeReasoningContent: boolean): string {
     return renderTaskTranscript(this.messages, { includeReasoningContent });
   }

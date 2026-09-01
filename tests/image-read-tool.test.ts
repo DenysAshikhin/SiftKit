@@ -45,7 +45,7 @@ async function runImageReadTurnRoles(repoRoot: string, paths: string[]): Promise
     0,
     false,
   );
-  return transcript.messageRoles();
+  return transcript.getMessages().map((message) => message.role);
 }
 
 test('read returns an image for every supported extension when vision is on', async () => {

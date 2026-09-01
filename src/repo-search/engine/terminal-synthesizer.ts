@@ -7,6 +7,7 @@ import {
   type ExecutingPlannerRequest,
 } from '../planner-protocol.js';
 import { preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { renderWirePrompt } from '../wire-prompt.js';
 import { buildTerminalSynthesisInstruction } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -44,10 +45,11 @@ export class TerminalSynthesizer {
     );
     const preflight = await preflightPlannerPromptBudget({
       config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
-      messages: terminalMessages,
-      includeReasoningContent: input.executing.flags.reasoningContentEnabled,
-      tools: input.executing.tools,
-      responseFormat: null,
+      prompt: renderWirePrompt({
+        messages: terminalMessages,
+        tools: input.executing.tools,
+        includeReasoningContent: input.executing.flags.reasoningContentEnabled,
+      }),
       totalContextTokens: this.options.totalContextTokens,
       responseReserveTokens: 0,
     });

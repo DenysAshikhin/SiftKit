@@ -12,11 +12,8 @@ import {
   type CountLlamaCppTokensOptions,
   type LlamaCppTokenCountResult,
 } from '../providers/llama-cpp.js';
-import type { ChatMessage } from './planner-protocol.js';
-import type { LlamaCppResponseFormat, LlamaCppToolDefinition } from '../llm-protocol/types.js';
-import { renderWirePrompt } from './wire-prompt.js';
+import type { WirePrompt } from './wire-prompt.js';
 import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.js';
-import { countContentImages } from '../llm-protocol/image-attachments.js';
 
 /**
  * Where a token count came from: the engine that tokenized it, or the local
@@ -109,10 +106,7 @@ export type PreflightResult = {
 
 export async function preflightPlannerPromptBudget(options: {
   config?: SiftConfig;
-  messages: readonly ChatMessage[];
-  includeReasoningContent: boolean;
-  tools: readonly LlamaCppToolDefinition[];
-  responseFormat: LlamaCppResponseFormat | null | undefined;
+  prompt: WirePrompt;
   totalContextTokens: number;
   responseReserveTokens: number;
   promptTokenCounter?: PromptTokenCounter;
@@ -120,17 +114,11 @@ export async function preflightPlannerPromptBudget(options: {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
   const responseReserveTokens = Math.max(0, Number(options.responseReserveTokens || 0));
 
-  const promptText = renderWirePrompt({
-    messages: options.messages,
-    tools: options.tools,
-    responseFormat: options.responseFormat,
-    includeReasoningContent: options.includeReasoningContent,
-  });
+  const promptText = options.prompt.text;
 
   // Image tokens cannot be derived from a data URI without decoding the image, and the
   // rendered wire prompt carries no text for them, so each attachment gets a flat allowance.
-  const imageTokenCount = options.messages.reduce((total, message) => total + countContentImages(message.content), 0)
-    * SIFT_IMAGE_TOKEN_ESTIMATE;
+  const imageTokenCount = options.prompt.imageCount * SIFT_IMAGE_TOKEN_ESTIMATE;
 
   const promptCounter = options.promptTokenCounter ?? oneShotTokenCounter;
   const maxPromptBudget = Math.max(totalContextTokens - responseReserveTokens, 0);

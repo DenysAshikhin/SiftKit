@@ -1,4 +1,5 @@
-import type { LlamaCppContentPart, LlamaCppResponseFormat, LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import type { LlamaCppContentPart, LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import { countContentImages } from '../llm-protocol/image-attachments.js';
 import { serializeProtocolMessages, type ChatMessage } from './planner-protocol.js';
 
 // ChatML role markers. Built from a code-point concatenation so the token
@@ -12,9 +13,13 @@ export const WIRE_GENERATION_PROMPT = `${IM_START}assistant\n`;
 export type WirePromptInput = {
   messages: readonly ChatMessage[];
   tools: readonly LlamaCppToolDefinition[];
-  /** Serialized alongside the tools when the request constrains the response shape. */
-  responseFormat: LlamaCppResponseFormat | null | undefined;
   includeReasoningContent: boolean;
+};
+
+/** The rendered prompt plus the image parts it left out, which the caller budgets separately. */
+export type WirePrompt = {
+  text: string;
+  imageCount: number;
 };
 
 function renderContent(content: string | LlamaCppContentPart[] | null | undefined): string {
@@ -30,29 +35,19 @@ function renderContent(content: string | LlamaCppContentPart[] | null | undefine
   return '';
 }
 
-function renderLeadingExtras(input: WirePromptInput): string {
-  const sections: string[] = [];
-  if (input.tools.length > 0) {
-    sections.push(JSON.stringify(input.tools));
-  }
-  if (input.responseFormat !== null && input.responseFormat !== undefined) {
-    sections.push(JSON.stringify(input.responseFormat));
-  }
-  return sections.join('\n');
-}
-
 /**
  * Renders the prompt the model receives: wire-serialized messages plus tool schemas,
- * wrapped in ChatML markers. Image parts are excluded here and accounted for by the
- * caller's per-image token allowance.
+ * wrapped in ChatML markers. Image parts carry no text here, so they are reported as a
+ * count for the caller's per-image token allowance instead.
  */
-export function renderWirePrompt(input: WirePromptInput): string {
-  const protocolMessages = serializeProtocolMessages([...input.messages], input.includeReasoningContent);
-  const leadingExtras = renderLeadingExtras(input);
+export function renderWirePrompt(input: WirePromptInput): WirePrompt {
+  const protocolMessages = serializeProtocolMessages(input.messages, input.includeReasoningContent);
+  const toolSchemas = input.tools.length > 0 ? JSON.stringify(input.tools) : '';
+  const imageCount = input.messages.reduce((total, message) => total + countContentImages(message.content), 0);
 
   if (protocolMessages.length === 0) {
-    const leadingBlock = leadingExtras ? `${IM_START}system\n${leadingExtras}${IM_END}\n` : '';
-    return leadingBlock + WIRE_GENERATION_PROMPT;
+    const leadingBlock = toolSchemas ? `${IM_START}system\n${toolSchemas}${IM_END}\n` : '';
+    return { text: leadingBlock + WIRE_GENERATION_PROMPT, imageCount };
   }
 
   const blocks = protocolMessages.map((message, index) => {
@@ -64,8 +59,8 @@ export function renderWirePrompt(input: WirePromptInput): string {
     if (contentText) {
       sections.push(contentText);
     }
-    if (index === 0 && leadingExtras) {
-      sections.push(leadingExtras);
+    if (index === 0 && toolSchemas) {
+      sections.push(toolSchemas);
     }
     if (message.tool_calls !== undefined) {
       sections.push(JSON.stringify({ tool_calls: message.tool_calls }));
@@ -76,5 +71,5 @@ export function renderWirePrompt(input: WirePromptInput): string {
     return `${IM_START}${message.role}\n${sections.join('\n')}${IM_END}\n`;
   });
 
-  return blocks.join('') + WIRE_GENERATION_PROMPT;
+  return { text: blocks.join('') + WIRE_GENERATION_PROMPT, imageCount };
 }
