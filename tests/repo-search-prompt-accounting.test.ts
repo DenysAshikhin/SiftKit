@@ -4,7 +4,10 @@ import http from 'node:http';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
@@ -27,7 +30,22 @@ type LoopRun = {
   logged: Record<string, JsonSerializable>[];
 };
 
-async function runOneTurnAgainstServer(): Promise<LoopRun> {
+/**
+ * Lifts wire-level tool definitions into the loop's planner definitions. The mock
+ * responses in this file never emit tool calls, so the permissive argument schema is
+ * never exercised; only the wire rendering (name, description, parameters) matters.
+ */
+function toPlannerToolDefinitions(tools: readonly LlamaCppToolDefinition[]): PlannerToolDefinition[] {
+  return tools.map((tool) => ({
+    kind: 'tool',
+    type: 'function',
+    argumentSchema: JsonObjectSchema,
+    exampleArgs: {},
+    function: tool.function,
+  }));
+}
+
+async function runOneTurnAgainstServer(options: { plannerTools?: readonly LlamaCppToolDefinition[] } = {}): Promise<LoopRun> {
   const server = http.createServer((req, res) => {
     let body = '';
     req.setEncoding('utf8');
@@ -56,6 +74,9 @@ async function runOneTurnAgainstServer(): Promise<LoopRun> {
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const plannerToolDefinitions = options.plannerTools === undefined
+    ? resolveRepoSearchPlannerToolDefinitions()
+    : toPlannerToolDefinitions(options.plannerTools);
 
   const events: RepoSearchProgressEvent[] = [];
   const logged: Record<string, JsonSerializable>[] = [];
@@ -63,7 +84,7 @@ async function runOneTurnAgainstServer(): Promise<LoopRun> {
     const result = await runTaskLoop(
       { id: 'prompt-accounting', question: 'Finish immediately.' },
       {
-        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
+        plannerToolDefinitions,
         repoRoot: createManagedTempDir('siftkit-prompt-accounting-'),
         model: 'mock-model',
         baseUrl,
@@ -105,4 +126,23 @@ test('reported prompt tokens are the full wire prompt count', async () => {
   assert.equal(run.promptTokens, Number(budget.promptTokenCount));
   // The server's own figure is never adopted as the prompt size.
   assert.notEqual(run.promptTokens, SERVER_REPORTED_PROMPT_TOKENS);
+});
+
+test('adding a planner tool raises the reported prompt token count', async () => {
+  const withoutTools = await runOneTurnAgainstServer({ plannerTools: [] });
+  const withTools = await runOneTurnAgainstServer({
+    plannerTools: [{
+      type: 'function',
+      function: {
+        name: 'grep',
+        description: 'search the repository',
+        parameters: { type: 'object', properties: { pattern: { type: 'string' } } },
+      },
+    }],
+  });
+
+  assert.ok(
+    withTools.promptTokens > withoutTools.promptTokens,
+    `tool schemas must be counted: ${withTools.promptTokens} vs ${withoutTools.promptTokens}`,
+  );
 });
