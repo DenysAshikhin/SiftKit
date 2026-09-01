@@ -771,6 +771,8 @@ export function appendChatRepoAgentMessages(
     images: string[];
     decisions: ChatRepoAgentDecisionRecord[];
     result: RepoAgentRunResult;
+    turns: PersistTurn[];
+    maintainPerStepThinking: boolean;
   },
 ): ChatSession {
   const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
@@ -783,7 +785,7 @@ export function appendChatRepoAgentMessages(
     input.content,
     buildRepoAgentResultMarkdown(input.result),
     {},
-    { turns: [], sourceRunId: input.result.runId, images: input.images },
+    { turns: input.turns, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.result.runId, images: input.images },
   );
   const assistantMessage = persisted.messages[persisted.messages.length - 1];
   if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {

@@ -139,6 +139,7 @@ export async function streamSessionBoundary(
   const writer = new SseResponseWriter(req, res);
   writer.open();
   const detach = session.attach({
+    wantsLiveText: false,
     writeProgress: (event) => writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event),
   });
   const boundaryController = new AbortController();

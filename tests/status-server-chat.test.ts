@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   appendChatMessagesWithUsage,
+  appendChatRepoAgentMessages,
   buildChatHistoryMessages,
   buildChatSystemContent,
   buildContextUsage,
@@ -24,7 +25,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { mergeConfig } from '../src/config/normalization.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
 import { normalizeConfig } from '../src/status-server/config-store.js';
-import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
+import { estimateTokenCount, saveChatSession, type ChatMessage, type ChatSession } from '../src/state/chat-sessions.js';
 import { z } from '../src/lib/zod.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
@@ -339,6 +340,89 @@ test('appendChatMessagesWithUsage deletes older thinking transcript entries when
     'assistant_answer',
   ]);
 });
+
+test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of approval rows', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-repo-agent-turns-');
+  const session = createSession();
+  saveChatSession(runtimeRoot, session);
+  const runId = '6f1c8f2e-0000-4000-8000-000000000000';
+  const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
+    content: 'fix the cipher',
+    images: [],
+    decisions: [{
+      decision: { decision: 'approve' },
+      approval: {
+        approvalId: '9a0d2c4b-0000-4000-8000-000000000000',
+        toolName: 'write',
+        command: 'write path="cipher-note.txt"',
+        reviewPayload: null,
+      },
+      decidedAtUtc: '2026-04-17T00:01:00.000Z',
+    }],
+    result: { status: 'completed', runId, output: 'wrote the cipher note' },
+    turns: [
+      { thinkingText: 'think one', toolMessages: [{
+        id: 'tool-a', content: 'write path="cipher-note.txt"', toolCallCommand: 'write path="cipher-note.txt"',
+        toolCallActivityKind: 'edit',
+        toolCallActivitySubject: { kind: 'file', value: 'cipher-note.txt' },
+        toolCallTurn: 1, toolCallLimit: 4, toolCallExitCode: 0,
+        toolCallOutputSnippet: 'ok', toolCallOutput: 'ok', outputTokens: 1,
+      }] },
+      { thinkingText: 'final think', toolMessages: [] },
+    ],
+    maintainPerStepThinking: true,
+  });
+
+  const appended = repoAgentPersistedMessages(persisted).slice(2);
+  assert.deepEqual(appended.map((message) => message.kind), [
+    'user_text',
+    'assistant_thinking',
+    'assistant_tool_call',
+    'assistant_thinking',
+    'repo_agent_approval',
+    'assistant_answer',
+  ]);
+  for (const message of appended) {
+    if (message.kind === 'user_text') {
+      continue;
+    }
+    assert.equal(message.sourceRunId, runId);
+  }
+});
+
+test('appendChatRepoAgentMessages prunes older thinking when maintainPerStepThinking is false', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-repo-agent-prune-');
+  const session = createSession();
+  saveChatSession(runtimeRoot, session);
+  const runId = '7e2d9a3f-0000-4000-8000-000000000000';
+  const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
+    content: 'fix the cipher',
+    images: [],
+    decisions: [],
+    result: { status: 'completed', runId, output: 'done' },
+    turns: [
+      { thinkingText: 'think one', toolMessages: [] },
+      { thinkingText: 'think two', toolMessages: [] },
+      { thinkingText: 'final think', toolMessages: [] },
+    ],
+    maintainPerStepThinking: false,
+  });
+
+  const messages = repoAgentPersistedMessages(persisted);
+  const thinkingMessages = messages.filter((message) => message.kind === 'assistant_thinking');
+  assert.equal(thinkingMessages.length, 1);
+  assert.equal(thinkingMessages[0].content, 'final think');
+  assert.deepEqual(messages.slice(2).map((message) => message.kind), [
+    'user_text',
+    'assistant_thinking',
+    'assistant_answer',
+  ]);
+});
+
+function repoAgentPersistedMessages(session: ChatSession): ChatMessage[] {
+  assert.ok(Array.isArray(session.messages), 'expected the persisted session to carry its message rows');
+  return session.messages;
+}
 
 test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estimated', () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-estimated-tool-');

@@ -5,13 +5,15 @@ import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatSessionBusyError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import type { ChatSession, ChatSessionResponse } from '../src/types';
+import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
+import type { ChatSession, ChatSessionOperationKind, ChatSessionResponse } from '../src/types';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 const SESSION: ChatSession = {
   id: 's1',
   title: 'Session',
+  modelPresetId: 'test-model',
   model: null,
   contextWindowTokens: 100,
   createdAtUtc: '2026-06-03T12:00:00.000Z',
@@ -94,9 +96,13 @@ async function* mismatchedStream(): AsyncGenerator<ChatStreamEvent> {
   yield { kind: 'done', payload: response('session-b') };
 }
 
-async function collect(stream: AsyncGenerator<ChatStreamEvent>, thinking: boolean): Promise<string[]> {
+async function collect(
+  stream: AsyncGenerator<ChatStreamEvent>,
+  thinking: boolean,
+  operationKind: ChatSessionOperationKind = 'plan',
+): Promise<string[]> {
   const kinds: string[] = [];
-  for await (const transition of toRuntimeTransitions('session-a', 'plan', OPERATION_ID, stream, thinking)) {
+  for await (const transition of toRuntimeTransitions('session-a', operationKind, OPERATION_ID, stream, thinking)) {
     kinds.push(transition.kind);
   }
   return kinds;
@@ -116,6 +122,24 @@ test('thinking events are dropped when thinking is disabled', async () => {
   }
   assert.deepEqual(await collect(thinkingStream(), false), ['begin', 'done']);
   assert.deepEqual(await collect(thinkingStream(), true), ['begin', 'thinking', 'done']);
+});
+
+test('repo-agent streams yield thinking transitions', async () => {
+  async function* repoAgentThinkingStream(): AsyncGenerator<ChatStreamEvent> {
+    yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'inspecting the cipher' } };
+    yield { kind: 'done', payload: response('session-a') };
+  }
+  const transitions: ChatSessionRuntimeTransition[] = [];
+  for await (const transition of toRuntimeTransitions('session-a', 'repo-agent', OPERATION_ID, repoAgentThinkingStream(), true)) {
+    transitions.push(transition);
+  }
+  assert.deepEqual(transitions.map((entry) => entry.kind), ['begin', 'thinking', 'done']);
+  assert.deepEqual(transitions[1], {
+    kind: 'thinking',
+    sessionId: 'session-a',
+    delta: { turn: 1, offset: 0, text: 'inspecting the cipher' },
+  });
+  assert.deepEqual(await collect(repoAgentThinkingStream(), false, 'repo-agent'), ['begin', 'done']);
 });
 
 test('narration events always become narration transitions', async () => {

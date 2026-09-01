@@ -751,7 +751,7 @@ export class AssistantService implements AssistantRuntime {
       }
       return;
     }
-    let remaining = this.maxJobsPerDrain;
+    let remaining = this.maxJobsPerDrain < 0 ? Number.MAX_SAFE_INTEGER : this.maxJobsPerDrain;
     for (const state of PENDING_CAPTURE_STATES) {
       if (remaining <= 0) return;
       for (const row of this.captureQueue.listByState(this.ownerId, state, remaining)) {

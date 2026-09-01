@@ -220,8 +220,8 @@ export const AssistantConfigSchema = z.object({
   }).strict(),
   Background: z.object({
     IdleSecondsBeforeProcessing: z.number().int().min(0),
-    MaxJobsPerIdleSession: z.number().int().positive(),
-    MaxGpuMinutesPerDay: z.number().int().min(0),
+    MaxJobsPerIdleSession: z.number().int().min(-1),
+    MaxGpuMinutesPerDay: z.number().int().min(-1),
     MinimumBatteryPercent: z.number().int().min(0).max(100),
     AllowOnBattery: z.boolean(),
     JobPriorities: AssistantJobPrioritiesSchema,

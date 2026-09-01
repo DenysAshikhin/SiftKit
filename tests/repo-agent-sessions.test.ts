@@ -4,7 +4,10 @@ import path from 'node:path';
 import test, { after, type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getAbortError } from '../src/lib/abort.js';
+import type { ProgressWriter } from '../src/lib/progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.js';
@@ -121,9 +124,72 @@ class FailingFailureStore extends RepoAgentRunStore {
 }
 
 class RecordingSubscriber implements RepoAgentSessionSubscriber {
+  readonly wantsLiveText: boolean;
   events: RepoSearchProgressEvent[] = [];
+  constructor(wantsLiveText = false) {
+    this.wantsLiveText = wantsLiveText;
+  }
   writeProgress(event: RepoSearchProgressEvent): void {
     this.events.push(event);
+  }
+}
+
+class ScriptedProgressEngine implements RepoAgentEngine {
+  seenWriter: ProgressWriter<RepoSearchProgressEvent> | null = null;
+
+  constructor(private readonly events: readonly RepoSearchProgressEvent[]) {}
+
+  async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.seenWriter = request.progressWriter ?? null;
+    for (const event of this.events) {
+      request.progressWriter?.write(event);
+    }
+    return makeEngineResult('done');
+  }
+}
+
+class TurnThinkingEngine implements RepoAgentEngine {
+  readonly result: RepoSearchExecutionResult;
+
+  constructor() {
+    const result = makeEngineResult('done');
+    const task = result.scorecard.tasks[0];
+    if (!task) {
+      throw new Error('Expected mock scorecard task.');
+    }
+    task.turnThinking = { 1: 'inspecting the cipher table' };
+    task.commands = [{
+      command: 'rg -n "cipher" src',
+      activityKind: 'search',
+      activitySubject: { kind: 'none' },
+      turn: 1,
+      safe: true,
+      reason: null,
+      exitCode: 0,
+      output: 'src/cipher.ts:1:const TABLE = "x"',
+    }];
+    this.result = result;
+  }
+
+  async executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    return this.result;
+  }
+}
+
+class AbortingEngine implements RepoAgentEngine {
+  async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    const signal = request.abortSignal;
+    if (!signal) {
+      throw new Error('AbortingEngine requires an abort signal.');
+    }
+    return new Promise<RepoSearchExecutionResult>((_resolve, reject) => {
+      const onAbort = (): void => reject(getAbortError(signal));
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 }
 
@@ -155,6 +221,16 @@ function makeEngineRequest(tempRoot: string): RepoAgentEngineRequest {
     model: 'mock-model',
     maxTurns: 4,
   };
+}
+
+async function waitForCondition(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${description}.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs = 1_000): Promise<T> {
@@ -514,6 +590,7 @@ class SessionTestHarness {
     let detach: (() => void) | undefined;
     try {
       detach = session.attach({
+        wantsLiveText: false,
         writeProgress: (event: RepoSearchProgressEvent): void => {
           if (event.kind === 'approval_request') {
             resolveApprovalRequest();
@@ -962,4 +1039,193 @@ test('Persistence failure while deciding retains the authoritative failed sessio
     assert.equal(session.hasUnpersistedTerminalState(), true);
     assert.equal(harness.manager.get(harness.runId), session);
     await session.settled;
+});
+
+test('session progress writer reports wantsLiveText from the attached subscriber', async (t) => {
+  const engine = new ScriptedProgressEngine([]);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+
+  await waitForCondition(() => engine.seenWriter !== null, 'the engine to receive the progress writer');
+  const writer = engine.seenWriter;
+  if (!writer) {
+    throw new Error('Expected the engine to receive a progress writer.');
+  }
+  assert.equal(writer.wantsLiveText, false, 'no subscriber attached');
+
+  const detach = session.attach({ wantsLiveText: true, writeProgress: () => undefined });
+  assert.equal(writer.wantsLiveText, true, 'live-text subscriber attached');
+
+  detach();
+  assert.equal(writer.wantsLiveText, false, 'subscriber detached');
+
+  await session.settled;
+});
+
+function liveTextEvents() {
+  const thinking: RepoSearchProgressEvent = { kind: 'thinking', turn: 1, maxTurns: 4, thinkingText: 'considering the cipher' };
+  const narration: RepoSearchProgressEvent = { kind: 'narration', turn: 1, maxTurns: 4, narrationText: 'reading the cipher files' };
+  const progressUpdate: RepoSearchProgressEvent = { kind: 'progress_update', turn: 1, maxTurns: 4, taskId: 'repo-search', elapsedMs: 12, progressText: 'halfway there' };
+  const toolStart: RepoSearchProgressEvent = {
+    kind: 'tool_start',
+    toolCallId: 'tool-1',
+    turn: 1,
+    maxTurns: 4,
+    toolCallLimit: 4,
+    activityKind: 'search',
+    activitySubject: { kind: 'none' },
+    command: 'rg -n "cipher" src',
+    promptTokenCount: 100,
+    thinkingTokenCount: 5,
+    elapsedMs: 12,
+  };
+  return { toolStart, all: [thinking, narration, progressUpdate, toolStart] };
+}
+
+test('live-text events reach only a live-text subscriber: a live-text subscriber receives all four in order', async (t) => {
+  const events = liveTextEvents();
+  const engine = new ScriptedProgressEngine(events.all);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber(true);
+  session.attach(subscriber);
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.deepEqual(subscriber.events, events.all);
+});
+
+test('live-text events reach only a live-text subscriber: a non-live-text subscriber receives only tool_start', async (t) => {
+  const events = liveTextEvents();
+  const engine = new ScriptedProgressEngine(events.all);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber(false);
+  session.attach(subscriber);
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.deepEqual(subscriber.events, [events.toolStart]);
+});
+
+test('answer events are never fanned out: a non-live-text subscriber receives nothing', async (t) => {
+  const answer: RepoSearchProgressEvent = { kind: 'answer', turn: 1, maxTurns: 4, answerText: 'the cipher is solved' };
+  const engine = new ScriptedProgressEngine([answer]);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber(false);
+  session.attach(subscriber);
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.equal(subscriber.events.length, 0, 'non-live-text subscriber must not receive answer');
+});
+
+test('answer events are never fanned out: a live-text subscriber receives nothing', async (t) => {
+  const answer: RepoSearchProgressEvent = { kind: 'answer', turn: 1, maxTurns: 4, answerText: 'the cipher is solved' };
+  const engine = new ScriptedProgressEngine([answer]);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber(true);
+  session.attach(subscriber);
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.equal(subscriber.events.length, 0, 'live-text subscriber must not receive answer');
+});
+
+test('live-text events are not server-logged', async (t) => {
+  const progressUpdate: RepoSearchProgressEvent = {
+    kind: 'progress_update',
+    turn: 1,
+    maxTurns: 4,
+    taskId: 'repo-search',
+    elapsedMs: 12,
+    progressText: 'progress-live-text-marker',
+  };
+  const toolStart: RepoSearchProgressEvent = {
+    kind: 'tool_start',
+    toolCallId: 'tool-1',
+    turn: 1,
+    maxTurns: 4,
+    toolCallLimit: 4,
+    activityKind: 'search',
+    activitySubject: { kind: 'none' },
+    command: 'rg -n "tool-start-log-marker" src',
+    promptTokenCount: 100,
+    thinkingTokenCount: 5,
+    elapsedMs: 12,
+  };
+  const engine = new ScriptedProgressEngine([progressUpdate, toolStart]);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber(true);
+  session.attach(subscriber);
+
+  const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
+  process.env.SIFTKIT_LOG_LEVEL = 'normal';
+  const capture = OutputCapture.start(process.stdout);
+  try {
+    const boundary = await session.waitForBoundary(0);
+    assert.equal(boundary.status, 'completed');
+    await session.settled;
+  } finally {
+    capture.restore();
+    if (previousLogLevel === undefined) {
+      delete process.env.SIFTKIT_LOG_LEVEL;
+    } else {
+      process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
+    }
+  }
+
+  assert.ok(
+    capture.lines.some((line) => line.includes('tool-start-log-marker')),
+    `tool_start must still be server-logged; captured: ${capture.lines.join(' | ')}`,
+  );
+  assert.ok(
+    !capture.lines.some((line) => line.includes('progress-live-text-marker')),
+    `progress_update must not be server-logged; captured: ${capture.lines.join(' | ')}`,
+  );
+});
+
+test('session exposes the engine execution result after a completed run', async (t) => {
+  const engine = new TurnThinkingEngine();
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const session = harness.start();
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+
+  const exposed = session.getExecutionResult();
+  assert.equal(exposed, engine.result, 'the session must expose the exact engine result');
+  if (!exposed) {
+    throw new Error('Expected the session to expose an execution result.');
+  }
+  const task = exposed.scorecard.tasks[0];
+  if (!task) {
+    throw new Error('Expected the exposed scorecard to carry a task.');
+  }
+  assert.equal(task.turnThinking[1], 'inspecting the cipher table');
+  assert.equal(task.commands.length, 1);
+  await session.settled;
+});
+
+test('session getExecutionResult returns null for an aborted run', async (t) => {
+  const harness = await SessionTestHarness.create({ engine: new AbortingEngine(), approvalMode: 'off' }, t);
+  const session = harness.start();
+
+  session.abort();
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'aborted');
+  assert.equal(session.getExecutionResult(), null);
+  await session.settled;
 });

@@ -192,6 +192,68 @@ test('a drain with a capable runtime extracts every unprocessed capture oldest-f
   }
 });
 
+test('a drain with an unlimited session budget promotes every pending capture', async () => {
+  const runtimeRoot = createManagedTempDir('siftkit-image-drain-unlimited-');
+  const clock = new FixedClock('2026-08-10T09:00:00.000Z');
+  const inference = new FakeAssistantInference([
+    extraction('Visual Studio Code'), extraction('Firefox'),
+    extraction('Godot'), extraction('Git'),
+  ]);
+  const config = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Enabled: true,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
+    Background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxJobsPerIdleSession: -1 },
+  };
+  const service = AssistantService.create({
+    database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
+    runtimeRoot,
+    clock,
+    ids: new SequentialIdGenerator(),
+    configWriter: new MemoryAssistantConfigWriter(config),
+    inference,
+    tokens: new EstimateTokenCounter(4),
+    idleGate: ALWAYS_IDLE,
+    residencyGate: ALWAYS_RESIDENT,
+    imageCapability: new StubImageCapability(true),
+    config,
+  });
+  try {
+    const queue = new CaptureQueueStore(
+      getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')), clock,
+    );
+    const first = service.ingestCapture(captureDto('2026-08-10T09:00:00.000Z', '1'.repeat(64)));
+    clock.advanceSeconds(60);
+    const second = service.ingestCapture(
+      captureDto('2026-08-10T09:01:00.000Z', '2'.repeat(64), '0f1e2d3c4b5a6978'),
+    );
+    clock.advanceSeconds(60);
+    const third = service.ingestCapture(
+      captureDto('2026-08-10T09:02:00.000Z', '3'.repeat(64), 'a5f6e7d8c9b0a1b2'),
+    );
+    clock.advanceSeconds(60);
+    const fourth = service.ingestCapture(
+      captureDto('2026-08-10T09:03:00.000Z', '4'.repeat(64), 'b2a1b0c9d8e7f6a5'),
+    );
+    assert.equal(first.kind, 'accepted');
+    assert.equal(second.kind, 'accepted');
+    assert.equal(third.kind, 'accepted');
+    assert.equal(fourth.kind, 'accepted');
+    if (first.kind !== 'accepted' || second.kind !== 'accepted'
+      || third.kind !== 'accepted' || fourth.kind !== 'accepted') return;
+
+    await service.drainJobs();
+
+    assert.equal(queue.require(first.evidenceId).state, 'processed');
+    assert.equal(queue.require(second.evidenceId).state, 'processed');
+    assert.equal(queue.require(third.evidenceId).state, 'processed');
+    assert.equal(queue.require(fourth.evidenceId).state, 'processed');
+    assert.equal(inference.requests.length, 4);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
 test('an incapable runtime leaves the item awaiting without calling the model', async () => {
   await withAssistantContextAsync(async (context) => {
     const fixture = buildFixture(context, [], new StubImageCapability(false));

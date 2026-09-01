@@ -225,7 +225,7 @@ function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof Re
   return count !== null && count > 0;
 }
 
-function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlannerResponse[] | undefined): SiftConfig | undefined {
+export function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlannerResponse[] | undefined): SiftConfig | undefined {
   return Array.isArray(mockResponses) ? undefined : config;
 }
 

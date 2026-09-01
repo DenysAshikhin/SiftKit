@@ -60,8 +60,8 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
     Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
     Background: {
       IdleSecondsBeforeProcessing: 180,
-      MaxJobsPerIdleSession: 20,
-      MaxGpuMinutesPerDay: 60,
+      MaxJobsPerIdleSession: -1,
+      MaxGpuMinutesPerDay: -1,
       MinimumBatteryPercent: 50,
       AllowOnBattery: false,
       JobPriorities: {
@@ -83,6 +83,46 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
   assert.equal(AssistantConfigSchema.safeParse({
     ...DEFAULT_ASSISTANT_CONFIG,
     Owner: { ...DEFAULT_ASSISTANT_CONFIG.Owner, Extra: true },
+  }).success, false);
+});
+
+test('the background budgets accept -1 as unlimited, keep 0 as zero, and reject -2', () => {
+  const unlimited = normalizeAssistantConfig({
+    Background: { MaxJobsPerIdleSession: -1, MaxGpuMinutesPerDay: -1 },
+  }).Background;
+  assert.equal(unlimited.MaxJobsPerIdleSession, -1);
+  assert.equal(unlimited.MaxGpuMinutesPerDay, -1);
+
+  const rejected = normalizeAssistantConfig({
+    Background: { MaxJobsPerIdleSession: -2, MaxGpuMinutesPerDay: -2 },
+  }).Background;
+  assert.equal(rejected.MaxJobsPerIdleSession, DEFAULT_ASSISTANT_CONFIG.Background.MaxJobsPerIdleSession);
+  assert.equal(rejected.MaxGpuMinutesPerDay, DEFAULT_ASSISTANT_CONFIG.Background.MaxGpuMinutesPerDay);
+
+  const zero = normalizeAssistantConfig({
+    Background: { MaxJobsPerIdleSession: 0, MaxGpuMinutesPerDay: 0 },
+  }).Background;
+  assert.equal(zero.MaxJobsPerIdleSession, 0);
+  assert.equal(zero.MaxGpuMinutesPerDay, 0);
+});
+
+test('AssistantConfigSchema accepts -1 for the background budgets and rejects -2', () => {
+  const unlimited = {
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Background: {
+      ...DEFAULT_ASSISTANT_CONFIG.Background,
+      MaxJobsPerIdleSession: -1,
+      MaxGpuMinutesPerDay: -1,
+    },
+  };
+  assert.deepEqual(AssistantConfigSchema.parse(unlimited), unlimited);
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Background: {
+      ...DEFAULT_ASSISTANT_CONFIG.Background,
+      MaxJobsPerIdleSession: -2,
+      MaxGpuMinutesPerDay: -2,
+    },
   }).success, false);
 });
 

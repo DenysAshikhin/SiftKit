@@ -6,14 +6,17 @@ import {
   ActiveChatRepoAgentResponseSchema,
   ChatSessionResponseSchema,
   ChatStreamApprovalSchema,
+  ChatStreamTextDeltaSchema,
 } from '@siftkit/contracts';
 
 import type { JsonObject } from '../src/lib/json-types.js';
+import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
+import { requestSse as requestOperationSse } from './helpers/sse-http.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
@@ -92,6 +95,33 @@ function readDoneResponse(response: SseResponse): ReturnType<typeof ChatSessionR
   const done = response.events.find((event) => event.event === 'done');
   assert.ok(done?.payload, 'Expected a done SSE event.');
   return ChatSessionResponseSchema.parse(done.payload);
+}
+
+/** Mirrors dashboard/src/lib/stream-text-delta.ts: offset 0 is a keyframe. */
+function applyTextDelta(previous: string, delta: { offset: number; text: string }): string {
+  if (delta.offset === 0) {
+    return delta.text;
+  }
+  if (delta.offset === previous.length) {
+    return previous + delta.text;
+  }
+  if (delta.offset < previous.length) {
+    return previous.slice(0, delta.offset) + delta.text;
+  }
+  return previous;
+}
+
+function cipherThinkingMockResponses() {
+  return [
+    {
+      thinking: 'inspecting the cipher',
+      toolCalls: [{ name: 'write', arguments: { path: 'cipher-note.txt', content: 'cipher' } }],
+    },
+    // approval:'auto' consults the LLM reviewer before the write; without a verdict mock the
+    // run parks at approval_required and the chat stream cannot end with a done payload.
+    { content: '{"verdict":"approve","reason":"task-scoped write"}' },
+    ...repoAgentFinishResponses('done'),
+  ];
 }
 
 async function startApprovalRun(
@@ -212,8 +242,9 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   assert.equal(ChatStreamApprovalSchema.parse(approvalEvent.payload).runId, runId);
   const completed = readDoneResponse(response);
   const messages = completed.session.messages;
-  assert.deepEqual(messages.slice(-3).map((message) => message.kind), [
+  assert.deepEqual(messages.slice(-4).map((message) => message.kind), [
     'user_text',
+    'assistant_tool_call',
     'repo_agent_approval',
     'assistant_answer',
   ]);
@@ -327,4 +358,108 @@ test('chat repo-agent persists deny reasons and abort outcomes', async (t) => {
     assert.equal(messages.at(-1)?.content, scenario.expected);
     await harness.close();
   }
+});
+
+test('chat repo-agent streams thinking deltas', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-thinking-', t);
+  const sessionId = await createSession(harness, 'Thinking run');
+  const response = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'inspect the cipher',
+        repoRoot: process.cwd(),
+        approval: 'auto',
+        operationId: OPERATION_A,
+        maxTurns: 4,
+        mockResponses: cipherThinkingMockResponses(),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 200);
+  const thinkingFrames = response.events.filter((event) => event.event === 'thinking');
+  assert.ok(
+    thinkingFrames.length >= 1,
+    `expected at least one thinking frame, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
+  );
+  let assembled = '';
+  for (const frame of thinkingFrames) {
+    assert.ok(frame.payload, 'thinking frames must carry a payload');
+    assembled = applyTextDelta(assembled, ChatStreamTextDeltaSchema.parse(frame.payload));
+  }
+  assert.ok(
+    assembled.includes('inspecting the cipher'),
+    `reassembled thinking text must contain the mock thinking, got: ${assembled}`,
+  );
+  assert.ok(
+    response.events.some((event) => event.event === 'tool_start'),
+    `tool_start frames must still arrive, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
+  );
+  readDoneResponse(response);
+});
+
+test('chat repo-agent persists its thinking trace', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-persist-trace-', t);
+  const sessionId = await createSession(harness, 'Persisted trace run');
+  const response = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'inspect the cipher',
+        repoRoot: process.cwd(),
+        approval: 'auto',
+        operationId: OPERATION_A,
+        maxTurns: 4,
+        mockResponses: cipherThinkingMockResponses(),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 200);
+  const completed = readDoneResponse(response);
+  const messages = completed.session.messages;
+  const answerIndex = messages.findIndex((message) => message.kind === 'assistant_answer');
+  assert.ok(answerIndex >= 0, 'expected an assistant_answer row in the persisted transcript');
+  const beforeAnswer = messages.slice(0, answerIndex);
+  const thinkingRows = beforeAnswer.filter((message) => message.kind === 'assistant_thinking');
+  assert.ok(
+    thinkingRows.some((message) => message.content.includes('inspecting the cipher')),
+    `expected an assistant_thinking row containing the mock thinking before the answer, got: ${JSON.stringify(thinkingRows.map((message) => message.content))}`,
+  );
+  assert.ok(
+    beforeAnswer.some((message) => message.kind === 'assistant_tool_call'),
+    `expected at least one assistant_tool_call row before the answer, got: ${JSON.stringify(beforeAnswer.map((message) => message.kind))}`,
+  );
+});
+
+test('repo-agent operation stream omits thinking', async (t) => {
+  const harness = await startHarness('siftkit-repo-agent-op-livtext-', t);
+  const response = await requestOperationSse(`${harness.baseUrl}/repo-agent`, {
+    body: {
+      prompt: 'inspect the cipher',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 4,
+      approval: 'auto',
+      availableModels: ['mock-model'],
+      mockResponses: cipherThinkingMockResponses(),
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  assert.ok(response.result, response.rawBody);
+  const result = RepoAgentRunResultSchema.parse(response.result);
+  assert.equal(result.status, 'completed');
+  const liveTextFrames = response.progress.filter((event) =>
+    event.kind === 'thinking' || event.kind === 'narration' || event.kind === 'progress_update');
+  assert.equal(
+    liveTextFrames.length,
+    0,
+    `operation stream must not forward live-text frames, got: ${JSON.stringify(liveTextFrames)}`,
+  );
 });

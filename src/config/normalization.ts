@@ -174,8 +174,8 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
     },
     Background: {
       IdleSecondsBeforeProcessing: integerOrDefault(background.IdleSecondsBeforeProcessing, DEFAULT_ASSISTANT_CONFIG.Background.IdleSecondsBeforeProcessing, 0, maximum),
-      MaxJobsPerIdleSession: integerOrDefault(background.MaxJobsPerIdleSession, DEFAULT_ASSISTANT_CONFIG.Background.MaxJobsPerIdleSession, 1, maximum),
-      MaxGpuMinutesPerDay: integerOrDefault(background.MaxGpuMinutesPerDay, DEFAULT_ASSISTANT_CONFIG.Background.MaxGpuMinutesPerDay, 0, maximum),
+      MaxJobsPerIdleSession: integerOrDefault(background.MaxJobsPerIdleSession, DEFAULT_ASSISTANT_CONFIG.Background.MaxJobsPerIdleSession, -1, maximum),
+      MaxGpuMinutesPerDay: integerOrDefault(background.MaxGpuMinutesPerDay, DEFAULT_ASSISTANT_CONFIG.Background.MaxGpuMinutesPerDay, -1, maximum),
       MinimumBatteryPercent: integerOrDefault(background.MinimumBatteryPercent, DEFAULT_ASSISTANT_CONFIG.Background.MinimumBatteryPercent, 0, 100),
       AllowOnBattery: booleanOrDefault(background.AllowOnBattery, DEFAULT_ASSISTANT_CONFIG.Background.AllowOnBattery),
       JobPriorities: {

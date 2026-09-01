@@ -77,8 +77,8 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
   Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
   Background: {
     IdleSecondsBeforeProcessing: 180,
-    MaxJobsPerIdleSession: 20,
-    MaxGpuMinutesPerDay: 60,
+    MaxJobsPerIdleSession: -1,
+    MaxGpuMinutesPerDay: -1,
     MinimumBatteryPercent: 50,
     AllowOnBattery: false,
     JobPriorities: {

@@ -15,8 +15,10 @@ import { readChatSessionFromPath } from '../../state/chat-sessions.js';
 import {
   appendChatRepoAgentMessages,
   buildChatHistoryMessages,
+  buildPersistTurnsFromRepoSearchResult,
   resolveChatSessionConfig,
 } from '../chat.js';
+import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
 import { readConfig } from '../config-store.js';
 import {
   parseJsonBody,
@@ -37,7 +39,7 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
-import { ChatStreamProgressWriter, buildChatSessionResponse } from './chat.js';
+import { ChatStreamProgressWriter, buildChatSessionResponse, getMockTokenConfig } from './chat.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
@@ -126,6 +128,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     sse.open();
     const progressWriter = new ChatStreamProgressWriter(sse, null, 'rs', started.admission.requestId, false);
     const detach = started.session.attach({
+      wantsLiveText: true,
       writeProgress: (event) => {
         if (event.kind === 'approval_request') {
           sse.writeEvent('approval', {
@@ -145,11 +148,15 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     });
     try {
       const result = await started.session.waitForBoundary(0);
+      const telemetry = new ChatTurnTelemetry(effectiveConfig, getMockTokenConfig(config, request.value.mockResponses));
+      const turns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(started.session.getExecutionResult()));
       const updatedSession = appendChatRepoAgentMessages(getRuntimeRoot(), request.sessionId, {
         content: request.value.content,
         images: request.value.images,
         decisions: binding.decisions,
         result,
+        turns,
+        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(activeSession),
       });
       progressWriter.flushPending();
       sse.writeEvent('done', buildChatSessionResponse(config, updatedSession));

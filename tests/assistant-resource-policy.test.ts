@@ -61,6 +61,27 @@ test('available battery state enforces AllowOnBattery and MinimumBatteryPercent'
   });
 });
 
+test('an unlimited GPU budget allows model work; a zero budget still blocks it', () => {
+  withAssistantContext(({ database, clock }) => {
+    const unlimited = new AssistantResourcePolicy({
+      database,
+      clock,
+      background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: -1 },
+      power: new FixedPowerStateProvider({ kind: 'unavailable' }),
+    });
+    unlimited.recordGpuUse(clock.nowEpochMs(), clock.nowEpochMs() + 48 * 60 * 60_000);
+    assert.deepEqual(unlimited.canStartModelWork(), { kind: 'allowed' });
+
+    const zero = new AssistantResourcePolicy({
+      database,
+      clock,
+      background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: 0 },
+      power: new FixedPowerStateProvider({ kind: 'unavailable' }),
+    });
+    assert.deepEqual(zero.canStartModelWork(), { kind: 'blocked', reason: 'daily_gpu_limit' });
+  });
+});
+
 test('daily GPU use persists, blocks only model work, and resets on the next local date', () => {
   withAssistantContext(({ database, clock }) => {
     const options = {

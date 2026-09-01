@@ -84,6 +84,9 @@ export class AssistantResourcePolicy implements ResourcePolicy {
     if (background.kind === 'blocked') {
       return background;
     }
+    if (this.background.MaxGpuMinutesPerDay < 0) {
+      return { kind: 'allowed' };
+    }
     const limitMs = this.background.MaxGpuMinutesPerDay * 60_000;
     return this.readTodayGpuMilliseconds() >= limitMs
       ? { kind: 'blocked', reason: 'daily_gpu_limit' }

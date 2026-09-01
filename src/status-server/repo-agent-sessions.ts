@@ -35,12 +35,17 @@ import { serverLogger } from './server-logger.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
+// Derived from token deltas and scoped to the attached subscriber; never server-logged.
+const LIVE_TEXT_KINDS = new Set<RepoSearchProgressEvent['kind']>(['thinking', 'narration', 'progress_update']);
+
 function normalizeFailureMessage(message: string): string {
   const normalized = message.trim();
   return normalized || 'Repo-agent execution failed without an error message.';
 }
 
 export type RepoAgentSessionSubscriber = {
+  /** Whether this subscriber wants per-token live-text events fanned out to it. */
+  readonly wantsLiveText: boolean;
   writeProgress(event: OperationProgressEvent): void;
 };
 
@@ -78,7 +83,7 @@ class SessionProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   }
 
   override get wantsLiveText(): boolean {
-    return false;
+    return this.session.subscriberWantsLiveText();
   }
 
   write(event: RepoSearchProgressEvent): void {
@@ -119,6 +124,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly gate: ApprovalGate | undefined;
   private readonly waiters: BoundaryWaiter[] = [];
   private subscriber: RepoAgentSessionSubscriber | null = null;
+  // In-memory only on purpose: large thinking text must never land in the persisted run state.
+  private executionResult: RepoSearchExecutionResult | null = null;
   private state: RepoAgentRunState;
   private unpersistedTerminalState = false;
   private settledPromise: Promise<void> | null = null;
@@ -170,6 +177,10 @@ export class RepoAgentSession implements ApprovalGateObserver {
     return this.state;
   }
 
+  getExecutionResult(): RepoSearchExecutionResult | null {
+    return this.executionResult;
+  }
+
   hasUnpersistedTerminalState(): boolean {
     return this.unpersistedTerminalState;
   }
@@ -181,6 +192,10 @@ export class RepoAgentSession implements ApprovalGateObserver {
         this.subscriber = null;
       }
     };
+  }
+
+  subscriberWantsLiveText(): boolean {
+    return this.subscriber?.wantsLiveText === true;
   }
 
   /** Resolves the parked approval via the shared gate. False when nothing is parked. */
@@ -266,14 +281,20 @@ export class RepoAgentSession implements ApprovalGateObserver {
         return;
       }
     }
+    if (event.kind === 'answer') {
+      return;
+    }
+    if (LIVE_TEXT_KINDS.has(event.kind)) {
+      if (this.subscriber?.wantsLiveText) {
+        this.subscriber.writeProgress(event);
+      }
+      return;
+    }
     if (isServerLoggedProgressEvent(event)) {
       const body = buildRepoSearchProgressLogBody(event);
       if (body) {
         serverLogger.emitBody('rs', this.requestId, body);
       }
-    }
-    if (event.kind === 'thinking' || event.kind === 'answer') {
-      return;
     }
     this.subscriber?.writeProgress(event);
   }
@@ -318,6 +339,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
         approvalMode: this.approvalMode,
       });
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
+      this.executionResult = result;
       if (!isTerminalStatus(this.state.status)) {
         const outcome = classifyRepoAgentExecutionResult(result);
         this.applyState(this.store.transition(this.runId, this.state.revision, {

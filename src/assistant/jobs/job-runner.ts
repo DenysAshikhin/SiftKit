@@ -106,7 +106,7 @@ export class AssistantJobRunner {
     let failed = 0;
     let preempted = 0;
 
-    while (claimed < maxJobs) {
+    while (maxJobs < 0 || claimed < maxJobs) {
       if (this.preemptionRequested) {
         this.recordBlock(ownerId, 'preemption_requested', {});
         break;

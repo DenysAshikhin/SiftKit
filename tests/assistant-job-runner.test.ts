@@ -413,6 +413,227 @@ test('the daily GPU cap skips model-backed jobs but still drains deterministic w
   });
 });
 
+test('an unlimited drain claims every claimable job and stops when none remain', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    for (const key of ['one', 'two', 'three']) {
+      graph.jobs.enqueue({
+        ownerId, jobType: 'projection_maintenance',
+        payload: { reason: `startup_${key}` }, idempotencyKey: `projection_maintenance:${key}`,
+      }, 300);
+    }
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, -1);
+    assert.deepEqual(summary, { claimed: 3, completed: 3, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
+  });
+});
+
+test('an unlimited drain still stops on a blocked idle gate', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    graph.jobs.enqueue({
+      ownerId, jobType: 'projection_maintenance',
+      payload: { reason: 'startup' }, idempotencyKey: 'projection_maintenance:idle-gate',
+    }, 300);
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(false),
+      residencyGate: RESIDENT,
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, -1);
+    assert.equal(summary.claimed, 0);
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'server_busy');
+  });
+});
+
+test('an unlimited drain still stops on a blocked resource policy', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId, database, clock }) => {
+    graph.jobs.enqueue({
+      ownerId,
+      jobType: 'conversation_ingestion',
+      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
+      idempotencyKey: 'conversation_ingestion:gpu-blocked-unlimited',
+    }, 800);
+    graph.jobs.enqueue({
+      ownerId,
+      jobType: 'projection_maintenance',
+      payload: { reason: 'startup' },
+      idempotencyKey: 'projection_maintenance:gpu-blocked-unlimited',
+    }, 300);
+    const resourcePolicy = new AssistantResourcePolicy({
+      database,
+      clock,
+      background: { ...DEFAULT_ASSISTANT_CONFIG.Background, MaxGpuMinutesPerDay: 0 },
+      power: new UnavailablePowerStateProvider(),
+    });
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
+      resourcePolicy,
+      jobPriorities: DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, -1);
+    assert.deepEqual(summary, { claimed: 1, completed: 1, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.job_type, 'conversation_ingestion');
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'daily_gpu_limit');
+  });
+});
+
+test('an unlimited drain still stops on preemption', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
+    new ConversationIngestor(pipeline).ingestTurn({
+      ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.',
+      assistantMessageId: 'm2', assistantText: '',
+    });
+
+    class PreemptingInference extends FakeAssistantInference {
+      private runner: AssistantJobRunner | null = null;
+
+      constructor(private readonly idleGate: StaticIdleGate) {
+        super([usesPowerShell]);
+      }
+
+      attachRunner(runner: AssistantJobRunner): void {
+        this.runner = runner;
+      }
+
+      async complete(request: AssistantInferenceRequest) {
+        this.idleGate.setIdle(false);
+        this.runner?.requestPreemption();
+        if (request.abortSignal?.aborted === true) {
+          throw new Error('Assistant inference aborted by interactive work.');
+        }
+        return super.complete(request);
+      }
+    }
+
+    const idleGate = new StaticIdleGate(true);
+    const inference = new PreemptingInference(idleGate);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(
+        graph, new StructuredOutputRunner(new FakeAssistantInference([])),
+      ),
+      projections: projectionCompiler(graph),
+      idleGate,
+      residencyGate: RESIDENT,
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+    inference.attachRunner(runner);
+
+    const summary = await runner.drain(ownerId, -1);
+    assert.equal(summary.claimed, 1);
+    assert.equal(summary.preempted, 1);
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
+    assert.equal(graph.jobs.listByStatus(ownerId, 'queued')[0]?.attempts, 0, 'preemption is not failure');
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'preemption_requested');
+  });
+});
+
+test('an unlimited drain still stops on no_claimable_job', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    graph.jobs.enqueue({
+      ownerId, jobType: 'conversation_ingestion',
+      payload: { evidenceId: 'ev_missing', sessionId: 'chat_1' },
+      idempotencyKey: 'conversation_ingestion:ev_missing_unlimited',
+    }, 800);
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, -1);
+    assert.equal(summary.claimed, 1);
+    assert.equal(summary.failed, 1);
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
+    assert.equal(graph.backgroundDecisions.list(ownerId)[0]?.reason, 'no_claimable_job');
+  });
+});
+
+test('a zero drain budget claims nothing', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    graph.jobs.enqueue({
+      ownerId, jobType: 'projection_maintenance',
+      payload: { reason: 'startup' }, idempotencyKey: 'projection_maintenance:zero-budget',
+    }, 300);
+    const inference = new FakeAssistantInference([]);
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      residencyGate: RESIDENT,
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, 0);
+    assert.deepEqual(summary, { claimed: 0, completed: 0, failed: 0, preempted: 0, recovered: 0 });
+    assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 1);
+    assert.deepEqual(graph.backgroundDecisions.list(ownerId), []);
+  });
+});
+
 test('runner executes every Gate C job branch with configured priority order', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
     const calls: string[] = [];
