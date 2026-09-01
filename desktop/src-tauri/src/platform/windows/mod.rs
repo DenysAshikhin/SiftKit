@@ -1,6 +1,7 @@
 //! Every Win32 call and `unsafe` block in the shell lives in this tree (spec §1).
 
 pub mod activity;
+pub mod input_tracker;
 pub mod capture;
 pub mod job;
 pub mod power;
