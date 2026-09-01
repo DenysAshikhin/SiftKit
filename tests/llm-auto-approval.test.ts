@@ -65,6 +65,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
         thinkingText: '',
         toolCalls: [],
         mockExhausted: false,
+        stoppedEarly: false,
       }),
     },
     progressWriter: writer,
@@ -324,6 +325,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
               function: { name: 'run', arguments: '{"command":"Get-Content secret.txt"}' },
             }],
             mockExhausted: false,
+            stoppedEarly: false,
           }
           : {
             text: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
@@ -333,6 +335,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
             thinkingText: '',
             toolCalls: [],
             mockExhausted: false,
+            stoppedEarly: false,
           });
       },
     },

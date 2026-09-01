@@ -146,7 +146,6 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
       invalidResponses: 0,
       rejectedCalls: 0,
       nonZeroExits: 0,
-      finishChallenges: 0,
       mutatedPaths: [],
       commands: [],
       turnThinking: {},

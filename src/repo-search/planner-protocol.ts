@@ -33,6 +33,9 @@ export type PlannerActionResponse = {
   thinkingText: string;
   toolCalls: LlamaCppToolCall[];
   mockExhausted: boolean;
+  /** True when the client stopped the stream before the model finished (see `earlyStopReason`). */
+  stoppedEarly: boolean;
+  earlyStopReason?: string;
   nextMockResponseIndex?: number;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
@@ -461,6 +464,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         thinkingText: '',
         toolCalls: [],
         mockExhausted: true,
+        stoppedEarly: false,
       };
     }
     const mock = parseMockPlannerResponse(options.mockResponses[index], index);
@@ -477,6 +481,9 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       toolCalls: mock.toolCalls,
       mockExhausted: false,
       nextMockResponseIndex: index + 1,
+      stoppedEarly: mock.earlyStopReason !== undefined,
+      ...(mock.earlyStopReason ? { earlyStopReason: mock.earlyStopReason } : {}),
+      ...(mock.backendEosReason ? { backendEosReason: mock.backendEosReason } : {}),
     };
   }
 
@@ -586,6 +593,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     thinkingText,
     toolCalls: response.toolCalls,
     mockExhausted: false,
+    stoppedEarly: response.stoppedEarly,
+    ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
     promptCacheTokens: response.usage.promptCacheTokens,
     promptEvalTokens: response.usage.promptEvalTokens,
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,

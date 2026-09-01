@@ -12,6 +12,10 @@ export const MockPlannerResponseSchema = z.strictObject({
   content: z.string().default(''),
   thinking: z.string().default(''),
   toolCalls: z.array(MockPlannerToolCallSchema).default([]),
+  /** Simulates a client-side early stop (`stoppedEarly: true` with this reason). */
+  earlyStopReason: z.string().trim().min(1).optional(),
+  /** Simulates a backend `choices[].eos_reason`. */
+  backendEosReason: z.string().trim().min(1).optional(),
 });
 export const MockPlannerResponsesSchema = z.array(MockPlannerResponseSchema);
 
@@ -22,6 +26,8 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
   content: string;
   thinking: string;
   toolCalls: LlamaCppToolCall[];
+  earlyStopReason?: string;
+  backendEosReason?: string;
 } {
   const response = MockPlannerResponseSchema.parse(value);
   return {
@@ -35,5 +41,7 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
         arguments: JSON.stringify(toolCall.arguments),
       },
     })),
+    ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
+    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
   };
 }

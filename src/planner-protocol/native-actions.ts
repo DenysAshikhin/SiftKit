@@ -197,6 +197,11 @@ export function parseNativePlannerActions(
     if (options.contentWithoutTools === 'invalid') {
       throw new NativePlannerResponseError('Planner returned content without a valid tool call.');
     }
+    if (!content) {
+      throw new NativePlannerResponseError(
+        'Planner returned no answer content: the response had no narration to finish with.',
+      );
+    }
     return [{ kind: 'finish', text: content }];
   }
 

@@ -95,6 +95,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
       thinkingText: '',
       toolCalls: [],
       mockExhausted: false,
+      stoppedEarly: false,
     });
   }
 }

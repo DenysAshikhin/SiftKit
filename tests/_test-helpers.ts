@@ -40,7 +40,6 @@ export function buildMockTaskResult(overrides: Partial<TaskResult> = {}): TaskRe
     invalidResponses: 0,
     rejectedCalls: 0,
     nonZeroExits: 0,
-    finishChallenges: 0,
     mutatedPaths: [],
     commands: [],
     turnThinking: {},

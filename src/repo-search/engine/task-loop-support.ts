@@ -38,6 +38,27 @@ export function buildToolLimitReachedSummary(usedTurns: number, toolCallLimit: n
   return `Tool-call limit reached (${usedTurns}/${toolCallLimit} turns used).`;
 }
 
+export const TRUNCATED_FINISH_MESSAGE =
+  'Your previous response was cut off before completion. Continue from where you stopped and return the complete final answer.';
+
+/**
+ * Names why a finish came from a truncated stream rather than a deliberate answer, or null when
+ * the stream completed normally. Structural: it never re-asks the model whether it is sure.
+ */
+export function describeTruncatedFinish(response: {
+  stoppedEarly: boolean;
+  earlyStopReason?: string;
+  backendEosReason?: string;
+}): string | null {
+  if (response.stoppedEarly) {
+    return response.earlyStopReason ?? 'stream stopped early';
+  }
+  if (response.backendEosReason === 'loop_detected') {
+    return 'backend repetition loop';
+  }
+  return null;
+}
+
 /**
  * Turns reserved after the tool budget is exhausted so the model can still deliver its final
  * answer. Deliberately its own constant: it is not the forced-finish retry budget, and retuning
@@ -155,8 +176,6 @@ export const TaskResultSchema = z.object({
   rejectedCalls: z.number(),
   /** Commands that actually ran and returned a non-zero exit code. */
   nonZeroExits: z.number(),
-  /** Verification-gate challenges issued before this task's finish was accepted. */
-  finishChallenges: z.number(),
   commands: z.array(TaskCommandSchema),
   turnThinking: z.record(z.coerce.number(), z.string()),
   finalOutput: z.string(),

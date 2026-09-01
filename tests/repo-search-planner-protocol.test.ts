@@ -5,6 +5,7 @@ import http from 'node:http';
 import { ModelJson } from '../src/lib/model-json.js';
 import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
@@ -1039,4 +1040,77 @@ test('resolver returns definitions for interactive names', () => {
 test('sanitizer strips mutating tools from non-interactive allowed lists', () => {
   assert.deepEqual(sanitizeNonInteractiveAllowedTools(['read', 'write', 'run', 'git']), ['read', 'git']);
   assert.equal(sanitizeNonInteractiveAllowedTools(undefined), undefined);
+});
+
+test('requestRepoSearchPlannerProtocolAction reports a backend loop stop as not a client early stop', async () => {
+  await withServer(
+    (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial answer' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    },
+    async (baseUrl) => {
+      const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
+        config: buildTestConfig(),
+        baseUrl,
+        model: 'mock-model',
+        messages: [{ role: 'user', content: 'finish' }],
+        timeoutMs: 5000,
+        maxTokens: 512,
+      });
+
+      assert.equal(result.stoppedEarly, false);
+      assert.equal(result.earlyStopReason, undefined);
+      assert.equal(result.backendEosReason, 'loop_detected');
+    },
+  );
+});
+
+test('mock planner responses can declare an early stop and a backend eos reason', async () => {
+  const result = await requestRepoSearchPlannerProtocolAction({
+    ...PLANNER_REQUEST_DEFAULTS,
+    config: buildTestConfig(),
+    baseUrl: DEAD_BASE_URL,
+    model: 'mock-model',
+    messages: [{ role: 'user', content: 'finish' }],
+    timeoutMs: 5000,
+    maxTokens: 512,
+    mockResponses: [
+      { content: 'cut off', earlyStopReason: 'thinking budget exhausted', backendEosReason: 'loop_detected' },
+      { content: 'clean' },
+    ],
+    mockResponseIndex: 0,
+  });
+
+  assert.equal(result.text, 'cut off');
+  assert.equal(result.stoppedEarly, true);
+  assert.equal(result.earlyStopReason, 'thinking budget exhausted');
+  assert.equal(result.backendEosReason, 'loop_detected');
+
+  const clean = await requestRepoSearchPlannerProtocolAction({
+    ...PLANNER_REQUEST_DEFAULTS,
+    config: buildTestConfig(),
+    baseUrl: DEAD_BASE_URL,
+    model: 'mock-model',
+    messages: [{ role: 'user', content: 'finish' }],
+    timeoutMs: 5000,
+    maxTokens: 512,
+    mockResponses: [{ content: 'clean' }],
+    mockResponseIndex: 0,
+  });
+  assert.equal(clean.stoppedEarly, false);
+  assert.equal(clean.earlyStopReason, undefined);
+  assert.equal(clean.backendEosReason, undefined);
 });

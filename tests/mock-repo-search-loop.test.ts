@@ -244,6 +244,39 @@ test('runTaskLoop nudges unrecoverable responses without inventing a tool call',
   assert.match(String(userMessages[0]?.content || ''), /neither content nor tool calls/u);
 });
 
+test('runTaskLoop treats a finish with empty narration as an invalid response and reprompts', async () => {
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    { id: 'empty-narration', question: 'Answer.' },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 3,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        { content: '<tool_call' },
+        { content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    },
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'done');
+  assert.equal(result.invalidResponses, 1);
+  const turn2 = plannerLogMessages(events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2));
+  const userMessages = turn2.filter((message) => message.role === 'user');
+  assert.equal(userMessages.length, 1);
+  assert.match(String(userMessages[0]?.content || ''), /no answer content/u);
+});
+
 test('runTaskLoop rejects a malformed native dialect call and reprompts once', { timeout: 5000 }, async () => {
   const events: JsonObject[] = [];
   const progressEvents: RepoSearchProgressEvent[] = [];

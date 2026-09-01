@@ -147,6 +147,18 @@ test('empty responses are invalid', () => {
   );
 });
 
+test('a response whose narration is empty after classification is invalid, not an empty finish', () => {
+  // '<tool_call' is an unterminated open-tag prefix: the classifier reports 'undecided' with
+  // empty narration while rawText is non-empty, which used to become a finish with text ''.
+  assert.throws(
+    () => parseNativePlannerActions(
+      { text: '<tool_call', toolCalls: [] },
+      { toolDefinitions, contentWithoutTools: 'finish' },
+    ),
+    (error) => error instanceof NativePlannerResponseError && /no answer content/u.test(error.message),
+  );
+});
+
 test('unknown tools fail on their provider call id', () => {
   assert.throws(
     () => parseNativePlannerActions(

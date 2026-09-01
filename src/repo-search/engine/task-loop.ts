@@ -56,7 +56,6 @@ import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { throwIfAborted } from '../../lib/abort.js';
 import { SilentProgressWriter } from '../../lib/progress-writer.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
-import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.js';
@@ -68,6 +67,7 @@ import {
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
+  describeTruncatedFinish,
   isPlannerMaintainPerStepThinkingEnabled,
   POST_LIMIT_ANSWER_SLACK_TURNS,
   resolvePlannerThinkingFlags,
@@ -76,6 +76,7 @@ import {
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
+  TRUNCATED_FINISH_MESSAGE,
   type TurnOutcome,
 } from './task-loop-support.js';
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
@@ -172,7 +173,7 @@ export class TaskLoop {
   private readonly mutatedPaths = new Set<string>();
   private readonly duplicates = new DuplicateTracker();
   private readonly forcedFinish = new ForcedFinishController();
-  private readonly finishVerification: FinishVerificationGate;
+  private truncatedFinishRejected = false;
   private readonly readWindows = new ReadWindowGovernor();
   private readonly visionEnabled: boolean;
   private readonly visionImageRetention: number;
@@ -225,7 +226,6 @@ export class TaskLoop {
       ? isPlannerMaintainPerStepThinkingEnabled(options.config)
       : true;
     this.loopKind = options.runtimeProfile.loopKind;
-    this.finishVerification = new FinishVerificationGate(this.loopKind === 'repo-agent');
     this.streamFinishAsAnswer = options.streamFinishAsAnswer === true;
     // A preset message that differs from the stock default is a deliberate user
     // choice and outranks the planner wording; chat answers the user directly,
@@ -599,7 +599,6 @@ export class TaskLoop {
   }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
-    this.finishVerification.recordNonFinishAction();
     const beforeCommandCount = this.commands.length;
     const response = getRepoSearchModelData(context).plannerResponse;
     const outcome = await this.toolActions.executeBatch(
@@ -664,8 +663,11 @@ export class TaskLoop {
         mockExhausted: response.mockExhausted,
         nextMockResponseIndex: response.nextMockResponseIndex ?? null,
       },
-      stoppedEarly: false,
+      stoppedEarly: response.stoppedEarly,
       invalidFrameCount: 0,
+      ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
+      ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
+      ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     };
   }
 
@@ -798,27 +800,23 @@ export class TaskLoop {
       });
       return 'continue';
     }
-    if (!this.forcedFinish.isActive()) {
-      const verification = this.finishVerification.evaluateFinish();
-      if (verification.kind === 'challenge') {
-        this.rejectFinish(response, verification.message);
-        this.options.logger?.write({
-          kind: 'turn_finish_challenged',
-          taskId: this.task.id,
-          turn,
-          challengesIssued: verification.challengesIssued,
-          maxChallenges: FINISH_VERIFICATION_MAX_CHALLENGES,
-        });
-        return 'continue';
-      }
-      if (verification.mode) {
-        this.options.logger?.write({
-          kind: 'turn_finish_verified',
-          taskId: this.task.id,
-          turn,
-          mode: verification.mode,
-        });
-      }
+    const truncation = describeTruncatedFinish(response);
+    const toolBudgetSpent = turn - 1 >= this.maxTurns;
+    if (
+      truncation !== null
+      && !this.truncatedFinishRejected
+      && !toolBudgetSpent
+      && !this.forcedFinish.isActive()
+    ) {
+      this.truncatedFinishRejected = true;
+      this.rejectFinish(response, TRUNCATED_FINISH_MESSAGE);
+      this.options.logger?.write({
+        kind: 'turn_finish_truncated',
+        taskId: this.task.id,
+        turn,
+        reason: truncation,
+      });
+      return 'continue';
     }
     this.finalOutput = action.text;
     if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
@@ -863,13 +861,11 @@ export class TaskLoop {
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
       invalidResponses: this.counters.invalidResponses, rejectedCalls: this.counters.rejectedCalls, nonZeroExits: this.counters.nonZeroExits,
-      finishChallenges: this.finishVerification.issuedCount,
     });
 
     return {
       id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, maxTurns: this.maxTurns, safetyRejects: this.counters.safetyRejects,
       invalidResponses: this.counters.invalidResponses, rejectedCalls: this.counters.rejectedCalls, nonZeroExits: this.counters.nonZeroExits,
-      finishChallenges: this.finishVerification.issuedCount,
       commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
       compactionSummary: this.lastCompactionSummary,
       mutatedPaths: [...this.mutatedPaths],
