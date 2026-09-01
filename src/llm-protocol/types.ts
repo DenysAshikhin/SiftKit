@@ -104,17 +104,32 @@ export type LiveContentResult = {
   classification: LiveContentClassification;
 };
 
+export const LOOP_DETECTED_EOS_REASON = 'loop_detected';
+export const LENGTH_FINISH_REASON = 'length';
+
+/**
+ * How generation ended beyond the model choosing to stop. Every field is null on a clean stream;
+ * produced once by the client and carried unchanged to whoever interprets it.
+ */
+export type StreamStop = {
+  /** Set when the client itself cut the stream (thinking budget). */
+  earlyStopReason: string | null;
+  /** Backend `choices[].eos_reason` (TabbyAPI/exl3); the last non-empty frame wins. */
+  backendEosReason: string | null;
+  /** OpenAI-style `choices[].finish_reason`; the last non-empty frame wins. `'length'` is the max-token cap. */
+  finishReason: string | null;
+};
+
+export const CLEAN_STREAM_STOP: StreamStop = { earlyStopReason: null, backendEosReason: null, finishReason: null };
+
 export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   reasoningText: string;
   toolCalls: LlamaCppToolCall[];
   usage: LlamaCppUsage;
   raw: JsonObject;
-  stoppedEarly: boolean;
+  stop: StreamStop;
   /** Frames that failed JSON parsing and were skipped. Always 0 on a healthy stream. */
   invalidFrameCount: number;
-  earlyStopReason?: string;
-  /** Backend-reported generation stop reason (TabbyAPI/exl3 `choices[].eos_reason`). */
-  backendEosReason?: string;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };

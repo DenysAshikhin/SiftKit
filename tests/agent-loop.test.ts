@@ -18,9 +18,10 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../src/agent-loop/types.js';
-import type {
-  LlamaCppUsage,
-  NormalizedLlamaCppChatResponse,
+import {
+  CLEAN_STREAM_STOP,
+  type LlamaCppUsage,
+  type NormalizedLlamaCppChatResponse,
 } from '../src/llm-protocol/types.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
@@ -43,7 +44,7 @@ function parserResponse(
     toolCalls,
     usage: stubUsage(1),
     raw: {},
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   };
 }
@@ -459,7 +460,7 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     toolCalls: [],
     usage: stubUsage(null),
     raw: {},
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   };
 

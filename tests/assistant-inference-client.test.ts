@@ -12,7 +12,7 @@ import { getActiveModelPreset } from '../src/config/getters.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 import type { LlamaCppChatOptions } from '../src/llm-protocol/llama-cpp-client.js';
-import type { LlamaCppContentPart, NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type LlamaCppContentPart, type NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
@@ -65,7 +65,7 @@ class RecordingBackend implements AssistantChatBackend {
       toolCalls: [],
       usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 0 },
       raw: {},
-      stoppedEarly: false,
+      stop: CLEAN_STREAM_STOP,
       invalidFrameCount: 0,
     };
   }

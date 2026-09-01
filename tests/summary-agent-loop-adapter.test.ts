@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { SummaryPlannerActionAdapter, type SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
-import type { NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
 
 const usage = {
   promptTokens: 1,
@@ -47,7 +47,7 @@ function buildResponse(
     toolCalls,
     usage,
     raw: {},
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   };
 }

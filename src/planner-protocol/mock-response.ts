@@ -1,6 +1,6 @@
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
-import type { LlamaCppToolCall } from '../llm-protocol/types.js';
+import type { LlamaCppToolCall, StreamStop } from '../llm-protocol/types.js';
 
 export const MockPlannerToolCallSchema = z.strictObject({
   id: z.string().trim().min(1).optional(),
@@ -8,14 +8,18 @@ export const MockPlannerToolCallSchema = z.strictObject({
   arguments: JsonObjectSchema,
 });
 
+const StopReasonSchema = z.string().trim().min(1).nullable().default(null);
+
 export const MockPlannerResponseSchema = z.strictObject({
   content: z.string().default(''),
   thinking: z.string().default(''),
   toolCalls: z.array(MockPlannerToolCallSchema).default([]),
-  /** Simulates a client-side early stop (`stoppedEarly: true` with this reason). */
-  earlyStopReason: z.string().trim().min(1).optional(),
+  /** Simulates a client-side early stop with this reason. */
+  earlyStopReason: StopReasonSchema,
   /** Simulates a backend `choices[].eos_reason`. */
-  backendEosReason: z.string().trim().min(1).optional(),
+  backendEosReason: StopReasonSchema,
+  /** Simulates a `choices[].finish_reason` such as `'length'`. */
+  finishReason: StopReasonSchema,
 });
 export const MockPlannerResponsesSchema = z.array(MockPlannerResponseSchema);
 
@@ -26,8 +30,7 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
   content: string;
   thinking: string;
   toolCalls: LlamaCppToolCall[];
-  earlyStopReason?: string;
-  backendEosReason?: string;
+  stop: StreamStop;
 } {
   const response = MockPlannerResponseSchema.parse(value);
   return {
@@ -41,7 +44,10 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
         arguments: JSON.stringify(toolCall.arguments),
       },
     })),
-    ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
-    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
+    stop: {
+      earlyStopReason: response.earlyStopReason,
+      backendEosReason: response.backendEosReason,
+      finishReason: response.finishReason,
+    },
   };
 }

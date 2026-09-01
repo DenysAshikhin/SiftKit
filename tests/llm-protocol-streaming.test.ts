@@ -12,6 +12,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.js';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 
 class StreamingHttpClient {
   readonly requests: SseStreamOptions[] = [];
@@ -162,8 +163,7 @@ test('llama streaming client does not reinterpret JSON in reasoning as an action
 
   assert.equal(response.text, 'final answer');
   assert.equal(response.reasoningText, 'prefix {"action":"finish","output":"done"} suffix');
-  assert.equal(response.stoppedEarly, false);
-  assert.equal(response.earlyStopReason, undefined);
+  assert.deepEqual(response.stop, CLEAN_STREAM_STOP);
 });
 
 test('llama streaming client separates malformed raw control text from safe narration', async () => {
@@ -245,8 +245,7 @@ test('llama streaming client covers empty packets, thinking fallback, and malfor
   assert.equal(response.reasoningText, 'deep ');
   assert.equal(response.toolCalls.length, 1);
   assert.equal(response.toolCalls[0]?.function.name, 'not_allowed');
-  assert.equal(response.stoppedEarly, false);
-  assert.equal(response.earlyStopReason, undefined);
+  assert.deepEqual(response.stop, CLEAN_STREAM_STOP);
 });
 
 test('llama streaming client rejects an empty stream as degenerate', async () => {
@@ -298,7 +297,7 @@ test('llama streaming client captures the backend eos_reason from the final fram
     allowedToolNames: [],
   });
 
-  assert.equal(response.backendEosReason, 'loop_detected');
+  assert.equal(response.stop.backendEosReason, 'loop_detected');
 });
 
 test('llama streaming client omits backendEosReason when no frame carries eos_reason', async () => {
@@ -316,5 +315,23 @@ test('llama streaming client omits backendEosReason when no frame carries eos_re
     allowedToolNames: [],
   });
 
-  assert.equal(response.backendEosReason, undefined);
+  assert.equal(response.stop.backendEosReason, null);
+});
+
+test('llama streaming client captures a max-token finish_reason from the final frame', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { content: 'answer' } }] },
+    { choices: [{ delta: {}, finish_reason: 'length' }] },
+  ]);
+
+  const response = await new LlamaCppClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+  });
+
+  assert.deepEqual(response.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
 });

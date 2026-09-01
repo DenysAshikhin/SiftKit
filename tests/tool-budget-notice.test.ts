@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildToolBudgetNotice } from '../src/repo-search/engine/task-loop-support.js';
+import { buildToolBudgetNotice, isToolBudgetSpent } from '../src/repo-search/engine/task-loop-support.js';
 
 test('percent notices fire exactly at 25/50/75% used', () => {
   assert.match(String(buildToolBudgetNotice(25, 100)), /25% of the tool-call budget used \(25\/100/u);
@@ -44,4 +44,11 @@ test('tiny limits never mislabel: percent collisions are covered by the countdow
   assert.match(String(buildToolBudgetNotice(1, 2)), /1 tool-call turn remaining \(1\/2 used\)/u);
   assert.match(String(buildToolBudgetNotice(1, 3)), /2 tool-call turns remaining \(1\/3 used\)/u);
   assert.match(String(buildToolBudgetNotice(2, 2)), /Tool-call limit reached \(2\/2 turns used\)/u);
+});
+
+test('isToolBudgetSpent is the boundary the notice, the refusal and the finish gate share', () => {
+  assert.equal(isToolBudgetSpent(44, 45), false);
+  assert.equal(isToolBudgetSpent(45, 45), true);
+  assert.equal(isToolBudgetSpent(46, 45), true);
+  assert.equal(isToolBudgetSpent(0, 0), true);
 });

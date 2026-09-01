@@ -10,6 +10,7 @@ import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-htt
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import {
@@ -377,7 +378,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction prefixes rawText when the backend reports a loop stop', async () => {
+test('requestRepoSearchPlannerProtocolAction leaves rawText untouched when the backend reports a loop stop', async () => {
   const events: JsonObject[] = [];
 
   await withServer(
@@ -414,9 +415,9 @@ test('requestRepoSearchPlannerProtocolAction prefixes rawText when the backend r
         },
       });
 
-      assert.equal(result.backendEosReason, 'loop_detected');
-      assert.ok(result.rawText.startsWith('The inference backend stopped this generation early: repetition loop detected.'));
-      assert.ok(result.rawText.includes('{"action":"finish","output":"done"}'));
+      assert.equal(result.stop.backendEosReason, 'loop_detected');
+      assert.equal(result.rawText, '{"action":"finish","output":"done"}');
+      assert.equal(result.text, '{"action":"finish","output":"done"}');
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
       assert.equal(doneEvent?.backendEosReason, 'loop_detected');
     },
@@ -460,7 +461,7 @@ test('requestRepoSearchPlannerProtocolAction carries a non-loop backend eos_reas
         },
       });
 
-      assert.equal(result.backendEosReason, 'stop_token');
+      assert.equal(result.stop.backendEosReason, 'stop_token');
       assert.equal(result.rawText, '{"action":"finish","output":"done"}');
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
       assert.equal(doneEvent?.backendEosReason, 'stop_token');
@@ -1071,9 +1072,7 @@ test('requestRepoSearchPlannerProtocolAction reports a backend loop stop as not 
         maxTokens: 512,
       });
 
-      assert.equal(result.stoppedEarly, false);
-      assert.equal(result.earlyStopReason, undefined);
-      assert.equal(result.backendEosReason, 'loop_detected');
+      assert.deepEqual(result.stop, { earlyStopReason: null, backendEosReason: 'loop_detected', finishReason: 'stop' });
     },
   );
 });
@@ -1095,9 +1094,7 @@ test('mock planner responses can declare an early stop and a backend eos reason'
   });
 
   assert.equal(result.text, 'cut off');
-  assert.equal(result.stoppedEarly, true);
-  assert.equal(result.earlyStopReason, 'thinking budget exhausted');
-  assert.equal(result.backendEosReason, 'loop_detected');
+  assert.deepEqual(result.stop, { earlyStopReason: 'thinking budget exhausted', backendEosReason: 'loop_detected', finishReason: null });
 
   const clean = await requestRepoSearchPlannerProtocolAction({
     ...PLANNER_REQUEST_DEFAULTS,
@@ -1110,7 +1107,66 @@ test('mock planner responses can declare an early stop and a backend eos reason'
     mockResponses: [{ content: 'clean' }],
     mockResponseIndex: 0,
   });
-  assert.equal(clean.stoppedEarly, false);
-  assert.equal(clean.earlyStopReason, undefined);
-  assert.equal(clean.backendEosReason, undefined);
+  assert.deepEqual(clean.stop, CLEAN_STREAM_STOP);
+});
+
+test('requestRepoSearchPlannerProtocolAction carries and logs a max-token finish_reason', async () => {
+  const events: JsonObject[] = [];
+
+  await withServer(
+    (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial answer' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    },
+    async (baseUrl) => {
+      const result = await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
+        config: buildTestConfig(),
+        baseUrl,
+        model: 'mock-model',
+        messages: [{ role: 'user', content: 'finish' }],
+        timeoutMs: 5000,
+        maxTokens: 512,
+        logger: {
+          path: 'memory',
+          write(event) {
+            events.push(JsonObjectSchema.parse(parseJsonValueText(JSON.stringify(event))));
+          },
+        },
+      });
+
+      assert.deepEqual(result.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
+      assert.equal(result.rawText, 'partial answer');
+      const doneEvent = events.find((event) => event.kind === 'provider_request_done');
+      assert.equal(doneEvent?.finishReason, 'length');
+    },
+  );
+});
+
+test('mock planner responses can declare a max-token finish_reason', async () => {
+  const result = await requestRepoSearchPlannerProtocolAction({
+    ...PLANNER_REQUEST_DEFAULTS,
+    config: buildTestConfig(),
+    baseUrl: DEAD_BASE_URL,
+    model: 'mock-model',
+    messages: [{ role: 'user', content: 'finish' }],
+    timeoutMs: 5000,
+    maxTokens: 512,
+    mockResponses: [{ content: 'cut off', finishReason: 'length' }],
+    mockResponseIndex: 0,
+  });
+
+  assert.deepEqual(result.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
 });

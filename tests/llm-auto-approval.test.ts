@@ -14,6 +14,7 @@ import {
 import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
@@ -65,7 +66,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
         thinkingText: '',
         toolCalls: [],
         mockExhausted: false,
-        stoppedEarly: false,
+        stop: CLEAN_STREAM_STOP,
       }),
     },
     progressWriter: writer,
@@ -325,7 +326,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
               function: { name: 'run', arguments: '{"command":"Get-Content secret.txt"}' },
             }],
             mockExhausted: false,
-            stoppedEarly: false,
+            stop: CLEAN_STREAM_STOP,
           }
           : {
             text: '{"verdict":"approve","reason":"clean retry must not override the violation"}',
@@ -335,7 +336,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
             thinkingText: '',
             toolCalls: [],
             mockExhausted: false,
-            stoppedEarly: false,
+            stop: CLEAN_STREAM_STOP,
           });
       },
     },

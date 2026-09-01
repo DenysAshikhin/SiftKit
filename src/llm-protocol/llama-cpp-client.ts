@@ -245,7 +245,7 @@ export class LlamaCppClient {
   private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     const attempt = async (): Promise<NormalizedLlamaCppChatResponse> => {
       const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
-      if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
+      if (streamed.stop.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
         return streamed;
       }
       return this.continueAfterThinkingBudget(baseUrl, options, streamed);
@@ -372,6 +372,7 @@ export class LlamaCppClient {
     let speculativeGeneratedTokens: number | null = null;
     let earlyStopReason: string | null = null;
     let backendEosReason: string | null = null;
+    let finishReason: string | null = null;
     let frameCount = 0;
     let invalidFrameCount = 0;
     let sawDoneSentinel = false;
@@ -436,6 +437,8 @@ export class LlamaCppClient {
           const choice = isRecord(firstChoice) ? firstChoice : undefined;
           const frameEosReason = getString(choice?.eos_reason);
           if (frameEosReason) backendEosReason = frameEosReason;
+          const frameFinishReason = getString(choice?.finish_reason);
+          if (frameFinishReason) finishReason = frameFinishReason;
           const delta = choice && isRecord(choice.delta) ? choice.delta : {};
           const deltaReasoning = getString(delta.reasoning_content) || getString(delta.thinking) || getString(delta.reasoning);
           const deltaContent = getString(delta.content);
@@ -536,10 +539,8 @@ export class LlamaCppClient {
         speculativeGeneratedTokens,
       },
       raw: {},
-      stoppedEarly: earlyStopReason !== null,
+      stop: { earlyStopReason, backendEosReason, finishReason },
       invalidFrameCount,
-      ...(earlyStopReason ? { earlyStopReason } : {}),
-      ...(backendEosReason ? { backendEosReason } : {}),
     };
   }
 }

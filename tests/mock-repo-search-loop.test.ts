@@ -27,7 +27,7 @@ import { getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { parseLoggedEvent } from './helpers/logged-events.js';
+import { parseLoggedEvent, plannerLogMessages } from './helpers/logged-events.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { acquireChildPortLease } from './helpers/test-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
@@ -83,25 +83,6 @@ function modelPresetReasoning(reasoning: 'on' | 'off'): DeepPartial<SiftConfig> 
 const MockTaskResultSchema = z.custom<TaskResult>((value) => typeof value === 'object' && value !== null);
 function mockTaskResult(task: DeepPartial<TaskResult>): TaskResult {
   return MockTaskResultSchema.parse(task);
-}
-
-// Logged `turn_new_messages` events carry the planner transcript as arbitrary
-// JSON. Parse each message to the fields the assertions read so the access is
-// typed without indexing the raw JsonData union.
-const PlannerLogMessageSchema = z.object({
-  role: z.string(),
-  content: z.string().optional(),
-  tool_calls: z
-    .array(z.object({ function: z.object({ name: z.string(), arguments: z.string() }) }))
-    .optional(),
-});
-type PlannerLogMessage = z.infer<typeof PlannerLogMessageSchema>;
-function plannerLogMessages(event: JsonObject | undefined): PlannerLogMessage[] {
-  const raw = event?.messages;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw.map((message) => PlannerLogMessageSchema.parse(message));
 }
 
 function createTempRepoRoot(gitignoreText = '') {

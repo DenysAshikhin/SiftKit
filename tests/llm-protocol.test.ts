@@ -9,7 +9,7 @@ import type {
   LlamaCppToolDefinition,
   NormalizedLlamaCppChatResponse,
 } from '../src/llm-protocol/types.js';
-import { LLAMA_CPP_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, LLAMA_CPP_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
 import { buildReplayToolCall, LlamaCppToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import { HttpResponseError, type FullJsonResponse, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
@@ -68,7 +68,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
       promptEvalTokens: 3,
     },
     raw: { choices: [{ message }] },
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   };
 

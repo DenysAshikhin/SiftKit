@@ -2,8 +2,8 @@ import type { SiftConfig } from '../config/types.js';
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
-import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition } from '../llm-protocol/types.js';
-import { LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
+import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition, StreamStop } from '../llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
@@ -33,9 +33,7 @@ export type PlannerActionResponse = {
   thinkingText: string;
   toolCalls: LlamaCppToolCall[];
   mockExhausted: boolean;
-  /** True when the client stopped the stream before the model finished (see `earlyStopReason`). */
-  stoppedEarly: boolean;
-  earlyStopReason?: string;
+  stop: StreamStop;
   nextMockResponseIndex?: number;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
@@ -43,8 +41,6 @@ export type PlannerActionResponse = {
   generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
-  /** Backend-reported generation stop reason (TabbyAPI/exl3 `choices[].eos_reason`). */
-  backendEosReason?: string;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };
@@ -464,7 +460,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         thinkingText: '',
         toolCalls: [],
         mockExhausted: true,
-        stoppedEarly: false,
+        stop: CLEAN_STREAM_STOP,
       };
     }
     const mock = parseMockPlannerResponse(options.mockResponses[index], index);
@@ -481,9 +477,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       toolCalls: mock.toolCalls,
       mockExhausted: false,
       nextMockResponseIndex: index + 1,
-      stoppedEarly: mock.earlyStopReason !== undefined,
-      ...(mock.earlyStopReason ? { earlyStopReason: mock.earlyStopReason } : {}),
-      ...(mock.backendEosReason ? { backendEosReason: mock.backendEosReason } : {}),
+      stop: mock.stop,
     };
   }
 
@@ -557,28 +551,17 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     path: requestPathForLog,
     statusCode: 200,
     elapsedMs: Date.now() - startedAt,
-    ...(response.earlyStopReason ? { earlyTerminationReason: response.earlyStopReason } : {}),
-    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
+    ...(response.stop.earlyStopReason !== null ? { earlyTerminationReason: response.stop.earlyStopReason } : {}),
+    ...(response.stop.backendEosReason !== null ? { backendEosReason: response.stop.backendEosReason } : {}),
+    ...(response.stop.finishReason !== null ? { finishReason: response.stop.finishReason } : {}),
   });
 
   const inlineThinking = !response.reasoningText && response.rawText.includes(THINK_OPEN_TAG)
     ? extractInlineThinking(response.rawText)
     : null;
-  const rawChoiceText = inlineThinking ? inlineThinking.text : response.rawText;
   const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
-  const streamNotices = [
-    response.stoppedEarly && response.earlyStopReason
-      ? `SiftKit stopped the planner stream early: ${response.earlyStopReason}.`
-      : null,
-    response.backendEosReason === 'loop_detected'
-      ? 'The inference backend stopped this generation early: repetition loop detected.'
-      : null,
-  ].filter((notice): notice is string => notice !== null);
-  const effectiveRawText = streamNotices.length > 0
-    ? [...streamNotices, rawChoiceText.trim()].filter(Boolean).join('\n')
-    : rawChoiceText;
-  const content = inlineThinking || effectiveRawText !== response.rawText
-    ? completeLiveContent(effectiveRawText, response.toolCalls.length > 0)
+  const content = inlineThinking
+    ? completeLiveContent(inlineThinking.text, response.toolCalls.length > 0)
     : {
       text: response.text,
       rawText: response.rawText,
@@ -593,15 +576,13 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     thinkingText,
     toolCalls: response.toolCalls,
     mockExhausted: false,
-    stoppedEarly: response.stoppedEarly,
-    ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
+    stop: response.stop,
     promptCacheTokens: response.usage.promptCacheTokens,
     promptEvalTokens: response.usage.promptEvalTokens,
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
     generationDurationMs: response.usage.generationDurationMs ?? null,
     speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
-    ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
     ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
   };
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { RepoSearchActionAdapter, type RepoSearchLoopController } from '../src/repo-search/agent-loop-adapter.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
-import type { NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
 
 const usage = {
   promptTokens: 1,
@@ -67,7 +67,7 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     }],
     usage,
     raw: {},
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   }));
   const finish = adapter.parseActions(responseContext({
@@ -79,7 +79,7 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     toolCalls: [],
     usage,
     raw: {},
-    stoppedEarly: false,
+    stop: CLEAN_STREAM_STOP,
     invalidFrameCount: 0,
   }));
 

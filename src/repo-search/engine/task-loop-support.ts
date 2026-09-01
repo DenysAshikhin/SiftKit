@@ -1,9 +1,10 @@
 import { getActiveModelPreset, type SiftConfig } from '../../config/index.js';
 import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
+import { LENGTH_FINISH_REASON, LOOP_DETECTED_EOS_REASON, type StreamStop } from '../../llm-protocol/types.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import { type ChatMessage, type PlannerThinkingFlags } from '../planner-protocol.js';
+import { type ChatMessage, type PlannerActionResponse, type PlannerThinkingFlags } from '../planner-protocol.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
@@ -42,19 +43,19 @@ export const TRUNCATED_FINISH_MESSAGE =
   'Your previous response was cut off before completion. Continue from where you stopped and return the complete final answer.';
 
 /**
- * Names why a finish came from a truncated stream rather than a deliberate answer, or null when
- * the stream completed normally. Structural: it never re-asks the model whether it is sure.
+ * Names why a generation ended before the model finished, or null when the stream completed
+ * normally. The single interpreter of `StreamStop`: the finish gate, its log reason and the
+ * transcript replay all read this. Structural: it never re-asks the model whether it is sure.
  */
-export function describeTruncatedFinish(response: {
-  stoppedEarly: boolean;
-  earlyStopReason?: string;
-  backendEosReason?: string;
-}): string | null {
-  if (response.stoppedEarly) {
-    return response.earlyStopReason ?? 'stream stopped early';
+export function describeStreamTruncation(stop: StreamStop): string | null {
+  if (stop.earlyStopReason !== null) {
+    return stop.earlyStopReason;
   }
-  if (response.backendEosReason === 'loop_detected') {
+  if (stop.backendEosReason === LOOP_DETECTED_EOS_REASON) {
     return 'backend repetition loop';
+  }
+  if (stop.finishReason === LENGTH_FINISH_REASON) {
+    return 'max-token cutoff';
   }
   return null;
 }
@@ -67,15 +68,23 @@ export function describeTruncatedFinish(response: {
 export const POST_LIMIT_ANSWER_SLACK_TURNS = 3;
 
 /**
+ * True once `usedTurns` tool-calling turns have consumed the budget. The one boundary behind the
+ * tool refusal, the in-band limit notice and the truncated-finish gate, so they cannot drift apart.
+ */
+export function isToolBudgetSpent(usedTurns: number, toolCallLimit: number): boolean {
+  return usedTurns >= toolCallLimit;
+}
+
+/**
  * In-band budget notice appended to the last tool result of a turn; null when no threshold was
  * crossed. `usedTurns` is the turn that just executed tools, so the notice the model reads on
  * turn N+1 always agrees with the gate that will run on turn N+1.
  */
 export function buildToolBudgetNotice(usedTurns: number, toolCallLimit: number): string | null {
-  const remaining = toolCallLimit - usedTurns;
-  if (remaining <= 0) {
+  if (isToolBudgetSpent(usedTurns, toolCallLimit)) {
     return `[tool budget] ${buildToolLimitReachedSummary(usedTurns, toolCallLimit)} You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
   }
+  const remaining = toolCallLimit - usedTurns;
   if (remaining <= TOOL_BUDGET_COUNTDOWN_WINDOW) {
     return `[tool budget] ${remaining} tool-call turn${remaining === 1 ? '' : 's'} remaining (${usedTurns}/${toolCallLimit} used). Prioritize verification and finishing.`;
   }
@@ -281,7 +290,16 @@ export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig): boo
   return isPlannerReasoningEnabled(config) && getActiveModelPreset(config).MaintainPerStepThinking;
 }
 
-export function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {
+/**
+ * The stream-stop notice lives only here: the model sees why its last turn ended when the turn is
+ * replayed, while an accepted answer is returned exactly as the model wrote it.
+ */
+export function buildAssistantReplayMessage(response: Pick<PlannerActionResponse, 'text' | 'thinkingText' | 'stop'>): ChatMessage {
+  const truncation = describeStreamTruncation(response.stop);
+  const content = truncation === null
+    ? response.text
+    : [`[SiftKit] Generation stopped early: ${truncation}.`, response.text].filter((part) => part.length > 0).join('\n');
+  const thinkingText = response.thinkingText.trim();
   return {
     role: 'assistant',
     content,

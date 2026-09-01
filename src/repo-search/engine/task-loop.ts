@@ -67,8 +67,9 @@ import {
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_TIMEOUT_MS,
-  describeTruncatedFinish,
+  describeStreamTruncation,
   isPlannerMaintainPerStepThinkingEnabled,
+  isToolBudgetSpent,
   POST_LIMIT_ANSWER_SLACK_TURNS,
   resolvePlannerThinkingFlags,
   type LoopCounters,
@@ -133,7 +134,7 @@ export function enforceToolCallLimit(
   toolCallLimit: number,
 ): AgentLoopAction[] {
   const requestsTools = actions.some((action) => action.kind === 'tool');
-  if (requestsTools && usedTurns >= toolCallLimit) {
+  if (requestsTools && isToolBudgetSpent(usedTurns, toolCallLimit)) {
     throw new NativePlannerResponseError(
       `${buildToolLimitReachedSummary(toolCallLimit, toolCallLimit)} Do not call tools again; return your final answer as content.`,
     );
@@ -663,10 +664,8 @@ export class TaskLoop {
         mockExhausted: response.mockExhausted,
         nextMockResponseIndex: response.nextMockResponseIndex ?? null,
       },
-      stoppedEarly: response.stoppedEarly,
+      stop: response.stop,
       invalidFrameCount: 0,
-      ...(response.earlyStopReason ? { earlyStopReason: response.earlyStopReason } : {}),
-      ...(response.backendEosReason ? { backendEosReason: response.backendEosReason } : {}),
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     };
   }
@@ -745,10 +744,7 @@ export class TaskLoop {
         String(response.thinkingText || '').trim(),
       );
     } else {
-      this.transcript.pushAssistant(buildAssistantReplayMessage(
-        response.text,
-        String(response.thinkingText || '').trim(),
-      ));
+      this.transcript.pushAssistant(buildAssistantReplayMessage(response));
       this.transcript.pushUser(invalidActionMessage);
     }
     this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
@@ -771,7 +767,7 @@ export class TaskLoop {
   /** Replays the finish back into the transcript with a rejection message so the loop continues. */
   private rejectFinish(response: PlannerActionResponse, message: string): void {
     this.toolStats.recordFinishRejection();
-    this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+    this.transcript.pushAssistant(buildAssistantReplayMessage(response));
     this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
     this.transcript.pushUser(message);
   }
@@ -800,8 +796,8 @@ export class TaskLoop {
       });
       return 'continue';
     }
-    const truncation = describeTruncatedFinish(response);
-    const toolBudgetSpent = turn - 1 >= this.maxTurns;
+    const truncation = describeStreamTruncation(response.stop);
+    const toolBudgetSpent = isToolBudgetSpent(turn - 1, this.maxTurns);
     if (
       truncation !== null
       && !this.truncatedFinishRejected

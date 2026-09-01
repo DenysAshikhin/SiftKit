@@ -20,7 +20,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
 
 const messages: ChatMessage[] = [
   { role: 'system', content: 'Work only inside C:\\repo.' },
@@ -95,7 +95,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
       thinkingText: '',
       toolCalls: [],
       mockExhausted: false,
-      stoppedEarly: false,
+      stop: CLEAN_STREAM_STOP,
     });
   }
 }
