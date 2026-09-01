@@ -17,6 +17,7 @@ import type {
   LlamaCppUsage,
   LiveContentResult,
   NormalizedLlamaCppChatResponse,
+  StreamStop,
 } from '../llm-protocol/types.js';
 import { LlamaCppToolDefinitionSchema } from '../llm-protocol/types.js';
 import {
@@ -53,6 +54,7 @@ export type LlamaCppGenerateResult = LiveContentResult & {
   toolCalls: LlamaCppToolCall[];
   usage: LlamaCppUsage | null;
   reasoningText: string | null;
+  stop: StreamStop;
 };
 
 export type LlamaCppChatMessage = {
@@ -489,5 +491,6 @@ export async function generateLlamaCppChatResponse(options: {
     toolCalls: response.toolCalls,
     usage,
     reasoningText: response.reasoningText.trim() || null,
+    stop: response.stop,
   };
 }

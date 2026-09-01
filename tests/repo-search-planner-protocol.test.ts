@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { ModelJson } from '../src/lib/model-json.js';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
@@ -92,6 +92,30 @@ async function withServer(handler: (req: http.IncomingMessage, res: http.ServerR
       server.close((error) => (error ? reject(error) : resolve()));
     });
   }
+}
+
+/** Serves the given `/v1/chat/completions` stream frames followed by `[DONE]`. */
+async function withSseFrames(frames: readonly JsonSerializable[], fn: (baseUrl: string) => Promise<void>): Promise<void> {
+  await withServer(
+    (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      for (const frame of frames) {
+        res.write(`data: ${JSON.stringify(frame)}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    },
+    fn,
+  );
 }
 
 test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when explicitly allowed', () => {
@@ -292,22 +316,8 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content when
   const streamedText = `${longPrefix} ${repeatedTail}`;
   const events: JsonObject[] = [];
 
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: streamedText } }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [{ choices: [{ delta: { content: streamedText } }] }],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -326,7 +336,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content when
       });
 
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
-      assert.equal(Object.prototype.hasOwnProperty.call(doneEvent || {}, 'earlyTerminationReason'), false);
+      assert.deepEqual(doneEvent?.stop, CLEAN_STREAM_STOP);
       assert.equal(result.text, streamedText);
     },
   );
@@ -338,22 +348,8 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
   const streamedText = `${longPrefix} ${repeatedTail}`;
   const events: JsonObject[] = [];
 
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: streamedText } }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [{ choices: [{ delta: { content: streamedText } }] }],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -372,7 +368,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
       });
 
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
-      assert.equal(Object.prototype.hasOwnProperty.call(doneEvent || {}, 'earlyTerminationReason'), false);
+      assert.deepEqual(doneEvent?.stop, CLEAN_STREAM_STOP);
       assert.equal(result.text, streamedText);
     },
   );
@@ -381,23 +377,11 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
 test('requestRepoSearchPlannerProtocolAction leaves rawText untouched when the backend reports a loop stop', async () => {
   const events: JsonObject[] = [];
 
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish","output":"done"}' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [
+      { choices: [{ delta: { content: '{"action":"finish","output":"done"}' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] },
+    ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -419,7 +403,7 @@ test('requestRepoSearchPlannerProtocolAction leaves rawText untouched when the b
       assert.equal(result.rawText, '{"action":"finish","output":"done"}');
       assert.equal(result.text, '{"action":"finish","output":"done"}');
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
-      assert.equal(doneEvent?.backendEosReason, 'loop_detected');
+      assert.deepEqual(doneEvent?.stop, { earlyStopReason: null, backendEosReason: 'loop_detected', finishReason: 'stop' });
     },
   );
 });
@@ -427,23 +411,11 @@ test('requestRepoSearchPlannerProtocolAction leaves rawText untouched when the b
 test('requestRepoSearchPlannerProtocolAction carries a non-loop backend eos_reason without a notice prefix', async () => {
   const events: JsonObject[] = [];
 
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish","output":"done"}' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'stop_token' }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [
+      { choices: [{ delta: { content: '{"action":"finish","output":"done"}' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'stop_token' }] },
+    ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -464,7 +436,7 @@ test('requestRepoSearchPlannerProtocolAction carries a non-loop backend eos_reas
       assert.equal(result.stop.backendEosReason, 'stop_token');
       assert.equal(result.rawText, '{"action":"finish","output":"done"}');
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
-      assert.equal(doneEvent?.backendEosReason, 'stop_token');
+      assert.deepEqual(doneEvent?.stop, { earlyStopReason: null, backendEosReason: 'stop_token', finishReason: 'stop' });
     },
   );
 });
@@ -1044,23 +1016,11 @@ test('sanitizer strips mutating tools from non-interactive allowed lists', () =>
 });
 
 test('requestRepoSearchPlannerProtocolAction reports a backend loop stop as not a client early stop', async () => {
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial answer' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [
+      { choices: [{ delta: { content: 'partial answer' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] },
+    ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -1113,23 +1073,11 @@ test('mock planner responses can declare an early stop and a backend eos reason'
 test('requestRepoSearchPlannerProtocolAction carries and logs a max-token finish_reason', async () => {
   const events: JsonObject[] = [];
 
-  await withServer(
-    (req, res) => {
-      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
-        res.statusCode = 404;
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial answer' } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    },
+  await withSseFrames(
+    [
+      { choices: [{ delta: { content: 'partial answer' } }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] },
+    ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
         ...PLANNER_REQUEST_DEFAULTS,
@@ -1150,7 +1098,7 @@ test('requestRepoSearchPlannerProtocolAction carries and logs a max-token finish
       assert.deepEqual(result.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
       assert.equal(result.rawText, 'partial answer');
       const doneEvent = events.find((event) => event.kind === 'provider_request_done');
-      assert.equal(doneEvent?.finishReason, 'length');
+      assert.deepEqual(doneEvent?.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
     },
   );
 });

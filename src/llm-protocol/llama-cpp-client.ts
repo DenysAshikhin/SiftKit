@@ -23,12 +23,13 @@ import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-
 import { ProviderStreamDegenerateError, ProviderStreamDeadlineError, type ProviderStreamDegenerateReason } from './stream-errors.js';
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
-import type {
-  JsonObject,
-  LlamaCppChatMessage,
-  LlamaCppChatRequest,
-  LlamaCppToolDefinition,
-  NormalizedLlamaCppChatResponse,
+import {
+  THINKING_BUDGET_EARLY_STOP_REASON,
+  type JsonObject,
+  type LlamaCppChatMessage,
+  type LlamaCppChatRequest,
+  type LlamaCppToolDefinition,
+  type NormalizedLlamaCppChatResponse,
 } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
 import { InferenceRequestBuilder } from './inference-request-builder.js';
@@ -139,9 +140,6 @@ export type LlamaCppChatOptions = {
 type ThinkingBudgetContinuation = {
   responsePrefix: string;
 };
-
-/** Early-stop reason set when streamed thinking exceeds the preset ReasoningBudget on exl3. */
-export const THINKING_BUDGET_EARLY_STOP_REASON = 'thinking budget exhausted';
 
 export class LlamaCppClient {
   constructor(private readonly client: LlamaCppHttpClient = httpClient) {}
@@ -540,7 +538,6 @@ export class LlamaCppClient {
       },
       raw: {},
       stop: { earlyStopReason, backendEosReason, finishReason },
-      invalidFrameCount,
     };
   }
 }

@@ -14,7 +14,7 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
-import { CLEAN_STREAM_STOP, type LlamaCppToolCall, type LlamaCppToolDefinition, type NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { LlamaCppToolCall, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse, StreamStop } from '../../llm-protocol/types.js';
 import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
@@ -240,6 +240,7 @@ type SummaryPlannerProviderResponse = {
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
+  stop: StreamStop;
 };
 type SummaryPlannerModelData = AgentLoopModelData & {
   kind: 'summary-planner';
@@ -477,8 +478,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         statusRunningMs: response.statusRunningMs,
         outputCharacterCount: response.outputCharacterCount,
       },
-      stop: CLEAN_STREAM_STOP,
-      invalidFrameCount: 0,
+      stop: response.stop,
     };
   }
 
@@ -572,6 +572,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         requestDurationMs: providerDurationMs,
         providerDurationMs,
         statusRunningMs,
+        stop: response.stop,
       };
     } catch (error) {
       await this.notifyPlannerRequestFailed({

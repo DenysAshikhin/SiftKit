@@ -42,22 +42,36 @@ export function buildToolLimitReachedSummary(usedTurns: number, toolCallLimit: n
 export const TRUNCATED_FINISH_MESSAGE =
   'Your previous response was cut off before completion. Continue from where you stopped and return the complete final answer.';
 
+/** Closed vocabulary for the `turn_finish_truncated.reason` log field. */
+export type StreamTruncation = 'client_early_stop' | 'backend_repetition_loop' | 'max_tokens';
+
+const STREAM_TRUNCATION_LABELS: Record<StreamTruncation, string> = {
+  client_early_stop: 'the client stopped generation early',
+  backend_repetition_loop: 'the backend detected a repetition loop',
+  max_tokens: 'the max-token cap was reached',
+};
+
 /**
  * Names why a generation ended before the model finished, or null when the stream completed
  * normally. The single interpreter of `StreamStop`: the finish gate, its log reason and the
  * transcript replay all read this. Structural: it never re-asks the model whether it is sure.
  */
-export function describeStreamTruncation(stop: StreamStop): string | null {
+export function describeStreamTruncation(stop: StreamStop): StreamTruncation | null {
   if (stop.earlyStopReason !== null) {
-    return stop.earlyStopReason;
+    return 'client_early_stop';
   }
   if (stop.backendEosReason === LOOP_DETECTED_EOS_REASON) {
-    return 'backend repetition loop';
+    return 'backend_repetition_loop';
   }
   if (stop.finishReason === LENGTH_FINISH_REASON) {
-    return 'max-token cutoff';
+    return 'max_tokens';
   }
   return null;
+}
+
+/** The line prepended to a replayed assistant turn so the model sees why that turn ended. */
+export function buildStreamStopNotice(truncation: StreamTruncation): string {
+  return `[SiftKit] Generation stopped early: ${STREAM_TRUNCATION_LABELS[truncation]}.`;
 }
 
 /**
@@ -298,7 +312,7 @@ export function buildAssistantReplayMessage(response: Pick<PlannerActionResponse
   const truncation = describeStreamTruncation(response.stop);
   const content = truncation === null
     ? response.text
-    : [`[SiftKit] Generation stopped early: ${truncation}.`, response.text].filter((part) => part.length > 0).join('\n');
+    : [buildStreamStopNotice(truncation), response.text].filter((part) => part.length > 0).join('\n');
   const thinkingText = response.thinkingText.trim();
   return {
     role: 'assistant',

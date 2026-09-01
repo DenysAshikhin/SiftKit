@@ -45,7 +45,6 @@ function parserResponse(
     usage: stubUsage(1),
     raw: {},
     stop: CLEAN_STREAM_STOP,
-    invalidFrameCount: 0,
   };
 }
 
@@ -461,7 +460,6 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     usage: stubUsage(null),
     raw: {},
     stop: CLEAN_STREAM_STOP,
-    invalidFrameCount: 0,
   };
 
   const rejected = await new AgentLoop({

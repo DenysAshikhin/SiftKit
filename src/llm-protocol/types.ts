@@ -104,23 +104,29 @@ export type LiveContentResult = {
   classification: LiveContentClassification;
 };
 
+/** Backend `eos_reason` reported when the backend cut a repetition loop. */
 export const LOOP_DETECTED_EOS_REASON = 'loop_detected';
+/** OpenAI-style `finish_reason` reported when the max-token cap was hit. */
 export const LENGTH_FINISH_REASON = 'length';
+/** Client early-stop reason set when streamed thinking exceeds the preset ReasoningBudget on exl3. */
+export const THINKING_BUDGET_EARLY_STOP_REASON = 'thinking budget exhausted';
 
 /**
- * How generation ended beyond the model choosing to stop. Every field is null on a clean stream;
- * produced once by the client and carried unchanged to whoever interprets it.
+ * How generation ended: the raw wire signals plus the client's own cut. Produced once by the
+ * client and carried unchanged to `describeStreamTruncation`, the only interpreter. Nothing is
+ * normalized here, so a clean OpenAI-style stream still carries `finishReason: 'stop'`.
  */
 export type StreamStop = {
   /** Set when the client itself cut the stream (thinking budget). */
-  earlyStopReason: string | null;
+  readonly earlyStopReason: string | null;
   /** Backend `choices[].eos_reason` (TabbyAPI/exl3); the last non-empty frame wins. */
-  backendEosReason: string | null;
-  /** OpenAI-style `choices[].finish_reason`; the last non-empty frame wins. `'length'` is the max-token cap. */
-  finishReason: string | null;
+  readonly backendEosReason: string | null;
+  /** OpenAI-style `choices[].finish_reason`; the last non-empty frame wins. */
+  readonly finishReason: string | null;
 };
 
-export const CLEAN_STREAM_STOP: StreamStop = { earlyStopReason: null, backendEosReason: null, finishReason: null };
+/** No stop signal at all: mock responses and producers that have no stream behind them. */
+export const CLEAN_STREAM_STOP: StreamStop = Object.freeze({ earlyStopReason: null, backendEosReason: null, finishReason: null });
 
 export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   reasoningText: string;
@@ -128,8 +134,6 @@ export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   usage: LlamaCppUsage;
   raw: JsonObject;
   stop: StreamStop;
-  /** Frames that failed JSON parsing and were skipped. Always 0 on a healthy stream. */
-  invalidFrameCount: number;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };

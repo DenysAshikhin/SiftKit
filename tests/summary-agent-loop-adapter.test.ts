@@ -48,7 +48,6 @@ function buildResponse(
     usage,
     raw: {},
     stop: CLEAN_STREAM_STOP,
-    invalidFrameCount: 0,
   };
 }
 

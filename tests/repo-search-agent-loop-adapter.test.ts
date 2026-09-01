@@ -68,7 +68,6 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     usage,
     raw: {},
     stop: CLEAN_STREAM_STOP,
-    invalidFrameCount: 0,
   }));
   const finish = adapter.parseActions(responseContext({
     text: 'done',
@@ -80,7 +79,6 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     usage,
     raw: {},
     stop: CLEAN_STREAM_STOP,
-    invalidFrameCount: 0,
   }));
 
   assert.deepEqual(tools, [

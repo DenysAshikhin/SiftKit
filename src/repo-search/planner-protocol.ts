@@ -551,9 +551,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     path: requestPathForLog,
     statusCode: 200,
     elapsedMs: Date.now() - startedAt,
-    ...(response.stop.earlyStopReason !== null ? { earlyTerminationReason: response.stop.earlyStopReason } : {}),
-    ...(response.stop.backendEosReason !== null ? { backendEosReason: response.stop.backendEosReason } : {}),
-    ...(response.stop.finishReason !== null ? { finishReason: response.stop.finishReason } : {}),
+    stop: response.stop,
   });
 
   const inlineThinking = !response.reasoningText && response.rawText.includes(THINK_OPEN_TAG)

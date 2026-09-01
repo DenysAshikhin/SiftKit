@@ -665,7 +665,6 @@ export class TaskLoop {
         nextMockResponseIndex: response.nextMockResponseIndex ?? null,
       },
       stop: response.stop,
-      invalidFrameCount: 0,
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     };
   }
@@ -811,6 +810,7 @@ export class TaskLoop {
         taskId: this.task.id,
         turn,
         reason: truncation,
+        stop: response.stop,
       });
       return 'continue';
     }
