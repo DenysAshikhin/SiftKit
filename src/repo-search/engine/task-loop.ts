@@ -121,15 +121,21 @@ function getRepoSearchModelData(context: AgentLoopResponseContext): RepoSearchMo
   return data;
 }
 
+/**
+ * The tool budget is counted in turns, not in executed batches: a turn spent on a rejected finish
+ * or an invalid response must not hand back a tool-calling turn. `usedTurns` is the number of
+ * turns already consumed before the turn about to run. The rejection message reports the cap
+ * rather than `usedTurns` because the post-limit answer slack lets `usedTurns` exceed it.
+ */
 export function enforceToolCallLimit(
   actions: AgentLoopAction[],
-  executedToolBatches: number,
+  usedTurns: number,
   toolCallLimit: number,
 ): AgentLoopAction[] {
   const requestsTools = actions.some((action) => action.kind === 'tool');
-  if (requestsTools && executedToolBatches >= toolCallLimit) {
+  if (requestsTools && usedTurns >= toolCallLimit) {
     throw new NativePlannerResponseError(
-      `${buildToolLimitReachedSummary(executedToolBatches, toolCallLimit)} Do not call tools again; return your final answer as content.`,
+      `${buildToolLimitReachedSummary(toolCallLimit, toolCallLimit)} Do not call tools again; return your final answer as content.`,
     );
   }
   return actions;
@@ -144,7 +150,6 @@ export class TaskLoop {
   private readonly options: RunTaskLoopOptions;
   private readonly taskStartedAt: number;
   private readonly maxTurns: number;
-  private readonly toolCallLimit: number;
   private readonly maxInvalidResponses: number;
   private readonly webTools: WebResearchTools;
   private readonly tokenUsage: TokenUsageTracker;
@@ -187,7 +192,6 @@ export class TaskLoop {
     rejectedCalls: 0,
     nonZeroExits: 0,
     safetyRejects: 0,
-    executedToolBatches: 0,
     reason: 'max_turns',
   };
   private finalOutput = '';
@@ -206,7 +210,6 @@ export class TaskLoop {
     this.imageTokenBudget = resolveImageTokenBudget(activePreset);
     this.taskStartedAt = Date.now();
     this.maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
-    this.toolCallLimit = this.maxTurns;
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
     this.webTools = buildWebToolsForTaskLoop(options.config);
     this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
@@ -270,7 +273,6 @@ export class TaskLoop {
       progressWriter: options.progressWriter ?? new SilentProgressWriter(),
       taskId: task.id,
       maxTurns: this.maxTurns,
-      toolCallLimit: this.toolCallLimit,
       taskStartedAt: this.taskStartedAt,
     });
     this.transcript = new TranscriptManager({
@@ -347,7 +349,7 @@ export class TaskLoop {
       mutatedPaths: this.mutatedPaths,
       successfulToolCalls: this.successfulToolCalls,
       commands: this.commands,
-      toolCallLimit: this.toolCallLimit,
+      maxTurns: this.maxTurns,
       counters: this.counters,
       visionEnabled: this.visionEnabled,
       visionImageRetention: this.visionImageRetention,
@@ -594,8 +596,8 @@ export class TaskLoop {
     };
   }
 
-  validateActions(actions: AgentLoopAction[]): AgentLoopAction[] {
-    return enforceToolCallLimit(actions, this.counters.executedToolBatches, this.toolCallLimit);
+  validateActions(actions: AgentLoopAction[], turnNumber: number): AgentLoopAction[] {
+    return enforceToolCallLimit(actions, turnNumber - 1, this.maxTurns);
   }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
@@ -867,7 +869,7 @@ export class TaskLoop {
     });
 
     return {
-      id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
+      id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, maxTurns: this.maxTurns, safetyRejects: this.counters.safetyRejects,
       invalidResponses: this.counters.invalidResponses, rejectedCalls: this.counters.rejectedCalls, nonZeroExits: this.counters.nonZeroExits,
       finishChallenges: this.finishVerification.issuedCount,
       commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,

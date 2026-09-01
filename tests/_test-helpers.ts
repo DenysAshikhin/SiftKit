@@ -35,6 +35,7 @@ export function buildMockTaskResult(overrides: Partial<TaskResult> = {}): TaskRe
     question: 'mock question',
     reason: 'finish',
     turnsUsed: 1,
+    maxTurns: 1,
     safetyRejects: 0,
     invalidResponses: 0,
     rejectedCalls: 0,

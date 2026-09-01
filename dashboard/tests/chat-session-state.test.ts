@@ -29,7 +29,7 @@ test('active session with a running tool live message returns tool', () => {
     .ensureSession('s1')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, toolCallLimit: 2,
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } })
     .get('s1');

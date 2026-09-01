@@ -449,7 +449,7 @@ test('a running tool message renders a neutral friendly activity row', () => {
   const store = buildDefaultStore('session-a')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, toolCallLimit: 2,
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
@@ -468,11 +468,11 @@ test('live recent activity renders only the newest three tools with latest turn 
       sessionId: SESSION_B.id,
       toolEvent: index === 3
         ? {
-            kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45, toolCallLimit: 45,
+            kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45,
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
           }
         : {
-            kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45, toolCallLimit: 45,
+            kind: 'tool_result', toolCallId, turn: index + 1, maxTurns: 45,
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
             exitCode: 0, outputSnippet: `result-${index}`, outputTokens: 0, outputTokensEstimated: false,
           },
@@ -925,7 +925,7 @@ test('a live turn with a running tool call renders recent activity and the think
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     });
@@ -947,7 +947,7 @@ test('the activity ring disappears into Internal Logic when final answer streami
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
       },
     })
@@ -973,7 +973,7 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
       kind: 'tool',
       sessionId: SESSION_B.id,
       toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, toolCallLimit: 4,
+        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
         activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
       },
     })

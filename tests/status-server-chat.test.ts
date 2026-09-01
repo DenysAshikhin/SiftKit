@@ -288,7 +288,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
           id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
           toolCallActivityKind: 'search',
           toolCallActivitySubject: { kind: 'none' },
-          toolCallTurn: 1, toolCallLimit: 2, toolCallExitCode: 0,
+          toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295, outputTokensEstimated: false,
         }] },
         { thinkingText: 'final think', toolMessages: [] },
@@ -365,7 +365,7 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
         id: 'tool-a', content: 'write path="cipher-note.txt"', toolCallCommand: 'write path="cipher-note.txt"',
         toolCallActivityKind: 'edit',
         toolCallActivitySubject: { kind: 'file', value: 'cipher-note.txt' },
-        toolCallTurn: 1, toolCallLimit: 4, toolCallExitCode: 0,
+        toolCallTurn: 1, toolCallMaxTurns: 4, toolCallExitCode: 0,
         toolCallOutputSnippet: 'ok', toolCallOutput: 'ok', outputTokens: 1,
       }] },
       { thinkingText: 'final think', toolMessages: [] },
@@ -438,7 +438,7 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
           id: 'tool-a', content: 'read path="src/x.ts"', toolCallCommand: 'read path="src/x.ts"',
           toolCallActivityKind: 'read',
           toolCallActivitySubject: { kind: 'file', value: 'x.ts' },
-          toolCallTurn: 1, toolCallLimit: 1, toolCallExitCode: 0,
+          toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 9048, outputTokensEstimated: true,
         }] },
       ],
@@ -536,7 +536,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
     transcriptPath: 'transcript',
     artifactPath: 'artifact',
     scorecard: {
-      tasks: [{ finalOutput: repeatedOutput }],
+      tasks: [{ finalOutput: repeatedOutput, maxTurns: 45 }],
     },
   });
 
@@ -600,6 +600,7 @@ test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before
   const turns = buildPersistTurnsFromRepoSearchResult({
     scorecard: {
       tasks: [{
+        maxTurns: 45,
         turnThinking: { 1: 'think one', 2: 'think two', 3: 'final think' },
         commands: [
           { command: 'rg -n "a" src --no-ignore', activityKind: 'search', activitySubject: { kind: 'none' }, modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptOutput: 'a', outputTokens: 3 },
@@ -625,6 +626,7 @@ test('buildPersistTurnsFromRepoSearchResult uses prompt output and tokens for to
   const turns = buildPersistTurnsFromRepoSearchResult({
     scorecard: {
       tasks: [{
+        maxTurns: 45,
         turnThinking: {},
         commands: [{
           command: 'rg -n "tool_call" src --no-ignore',
@@ -651,6 +653,7 @@ test('buildPersistTurnsFromRepoSearchResult emits no thinking bubble for a tools
   const turns = buildPersistTurnsFromRepoSearchResult({
     scorecard: { tasks: [{
       turnsUsed: 1,
+      maxTurns: 45,
       turnThinking: {},
       commands: [{ command: 'rg -n "x" src', activityKind: 'search', activitySubject: { kind: 'none' }, modelVisibleCommand: 'rg -n "x" src', turn: 1, exitCode: 0, output: 'x' }],
     }] },
@@ -660,22 +663,24 @@ test('buildPersistTurnsFromRepoSearchResult emits no thinking bubble for a tools
   assert.equal(turns[0].toolMessages.length, 1);
 });
 
-test('buildPersistTurnsFromRepoSearchResult sets tool maxTurns from task turnsUsed', () => {
+test('buildPersistTurnsFromRepoSearchResult persists the task turn cap on tool bubbles', () => {
   const turns = buildPersistTurnsFromRepoSearchResult({
     scorecard: { tasks: [{
       turnsUsed: 4,
+      maxTurns: 7,
       turnThinking: {},
       commands: [{ command: 'rg -n "x" src', activityKind: 'search', activitySubject: { kind: 'none' }, modelVisibleCommand: 'rg -n "x" src', turn: 2, exitCode: 0, output: 'x' }],
     }] },
   });
   assert.equal(turns[0].toolMessages[0].toolCallTurn, 2);
-  assert.equal(turns[0].toolMessages[0].toolCallLimit, 4);
+  assert.equal(turns[0].toolMessages[0].toolCallMaxTurns, 7);
 });
 
 test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing turn', () => {
   assert.throws(() => buildPersistTurnsFromRepoSearchResult({
     scorecard: { tasks: [{
       turnsUsed: 1,
+      maxTurns: 45,
       turnThinking: {},
       commands: [{ command: 'rg -n "x" src', activityKind: 'search', activitySubject: { kind: 'none' }, modelVisibleCommand: 'rg -n "x" src', exitCode: 0, output: 'x' }],
     }] },
@@ -686,6 +691,7 @@ test('buildPersistTurnsFromRepoSearchResult persists per-call prompt token count
   const turns = buildPersistTurnsFromRepoSearchResult({
     scorecard: { tasks: [{
       turnsUsed: 2,
+      maxTurns: 45,
       turnThinking: {},
       commands: [
         { command: 'rg -n "a" src', activityKind: 'search', activitySubject: { kind: 'none' }, modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptTokenCount: 2464 },
@@ -867,7 +873,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
         id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"',
         inputTokensEstimate: 0, outputTokensEstimate: 42073, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z',
         toolCallCommand: 'web_fetch url="https://example.test"', toolCallActivityKind: 'web_fetch',
-        toolCallActivitySubject: { kind: 'host', value: 'example.test' }, toolCallTurn: 1, toolCallLimit: 45,
+        toolCallActivitySubject: { kind: 'host', value: 'example.test' }, toolCallTurn: 1, toolCallMaxTurns: 45,
         toolCallExitCode: 0, toolCallStatus: 'done',
       },
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', inputTokensEstimate: 0, outputTokensEstimate: 2048, thinkingTokens: 0, associatedToolTokens: 42073, createdAtUtc: '2026-01-01T00:00:00.000Z' },

@@ -197,7 +197,7 @@ test('accepted native tools do not emit obsolete command-safety telemetry', asyn
 });
 
 test('decayInvalidResponses steps the counter down and floors at zero', () => {
-  const counters: LoopCounters = { invalidResponses: 2, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, executedToolBatches: 0, reason: 'max_turns' };
+  const counters: LoopCounters = { invalidResponses: 2, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, reason: 'max_turns' };
 
   decayInvalidResponses(counters);
   assert.equal(counters.invalidResponses, 1);
@@ -308,9 +308,10 @@ test('a rejected call and a non-zero exit increment separate counters', async ()
   assert.equal(failing.counters.rejectedCalls, 0);
 });
 
-// A tool-bearing response consumes a budget unit even when every call in it is screened
-// out — a wasted response still spends the planner's batch budget.
-test('a batch whose only call is screened as a duplicate still consumes a budget unit', async () => {
+// A tool-bearing response is one turn of budget even when every call in it is screened out —
+// the turn-counted gate makes that structural, so what still needs asserting is that the
+// screened call is recorded as a rejection rather than silently dropped.
+test('a batch whose only call is screened as a duplicate records the rejection', async () => {
   const root = createManagedTempDir('siftkit-batch-budget-unit-');
   fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
   const { processor, counters } = makeProcessor(root);
@@ -319,7 +320,6 @@ test('a batch whose only call is screened as a duplicate still consumes a budget
   await processor.executeBatch(2, [{ kind: 'tool', callId: 'test_call_61', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.rejectedCalls, 1);
-  assert.equal(counters.executedToolBatches, 2);
 });
 
 test('malformed actions alternating with invalid Git operations still hit the invalid-response limit', async () => {
@@ -571,10 +571,10 @@ test('budget notice still reaches the model when a batch collapses onto a duplic
   await processor.executeBatch(2, [{ kind: 'tool', callId: 'replay_2', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(3, [{ kind: 'tool', callId: 'replay_3', toolName: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
 
-  // Batch 3 took the replay path (no batchOutcomes); with the helper's toolCallLimit of 5
-  // the countdown notice for 3/5 used must land as a trailing user message.
+  // Batch 3 took the replay path (no batchOutcomes); with the helper's maxTurns of 5
+  // the countdown notice for turn 3 of 5 must land as a trailing user message.
   const messages = transcript.getMessages();
   const last = messages[messages.length - 1];
   assert.equal(last?.role, 'user');
-  assert.match(String(last?.content ?? ''), /2 tool-call batches remaining \(3\/5 used\)/u);
+  assert.match(String(last?.content ?? ''), /2 tool-call turns remaining \(3\/5 used\)/u);
 });

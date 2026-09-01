@@ -1614,7 +1614,7 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
   assert.notEqual(starts[0].toolCallId, starts[1].toolCallId);
 });
 
-test('runTaskLoop counts a multi-call batch as one tool-budget unit and leaves a finishing turn after exhaustion', async () => {
+test('runTaskLoop counts a multi-call batch as one tool-budget turn and leaves a finishing turn after exhaustion', async () => {
   const logger = createJsonLogger('db://test-batch-budget');
   const result = await runTaskLoop(
     { id: 'task-batch-budget', question: 'Exercise the batch budget.' },
@@ -1643,16 +1643,53 @@ test('runTaskLoop counts a multi-call batch as one tool-budget unit and leaves a
     },
   );
 
-  // Old semantics: the 2-call batch consumed the whole budget (2/2) and the
-  // second batch was rejected. New semantics: 2 batches used, then a slack turn
-  // lets the model finish.
+  // The 2-call batch is one turn, not two budget units: turn 1 and turn 2 both call tools,
+  // then turn 3 finishes inside the answer slack.
   assert.equal(result.reason, 'finish');
   assert.equal(result.commands.length, 3);
   assert.equal(result.rejectedCalls, 0);
 
-  // Budget notices land at the end of each batch's last tool result and reach
-  // the transcript (logged via turn_new_messages on the following turn).
+  // Budget notices land at the end of each turn's last tool result and reach the transcript
+  // (logged via turn_new_messages on the following turn).
   const logText = logger.getText();
-  assert.match(logText, /1 tool-call batch remaining \(1\/2 used\)/u);
-  assert.match(logText, /Tool-call limit reached \(2\/2 batches used\)/u);
+  assert.match(logText, /1 tool-call turn remaining \(1\/2 used\)/u);
+  assert.match(logText, /Tool-call limit reached \(2\/2 turns used\)/u);
+});
+
+test('runTaskLoop does not hand back tool turns for turns that spent no tool batch', async () => {
+  const result = await runTaskLoop(
+    { id: 'task-turn-budget-drift', question: 'Exercise the turn budget.' },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 3,
+      maxInvalidResponses: 5,
+      minToolCallsBeforeFinish: 2,
+      mockResponses: [
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'alpha', path: 'src' } }] },
+        // Turn 2 is spent on a finish rejected for too few tool calls: it executes no tool
+        // batch, and must not buy back a tool-calling turn later. The anchor in the content
+        // routes the finish through the evidence-depth gate, which rejects it while only one
+        // supporting call is on record.
+        { content: 'too early: src/alpha.ts:1' },
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'beta', path: 'src' } }] },
+        // Turn 4 is past the 3-turn budget, even though only 2 batches have run.
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'gamma', path: 'src' } }] },
+        { content: 'final answer' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {
+        'git operation="grep" path="src" pattern="alpha"': { exitCode: 0, stdout: 'alpha hit', stderr: '' },
+        'git operation="grep" path="src" pattern="beta"': { exitCode: 0, stdout: 'beta hit', stderr: '' },
+        'git operation="grep" path="src" pattern="gamma"': { exitCode: 0, stdout: 'gamma hit', stderr: '' },
+      },
+    },
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'final answer');
+  // The turn-4 gamma call never ran: only alpha and beta are on record, in order.
+  assert.deepEqual(result.commands.map((command) => command.command), [
+    'git operation="grep" path="src" pattern="alpha"',
+    'git operation="grep" path="src" pattern="beta"',
+  ]);
 });

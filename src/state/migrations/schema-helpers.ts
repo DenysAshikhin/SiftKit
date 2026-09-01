@@ -66,7 +66,7 @@ export function ensureChatMessageTimelineSchema(database: RuntimeDatabase): void
     { name: 'kind', sql: 'ALTER TABLE chat_messages ADD COLUMN kind TEXT;' },
     { name: 'tool_call_command', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_command TEXT;' },
     { name: 'tool_call_turn', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_turn INTEGER;' },
-    { name: 'tool_call_limit', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;' },
+    { name: 'tool_call_max_turns', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_max_turns INTEGER;' },
     { name: 'tool_call_exit_code', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_exit_code INTEGER;' },
     { name: 'tool_call_prompt_token_count', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_prompt_token_count INTEGER;' },
     { name: 'tool_call_output_snippet', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output_snippet TEXT;' },

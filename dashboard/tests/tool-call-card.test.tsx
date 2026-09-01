@@ -14,7 +14,7 @@ function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
     toolCallActivityKind: 'command',
     toolCallActivitySubject: { kind: 'none' },
     toolCallTurn: 1,
-    toolCallLimit: 45,
+    toolCallMaxTurns: 45,
     toolCallExitCode: null,
     toolCallStatus: 'running',
     ...overrides,

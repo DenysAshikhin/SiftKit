@@ -67,7 +67,6 @@ function makePreparer(
       progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
       taskId: 't1',
       maxTurns: 45,
-      toolCallLimit: 45,
       taskStartedAt: Date.now(),
     }),
     logger,

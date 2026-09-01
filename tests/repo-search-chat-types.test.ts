@@ -57,6 +57,7 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
       tasks: [{
         finalOutput: 'answer',
         turnsUsed: 2,
+        maxTurns: 45,
         groundingStatus: 'fetched',
         commands: [{ turn: 1, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
         turnThinking: { 1: 'thinking' },
@@ -69,10 +70,28 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
 
   assert.equal(result.requestId, 'r1');
   assert.equal(tasks[0]?.finalOutput, 'answer');
+  assert.equal(tasks[0]?.maxTurns, 45);
   assert.equal(tasks[0]?.commands[0]?.command, 'rg Dict');
   assert.equal(tasks[0]?.commands[0]?.promptTokenCount, 2464);
   assert.equal(totals.promptTokens, 10);
   assert.equal(totals.outputTokens, 20);
+});
+
+test('normalizeRepoSearchResult fails loudly when a task result misses its turn cap', () => {
+  assert.throws(() => normalizeRepoSearchResult({
+    requestId: 'r3',
+    transcriptPath: 't.jsonl',
+    artifactPath: 'a.json',
+    scorecard: {
+      totals: {},
+      tasks: [{
+        finalOutput: 'answer',
+        turnsUsed: 1,
+        commands: [],
+        turnThinking: {},
+      }],
+    },
+  }));
 });
 
 test('normalizeRepoSearchResult yields null promptTokenCount when absent', () => {
@@ -85,6 +104,7 @@ test('normalizeRepoSearchResult yields null promptTokenCount when absent', () =>
       tasks: [{
         finalOutput: 'answer',
         turnsUsed: 1,
+        maxTurns: 30,
         commands: [{ turn: 1, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg Dict', output: 'hit', exitCode: 0 }],
         turnThinking: {},
       }],

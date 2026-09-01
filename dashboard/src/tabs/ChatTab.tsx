@@ -835,7 +835,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
   const toolMessages = turn.messages.filter((message): message is ChatToolCallMessage => message.kind === 'assistant_tool_call');
   const latestTool = toolMessages[toolMessages.length - 1] ?? null;
-  const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallLimit}` : null;
+  const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallMaxTurns}` : null;
   const renderTurnMessage = (message: ChatMessage, extraClass?: string) => (
     <MessageBubble
       key={message.id}

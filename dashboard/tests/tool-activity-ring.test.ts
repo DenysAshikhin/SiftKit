@@ -25,7 +25,7 @@ function tool(options: {
     toolCallActivityKind: options.activityKind,
     toolCallActivitySubject: options.subject,
     toolCallTurn: options.turn,
-    toolCallLimit: 45,
+    toolCallMaxTurns: 45,
     toolCallExitCode: options.exitCode ?? null,
     toolCallStatus: options.exitCode === undefined ? 'running' : 'done',
   };

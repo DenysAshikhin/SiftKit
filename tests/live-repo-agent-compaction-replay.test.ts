@@ -288,7 +288,6 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
       progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
       taskId: 'live-repo-agent-compaction-replay',
       maxTurns: 100,
-      toolCallLimit: 100,
       taskStartedAt: Date.now(),
     }),
     logger,

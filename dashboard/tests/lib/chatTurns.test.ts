@@ -24,7 +24,7 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
       toolCallActivityKind: 'command',
       toolCallActivitySubject: { kind: 'none' },
       toolCallTurn: 1,
-      toolCallLimit: 45,
+      toolCallMaxTurns: 45,
       toolCallExitCode: null,
       toolCallStatus: 'done',
       ...candidate,
@@ -170,7 +170,7 @@ test('a live tool ring exposes only the newest three tools and drops older tools
     sourceRunId: null,
     toolCallStatus: index === ids.length - 1 ? 'running' : 'done',
     toolCallTurn: index + 1,
-    toolCallLimit: 45,
+    toolCallMaxTurns: 45,
   }));
   const turns = groupMessagesIntoTurns(messages, new Set(ids));
   assert.deepEqual(turns[0]?.recentActivities.map((group) => group.key), ['2:command', '3:command', '4:command']);

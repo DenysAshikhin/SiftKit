@@ -130,6 +130,28 @@ test('runTaskLoop stops on invalid response limit', async () => {
   assert.equal(result.finalOutput, 'Synthesized best-effort answer.');
 });
 
+test('runTaskLoop reports the configured turn cap on the result', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-max-turns',
+      question: 'Any question.',
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      maxTurns: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        { content: 'done' },
+        { content: '{"verdict":"pass","reason":"supported"}' },
+      ],
+      mockCommandResults: {},
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.maxTurns, 3);
+});
+
 test('runTaskLoop returns invalid native arguments on the failing call before a valid retry', async () => {
   const events: JsonObject[] = [];
   const result = await runTaskLoop(

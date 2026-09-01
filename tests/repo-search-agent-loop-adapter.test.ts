@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { RepoSearchActionAdapter, type RepoSearchLoopController } from '../src/repo-search/agent-loop-adapter.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
+import type { NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
 
 const usage = {
   promptTokens: 1,
@@ -26,15 +28,33 @@ const controller: RepoSearchLoopController = {
   }),
   requestModelResponse: async () => ({ outcome: 'stop', data: null }),
   inspectModelResponse: () => null,
-  validateActions: (actions) => actions,
+  validateActions: (actions, _turnNumber) => actions,
   handleInvalidResponse: async () => ({ outcome: 'stop' }),
   evaluateFinish: async () => ({ accepted: true, outcome: 'stop' }),
   executeTools: async () => ({ outcome: 'stop', results: [] }),
 };
 
+function responseContext(response: NormalizedLlamaCppChatResponse): AgentLoopResponseContext {
+  return {
+    turnNumber: 1,
+    preparedTurn: {
+      outcome: 'continue',
+      turnNumber: 1,
+      promptTokens: { reported: 0, budgeted: 0 },
+      maxOutputTokens: 0,
+      messages: [],
+      toolDefinitions: [],
+      inForcedFinishMode: false,
+    },
+    response,
+    modelData: null,
+    turns: [],
+  };
+}
+
 test('repo-search action adapter maps native narration, provider call ids, and finish content', () => {
   const adapter = new RepoSearchActionAdapter(resolveRepoSearchPlannerToolDefinitions(['grep']), controller);
-  const tools = adapter.parseActions({
+  const tools = adapter.parseActions(responseContext({
     text: 'Searching now.',
     rawText: 'Searching now.',
     narrationText: 'Searching now.',
@@ -49,8 +69,8 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     raw: {},
     stoppedEarly: false,
     invalidFrameCount: 0,
-  });
-  const finish = adapter.parseActions({
+  }));
+  const finish = adapter.parseActions(responseContext({
     text: 'done',
     rawText: 'done',
     narrationText: 'done',
@@ -61,7 +81,7 @@ test('repo-search action adapter maps native narration, provider call ids, and f
     raw: {},
     stoppedEarly: false,
     invalidFrameCount: 0,
-  });
+  }));
 
   assert.deepEqual(tools, [
     { kind: 'tool', callId: 'provider-call-7', toolName: 'grep', args: { pattern: 'x' } },

@@ -15,7 +15,6 @@ import type {
   AgentLoopToolExecution,
 } from '../../agent-loop/types.js';
 import type { AgentLoopModelClient } from '../../agent-loop/agent-loop.js';
-import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 
 export interface SummaryPlannerLoopController {
   readonly allowUnsupportedInput: boolean;
@@ -45,8 +44,8 @@ export class SummaryPlannerActionAdapter implements AgentLoopActionAdapter {
     private readonly toolDefinitions: readonly PlannerToolDefinition[],
   ) {}
 
-  parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
-    return this.parser.parseSummaryPlannerActions(response, {
+  parseActions(context: AgentLoopResponseContext): AgentLoopAction[] {
+    return this.parser.parseSummaryPlannerActions(context.response, {
       toolDefinitions: this.toolDefinitions,
     });
   }

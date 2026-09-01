@@ -179,7 +179,7 @@ export type ToolActionProcessorDeps = {
   mutatedPaths: Set<string>;
   successfulToolCalls: Array<{ toolName: string; promptResultText: string }>;
   commands: TaskCommand[];
-  toolCallLimit: number;
+  maxTurns: number;
   counters: LoopCounters;
   visionEnabled: boolean;
   visionImageRetention: number;
@@ -204,7 +204,6 @@ export class ToolActionProcessor {
     responseContent = '',
   ): Promise<TurnOutcome> {
     const { transcript, duplicates, counters } = this.deps;
-    counters.executedToolBatches += 1;
     const state: TurnBatchState = {
       batchIndex: 0,
       toolCallIds: toolActions.map((action) => action.callId),
@@ -233,7 +232,7 @@ export class ToolActionProcessor {
       }
     }
 
-    const notice = buildToolBudgetNotice(counters.executedToolBatches, this.deps.toolCallLimit);
+    const notice = buildToolBudgetNotice(turn, this.deps.maxTurns);
     if (notice !== null) {
       const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
       if (lastOutcome !== undefined) {

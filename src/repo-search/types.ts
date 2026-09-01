@@ -63,7 +63,6 @@ export const LlmEndProgressEventSchema = LlmStartProgressEventSchema.extend({ ki
 export const ToolResultProgressEventSchema = z.object({
   ...turnScopedFields,
   kind: z.literal('tool_result'),
-  toolCallLimit: z.number().int().positive(),
   toolCallId: z.string(),
   activityKind: ToolActivityKindSchema,
   activitySubject: ToolActivitySubjectSchema,
@@ -113,7 +112,6 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({
     ...turnScopedFields,
     kind: z.literal('tool_start'),
-    toolCallLimit: z.number().int().positive(),
     toolCallId: z.string(),
     activityKind: ToolActivityKindSchema,
     activitySubject: ToolActivitySubjectSchema,

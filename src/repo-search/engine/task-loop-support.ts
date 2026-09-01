@@ -34,8 +34,8 @@ const TOOL_BUDGET_PERCENT_NOTICES = [25, 50, 75] as const;
 const TOOL_BUDGET_COUNTDOWN_WINDOW = 9;
 
 /** The one sentence shared by the rejection error and the in-band notice, so the model never sees two disagreeing limit messages. */
-export function buildToolLimitReachedSummary(executedBatches: number, toolCallLimit: number): string {
-  return `Tool-call limit reached (${executedBatches}/${toolCallLimit} batches used).`;
+export function buildToolLimitReachedSummary(usedTurns: number, toolCallLimit: number): string {
+  return `Tool-call limit reached (${usedTurns}/${toolCallLimit} turns used).`;
 }
 
 /**
@@ -45,18 +45,22 @@ export function buildToolLimitReachedSummary(executedBatches: number, toolCallLi
  */
 export const POST_LIMIT_ANSWER_SLACK_TURNS = 3;
 
-/** In-band budget notice appended to the last tool result of a batch; null when no threshold was crossed. */
-export function buildToolBudgetNotice(executedBatches: number, toolCallLimit: number): string | null {
-  const remaining = toolCallLimit - executedBatches;
+/**
+ * In-band budget notice appended to the last tool result of a turn; null when no threshold was
+ * crossed. `usedTurns` is the turn that just executed tools, so the notice the model reads on
+ * turn N+1 always agrees with the gate that will run on turn N+1.
+ */
+export function buildToolBudgetNotice(usedTurns: number, toolCallLimit: number): string | null {
+  const remaining = toolCallLimit - usedTurns;
   if (remaining <= 0) {
-    return `[tool budget] ${buildToolLimitReachedSummary(executedBatches, toolCallLimit)} You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
+    return `[tool budget] ${buildToolLimitReachedSummary(usedTurns, toolCallLimit)} You must finish now: reply with your final answer as content only — any further tool call will be rejected.`;
   }
   if (remaining <= TOOL_BUDGET_COUNTDOWN_WINDOW) {
-    return `[tool budget] ${remaining} tool-call batch${remaining === 1 ? '' : 'es'} remaining (${executedBatches}/${toolCallLimit} used). Prioritize verification and finishing.`;
+    return `[tool budget] ${remaining} tool-call turn${remaining === 1 ? '' : 's'} remaining (${usedTurns}/${toolCallLimit} used). Prioritize verification and finishing.`;
   }
   for (const percent of TOOL_BUDGET_PERCENT_NOTICES) {
-    if (executedBatches === Math.ceil((percent / 100) * toolCallLimit)) {
-      return `[tool budget] ${percent}% of the tool-call budget used (${executedBatches}/${toolCallLimit} batches).`;
+    if (usedTurns === Math.ceil((percent / 100) * toolCallLimit)) {
+      return `[tool budget] ${percent}% of the tool-call budget used (${usedTurns}/${toolCallLimit} turns).`;
     }
   }
   return null;
@@ -143,6 +147,8 @@ export const TaskResultSchema = z.object({
   question: z.string(),
   reason: TaskEndReasonSchema,
   turnsUsed: z.number(),
+  /** The run's turn cap, carried on the result so persisted tool bubbles can report it. */
+  maxTurns: z.number().int().positive(),
   safetyRejects: z.number(),
   invalidResponses: z.number(),
   /** Tool calls refused before execution: forced-finish budget, duplicate call, duplicate web tool. */
@@ -275,11 +281,6 @@ export type LoopCounters = {
   rejectedCalls: number;
   nonZeroExits: number;
   safetyRejects: number;
-  /**
-   * Tool-bearing planner responses that consumed a batch-budget unit. Counted even when every
-   * call in the batch was screened out (duplicate/unsafe) — a wasted response still spends budget.
-   */
-  executedToolBatches: number;
   reason: TaskEndReason;
 };
 

@@ -141,6 +141,7 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
       question: 'caption',
       reason: 'finish',
       turnsUsed: 1,
+      maxTurns: 1,
       safetyRejects: 0,
       invalidResponses: 0,
       rejectedCalls: 0,

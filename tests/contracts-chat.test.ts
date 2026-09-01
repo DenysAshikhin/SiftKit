@@ -31,7 +31,7 @@ test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
     toolCallActivityKind: 'read',
     toolCallActivitySubject: { kind: 'file', value: 'index.ts' },
     toolCallTurn: 1,
-    toolCallLimit: 45,
+    toolCallMaxTurns: 45,
     toolCallExitCode: null,
     toolCallStatus: 'running',
   };

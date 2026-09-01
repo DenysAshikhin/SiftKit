@@ -28,6 +28,11 @@ export const RepoSearchTaskResultSchema = z.strictObject({
   /** Raw summary text from the run's last compaction; empty when the run never compacted. */
   compactionSummary: z.string(),
   turnsUsed: z.number().int().nonnegative().nullable(),
+  /**
+   * The run's turn cap. Non-nullable on purpose: this normalizer only ever sees fresh engine
+   * results, so a missing value is a missed migration and must fail loudly rather than fall back.
+   */
+  maxTurns: z.number().int().positive(),
   groundingStatus: ChatGroundingStatusSchema.nullable(),
   commands: z.array(RepoSearchCommandResultSchema),
   turnThinking: TurnThinkingSchema,
@@ -110,6 +115,7 @@ function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
     finalOutput: reader.string('finalOutput'),
     compactionSummary: reader.string('compactionSummary'),
     turnsUsed: reader.nullableNonNegativeInteger('turnsUsed'),
+    maxTurns: reader.nullableNonNegativeInteger('maxTurns'),
     groundingStatus: normalizeGroundingStatus(reader.value('groundingStatus')),
     commands: Array.isArray(commandsRaw) ? commandsRaw.map((entry) => normalizeCommand(entry)) : [],
     turnThinking,

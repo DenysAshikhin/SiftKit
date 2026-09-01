@@ -464,7 +464,7 @@ export type PersistToolMessage = {
   toolCallActivityKind: ToolActivityKind;
   toolCallActivitySubject: ToolActivitySubject;
   toolCallTurn: number;
-  toolCallLimit: number;
+  toolCallMaxTurns: number;
   toolCallExitCode: number | null;
   toolCallPromptTokenCount?: number | null;
   toolCallOutputSnippet: string;
@@ -644,7 +644,7 @@ export function buildChatSessionWithAppendedTurn(
         toolCallActivityKind: ToolActivityKindSchema.parse(toolMessage.toolCallActivityKind),
         toolCallActivitySubject: ToolActivitySubjectSchema.parse(toolMessage.toolCallActivitySubject),
         toolCallTurn: z.number().int().positive().parse(toolMessage.toolCallTurn),
-        toolCallLimit: z.number().int().positive().parse(toolMessage.toolCallLimit),
+        toolCallMaxTurns: z.number().int().positive().parse(toolMessage.toolCallMaxTurns),
         toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
         toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
         toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
@@ -995,7 +995,7 @@ export function getScorecardTotal(scorecard: OptionalJsonValue, key: keyof RepoS
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
-function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed: number): PersistToolMessage | null {
+function buildToolMessageFromCommand(command: RepoSearchCommandResult, maxTurns: number): PersistToolMessage | null {
   const commandText = command.displayCommand || command.command;
   if (!commandText) {
     return null;
@@ -1014,7 +1014,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     toolCallActivityKind: ToolActivityKindSchema.parse(command.activityKind),
     toolCallActivitySubject: ToolActivitySubjectSchema.parse(command.activitySubject),
     toolCallTurn: turn,
-    toolCallLimit: turnsUsed,
+    toolCallMaxTurns: maxTurns,
     toolCallExitCode: command.exitCode,
     toolCallPromptTokenCount: command.promptTokenCount,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
@@ -1031,20 +1031,9 @@ export function buildPersistTurnsFromRepoSearchResult(result: OptionalJsonValue)
   const tasks = normalized?.scorecard.tasks || [];
   const turns: PersistTurn[] = [];
   for (const task of tasks) {
-    // Resolve a sane "of Y" for tool bubbles. turnsUsed must be a positive integer
-    // no smaller than the largest command turn; otherwise fall back to that max
-    // (never the raw command count, and never a value that would render "3 of 2").
-    const commandTurns = task.commands
-      .map((command) => command.turn)
-      .filter((turn): turn is number => Number.isInteger(turn) && turn !== null && turn >= 1);
-    const maxCommandTurn = commandTurns.length ? Math.max(...commandTurns) : 0;
-    const rawTurnsUsed = task.turnsUsed;
-    const turnsUsed = rawTurnsUsed && rawTurnsUsed >= maxCommandTurn
-      ? rawTurnsUsed
-      : Math.max(maxCommandTurn, 1);
     const toolsByTurn = new Map<number, PersistToolMessage[]>();
     for (const command of task.commands) {
-      const message = buildToolMessageFromCommand(command, turnsUsed);
+      const message = buildToolMessageFromCommand(command, task.maxTurns);
       if (!message) {
         continue;
       }

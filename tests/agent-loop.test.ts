@@ -109,11 +109,11 @@ class StubPromptAdapter implements AgentLoopPromptAdapter {
 class StubActionAdapter implements AgentLoopActionAdapter {
   invalidResponses = 0;
 
-  parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
-    if (response.text === 'invalid') {
+  parseActions(context: AgentLoopResponseContext): AgentLoopAction[] {
+    if (context.response.text === 'invalid') {
       throw new Error('bad json');
     }
-    return response.text === 'finish'
+    return context.response.text === 'finish'
       ? [{ kind: 'finish', text: 'done' }]
       : [{ kind: 'tool', callId: 'call_1', toolName: 'read_lines', args: { startLine: 1 } }];
   }

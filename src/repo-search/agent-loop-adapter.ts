@@ -14,14 +14,13 @@ import type {
   AgentLoopToolExecution,
 } from '../agent-loop/types.js';
 import type { AgentLoopModelClient } from '../agent-loop/agent-loop.js';
-import type { NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 
 export interface RepoSearchLoopController {
   prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn>;
   requestModelResponse(context: AgentLoopResponseContext['preparedTurn']): Promise<AgentLoopModelResponse>;
   inspectModelResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null;
-  validateActions(actions: AgentLoopAction[]): AgentLoopAction[];
+  validateActions(actions: AgentLoopAction[], turnNumber: number): AgentLoopAction[];
   handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult>;
   evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation>;
   executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution>;
@@ -49,9 +48,10 @@ export class RepoSearchActionAdapter implements AgentLoopActionAdapter {
     private readonly controller: RepoSearchLoopController,
   ) {}
 
-  parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
+  parseActions(context: AgentLoopResponseContext): AgentLoopAction[] {
     return this.controller.validateActions(
-      this.parser.parseRepoSearchActions(response, this.toolDefinitions),
+      this.parser.parseRepoSearchActions(context.response, this.toolDefinitions),
+      context.turnNumber,
     );
   }
 

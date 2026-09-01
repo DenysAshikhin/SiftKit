@@ -74,7 +74,7 @@ export class AgentLoop {
 
       let actions: AgentLoopAction[];
       try {
-        actions = this.options.actionAdapter.parseActions(response);
+        actions = this.options.actionAdapter.parseActions(responseContext);
       } catch (error) {
         const invalidResult = await this.options.actionAdapter.handleInvalidResponse({
           ...responseContext,

@@ -115,7 +115,7 @@ export interface AgentLoopPromptAdapter {
 }
 
 export interface AgentLoopActionAdapter {
-  parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[];
+  parseActions(context: AgentLoopResponseContext): AgentLoopAction[];
   inspectResponse(context: AgentLoopResponseContext): AgentLoopTurnOutcome | null;
   handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult>;
   evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation>;

@@ -658,4 +658,24 @@ export const MIGRATIONS: readonly Migration[] = [
       }
     },
   },
+  {
+    // v53 named this column after a limit, but the value written to it was always the run's turn
+    // cap. Restore the honest name; the persisted quantity is unchanged.
+    version: 55,
+    up: (database) => {
+      const hasOldName = tableHasColumn(database, 'chat_messages', 'tool_call_limit');
+      const hasNewName = tableHasColumn(database, 'chat_messages', 'tool_call_max_turns');
+      if (hasOldName && !hasNewName) {
+        database.exec('ALTER TABLE chat_messages RENAME COLUMN tool_call_limit TO tool_call_max_turns;');
+      } else if (hasOldName && hasNewName) {
+        database.exec(`
+          UPDATE chat_messages
+          SET tool_call_max_turns = coalesce(tool_call_max_turns, tool_call_limit);
+          ALTER TABLE chat_messages DROP COLUMN tool_call_limit;
+        `);
+      } else if (!hasNewName) {
+        database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_max_turns INTEGER;');
+      }
+    },
+  },
 ];

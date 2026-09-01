@@ -68,18 +68,22 @@ const RESPONSE_CONTEXT: AgentLoopResponseContext = {
   turns: [],
 };
 
+function contextFor(response: NormalizedLlamaCppChatResponse): AgentLoopResponseContext {
+  return { ...RESPONSE_CONTEXT, response };
+}
+
 test('summary planner action adapter parses planner tool and finish actions', () => {
   const adapter = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions());
-  const tool = adapter.parseActions(buildResponse('', [{
+  const tool = adapter.parseActions(contextFor(buildResponse('', [{
     id: 'find-1',
     type: 'function',
     function: { name: 'find_text', arguments: '{"query":"needle","mode":"literal"}' },
-  }]));
-  const finish = adapter.parseActions(buildResponse('', [{
+  }])));
+  const finish = adapter.parseActions(contextFor(buildResponse('', [{
     id: 'finish-1',
     type: 'function',
     function: { name: 'finish', arguments: '{"classification":"summary","raw_review_required":false,"output":"done"}' },
-  }]));
+  }])));
 
   assert.equal(tool[0]?.kind, 'tool');
   assert.equal(finish[0]?.kind, 'finish');
@@ -105,7 +109,7 @@ test('summary planner action adapter routes decision-shaped output to the invali
 
   assert.throws(
     () => adapter.parseActions(
-      buildResponse('{"classification":"summary","raw_review_required":false,"output":"legacy decision"}'),
+      contextFor(buildResponse('{"classification":"summary","raw_review_required":false,"output":"legacy decision"}')),
     ),
     /content without a valid tool call/u,
   );
@@ -128,13 +132,13 @@ test('summary planner action adapter applies the unsupported-input finish policy
 
   assert.throws(
     () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(undefined, false))
-      .parseActions(unsupportedFinish),
+      .parseActions(contextFor(unsupportedFinish)),
     /classification.*expected one of.*summary.*command_failure/u,
   );
 
   const allowed = new SummaryPlannerActionAdapter(
     { ...controller, allowUnsupportedInput: true },
     buildSummaryPlannerToolDefinitions(),
-  ).parseActions(unsupportedFinish);
+  ).parseActions(contextFor(unsupportedFinish));
   assert.equal(allowed[0]?.kind, 'finish');
 });

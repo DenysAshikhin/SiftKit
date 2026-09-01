@@ -23,8 +23,8 @@ import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-p
 import type { LoopCounters } from '../../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchTaskKind } from '../../src/repo-search/task-kind.js';
 
-// Shared between the ProgressReporter display and the enforced deps budget — they must agree.
-const TOOL_CALL_LIMIT = 5;
+// Shared between the reporter, the budget, and the enforced deps budget — they must agree.
+const MAX_TURNS = 5;
 
 export function makeProcessor(
   root: string,
@@ -47,9 +47,9 @@ export function makeProcessor(
   transcript: TranscriptManager;
 } {
   const commands: TaskCommand[] = [];
-  const counters: LoopCounters = { invalidResponses: 0, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, executedToolBatches: 0, reason: 'max_turns' };
+  const counters: LoopCounters = { invalidResponses: 0, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, reason: 'max_turns' };
   const tokenUsage = new TokenUsageTracker(undefined, true);
-  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5, config: null });
+  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: MAX_TURNS, config: null });
   const events: JsonObject[] = [];
   const liveImagePathKeys = new Set<string>();
   const transcript = new TranscriptManager({
@@ -90,8 +90,7 @@ export function makeProcessor(
     progress: new ProgressReporter({
       progressWriter: new SilentProgressWriter(),
       taskId: 'task-alignment',
-      maxTurns: 5,
-      toolCallLimit: TOOL_CALL_LIMIT,
+      maxTurns: MAX_TURNS,
       taskStartedAt: Date.now(),
     }),
     transcript,
@@ -99,7 +98,7 @@ export function makeProcessor(
     mutatedPaths: new Set<string>(),
     successfulToolCalls: [],
     commands,
-    toolCallLimit: TOOL_CALL_LIMIT,
+    maxTurns: MAX_TURNS,
     counters,
     visionEnabled: options.visionEnabled ?? false,
     visionImageRetention: options.visionImageRetention ?? 8,

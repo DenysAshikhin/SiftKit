@@ -1,3 +1,7 @@
+> **SUPERSEDED** by `docs/superpowers/plans/2026-09-01-turn-based-tool-budget.md`. The batch
+> basis (`executedToolBatches`) described below no longer exists; the tool budget is counted in
+> turns. Retained for history only — do not implement from this document.
+
 # Tool-Batch Budget, Budget Notices, and Restricted-Prompt Shell Note — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

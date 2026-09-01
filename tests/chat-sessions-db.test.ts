@@ -424,7 +424,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
         toolCallActivityKind: 'search',
         toolCallActivitySubject: { kind: 'none' },
         toolCallTurn: 2,
-        toolCallLimit: 5,
+        toolCallMaxTurns: 5,
         toolCallExitCode: 0,
         toolCallPromptTokenCount: 44,
         toolCallOutputSnippet: 'src/chat.ts:1:timeline',
@@ -441,7 +441,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     assert.equal(message?.toolCallCommand, 'rg -n "timeline" .');
     assert.equal(message?.toolCallActivityKind, 'search');
     assert.equal(message?.toolCallTurn, 2);
-    assert.equal(message?.toolCallLimit, 5);
+    assert.equal(message?.toolCallMaxTurns, 5);
     assert.equal(message?.toolCallExitCode, 0);
     assert.equal(message?.toolCallPromptTokenCount, 44);
     assert.equal(message?.toolCallOutputSnippet, 'src/chat.ts:1:timeline');
@@ -496,7 +496,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         toolCallActivitySubject: { kind: 'file', value: 'Dict.ts' },
         toolCallStatus: 'done',
         toolCallTurn: 1,
-        toolCallLimit: 2,
+        toolCallMaxTurns: 2,
         toolCallExitCode: 0,
         toolCallPromptTokenCount: 11,
         toolCallOutputSnippet: 'snippet',

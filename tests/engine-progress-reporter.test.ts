@@ -12,7 +12,6 @@ function collect(): { writer: CollectingProgressWriter<RepoSearchProgressEvent>;
     progressWriter: writer,
     taskId: 't1',
     maxTurns: 45,
-    toolCallLimit: 45,
     taskStartedAt: Date.now(),
   });
   return { writer, events: writer.events, reporter };
@@ -23,7 +22,6 @@ test('enabled reflects writer behavior; silent writer emits nothing', () => {
     progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
     taskId: 't1',
     maxTurns: 45,
-    toolCallLimit: 45,
     taskStartedAt: Date.now(),
   });
   assert.equal(disabled.enabled, false);
@@ -81,7 +79,7 @@ test('activitySummary preserves the typed payload', () => {
 });
 
 test('thinking/narration/answer/toolStart/toolResult pass payloads through unchanged', () => {
-  const { events, reporter } = collect();
+  const { writer, events, reporter } = collect();
   reporter.thinking(3, 'partial thought');
   reporter.narration(3, 'reading files');
   reporter.answer(3, 'final answer');
@@ -95,6 +93,15 @@ test('thinking/narration/answer/toolStart/toolResult pass payloads through uncha
   assert.equal(events[1].kind === 'narration' ? events[1].narrationText : null, 'reading files');
   assert.match(JSON.stringify(events[3]), /"activityKind":"search"/u);
   assert.match(JSON.stringify(events[4]), /"activityKind":"search"/u);
+  const toolStart = writer.ofKind('tool_start')[0];
+  const toolResult = writer.ofKind('tool_result')[0];
+  assert.ok(toolStart);
+  assert.ok(toolResult);
+  assert.equal(toolStart.maxTurns, 45);
+  assert.equal(toolResult.maxTurns, 45);
+  // The turn cap crosses the wire only as maxTurns; a second name for it is rejected.
+  assert.equal(JSON.stringify(toolStart).includes('toolCallLimit'), false);
+  assert.equal(JSON.stringify(toolResult).includes('toolCallLimit'), false);
 });
 
 test('tokenizeStart/tokenizeDone mirror the preflight tokenize event shape', () => {
