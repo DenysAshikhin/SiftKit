@@ -227,8 +227,11 @@ function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: re
 const COMPLETION_REVIEW_INSTRUCTION =
   'Before finishing, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.';
 
+const STRUCTURED_REPO_TOOL_GUIDANCE =
+  '- Prefer the structured repository tools over `run` for repository discovery: use `grep` for content search, `find` for filenames, `ls` for directory structure, and `read` for anchored file content. Do not use `run` for these operations when the corresponding structured tool is available.';
+
 const RUN_SHELL_GUIDANCE =
-  `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
+  `- Use \`run\` only for validation or operations that available structured tools cannot express. The structured \`grep\` tool remains available; only the Unix shell command \`grep\` is unavailable inside \`run\`. \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available. Commands already run inside PowerShell — never wrap them in \`powershell -Command\`. Native command output, text piped to native commands, and stdin delivered through \`$input\` use UTF-8. Split captured text with -split "\`r?\`n" to handle both CRLF and LF; splitting on \`n alone leaves a trailing \`r on CRLF text, which makes $-anchored regexes fail.`;
 
 function buildNativePlannerInstructions(toolNames: readonly string[]): string {
   if (toolNames.length === 0) {
@@ -253,6 +256,9 @@ function buildRestrictedToolSystemPrompt(options: {
     options.context.hasRepoFileListing
       ? 'A repository file listing is provided in the system context.'
       : 'No startup repository file listing is available.',
+    ...(options.role === 'repo-search planner' && options.toolNames.includes('run')
+      ? [STRUCTURED_REPO_TOOL_GUIDANCE]
+      : []),
     ...(options.toolNames.includes('run') ? [RUN_SHELL_GUIDANCE] : []),
     'Finish only when the requested work is complete, with a concise final output.',
     ...(options.role === 'repository coding agent' ? [COMPLETION_REVIEW_INSTRUCTION] : []),
@@ -300,7 +306,7 @@ export function buildTaskSystemPrompt(
     '- Minimum 5 tool-call turns before finish. Early finish is rejected with: "that was a shallow search, there might be more hidden references/usages. Dive deeper".',
     '',
     'Tool selection:',
-    '- `grep` for code/keywords. `find` for filenames by glob. `ls` for directory structure.',
+    STRUCTURED_REPO_TOOL_GUIDANCE,
     '- `read` with one large window per anchor (never tiny consecutive slices). Lines you already read are skipped automatically, so re-reading with the same offset advances.',
     '- `git` for typed, read-only repo inspection. Choose operation `status`, `log`, `show`, `diff`, `blame`, `grep`, or `ls_files`; shell commands and Git options cannot be supplied.',
     '- Use multiple calls in one response only for genuinely independent searches.',

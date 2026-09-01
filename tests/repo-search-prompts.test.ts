@@ -384,3 +384,14 @@ test('restricted agent prompt with run declares the PowerShell shell and forbids
   const withoutRun = buildAgentSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read']));
   assert.doesNotMatch(withoutRun, /executes in PowerShell/u);
 });
+
+test('restricted repo-search planner prompt prefers structured tools over run', () => {
+  const context = buildTestContext(process.cwd(), false, true);
+  const prompt = buildTaskSystemPromptForTools(context, resolveRepoSearchPlannerToolDefinitions(['read', 'grep', 'run']));
+
+  assert.match(prompt, /Prefer the structured repository tools over `run` for repository discovery/u);
+  assert.match(prompt, /use `grep` for content search, `find` for filenames, `ls` for directory structure, and `read` for anchored file content/u);
+  assert.match(prompt, /Do not use `run` for these operations when the corresponding structured tool is available/u);
+  assert.match(prompt, /Use `run` only for validation or operations that available structured tools cannot express/u);
+  assert.match(prompt, /The structured `grep` tool remains available; only the Unix shell command `grep` is unavailable inside `run`/u);
+});
