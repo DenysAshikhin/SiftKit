@@ -36,6 +36,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
   /** Per-job draft windows adapted from the acceptance EMA, capped by DRAFT_NUM_TOKENS. */
   TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: z.enum(['true', 'false']),
+  /** Temporary upstream workaround: bypass the load arena to avoid peak-VRAM allocation failure. */
+  EXL3_LOAD_ARENA: z.literal('0'),
   /**
    * exllamav3 defaults to quant-direct attention kernels for quantized caches; the
    * dequantize-then-attend path is ~7% faster at prefill and decode-neutral for ~240 MiB
@@ -105,6 +107,7 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
       TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: preset.SpeculativeEnabled && preset.SpeculativeDynamic ? 'true' : 'false',
+      EXL3_LOAD_ARENA: '0',
       EXL3_QC_ATTN: '0',
       TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
       TABBY_MODEL_VISION_OFFLOAD: preset.VisionOffload ? 'true' : 'false',
