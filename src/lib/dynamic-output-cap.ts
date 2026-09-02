@@ -1,5 +1,5 @@
 import { type SiftConfig } from '../config/index.js';
-import { computeResponseReserveTokens, getPresetMaxTokens } from './response-reserve.js';
+import { getPresetMaxTokens, resolveContextTokenBudget } from './response-reserve.js';
 
 /**
  * Preset MaxTokens is a hard upper bound on a fixed, non-context-derived output budget.
@@ -18,9 +18,11 @@ export function getDynamicMaxOutputTokens(options: {
   promptTokenCount: number;
   config: SiftConfig | null | undefined;
 }): number {
-  const totalContextTokens = Math.max(0, Math.floor(Number(options.totalContextTokens) || 0));
+  const budget = resolveContextTokenBudget({
+    totalContextTokens: options.totalContextTokens,
+    config: options.config,
+  });
   const promptTokenCount = Math.max(0, Math.floor(Number(options.promptTokenCount) || 0));
-  const remainingContextTokens = Math.max(totalContextTokens - promptTokenCount, 0);
-  const reserveTokens = computeResponseReserveTokens({ totalContextTokens, config: options.config });
-  return Math.max(1, Math.min(reserveTokens, remainingContextTokens));
+  const remainingContextTokens = Math.max(budget.totalContextTokens - promptTokenCount, 0);
+  return Math.max(1, Math.min(budget.responseReserveTokens, remainingContextTokens));
 }

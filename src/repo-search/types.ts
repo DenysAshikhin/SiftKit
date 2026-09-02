@@ -2,7 +2,7 @@ import { TokenCountSourceSchema } from './prompt-budget.js';
 import { ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
-import type { SiftConfig } from '../config/index.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/index.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 
 export type JsonLogger = {
@@ -160,6 +160,13 @@ export type RepoSearchExecutionRequest = {
   statusBackendUrl?: string;
   config?: SiftConfig;
   model?: string;
+  /**
+   * Exact model preset the caller ran under, for the run log. Sessions carry their own snapshot,
+   * which can differ from the active global preset; session-less callers omit both and the run
+   * records the active preset of `config`.
+   */
+  modelPresetId?: string;
+  modelPreset?: ModelRuntimePreset;
   additionalPromptPrefix?: string;
   allowedTools?: string[];
   /**

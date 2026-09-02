@@ -590,9 +590,23 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
  * An approval verdict may only be requested as an extension of this prompt —
  * anything else re-prefills the whole context and breaks the prompt cache.
  */
-/** The verdict is a two-field JSON object; only mirrored thinking needs headroom before it. */
+/** The verdict is a two-field JSON object; a non-thinking planner needs only answer headroom. */
 const APPROVAL_VERDICT_MAX_TOKENS = 512;
-const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
+/**
+ * The verdict reasons under a fixed budget: 1024 tokens matches unbounded-thinking safety recall
+ * on the red-team corpus while capping a runaway verdict that would otherwise spend 25-65 s. When
+ * exceeded, the exl3 client closes the think block with a response_prefix continuation and answers,
+ * so the shared planner prompt prefix stays cached. See
+ * docs/superpowers/plans/2026-09-02-bounded-thinking-approval-verdict.md.
+ */
+const APPROVAL_VERDICT_REASONING_BUDGET_TOKENS = 1024;
+/** Outer ceiling for the thinking case: the budget is the real cap, plus the same answer room as a non-thinking verdict. */
+const APPROVAL_VERDICT_THINKING_MAX_TOKENS = APPROVAL_VERDICT_REASONING_BUDGET_TOKENS + APPROVAL_VERDICT_MAX_TOKENS;
+/** Floor for the continuation that emits the JSON after the budget is hit. */
+const APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS = 256;
+/** Spliced into the closed think block when the verdict budget is hit; steers straight to the JSON. */
+export const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
+  'Thinking budget reached. Output the approval verdict JSON now.';
 
 /** Executing transcript, pending assistant tool call, then the transient verdict question. */
 export function buildApprovalVerdictPromptMessages(
@@ -650,8 +664,18 @@ export async function requestApprovalVerdict(options: {
     ),
     // The thinking flags mirror the executing planner request: they feed the
     // server-side chat_template_kwargs, and any difference re-renders (and so
-    // re-prefills) the shared prompt prefix.
+    // re-prefills) the shared prompt prefix. Thinking is bounded, not disabled:
+    // the budget caps reasoning at APPROVAL_VERDICT_REASONING_BUDGET_TOKENS, and
+    // the exl3 client closes the think block with a response_prefix continuation
+    // that byte-extends this same prefix, so the cache survives.
     ...options.executing.flags,
+    ...(options.executing.flags.thinkingEnabled
+      ? {
+        reasoningBudgetTokens: APPROVAL_VERDICT_REASONING_BUDGET_TOKENS,
+        reasoningBudgetMessage: APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
+        continuationMinTokens: APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS,
+      }
+      : {}),
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,

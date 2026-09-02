@@ -5,7 +5,7 @@ import {
   type CompactionCacheOrigin,
 } from '../planner-protocol.js';
 import { buildCompactionSummaryInstruction } from '../prompts.js';
-import { countTokensWithFallback, preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { countPlannerPromptTokens, countTokensWithFallback } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
 import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
@@ -138,8 +138,9 @@ export class TranscriptCompactor {
    * The summary generation gets whatever the window leaves after its prompt, up to the
    * run's response reserve. Two thirds cap thinking; the remaining third is the floor
    * under the summary output, not its cap — a continuation that spends less thinking
-   * than the gate allows keeps the difference. The TurnBudget compaction reserve keeps
-   * that floor above COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS.
+   * than the gate allows keeps the difference. The prompt side reserves nothing for
+   * this request: the actual rendered prompt is measured and generation is fitted to
+   * the physical remainder, failing loudly below COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS.
    */
   private async resolveSummaryGenerationTokens(
     input: { taskId: string; turn: number | null; cacheOrigin: CompactionCacheOrigin },
@@ -149,17 +150,15 @@ export class TranscriptCompactor {
       ? input.cacheOrigin.executing
       : input.cacheOrigin;
     const generationTokenCeiling = Math.max(0, Math.floor(this.options.responseReserveTokens));
-    const preflight = await preflightPlannerPromptBudget({
+    const measurement = await countPlannerPromptTokens({
       config: this.tokenCountConfig,
       prompt: renderWirePrompt({
         messages: summaryRequestMessages,
         tools: state.tools,
         includeReasoningContent: state.flags.reasoningContentEnabled,
       }),
-      totalContextTokens: this.options.totalContextTokens,
-      responseReserveTokens: 0,
     });
-    const promptTokenCount = preflight.promptTokenCount;
+    const promptTokenCount = measurement.promptTokenCount;
     const remainingTokens = this.options.totalContextTokens - promptTokenCount;
     const requestedTokens = splitCompactionGenerationTokens(generationTokenCeiling);
     const outputTokens = Math.min(requestedTokens.outputTokens, Math.max(remainingTokens, 0));

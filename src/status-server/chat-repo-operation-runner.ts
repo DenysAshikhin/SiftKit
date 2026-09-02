@@ -152,6 +152,8 @@ export class ChatRepoOperationRunner {
       engineResult = await request.engineService.executeRepoSearch({
         presetId: selected.preset.id,
         taskKind: operation,
+        modelPresetId: selected.session.modelPresetId,
+        modelPreset: selected.session.modelPreset,
         prompt: this.buildPrompt(operation, request.content),
         history: buildChatHistoryMessages(effectiveConfig, session),
         initialUserImages: admittedImages,

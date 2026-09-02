@@ -17,7 +17,7 @@ test('result under both caps passes through unchanged', async () => {
   const fitted = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText, rawResultText: resultText,
-    perToolCapTokens: 10_000, remainingTokenAllowance: 10_000,
+    capacity: { kind: 'available', perToolCapTokens: 10_000, remainingTokenAllowance: 10_000 },
     commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.equal(fitted.resultText, resultText);
@@ -33,7 +33,7 @@ test('oversized successful output is fitted down to the cap with a truncation ma
   const fitted = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
-    perToolCapTokens: 50, remainingTokenAllowance: 10_000,
+    capacity: { kind: 'available', perToolCapTokens: 50, remainingTokenAllowance: 10_000 },
     commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.ok(fitted.fittedReturnedSegmentCount !== null);
@@ -50,7 +50,7 @@ test('timing spans are recorded for raw/prompt/fit tokenization paths', async ()
   const fittedOk = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
-    perToolCapTokens: 50, remainingTokenAllowance: 10_000,
+    capacity: { kind: 'available', perToolCapTokens: 50, remainingTokenAllowance: 10_000 },
     commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.equal(fittedOk.resultTokenCountEstimated, true);
@@ -58,7 +58,7 @@ test('timing spans are recorded for raw/prompt/fit tokenization paths', async ()
   const fittedFailed = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: 'x'.repeat(5_000), rawResultText: 'x'.repeat(5_000),
-    perToolCapTokens: 10, remainingTokenAllowance: 20,
+    capacity: { kind: 'available', perToolCapTokens: 10, remainingTokenAllowance: 20 },
     commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head',
   });
   // A single 5000-char segment cannot fit a 10-token budget, so only the notice survives.
@@ -74,7 +74,7 @@ test('oversized failed output keeps a tail within the failed-command cap', async
   const fitted = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'run',
     resultText, rawResultText: resultText,
-    perToolCapTokens: 100_000, remainingTokenAllowance: 100_000,
+    capacity: { kind: 'available', perToolCapTokens: 100_000, remainingTokenAllowance: 100_000 },
     commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head',
   });
   // Failing output over the failed-command cap is trimmed even though it is far
@@ -93,7 +93,7 @@ test('failed output under the failed-command cap passes through unchanged', asyn
   const fitted = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'run',
     resultText, rawResultText: resultText,
-    perToolCapTokens: 10_000, remainingTokenAllowance: 10_000,
+    capacity: { kind: 'available', perToolCapTokens: 10_000, remainingTokenAllowance: 10_000 },
     commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail',
   });
   assert.equal(fitted.resultText, resultText);
@@ -106,9 +106,10 @@ test('failed output tail is clamped by the remaining allowance when it is smalle
   const fitted = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'run',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
-    perToolCapTokens: 100_000, remainingTokenAllowance: 20,
+    capacity: { kind: 'available', perToolCapTokens: 100_000, remainingTokenAllowance: 20 },
     commandSucceededForFitting: false, outputUnit: 'lines', keep: 'tail',
   });
   assert.ok(fitted.resultTokenCount <= 20);
   assert.match(fitted.resultText, /lines truncated due to per-tool context limit\./u);
 });
+

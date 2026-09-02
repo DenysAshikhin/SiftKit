@@ -50,6 +50,15 @@ the run dirs.
 **Recommended fix:** persist the un-coerced task kind on `run_logs` (new column or a
 `taskKind` field in `repo_search_json`) so repo-agent is a first-class dimension.
 
+**Status (schema version 57):** implemented. `run_logs` now records `operation_type`,
+`operation_preset_id`, `model_preset_id` and both preset snapshots for every new run, and
+future analyses can group directly by that canonical identity; see
+`docs/runtime-run-comparison.md` for the grouping key. The migration boundary matters for this
+report: rows written before version 57 carry no preset identity, and their `repo_search` rows
+are backfilled as `repo-search` because nothing stored in `run_logs` distinguishes a historical
+repo-agent run. The Aug 27-31 classification above therefore still relies on the reconstructed
+repo-agent evidence from the run directories.
+
 ## Tokens per run (completed runs only)
 
 | class | n | prefill avg | prefill med | cached avg | cached med | decode avg | decode med | answer med | think med | tool-output med |

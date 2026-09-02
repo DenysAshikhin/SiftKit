@@ -73,7 +73,7 @@ test('v51 adds activity kind and explicitly marks historical tool rows as comman
         readonly.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
       );
       assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-      assert.equal(CURRENT_SCHEMA_VERSION, 57);
+      assert.equal(CURRENT_SCHEMA_VERSION, 58);
     } finally {
       readonly.close();
     }

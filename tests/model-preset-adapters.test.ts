@@ -65,7 +65,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
-    EXL3_QC_ATTN: '0',
+    TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -103,7 +103,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'false',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
-    EXL3_QC_ATTN: '0',
+    TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -177,6 +177,31 @@ test('EXL3 adapter rejects vision offload when vision is disabled', () => {
   assert.throws(
     () => adapter.validatePreset(preset),
     /VisionOffload=true requires VisionEnabled=true/u,
+  );
+});
+
+test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    NcpuMoe: 12,
+  });
+
+  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS, '12');
+});
+
+test('EXL3 preset validation rejects a negative NcpuMoe', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    NcpuMoe: -1,
+  });
+
+  assert.throws(
+    () => adapter.validatePreset(preset),
+    /NcpuMoe=-1 must not be negative/u,
   );
 });
 
@@ -322,7 +347,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   NumCtx: ON_BOTH_BACKENDS,
   GpuLayers: LLAMA_ONLY,
   Threads: LLAMA_ONLY,
-  NcpuMoe: LLAMA_ONLY,
+  NcpuMoe: EXL3_MANAGED_ONLY,
   FlashAttention: LLAMA_ONLY,
   ParallelSlots: EXL3_MANAGED_ONLY,
   BatchSize: LLAMA_ONLY,

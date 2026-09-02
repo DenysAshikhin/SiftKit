@@ -9,6 +9,7 @@ import {
   migrateChatSessionsToModelPresetIdentity,
   migrateChatSessionsToModelPresetSnapshot,
   migrateRunLogsBackendToEngineIds,
+  migrateRunLogsOperationIdentity,
 } from './app-config-migrations.js';
 import {
   ASSISTANT_CORE_SCHEMA_SQL,
@@ -706,9 +707,17 @@ export const MIGRATIONS: readonly Migration[] = [
     },
   },
   {
+    // Run logs record the canonical operation and preset identity from here on; see the
+    // migration for exactly which historical values are backfilled and which stay null.
+    version: 57,
+    up: (database) => {
+      migrateRunLogsOperationIdentity(database);
+    },
+  },
+  {
     // The activity event stores both input signals instead of their minimum under the old
     // combined name. Rows written before the split carried one value; it seeds both columns.
-    version: 57,
+    version: 58,
     up: (database) => {
       if (!tableHasColumn(database, 'assistant_activity_events', 'idle_seconds')) return;
       database.exec(`

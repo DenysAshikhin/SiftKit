@@ -3,7 +3,7 @@ import type { SiftConfig } from '../../config/index.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
-import { FAILED_COMMAND_TAIL_CAP_TOKENS } from './turn-budget.js';
+import { FAILED_COMMAND_TAIL_CAP_TOKENS, type AvailableToolResultCapacity } from './turn-budget.js';
 
 export type FittedToolResult = {
   resultText: string;
@@ -51,8 +51,8 @@ export class ToolResultBudgeter {
     toolName: string;
     resultText: string;
     rawResultText: string;
-    perToolCapTokens: number;
-    remainingTokenAllowance: number;
+    /** Resolved before the tool ran; zero capacity never reaches the budgeter. */
+    capacity: AvailableToolResultCapacity;
     commandSucceededForFitting: boolean;
     outputUnit: ToolOutputTruncationUnit;
     keep: ToolOutputKeep;
@@ -76,7 +76,7 @@ export class ToolResultBudgeter {
     let resultTokenCountEstimated = candidateResultTokenResult.estimated;
     let fittedReturnedSegmentCount: number | null = null;
 
-    const successBudgetTokens = Math.min(options.perToolCapTokens, Math.max(1, options.remainingTokenAllowance));
+    const successBudgetTokens = Math.min(options.capacity.perToolCapTokens, options.capacity.remainingTokenAllowance);
     const maxResultTokens = options.commandSucceededForFitting
       ? successBudgetTokens
       : Math.min(FAILED_COMMAND_TAIL_CAP_TOKENS, successBudgetTokens);

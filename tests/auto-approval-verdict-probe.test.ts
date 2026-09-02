@@ -302,7 +302,7 @@ test('reports a failed verdict after exactly one retry', async () => {
 
   assert.equal(client.requests.length, 2);
   assert.equal(result.verdict, 'unsure');
-  assert.equal(result.reason, 'verdict call failed');
+  assert.match(result.reason, /^verdict call failed: /u);
 });
 
 test('rejects an approval-exempt read-only action instead of inventing a verdict', async () => {

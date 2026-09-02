@@ -42,6 +42,7 @@ import {
   waitForAsyncExpectation,
   postCompletedStatus,
 } from './_runtime-helpers.js';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 
 test('managed llama speculative delta prefers cumulative token stats over rate lines in the same slice', async () => {
   await withTempEnv(async () => {
@@ -155,6 +156,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
           database,
           requestId,
           taskKind: 'repo-search',
+          identity: UNRECORDED_RUN_IDENTITY,
           prompt: 'find speculative metrics',
           repoRoot: tempRoot,
           model: 'mock-model',
@@ -269,6 +271,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         database,
         requestId,
         taskKind: 'repo-search',
+        identity: UNRECORDED_RUN_IDENTITY,
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
@@ -297,6 +300,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         database,
         requestId,
         artifactType: 'summary_request',
+        identity: UNRECORDED_RUN_IDENTITY,
         artifactPayload: {
           requestId,
           question: 'find speculative metrics',
@@ -341,6 +345,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         database,
         requestId,
         taskKind: 'repo-search',
+        identity: UNRECORDED_RUN_IDENTITY,
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
@@ -369,6 +374,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         database,
         requestId,
         artifactType: 'summary_request',
+        identity: UNRECORDED_RUN_IDENTITY,
         artifactPayload: {
           requestId,
           question: 'find speculative metrics',

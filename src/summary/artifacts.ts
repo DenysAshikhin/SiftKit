@@ -3,6 +3,7 @@ import { createTracer } from '../lib/trace.js';
 import type { InferenceBackendId } from '../config/types.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.js';
+import type { RunIdentity } from '../status-server/dashboard-runs/run-identity.js';
 import { getRecord } from './planner/json-filter.js';
 import type {
   SummaryFailureContext,
@@ -94,6 +95,7 @@ export function buildPlannerDebugArtifact(options: {
   classification: SummaryClassification;
   rawReviewRequired: boolean;
   providerError?: string | null;
+  identity: RunIdentity;
 }): DeferredArtifact | null {
   if (!plannerDebugPayloadByRequestId.has(options.requestId)) {
     return null;
@@ -116,17 +118,8 @@ export function buildPlannerDebugArtifact(options: {
     artifactType: 'planner_debug',
     artifactRequestId: options.requestId,
     artifactPayload: payload,
+    identity: options.identity,
   };
-}
-
-export async function finalizePlannerDebugDump(options: {
-  requestId: string;
-  finalOutput: string;
-  classification: SummaryClassification;
-  rawReviewRequired: boolean;
-  providerError?: string | null;
-}): Promise<void> {
-  void buildPlannerDebugArtifact(options);
 }
 
 export function buildPlannerDebugReference(requestId: string): string | null {
@@ -157,11 +150,13 @@ export function buildFailedRequestArtifact(options: {
   command?: string | null;
   error: string;
   providerError?: string | null;
+  identity: RunIdentity;
 }): DeferredArtifact {
   plannerFailedArtifactByRequestId.add(options.requestId);
   return {
     artifactType: 'planner_failed',
     artifactRequestId: options.requestId,
+    identity: options.identity,
     artifactPayload: {
       requestId: options.requestId,
       command: options.command ?? null,
@@ -172,17 +167,6 @@ export function buildFailedRequestArtifact(options: {
       plannerDebugPath: buildPlannerDebugReference(options.requestId),
     },
   };
-}
-
-export async function writeFailedRequestDump(options: {
-  requestId: string;
-  question: string;
-  inputText: string;
-  command?: string | null;
-  error: string;
-  providerError?: string | null;
-}): Promise<void> {
-  void buildFailedRequestArtifact(options);
 }
 
 export function buildSummaryRequestArtifact(options: {
@@ -201,10 +185,12 @@ export function buildSummaryRequestArtifact(options: {
   requestDurationMs?: number | null;
   providerDurationMs?: number | null;
   wallDurationMs?: number | null;
+  identity: RunIdentity;
 }): DeferredArtifact {
   return {
     artifactType: 'summary_request',
     artifactRequestId: options.requestId,
+    identity: options.identity,
     artifactPayload: {
       requestId: options.requestId,
       command: options.command ?? null,
@@ -227,23 +213,6 @@ export function buildSummaryRequestArtifact(options: {
         : null,
     },
   };
-}
-
-export async function writeSummaryRequestDump(options: {
-  requestId: string;
-  question: string;
-  inputText: string;
-  command?: string | null;
-  provider: SummaryProviderId;
-  backend: InferenceBackendId | null;
-  model: string;
-  classification?: SummaryClassification | null;
-  rawReviewRequired?: boolean | null;
-  summary?: string | null;
-  providerError?: string | null;
-  error?: string | null;
-}): Promise<void> {
-  void buildSummaryRequestArtifact(options);
 }
 
 export function appendTestProviderEvent(event: JsonObject): void {

@@ -93,10 +93,11 @@ ban) is unaffected; production logs show drafting active at up to 28k context.
 ## Action items
 
 - [ ] Set `UBatchSize: 2048` on preset `exl3-3-6-27b` (maps to TabbyAPI `chunk_size`).
-- [x] Set `EXL3_QC_ATTN=0` in the managed TabbyAPI launch environment — done:
-      `Exl3LaunchEnvironmentSchema` now carries it as a fixed `'0'` and
-      `Exl3PresetAdapter.buildLaunchEnvironment` always emits it, so every managed EXL3
-      launch (and the process signature that triggers restarts) includes it.
+- [x] ~~Set `EXL3_QC_ATTN=0` in the managed TabbyAPI launch environment~~ — shipped as a fixed
+      `'0'` in `Exl3LaunchEnvironmentSchema` from 2026-07-21, then **reverted on 2026-09-02** so
+      SiftKit injects no engine environment that is not derived from a preset field. Operators
+      who want the dequantize-then-attend path export `EXL3_QC_ATTN=0` in the shell that starts
+      SiftKit; the managed child inherits the parent environment.
 - [ ] Leave `SpeculativeDraftMax: 4`, MTP on, cache `8,8` as-is.
 
 ## `PenaltyRange` / `OMP_NUM_THREADS` / `KMP_BLOCKTIME` — added 2026-07-30, removed 2026-07-30
@@ -136,7 +137,8 @@ retrieved source the model is meant to quote verbatim — the generation-quality
 outright rather than kept on quality grounds. If repo-search output starts paraphrasing where
 it used to quote, this is the first thing to re-add.
 
-`EXL3_QC_ATTN=0` is unaffected and still shipped.
+`EXL3_QC_ATTN=0` was still shipped at that point; it was removed on 2026-09-02 (see the action
+items above).
 
 ## `TABBY_MODEL_VISION` — vision tower
 

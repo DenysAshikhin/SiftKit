@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import os from 'node:os';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import {
@@ -9,104 +8,29 @@ import {
   requestRepoSearchPlannerProtocolAction,
 } from '../src/repo-search/planner-protocol.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import {
+  buildReasoningDeltas,
+  FAKE_PROMPT_USAGE,
+  startFakeChatServer,
+  type FakeChatServer,
+  type FakeChatServerOptions,
+} from './helpers/fake-chat-server.js';
 import type { SiftConfig } from '../src/config/types.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
-type FakeStreamServer = {
-  baseUrl: string;
-  requestCount: () => number;
-  bodyAt: (index: number) => JsonObject;
-  close: () => Promise<void>;
-};
-
-type FakeStreamOptions = {
-  /** Characters per reasoning delta. Default 8. */
-  reasoningChunkChars?: number;
-  /** Number of reasoning deltas on request 1. Default 10. */
-  reasoningChunkCount?: number;
-  /**
-   * 'none' emits no completion usage on reasoning frames (default).
-   * 'cumulative' reports reasoning_tokens = chunkIndex + 1.
-   * 'zero' reports reasoning_tokens = 0 on every reasoning frame.
-   */
-  reportedReasoningTokens?: 'none' | 'cumulative' | 'zero';
-};
-
-// Fake OpenAI-compatible SSE server. Request 1 streams only reasoning deltas —
-// enough to blow a tiny ReasoningBudget — then a content action and [DONE].
-// Every later request does the same minus the reasoning, so a continuation
-// request completes immediately with the action payload.
-function startFakeStreamServer(options: FakeStreamOptions = {}): Promise<FakeStreamServer> {
-  const chunkChars = options.reasoningChunkChars ?? 8;
-  const chunkCount = options.reasoningChunkCount ?? 10;
-  const reportedMode = options.reportedReasoningTokens ?? 'none';
-  return new Promise((resolve) => {
-    const bodies: string[] = [];
-    const server = http.createServer((req, res) => {
-      let raw = '';
-      req.on('data', (chunk) => { raw += chunk; });
-      req.on('end', () => {
-        // Token-count probes (loop preflight) get a plain JSON answer and stay
-        // out of the chat body index the assertions rely on.
-        if (req.url === '/v1/token/encode' || req.url === '/tokenize') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ length: 32 }));
-          return;
-        }
-        bodies.push(raw);
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        const writeDelta = (delta: JsonObject, usage?: JsonObject): void => {
-          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk', ...(usage ? { usage } : {}) })}\n\n`);
-        };
-        // Prompt usage rides the first frame of every request, so the first
-        // request's stats survive the mid-stream budget abort.
-        const promptUsage = bodies.length === 1
-          ? { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 60 } }
-          : { prompt_tokens: 110, prompt_tokens_details: { cached_tokens: 100 } };
-        writeDelta({}, promptUsage);
-        if (bodies.length === 1) {
-          // chunkCount deltas of chunkChars each; the defaults (10 x 8 = 80 chars)
-          // exceed a tiny ReasoningBudget under the 2.5 chars/token estimate.
-          for (let index = 0; index < chunkCount; index += 1) {
-            const text = `r${String(index).padStart(2, '0')}`.padEnd(chunkChars, '.');
-            const usage = reportedMode === 'none'
-              ? undefined
-              : { completion_tokens_details: { reasoning_tokens: reportedMode === 'cumulative' ? index + 1 : 0 } };
-            writeDelta({ reasoning_content: text }, usage);
-          }
-        }
-        writeDelta({ content: '{"action":"finish","output":"done"}' });
-        res.write('data: [DONE]\n\n');
-        res.end();
-      });
-      // The client may destroy the socket mid-stream (budget early stop).
-      res.on('error', () => {});
-      req.on('error', () => {});
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      resolve({
-        baseUrl: `http://127.0.0.1:${port}`,
-        requestCount: () => bodies.length,
-        bodyAt: (index: number) => asObject(parseJsonValueText(bodies[index] ?? '{}')),
-        close: () => new Promise<void>((done) => server.close(() => done())),
-      });
-    });
-  });
-}
+// Request 1 streams enough reasoning to blow a tiny ReasoningBudget (10 x 8 = 80
+// chars exceed it under the 2.5 chars/token estimate), then the finish action;
+// every later request answers with the action alone.
+const FINISH_STREAM = {
+  content: '{"action":"finish","output":"done"}',
+  reasoningDeltas: buildReasoningDeltas(10, 8),
+} satisfies FakeChatServerOptions;
 
 function budgetedConfig(
   backend: 'exl3' | 'llama',
@@ -149,7 +73,7 @@ async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise
 }
 
 test('exl3 streaming enforces ReasoningBudget with a response_prefix continuation', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
 
@@ -166,16 +90,20 @@ test('exl3 streaming enforces ReasoningBudget with a response_prefix continuatio
     assert.ok(response.thinkingText.includes('Answer now.'));
     assert.equal(response.thinkingBudgetExhausted, true);
 
-    // Both requests' prefill work is billed: 60 + 100 cached, 40 + 10 evaluated.
-    assert.equal(response.promptCacheTokens, 160);
-    assert.equal(response.promptEvalTokens, 50);
+    // Both requests' prefill work is billed.
+    const { first, later } = FAKE_PROMPT_USAGE;
+    assert.equal(response.promptCacheTokens, first.cachedTokens + later.cachedTokens);
+    assert.equal(
+      response.promptEvalTokens,
+      (first.promptTokens - first.cachedTokens) + (later.promptTokens - later.cachedTokens),
+    );
   } finally {
     await fake.close();
   }
 });
 
 test('exl3 budget enforcement applies when reasoning comes from the preset default', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await new LlamaCppClient().chat({
       config: budgetedConfig('exl3'),
@@ -197,7 +125,7 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
 // Both compaction tests drive the same request; only the generation ceiling
 // and the fake server reasoning stream vary.
 function requestCompactionSummary(
-  fake: FakeStreamServer,
+  fake: FakeChatServer,
   config: SiftConfig,
   maxTokens: number,
 ): ReturnType<typeof requestContextCompactionSummary> {
@@ -221,7 +149,7 @@ function requestCompactionSummary(
 }
 
 test('a compaction continuation never drops below its summary output floor', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const config = budgetedConfig('exl3', {
       baseUrl: fake.baseUrl,
@@ -248,9 +176,9 @@ test('measured headroom above the floor goes to the continuation', async () => {
   // 40-char deltas, reported counts climbing 1 per delta, budget 8: the gate
   // trips on delta 8 at a reported spend of 9, so 64 - 9 = 55 remains — far above
   // the floor of 4, and far above what the 360-character estimate would allow.
-  const fake = await startFakeStreamServer({
-    reasoningChunkChars: 40,
-    reasoningChunkCount: 12,
+  const fake = await startFakeChatServer({
+    ...FINISH_STREAM,
+    reasoningDeltas: buildReasoningDeltas(12, 40),
     reportedReasoningTokens: 'cumulative',
   });
   try {
@@ -266,7 +194,7 @@ test('measured headroom above the floor goes to the continuation', async () => {
 
 test('a continuation with no floor gets the remainder, not a second full budget', async () => {
   // Regression guard: an unset floor used to re-grant the whole maxTokens.
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
 
@@ -281,7 +209,7 @@ test('a continuation with no floor gets the remainder, not a second full budget'
 });
 
 test('planner reasoningBudgetMessage overrides the preset message in the continuation', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await requestRepoSearchPlannerProtocolAction({
       config: budgetedConfig('exl3'),
@@ -336,7 +264,7 @@ async function runBudgetedTaskLoop(
 }
 
 test('repo-search loop continuations use the planner action budget message', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     await runBudgetedTaskLoop(fake.baseUrl, 'repo-search', { stockBudgetMessage: true });
 
@@ -350,7 +278,7 @@ test('repo-search loop continuations use the planner action budget message', asy
 });
 
 test('repo-search loop keeps a user-customized preset budget message', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     await runBudgetedTaskLoop(fake.baseUrl, 'repo-search');
 
@@ -364,7 +292,7 @@ test('repo-search loop keeps a user-customized preset budget message', async () 
 });
 
 test('chat loop continuations keep the preset budget message', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     await runBudgetedTaskLoop(fake.baseUrl, 'chat');
 
@@ -410,7 +338,7 @@ test('planner loop on llama backend warns that the planner budget message cannot
 });
 
 test('llama backend streaming never enforces the budget client-side', async () => {
-  const fake = await startFakeStreamServer();
+  const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('llama'));
 
@@ -427,9 +355,9 @@ test('the gate fires on a positive reported thinking count, not the character es
   // 40-char deltas estimate at 16 tokens each, so the estimate would blow a
   // budget of 8 on the first delta. Reported counts climb 1 per delta, so the
   // stop must instead land on delta 8 (reported 9 > 8).
-  const fake = await startFakeStreamServer({
-    reasoningChunkChars: 40,
-    reasoningChunkCount: 12,
+  const fake = await startFakeChatServer({
+    ...FINISH_STREAM,
+    reasoningDeltas: buildReasoningDeltas(12, 40),
     reportedReasoningTokens: 'cumulative',
   });
   try {
@@ -446,9 +374,9 @@ test('the gate fires on a positive reported thinking count, not the character es
 });
 
 test('reported zeros fall back to the character estimate and still trip the gate', async () => {
-  const fake = await startFakeStreamServer({
-    reasoningChunkChars: 40,
-    reasoningChunkCount: 12,
+  const fake = await startFakeChatServer({
+    ...FINISH_STREAM,
+    reasoningDeltas: buildReasoningDeltas(12, 40),
     reportedReasoningTokens: 'zero',
   });
   try {

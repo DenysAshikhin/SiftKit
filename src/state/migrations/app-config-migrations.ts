@@ -275,6 +275,53 @@ export function migrateRunLogsBackendToEngineIds(database: RuntimeDatabase): voi
   `).run();
 }
 
+const RUN_LOGS_IDENTITY_COLUMNS = [
+  'operation_type',
+  'operation_preset_id',
+  'model_preset_id',
+  'operation_preset_json',
+  'model_preset_json',
+] as const;
+
+/**
+ * v57: `run_logs` gains canonical operation identity (`operation_type`, operation/model preset
+ * ids and snapshots) beside the coarse `run_kind` grouping. Only what the stored `run_kind`
+ * proves is backfilled: `summary_request`, `plan`, `chat` and `repo_search` map to their
+ * operation. `repo_search` cannot distinguish a historical repo-agent run from a repo-search
+ * run, so the row keeps the legacy reading and the boundary is documented rather than guessed.
+ * `failed_request`, `request_abandoned` and `unknown` have no operation and stay null, as do
+ * every preset identity: no pre-v57 row recorded them. Auxiliary `.siftkit/repo-agent/runs`
+ * directories are deliberately not consulted; they are not durable database history.
+ *
+ * `run_logs` DDL is applied lazily by `ensureRunLogsTable`, which runs after migrations have
+ * finished and whose CREATE TABLE already carries these columns. This migration therefore owns
+ * the column additions for a pre-existing table and does nothing when the table is absent, so
+ * it stays frozen no matter how that DDL changes later.
+ */
+export function migrateRunLogsOperationIdentity(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'run_logs')) {
+    return;
+  }
+  // Deliberately no CHECK: SQLite does not validate an added column's CHECK against existing
+  // rows, so the operation-type union is enforced in Zod at the parse boundary instead.
+  for (const column of RUN_LOGS_IDENTITY_COLUMNS) {
+    if (!tableHasColumn(database, 'run_logs', column)) {
+      database.exec(`ALTER TABLE run_logs ADD COLUMN ${column} TEXT;`);
+    }
+  }
+  database.prepare(`
+    UPDATE run_logs
+    SET operation_type = CASE run_kind
+      WHEN 'summary_request' THEN 'summary'
+      WHEN 'plan' THEN 'plan'
+      WHEN 'chat' THEN 'chat'
+      WHEN 'repo_search' THEN 'repo-search'
+      ELSE NULL
+    END
+    WHERE operation_type IS NULL
+  `).run();
+}
+
 export function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;

@@ -120,6 +120,8 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
         const result = await ctx.engineService.executeRepoSearch({
           presetId: selected.preset.id,
           taskKind: 'chat',
+          modelPresetId: selected.session.modelPresetId,
+          modelPreset: selected.session.modelPreset,
           prompt: CAPTION_PROMPT,
           repoRoot: process.cwd(),
           statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,

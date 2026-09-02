@@ -4,6 +4,7 @@ import { getActiveInferenceBackend } from '../config/index.js';
 import type { InferenceBackendId, SiftConfig } from '../config/types.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { upsertRunLog } from './dashboard-runs.js';
+import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.js';
 import type { RepoSearchRouteRequest } from './route-request-normalizers.js';
 
 export type RepoSearchAdmissionRecord = {
@@ -31,12 +32,15 @@ export function createRepoSearchAdmissionRecord(
   };
 }
 
+// Admission rows are written before the engine resolves its presets. They carry no identity so
+// the engine's own persistence, which merges first-non-null per field, is the only writer of it.
 export function upsertRepoSearchAdmission(record: RepoSearchAdmissionRecord): void {
   upsertRunLog(getRuntimeDatabase(), {
     runId: record.requestId,
     requestId: record.requestId,
     runKind: 'repo_search',
     runGroup: 'repo_search',
+    ...UNRECORDED_RUN_IDENTITY,
     terminalState: 'unknown',
     startedAtUtc: record.startedAtUtc,
     finishedAtUtc: null,
@@ -82,6 +86,7 @@ export function markRepoSearchAdmissionFailed(record: RepoSearchAdmissionRecord,
     requestId: record.requestId,
     runKind: 'repo_search',
     runGroup: 'repo_search',
+    ...UNRECORDED_RUN_IDENTITY,
     terminalState: 'failed',
     startedAtUtc: record.startedAtUtc,
     finishedAtUtc,

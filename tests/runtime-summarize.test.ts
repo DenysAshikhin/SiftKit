@@ -41,7 +41,11 @@ interface TerminalStatusPost {
     requestDurationMs: number;
     outputCharacterCount: number;
   };
-  deferredArtifacts: { artifactType: string }[];
+  deferredArtifacts: {
+    artifactType: string;
+    artifactPayload: { [key: string]: JsonValue };
+    identity: { [key: string]: JsonValue };
+  }[];
 }
 
 interface DelayedTerminalSummaryStatusServer {
@@ -876,6 +880,12 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
       assert.ok(Array.isArray(terminalPost.deferredArtifacts));
       assert.equal(terminalPost.deferredArtifacts.length, 1);
       assert.equal(terminalPost.deferredArtifacts[0].artifactType, 'summary_request');
+      assert.equal(terminalPost.deferredArtifacts[0].artifactPayload.operationType, undefined);
+      assert.equal(terminalPost.deferredArtifacts[0].identity.operationType, 'summary');
+      assert.equal(terminalPost.deferredArtifacts[0].identity.operationPresetId, 'summary');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.operationPresetJson, 'string');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.modelPresetId, 'string');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.modelPresetJson, 'string');
 
       const immediateAfter = fs.readdirSync(requestLogsPath);
       const immediateAdded = immediateAfter.filter((entry) => !before.has(entry));

@@ -17,6 +17,7 @@ import {
   upsertRunArtifactPayload,
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
+import { UNRECORDED_RUN_IDENTITY } from '../dashboard-runs/run-identity.js';
 import {
   StatusArtifactTypeSchema,
   getStatusArtifactId,
@@ -258,11 +259,13 @@ class StatusPostRequestHandler {
         title: getStatusArtifactUri(artifactType, metadata.artifactRequestId),
         payload: metadata.artifactPayload,
       });
+      // Direct artifact posts carry no run identity; only deferred artifacts do.
       upsertRunArtifactPayload({
         database: getIdleSummaryDatabase(this.ctx),
         requestId: metadata.artifactRequestId,
         artifactType,
         artifactPayload: metadata.artifactPayload,
+        identity: UNRECORDED_RUN_IDENTITY,
       });
       return false;
     } catch (error) {

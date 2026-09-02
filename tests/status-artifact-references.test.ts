@@ -11,6 +11,9 @@ import {
 import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 import type { RuntimeArtifactRecord } from '../src/state/runtime-artifacts.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.js';
+import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
 import { requestJson } from './helpers/dashboard-http.js';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
 
@@ -50,11 +53,13 @@ test('planner debug and failed-request references in a summary artifact resolve 
     });
     recorder.record({ kind: 'planner_tool', toolName: 'find_text', output: { text: 'hit' } });
 
+    const identity = operationOnlyRunIdentity('summary');
     const plannerDebugArtifact = buildPlannerDebugArtifact({
       requestId,
       finalOutput: 'the build failed',
       classification: 'command_failure',
       rawReviewRequired: true,
+      identity,
     });
     assert.ok(plannerDebugArtifact, 'planner debug artifact must be produced');
     const failedArtifact = buildFailedRequestArtifact({
@@ -63,6 +68,7 @@ test('planner debug and failed-request references in a summary artifact resolve 
       inputText: 'npm test output',
       command: 'npm test',
       error: 'Planner mode failed: planner_failed.',
+      identity,
     });
     const summaryArtifact = buildSummaryRequestArtifact({
       requestId,
@@ -75,6 +81,7 @@ test('planner debug and failed-request references in a summary artifact resolve 
       classification: 'command_failure',
       summary: null,
       error: 'Planner mode failed: planner_failed.',
+      identity,
     });
 
     await requestJson(`${server.baseUrl}/status`, {
@@ -111,6 +118,11 @@ test('planner debug and failed-request references in a summary artifact resolve 
       typeof summaryPayload.failedRequestPath === 'string' ? summaryPayload.failedRequestPath : null,
     );
     assert.equal(failedRecord.contentJson?.error, 'Planner mode failed: planner_failed.');
+
+    // The failed summary run is still identified as a summary operation in the run log.
+    const run = queryDashboardRunDetailFromDb(getRuntimeDatabase(), requestId);
+    assert.equal(run?.run.status, 'failed');
+    assert.equal(run?.run.operationType, 'summary');
   } finally {
     clearSummaryArtifactState(requestId);
     await server.close();

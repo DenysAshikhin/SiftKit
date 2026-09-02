@@ -17,6 +17,11 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
+import {
+  buildRunIdentity,
+  operationOnlyRunIdentity,
+  type RunIdentity,
+} from '../status-server/dashboard-runs/run-identity.js';
 import { serverLogger, type ServerLogBody } from '../status-server/server-logger.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { formatInteger } from '../lib/text-format.js';
@@ -361,6 +366,9 @@ export async function executeRepoSearchRequest(
   // Engine the run actually executed on, for the run log. Stays null when the run fails
   // before the config loads, because no engine was selected at that point.
   let activeBackend: InferenceBackendId | null = null;
+  // Canonical identity for the run log: the operation is known up front, while the preset
+  // snapshots are filled in once they resolve and stay null if the run fails before that.
+  let identity: RunIdentity = operationOnlyRunIdentity(executionTaskKind);
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
@@ -370,6 +378,12 @@ export async function executeRepoSearchRequest(
     const admittedImages = admitImagesForPreset(activeVisionPreset, requestedImages)
       .map((image) => image.dataUrl);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
+    identity = buildRunIdentity({
+      operationType: executionTaskKind,
+      operationPreset: preset,
+      modelPreset: request.modelPreset ?? activeVisionPreset,
+      modelPresetId: request.modelPresetId,
+    });
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const webToolPolicy = resolveWebToolPolicy(config.WebSearch, request.webToolsEnabled);
     const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
@@ -521,6 +535,7 @@ export async function executeRepoSearchRequest(
       databasePath: runtimeDatabasePath,
       requestId,
       taskKind,
+      identity,
       prompt,
       repoRoot,
       model: request.model ?? null,
@@ -620,6 +635,13 @@ export async function executeRepoSearchRequest(
       fields: `state=failed duration_ms=${Date.now() - persistStartedAt}`,
     });
     const failedFinishedAtUtc = new Date().toISOString();
+    if (identity.operationPresetId === null) {
+      serverLogger.emitBody('rs', requestId, {
+        event: 'identity_unresolved',
+        fields: `operation=${executionTaskKind}  preset=${request.presetId}  run failed before its presets resolved; identity persisted as null`,
+        severity: 'warning',
+      });
+    }
     await runningStatusPromise;
     await notifyRepoSearchTerminalStatus({
       running: false,
@@ -638,6 +660,7 @@ export async function executeRepoSearchRequest(
       databasePath: runtimeDatabasePath,
       requestId,
       taskKind,
+      identity,
       prompt,
       repoRoot,
       model: request.model ?? null,

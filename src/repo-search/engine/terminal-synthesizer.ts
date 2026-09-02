@@ -6,7 +6,7 @@ import {
   type ChatMessage,
   type ExecutingPlannerRequest,
 } from '../planner-protocol.js';
-import { preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { countPlannerPromptTokens } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
 import { buildTerminalSynthesisInstruction } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
@@ -43,17 +43,17 @@ export class TerminalSynthesizer {
       input.messages,
       buildTerminalSynthesisInstruction(input.reason),
     );
-    const preflight = await preflightPlannerPromptBudget({
+    // The synthesis prompt is measured only to fit its generation into the physical
+    // remainder of the window; no prompt limit applies to a terminal answer.
+    const measurement = await countPlannerPromptTokens({
       config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
       prompt: renderWirePrompt({
         messages: terminalMessages,
         tools: input.executing.tools,
         includeReasoningContent: input.executing.flags.reasoningContentEnabled,
       }),
-      totalContextTokens: this.options.totalContextTokens,
-      responseReserveTokens: 0,
     });
-    const synthesisPromptTokenCount = preflight.promptTokenCount;
+    const synthesisPromptTokenCount = measurement.promptTokenCount;
     const synthesisMaxTokens = getDynamicMaxOutputTokens({
       config: this.options.config,
       totalContextTokens: this.options.totalContextTokens,

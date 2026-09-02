@@ -34,6 +34,7 @@ import {
   createPlannerDebugRecorder,
 } from '../src/summary/artifacts.js';
 import { getStatusArtifactUri } from '../src/state/status-artifacts.js';
+import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
 
 interface PlannerDebugEvent {
   kind?: string;
@@ -1698,6 +1699,7 @@ test('planner debug artifact persists without writing a dump file', async () => 
         finalOutput: 'the build failed',
         classification: 'command_failure',
         rawReviewRequired: true,
+        identity: operationOnlyRunIdentity('summary'),
       });
 
       assert.ok(artifact, 'artifact must be produced');

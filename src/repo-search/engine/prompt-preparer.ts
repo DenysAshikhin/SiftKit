@@ -135,8 +135,7 @@ export class PromptPreparer {
     let preflight = await preflightPlannerPromptBudget({
       config: preflightConfig,
       prompt,
-      totalContextTokens: budget.totalContextTokens,
-      responseReserveTokens: budget.responseReserveTokens,
+      maxPromptTokens: budget.maxPromptTokens,
       promptTokenCounter: this.promptTokenCounter,
     });
     preflightSpan?.end({
@@ -227,8 +226,7 @@ export class PromptPreparer {
       const afterCompaction = await preflightPlannerPromptBudget({
         config: preflightConfig,
         prompt,
-        totalContextTokens: budget.totalContextTokens,
-        responseReserveTokens: budget.responseReserveTokens,
+        maxPromptTokens: budget.maxPromptTokens,
         promptTokenCounter: this.promptTokenCounter,
       });
       if (afterCompaction.tokenizationAttempted) {
