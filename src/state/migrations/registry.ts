@@ -1,4 +1,6 @@
 import type { Migration } from './types.js';
+import { z } from '../../lib/zod.js';
+import { parseJsonText } from '../../lib/json.js';
 import { tableExists, tableHasColumn } from './schema-introspection.js';
 import {
   migrateAppConfigIdleAction,
@@ -676,6 +678,27 @@ export const MIGRATIONS: readonly Migration[] = [
       } else if (!hasNewName) {
         database.exec('ALTER TABLE chat_messages ADD COLUMN tool_call_max_turns INTEGER;');
       }
+    },
+  },
+  {
+    // The idle gate split its combined input reason into mouse/keyboard reasons; persisted
+    // history entries with the removed reason cannot be re-expressed truthfully, so they go.
+    version: 56,
+    up: (database) => {
+      const key = 'assistant.background_work_decisions.v1';
+      const row = database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(key);
+      if (row === undefined || row === null) return;
+      const histories = parseJsonText(
+        z.object({ value: z.string() }).strict().parse(row).value,
+        z.record(z.string(), z.array(z.looseObject({ reason: z.string() }))),
+      );
+      const kept = Object.fromEntries(
+        Object.entries(histories).map(([ownerId, entries]) => [
+          ownerId, entries.filter((entry) => entry.reason !== 'input_idle_below_threshold'),
+        ]),
+      );
+      database.prepare('UPDATE runtime_metadata SET value = ? WHERE key = ?')
+        .run(JSON.stringify(kept), key);
     },
   },
 ];
