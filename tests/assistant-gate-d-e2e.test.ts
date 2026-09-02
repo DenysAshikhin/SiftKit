@@ -94,7 +94,7 @@ async function startHarness(
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const initial = getDefaultConfig();
   writeConfig(getConfigPath(), { ...initial, Assistant: patch(initial.Assistant) });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   let headers: Record<string, string> = {};
@@ -366,7 +366,7 @@ test('gate D e2e: custody migrates to the shell and survives a daemon restart', 
     // Daemon restart: custody stays desktop; decryption works again only after re-import.
     await closeHttpServer(server);
     closeRuntimeDatabase();
-    server = startStatusServer({ disableManagedLlamaStartup: true });
+    server = startStatusServer({ disableManagedEngineStartup: true });
     await server.startupPromise;
     const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
     const bootstrap = await requestJson(`${baseUrl}/assistant/auth/bootstrap`);

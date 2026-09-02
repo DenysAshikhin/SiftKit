@@ -36,8 +36,8 @@ test.after(async () => {
 });
 
 type PresetParallelSlots = {
-  llama: number;
-  exl3: number;
+  main: number;
+  alt: number;
 };
 
 type Deferred = {
@@ -66,11 +66,10 @@ class BlockingQueueRuntime extends QueueRuntime {
   private blockUnload = false;
 
   constructor(
-    id: 'llama' | 'exl3',
     events: string[],
     private readonly stopProcessOnUnload = false,
   ) {
-    super(id, events);
+    super('exl3', events);
   }
 
   blockNextEnsure(): void {
@@ -110,28 +109,20 @@ class BlockingQueueRuntime extends QueueRuntime {
 }
 
 const DEFAULT_PRESET_PARALLEL_SLOTS = {
-  llama: 1,
-  exl3: 2,
+  main: 2,
+  alt: 1,
 } satisfies PresetParallelSlots;
 
-function createQueueContext(configPath?: string): ServerContext & { readonly wakeCount: number } {
+function createQueueContext(configPath?: string): ServerContext {
   const resolvedConfigPath = configPath
     ?? path.join(queueContextRoot, `runtime-${queueContextIndex += 1}.sqlite`);
   const config = configPath === undefined ? getDefaultConfig() : readConfig(resolvedConfigPath);
   if (configPath === undefined) {
     writeConfig(resolvedConfigPath, config);
   }
-  let wakeCount = 0;
   return {
     ...createTestServerContext(resolvedConfigPath),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(config)),
-    async ensureManagedLlamaReady() {
-      wakeCount += 1;
-      return getDefaultConfig();
-    },
-    get wakeCount(): number {
-      return wakeCount;
-    },
   };
 }
 
@@ -140,18 +131,19 @@ test('model request queue timeout default is fifteen minutes', () => {
 });
 
 type PresetQueueHarness = {
-  ctx: ServerContext & { readonly wakeCount: number };
+  ctx: ServerContext;
   coordinator: PresetRuntimeCoordinator;
-  llamaRuntime: BlockingQueueRuntime;
   exl3Runtime: BlockingQueueRuntime;
   events: string[];
   root: string;
 };
 
+/** `stopProcessOnUnload` models a managed TabbyAPI, whose unload is a full process stop. */
 async function createPresetQueueHarness(
   prefix: string,
   activePresetId: string,
   parallelSlots: PresetParallelSlots = DEFAULT_PRESET_PARALLEL_SLOTS,
+  stopProcessOnUnload = false,
 ): Promise<PresetQueueHarness> {
   const root = createManagedTempDir(prefix);
   const configPath = path.join(root, 'runtime.sqlite');
@@ -161,24 +153,16 @@ async function createPresetQueueHarness(
   config.Server.ModelPresets = {
     ActivePresetId: activePresetId,
     Presets: [
-      {
-        ...basePreset,
-        id: 'llama-main',
-        Backend: 'llama',
-        SleepIdleSeconds: 1,
-        ParallelSlots: parallelSlots.llama,
-      },
-      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1, ParallelSlots: parallelSlots.exl3 },
+      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1, ParallelSlots: parallelSlots.main },
+      { ...basePreset, id: 'exl3-alt', Backend: 'exl3', SleepIdleSeconds: 1, ParallelSlots: parallelSlots.alt },
     ],
   };
   writeConfig(configPath, config);
   const ctx = createQueueContext(configPath);
   const events: string[] = [];
-  const llamaRuntime = new BlockingQueueRuntime('llama', events, true);
-  const exl3Runtime = new BlockingQueueRuntime('exl3', events);
+  const exl3Runtime = new BlockingQueueRuntime(events, stopProcessOnUnload);
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
-    llamaRuntime,
     exl3Runtime,
     ctx.activeModelRequests,
     ctx.appliedModelPresetState,
@@ -186,7 +170,7 @@ async function createPresetQueueHarness(
   ctx.presetRuntimeCoordinator = coordinator;
   ctx.modelIdleController = new ModelIdleController(ctx);
   await coordinator.initialize();
-  return { ctx, coordinator, llamaRuntime, exl3Runtime, events, root };
+  return { ctx, coordinator, exl3Runtime, events, root };
 }
 
 async function closePresetQueueHarness(harness: PresetQueueHarness): Promise<void> {
@@ -259,36 +243,41 @@ test('a queued request wakes when a blocking manual model load completes', async
   }
 });
 
-test('llama idle unload blocks queued admission once and cold-restores the applied preset', async () => {
-  const harness = await createPresetQueueHarness('siftkit-model-queue-llama-idle-', 'llama-main');
+test('managed idle unload blocks queued admission once and cold-restores the applied preset', async () => {
+  const harness = await createPresetQueueHarness(
+    'siftkit-model-queue-managed-idle-',
+    'exl3-alt',
+    DEFAULT_PRESET_PARALLEL_SLOTS,
+    true,
+  );
   try {
     const activeLock = await acquireModelRequestWithWait(harness.ctx, 'repo_search');
     assert.ok(activeLock);
-    harness.llamaRuntime.blockNextUnload();
+    harness.exl3Runtime.blockNextUnload();
     assert.equal(releaseModelRequest(harness.ctx, activeLock.token), true);
-    await harness.llamaRuntime.transitionStarted.promise;
+    await harness.exl3Runtime.transitionStarted.promise;
 
     const queuedLockPromise = acquireModelRequestWithWait(harness.ctx, 'summary');
     assert.equal(harness.ctx.modelRequestQueue.length, 1);
     assert.equal(harness.coordinator.canGrantModelRequest(), false);
 
-    harness.llamaRuntime.releaseTransition();
+    harness.exl3Runtime.releaseTransition();
     const queuedLock = await waitForQueuedLock(queuedLockPromise);
     assert.ok(queuedLock);
     assert.equal(harness.ctx.modelRequestQueue.length, 0);
-    assert.deepEqual(harness.events.slice(-2), ['unload:llama', 'stop:llama']);
+    assert.deepEqual(harness.events.slice(-2), ['unload:exl3', 'stop:exl3']);
 
     await ensureActivePresetReadyForModelRequest(harness.ctx);
-    assert.deepEqual(harness.events.slice(-2), ['start:llama', 'load:llama-main']);
+    assert.deepEqual(harness.events.slice(-2), ['start:exl3', 'load:exl3-alt']);
     assert.equal(releaseModelRequest(harness.ctx, queuedLock.token), true);
   } finally {
-    harness.llamaRuntime.releaseTransition();
+    harness.exl3Runtime.releaseTransition();
     await closePresetQueueHarness(harness);
   }
 });
 
-test('backend transition pauses queued admission until the new runtime is ready', async () => {
-  const harness = await createPresetQueueHarness('siftkit-model-queue-preset-', 'llama-main');
+test('preset switch pauses queued admission until the target preset is ready', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-preset-', 'exl3-alt');
   const { ctx, coordinator, events } = harness;
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
@@ -301,7 +290,7 @@ test('backend transition pauses queued admission until the new runtime is ready'
 
     assert.ok(queuedLock);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
-    assert.deepEqual(events, ['start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main']);
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-alt', 'unload:exl3', 'load:exl3-main']);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
     await closePresetQueueHarness(harness);
@@ -341,11 +330,11 @@ test('ParallelSlots limits exl3 global admission and grants the FIFO waiter', as
   }
 });
 
-test('ParallelSlots allows two llama requests before queueing the third', async () => {
+test('ParallelSlots allows two requests on the alternate preset before queueing the third', async () => {
   const harness = await createPresetQueueHarness(
-    'siftkit-model-queue-llama-',
-    'llama-main',
-    { llama: 2, exl3: 2 },
+    'siftkit-model-queue-alt-',
+    'exl3-alt',
+    { main: 2, alt: 2 },
   );
   const { ctx } = harness;
   try {
@@ -403,9 +392,9 @@ test('ParallelSlots limits coordinator-free capacity to configured value', async
   const basePreset = config.Server.ModelPresets.Presets[0];
   if (!basePreset) throw new Error('Default model preset is missing');
   config.Server.ModelPresets = {
-    ActivePresetId: 'llama-main',
+    ActivePresetId: 'exl3-main',
     Presets: [
-      { ...basePreset, id: 'llama-main', Backend: 'llama', ParallelSlots: 2 },
+      { ...basePreset, id: 'exl3-main', Backend: 'exl3', ParallelSlots: 2 },
     ],
   };
   writeConfig(configPath, config);
@@ -431,11 +420,11 @@ test('ParallelSlots limits coordinator-free capacity to configured value', async
   }
 });
 
-test('switching exl3 to llama drains all concurrent requests first', async () => {
+test('switching to a single-slot preset drains all concurrent requests first', async () => {
   const harness = await createPresetQueueHarness(
     'siftkit-model-queue-drain-',
     'exl3-main',
-    { llama: 1, exl3: 2 },
+    { main: 2, alt: 1 },
   );
   const { ctx, coordinator } = harness;
   try {
@@ -443,13 +432,13 @@ test('switching exl3 to llama drains all concurrent requests first', async () =>
     const second = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(first);
     assert.ok(second);
-    assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
+    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
     assert.equal(releaseModelRequest(ctx, first.token), true);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(releaseModelRequest(ctx, second.token), true);
-    await waitForActivePreset(coordinator, 'llama-main');
+    await waitForActivePreset(coordinator, 'exl3-alt');
 
-    // Under llama the very next pair must serialize again.
+    // Under the single-slot preset the very next pair must serialize again.
     const third = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(third);
     assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 1);
@@ -459,29 +448,29 @@ test('switching exl3 to llama drains all concurrent requests first', async () =>
   }
 });
 
-test('preset switch arms idle for the runtime that becomes active', async () => {
-  const harness = await createPresetQueueHarness('siftkit-model-idle-switch-', 'llama-main');
+test('preset switch arms idle for the preset that becomes active', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-idle-switch-', 'exl3-alt');
   const { ctx, coordinator } = harness;
   try {
-    const llamaLock = await acquireModelRequestWithWait(ctx, 'summary');
-    assert.ok(llamaLock);
+    const altLock = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(altLock);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
-    assert.equal(releaseModelRequest(ctx, llamaLock.token), true);
+    assert.equal(releaseModelRequest(ctx, altLock.token), true);
     await waitForActivePreset(coordinator, 'exl3-main');
     assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
 
-    const exl3Lock = await acquireModelRequestWithWait(ctx, 'summary');
-    assert.ok(exl3Lock);
-    assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
-    assert.equal(releaseModelRequest(ctx, exl3Lock.token), true);
-    await waitForActivePreset(coordinator, 'llama-main');
+    const mainLock = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(mainLock);
+    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
+    assert.equal(releaseModelRequest(ctx, mainLock.token), true);
+    await waitForActivePreset(coordinator, 'exl3-alt');
     assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
   } finally {
     await closePresetQueueHarness(harness);
   }
 });
 
-test('model request admission logs queue position without probing llama', async () => {
+test('model request admission logs queue position without waking the engine', async () => {
   const ctx = createQueueContext();
   try {
     const capture = OutputCapture.start(process.stdout);
@@ -494,7 +483,6 @@ test('model request admission logs queue position without probing llama', async 
     }
     const lines = capture.lines;
 
-    assert.equal(ctx.wakeCount, 0);
     assert.ok(lines.some((line) => /st -{8}  incoming  task=summary queue_position=1/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=0/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=summary held_ms=/u.test(line)), lines.join('\n'));
@@ -503,7 +491,7 @@ test('model request admission logs queue position without probing llama', async 
   }
 });
 
-test('queued model request logs its FIFO position without probing llama while waiting', async () => {
+test('queued model request logs its FIFO position while waiting', async () => {
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -516,7 +504,6 @@ test('queued model request logs its FIFO position without probing llama while wa
       // acquire is called, before it awaits — no wall-clock wait is needed to observe it.
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
-        assert.equal(ctx.wakeCount, 0);
         assert.ok(capture.lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), capture.lines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);

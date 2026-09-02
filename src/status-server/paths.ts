@@ -35,6 +35,6 @@ export function getIdleSummarySnapshotsPath(): string {
   return getIdleSummarySnapshotsPathShared();
 }
 
-export function getManagedLlamaLogRoot(): string {
-  return join(getRuntimeRoot(), 'logs', 'managed-llama');
+export function getManagedEngineLogRoot(): string {
+  return join(getRuntimeRoot(), 'logs', 'managed-engine');
 }

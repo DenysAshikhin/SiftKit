@@ -25,7 +25,6 @@ import { buildMockScorecard } from './_test-helpers.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
-import { ManagedLlamaStartupError } from '../src/status-server/managed-llama.js';
 import { buildChatHistoryMessages, resolveChatSessionConfig } from '../src/status-server/chat.js';
 import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
 
@@ -201,7 +200,6 @@ function createRequest(
     availableModels: ['test-model'],
     mockResponses: [{ content: "done" }],
     mockCommandResults: {},
-    managedLlamaRunId: null,
   };
 }
 
@@ -353,76 +351,6 @@ test('chat repo operation runner propagates engine failures without persisting m
       /engine failed/u,
     );
     assert.equal(fs.existsSync(path.join(runtimeRoot, 'runtime.sqlite')), false);
-  } finally {
-    closeRuntimeDatabase();
-    fs.rmSync(runtimeRoot, { force: true, recursive: true });
-  }
-});
-
-test('chat repo operation runner labels image-encode GPU OOMs with the image-size guidance', async () => {
-  const runtimeRoot = createManagedTempDir('siftkit-chat-image-oom-');
-  const engineService = new StubStatusEngineService(
-    buildResult('unused'),
-    new Error('torch.cuda.OutOfMemoryError: CUDA out of memory.'),
-  );
-  try {
-    const request = createRequest(runtimeRoot, engineService, new RecordingProgressWriter());
-    const activePreset = request.config.Server.ModelPresets.Presets.find(
-      (preset) => preset.id === request.config.Server.ModelPresets.ActivePresetId,
-    );
-    if (!activePreset) {
-      throw new Error('Default config must contain its active model preset.');
-    }
-    activePreset.Backend = 'exl3';
-    activePreset.VisionEnabled = true;
-    activePreset.VisionMaxImagePixels = 2_097_152;
-    request.images = [toDataUrl('image/png', rasterBuffer('png', 1, 1))];
-
-    await assert.rejects(
-      () => new ChatRepoOperationRunner().runPlan(request),
-      (error: Error) => {
-        assert.match(error.message, /encoding an image/u);
-        assert.match(error.message, /2\.1 MP/u);
-        assert.doesNotMatch(error.message, /torch\.cuda\.OutOfMemoryError/u);
-        return true;
-      },
-    );
-  } finally {
-    closeRuntimeDatabase();
-    fs.rmSync(runtimeRoot, { force: true, recursive: true });
-  }
-});
-
-test('chat repo operation runner keeps typed startup OOMs on startup guidance even with images', async () => {
-  const runtimeRoot = createManagedTempDir('siftkit-chat-startup-oom-');
-  const engineService = new StubStatusEngineService(
-    buildResult('unused'),
-    new ManagedLlamaStartupError(
-      'Managed llama.cpp ran out of GPU memory during startup.',
-      { kind: 'gpu_memory_oom', requiredMiB: 24_000, availableMiB: 800 },
-    ),
-  );
-  try {
-    const request = createRequest(runtimeRoot, engineService, new RecordingProgressWriter());
-    const activePreset = request.config.Server.ModelPresets.Presets.find(
-      (preset) => preset.id === request.config.Server.ModelPresets.ActivePresetId,
-    );
-    if (!activePreset) {
-      throw new Error('Default config must contain its active model preset.');
-    }
-    activePreset.Backend = 'exl3';
-    activePreset.VisionEnabled = true;
-    activePreset.VisionMaxImagePixels = 2_097_152;
-    request.images = [toDataUrl('image/png', rasterBuffer('png', 1, 1))];
-
-    await assert.rejects(
-      () => new ChatRepoOperationRunner().runPlan(request),
-      (error: Error) => {
-        assert.match(error.message, /context length|CacheRam/u);
-        assert.doesNotMatch(error.message, /Max image size|VisionMaxImagePixels/u);
-        return true;
-      },
-    );
   } finally {
     closeRuntimeDatabase();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });

@@ -57,7 +57,7 @@ export async function startHarness(namePrefix: string, t: TestContext): Promise<
   process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = `${baseUrl}/config`;

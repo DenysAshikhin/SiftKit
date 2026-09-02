@@ -1,12 +1,12 @@
 /**
- * Status server entry point: creates the server context, wires together
- * managed-llama lifecycle, route handling, and server bootstrap/teardown.
+ * Status server entry point: creates the server context, wires together the
+ * managed-engine lifecycle, route handling, and server bootstrap/teardown.
  *
- * Previously a 2,100+ line monolith — now delegates to:
- *   - `server-types.ts`  – shared type definitions
- *   - `server-ops.ts`    – published status, run state, idle summary, execution lease
- *   - `managed-llama.ts` – llama.cpp lifecycle (startup, shutdown, log scan)
- *   - `routes.ts`        – HTTP route handler
+ * Delegates to:
+ *   - `server-types.ts`               – shared type definitions
+ *   - `server-ops.ts`                 – published status, run state, idle summary, execution lease
+ *   - `preset-runtime-coordinator.ts` – managed TabbyAPI lifecycle (startup, switch, shutdown)
+ *   - `routes.ts`                     – HTTP route handler
  */
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -55,20 +55,11 @@ import {
 import { StatusEngineService } from './engine-service.js';
 import { StatusRunRegistry } from './status-run-registry.js';
 import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
-import {
-  ensureManagedLlamaReady,
-  shutdownManagedLlamaIfNeeded,
-  shutdownManagedLlamaForProcessExitSync,
-  shutdownManagedLlamaForServerExit,
-  clearPreexistingManagedLlamaIfNeeded,
-  dumpManagedLlamaStartupReviewToConsole,
-} from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
 import { waitForTerminalMetadataIdle } from './terminal-metadata.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.js';
-import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
 import { ManagedTabbyRuntime } from './managed-tabby.js';
 import { ModelIdleController } from './model-idle-controller.js';
 import type {
@@ -76,9 +67,6 @@ import type {
   StartStatusServerOptions,
   ServerContext,
 } from './server-types.js';
-import type {
-  ManagedLlamaConfig,
-} from './config-store.js';
 import type {
   StatusRequestLogInput,
   RepoSearchProgressEvent,
@@ -130,7 +118,7 @@ export type {
   RunRecord,
   DailyMetrics,
 };
-export type { ColorOptions, IdleSummarySnapshot, StatusMetadata, Metrics, ManagedLlamaConfig };
+export type { ColorOptions, IdleSummarySnapshot, StatusMetadata, Metrics };
 export { terminateProcessTree };
 export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedServer };
 
@@ -138,8 +126,8 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 // Server factory
 // ---------------------------------------------------------------------------
 
-const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
-const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const INFERENCE_RUN_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
+const INFERENCE_RUN_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -212,13 +200,13 @@ function getInferenceRunFlushIdleDelayMs(options: StartStatusServerOptions): num
   return DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS;
 }
 
-function pruneManagedLlamaLogChunks(): void {
-  const cutoff = new Date(Date.now() - MANAGED_LLAMA_LOG_RETENTION_MS).toISOString();
+function pruneInferenceRunLogChunks(): void {
+  const cutoff = new Date(Date.now() - INFERENCE_RUN_LOG_RETENTION_MS).toISOString();
   deleteInferenceRunLogChunksOlderThan({ olderThanUtc: cutoff });
 }
 
 export function startStatusServer(options: StartStatusServerOptions = {}): ExtendedServer {
-  const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
+  const disableManagedEngineStartup = Boolean(options.disableManagedEngineStartup);
   const host = getStatusServerBindHost();
   const requestedPort = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
   const statusPath = getStatusPath();
@@ -232,7 +220,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const metrics = loadedMetrics.metrics;
   void loadedMetrics.resetRequired;
   writeMetrics(metricsPath, metrics);
-  pruneManagedLlamaLogChunks();
+  pruneInferenceRunLogChunks();
 
   let resolveStartupPromise: () => void = () => {};
   let rejectStartupPromise: (error: Error) => void = () => {};
@@ -249,7 +237,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     statusPath,
     metricsPath,
     idleSummarySnapshotsPath,
-    disableManagedLlamaStartup,
+    disableManagedEngineStartup,
     engineService,
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
@@ -295,22 +283,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       pending: false,
       database: null,
     },
-    managedLlama: {
-      startupPromise: null,
-      shutdownPromise: null,
-      hostProcess: null,
-      lastStartupLogs: null,
-      starting: false,
-      ready: false,
-      startupWarning: null,
-      bootstrapStartup: false,
-      logCleanupTimer: null,
-    },
+    engineBootstrap: { inProgress: false, warning: null },
+    inferenceRunLogCleanupTimer: null,
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
-    // Late-bound function references (break circular deps between modules).
-    shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
-    ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
@@ -318,12 +294,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   );
   const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
     configPath,
-    new ManagedLlamaRuntime(ctx),
     managedTabbyRuntime,
     ctx.activeModelRequests,
     ctx.appliedModelPresetState,
   );
-  if (!disableManagedLlamaStartup) {
+  if (!disableManagedEngineStartup) {
     ctx.presetRuntimeCoordinator = presetRuntimeCoordinator;
     ctx.modelIdleController = new ModelIdleController(ctx);
   }
@@ -345,7 +320,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
         residencyGate: new StatusServerResidencyGate(
-          disableManagedLlamaStartup ? null : presetRuntimeCoordinator,
+          disableManagedEngineStartup ? null : presetRuntimeCoordinator,
         ),
         config: initialConfig.Assistant,
         configWriter: new StatusServerAssistantConfigWriter(configPath),
@@ -378,10 +353,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       waitForTerminalMetadataIdle: (timeoutMs = 10_000, minimumCompletedRequestCount?: number) => (
         waitForTerminalMetadataIdle(ctx, timeoutMs, minimumCompletedRequestCount)
       ),
-      shutdownManagedLlamaForServerExit: () => shutdownManagedLlamaForServerExit(ctx),
-      shutdownManagedLlamaForProcessExitSync: (): void => {
+      shutdownEngineForProcessExitSync: (): void => {
+        ctx.engineBootstrap.inProgress = false;
         managedTabbyRuntime.stopForProcessExitSync();
-        shutdownManagedLlamaForProcessExitSync(ctx);
+        ctx.idleSummary.pending = false;
+        publishStatus(ctx);
       },
       startupPromise,
     },
@@ -398,15 +374,15 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     });
   }, ASSISTANT_DRAIN_INTERVAL_MS);
   ctx.assistantDrainTimer.unref();
-  ctx.managedLlama.logCleanupTimer = setInterval(() => {
+  ctx.inferenceRunLogCleanupTimer = setInterval(() => {
     try {
-      pruneManagedLlamaLogChunks();
+      pruneInferenceRunLogChunks();
     } catch (error) {
-      process.stderr.write(`[siftKitStatus] Managed llama log cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`[siftKitStatus] Inference run log cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-  }, MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS);
-  if (typeof ctx.managedLlama.logCleanupTimer.unref === 'function') {
-    ctx.managedLlama.logCleanupTimer.unref();
+  }, INFERENCE_RUN_LOG_CLEANUP_INTERVAL_MS);
+  if (typeof ctx.inferenceRunLogCleanupTimer.unref === 'function') {
+    ctx.inferenceRunLogCleanupTimer.unref();
   }
   ctx.runtimeHistoryPruneTimer = setInterval(() => {
     runRuntimeHistoryPrune(repoAgentRunStore);
@@ -415,7 +391,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ctx.runtimeHistoryPruneTimer.unref();
   }
 
-  // Override close to ensure managed llama shuts down first.
+  // Override close to ensure the managed engine shuts down first.
   const originalClose = server.close.bind(server);
   let closeRequested = false;
   server.close = (callback?: (err?: Error) => void) => {
@@ -437,24 +413,18 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
     try {
       let startupWarning: string | null = null;
-      if (!disableManagedLlamaStartup) {
+      if (!disableManagedEngineStartup) {
+        ctx.engineBootstrap.inProgress = true;
         try {
-          await clearPreexistingManagedLlamaIfNeeded(ctx);
-          ctx.managedLlama.bootstrapStartup = true;
-          try {
-            await presetRuntimeCoordinator.initialize();
-            ctx.managedLlama.startupWarning = null;
-          } finally {
-            ctx.managedLlama.bootstrapStartup = false;
-          }
+          await presetRuntimeCoordinator.initialize();
+          ctx.engineBootstrap.warning = null;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           startupWarning = message;
-          ctx.managedLlama.startupWarning = message;
-          ctx.managedLlama.ready = false;
-          ctx.managedLlama.bootstrapStartup = false;
-          dumpManagedLlamaStartupReviewToConsole(ctx.managedLlama.lastStartupLogs);
+          ctx.engineBootstrap.warning = message;
           process.stderr.write(`[siftKitStatus] Inference backend startup failed; continuing in degraded mode: ${message}\n`);
+        } finally {
+          ctx.engineBootstrap.inProgress = false;
         }
       }
       publishStatus(ctx);
@@ -468,7 +438,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       setImmediate(() => runRuntimeHistoryPrune(repoAgentRunStore));
     } catch (error) {
       rejectStartupPromise(toError(error));
-      dumpManagedLlamaStartupReviewToConsole(ctx.managedLlama.lastStartupLogs);
       process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
       server.close(() => process.exit(1));
     }
@@ -479,9 +448,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       clearInterval(ctx.assistantDrainTimer);
       ctx.assistantDrainTimer = null;
     }
-    if (ctx.managedLlama.logCleanupTimer) {
-      clearInterval(ctx.managedLlama.logCleanupTimer);
-      ctx.managedLlama.logCleanupTimer = null;
+    if (ctx.inferenceRunLogCleanupTimer) {
+      clearInterval(ctx.inferenceRunLogCleanupTimer);
+      ctx.inferenceRunLogCleanupTimer = null;
     }
     if (ctx.runtimeHistoryPruneTimer) {
       clearInterval(ctx.runtimeHistoryPruneTimer);

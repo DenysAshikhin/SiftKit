@@ -63,7 +63,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
   const config = getDefaultConfig();
   writeConfig(getConfigPath(), config);
   const assistant = new RecordingAssistant();
-  const server = startStatusServer({ disableManagedLlamaStartup: true, assistant });
+  const server = startStatusServer({ disableManagedEngineStartup: true, assistant });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

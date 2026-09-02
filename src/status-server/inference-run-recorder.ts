@@ -1,4 +1,3 @@
-import { InferenceRunLogStorageFilter } from './inference-run-log-storage-filter.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import type { InferenceBackendId } from '../config/types.js';
 import {
@@ -18,10 +17,7 @@ export type InferenceRunRecorderOptions = {
   flushQueue: InferenceRunFlushQueue;
 };
 
-/**
- * Field names match what `waitForManagedLlamaStartup` already reads, so the startup
- * stall detector needs no changes when llama moves onto the recorder.
- */
+/** Raw character counts per stream, read by startup stall detection. */
 export type InferenceRunStreamProgress = {
   stdoutChars: number;
   stderrChars: number;
@@ -71,11 +67,7 @@ export class InferenceRunRecorder {
     this.attach(stream, 'launcher_stderr');
   }
 
-  /**
-   * llama.cpp reports speculative-decode acceptance only in its stdout/stderr, and only in
-   * the raw stream before the storage filter drops the request echo. The base recorder has
-   * nothing to scrape; LlamaRunRecorder overrides this.
-   */
+  /** Sees every raw chunk before storage; the base recorder has nothing to scrape. */
   protected observeRawChunk(streamKind: InferenceRunStreamKind, chunkText: string): void {
     void streamKind;
     void chunkText;
@@ -92,22 +84,6 @@ export class InferenceRunRecorder {
   }
 
   /**
-   * llama.cpp scrapes speculative-decode acceptance into a separate tracker that has to be
-   * flushed alongside the log chunks. The base recorder has nothing extra; LlamaRunRecorder
-   * overrides this.
-   */
-  protected flushDerivedMetrics(): void {
-  }
-
-  /**
-   * Frees per-run derived-metrics state once the run is terminal. Separate from
-   * flushDerivedMetrics because the flush also runs mid-run (managed-llama's
-   * startup review) where the run continues and the state must survive.
-   */
-  protected releaseDerivedMetrics(): void {
-  }
-
-  /**
    * Terminal bookkeeping for a child that exited or failed to spawn. Callers run inside
    * EventEmitter handlers, where a throw is an unhandled exception that kills the process, and
    * the runtime DB may already be gone during test/process teardown.
@@ -120,7 +96,6 @@ export class InferenceRunRecorder {
   }): void {
     try {
       this.flush();
-      this.flushDerivedMetrics();
     } catch {
       // The runtime DB may already be gone during test/process teardown.
     }
@@ -129,10 +104,6 @@ export class InferenceRunRecorder {
     } catch {
       // The runtime DB may already be gone during test/process teardown.
     }
-    // Outside the try blocks deliberately: a pure in-memory Map.delete that cannot
-    // throw, and it must run even when the DB writes above fail during teardown —
-    // that failure mode is exactly when the leak would otherwise persist.
-    this.releaseDerivedMetrics();
   }
 
   finish(options: {
@@ -170,16 +141,14 @@ export class InferenceRunRecorder {
     if (!stream) {
       return;
     }
-    const storageFilter = new InferenceRunLogStorageFilter();
     stream.setEncoding('utf8');
     stream.on('data', (chunk: string | Buffer) => {
       try {
         const chunkText = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
         this.countProgress(streamKind, chunkText.length);
         this.observeRawChunk(streamKind, chunkText);
-        const filteredChunkText = storageFilter.filterChunk(chunkText);
-        if (filteredChunkText) {
-          bufferInferenceRunLogChunk({ runId: this.runId, streamKind, chunkText: filteredChunkText });
+        if (chunkText) {
+          bufferInferenceRunLogChunk({ runId: this.runId, streamKind, chunkText });
           this.enqueueFlush();
         }
       } catch {

@@ -22,7 +22,7 @@ import {
   withRealStatusServer,
   withStubServer,
   withTempEnv,
-  writeManagedLlamaLauncher,
+  writeManagedEngineLauncher,
   type RuntimeStatusResponse,
   type HealthCheckResponse,
   type LlamaModelsResponse,
@@ -71,7 +71,7 @@ test('real status server clears stale true status once during startup', async ()
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -90,12 +90,12 @@ test('real status server initializes a missing status file to false', async () =
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('real status server health reports disableManagedLlamaStartup mode when flagged', async () => {
+test('real status server health reports disableManagedEngineStartup mode when flagged', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -105,22 +105,21 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
     await withRealStatusServer(async ({ healthUrl }) => {
       const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
-      assert.equal(health.disableManagedLlamaStartup, true);
+      assert.equal(health.disableManagedEngineStartup, true);
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup', async () => {
+test('real status server with disableManagedEngineStartup skips managed engine bootstrap during server startup', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
@@ -135,18 +134,17 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config', async () => {
+test('real status server with disableManagedEngineStartup does not trigger managed startup from GET /config', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -159,7 +157,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -197,7 +195,7 @@ test('real status server accepts partial PUT /config updates and preserves unspe
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -216,7 +214,7 @@ test('real status server rejects removed config fields without leaving the reque
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -258,8 +256,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
 
     const configPath = getConfigPath();
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-    await using unreachableLlamaPortLease = await acquireChildPortLease('runtime-status-server-unreachable-llama');
-    const unreachableLlamaPort = unreachableLlamaPortLease.port;
+    await using unreachablePortLease = await acquireChildPortLease('runtime-status-server-unreachable-engine');
     const config = getDefaultConfig();
     const basePreset = config.Server.ModelPresets.Presets[0];
     if (!basePreset) throw new Error('Default model preset is missing');
@@ -271,14 +268,16 @@ test('failed preset switch returns 503 and keeps the status server alive', async
       Model: 'tabby-model',
       ModelPath: path.join(tempRoot, 'tabby-model'),
     };
-    const llamaPreset = {
+    const unreachablePreset = {
       ...basePreset,
-      id: 'llama-main',
-      Backend: 'llama' as const,
+      id: 'exl3-unreachable',
+      Backend: 'exl3' as const,
       ExternalServerEnabled: true,
-      BaseUrl: `http://127.0.0.1:${unreachableLlamaPort}`,
-      Model: 'llama-model',
+      BaseUrl: `http://127.0.0.1:${unreachablePortLease.port}`,
+      Model: 'unreachable-model',
+      ModelPath: path.join(tempRoot, 'unreachable-model'),
       HealthcheckTimeoutMs: 50,
+      StartupTimeoutMs: 200,
     };
     config.Server.Engines.Exl3 = {
       Managed: false,
@@ -291,7 +290,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
     };
     config.Server.ModelPresets = {
       ActivePresetId: exl3Preset.id,
-      Presets: [exl3Preset, llamaPreset],
+      Presets: [exl3Preset, unreachablePreset],
     };
     writeConfig(configPath, config);
 
@@ -299,7 +298,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
       const statusServer = await startStatusServerProcess({ statusPath, configPath, workingDirectory: tempRoot });
       try {
         await new Promise<void>((resolve) => tabby.close(() => resolve()));
-        config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
+        config.Server.ModelPresets.ActivePresetId = unreachablePreset.id;
         const update = await fetch(statusServer.configUrl, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -308,7 +307,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
 
         // Saving only persists; the preset is applied lazily on the next readiness check.
         assert.equal(update.status, 200);
-        assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, llamaPreset.id);
+        assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, unreachablePreset.id);
 
         const applied = await fetch(statusServer.configUrl);
         assert.equal(applied.status, 503);
@@ -323,18 +322,17 @@ test('failed preset switch returns 503 and keeps the status server alive', async
   });
 });
 
-test('real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close', async () => {
+test('real status server with disableManagedEngineStartup leaves an externally started engine running across boot and close', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
-    const externalLlama = spawn(process.execPath, [managed.fakeServerPath], {
+    const externalEngine = spawn(process.execPath, [managed.fakeServerPath], {
       stdio: 'ignore',
       windowsHide: true,
     });
@@ -353,7 +351,7 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
       }, {
         statusPath,
         configPath,
-        disableManagedLlamaStartup: true,
+        disableManagedEngineStartup: true,
       });
 
       await waitForAsyncExpectation(async () => {
@@ -361,8 +359,8 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 1000);
     } finally {
-      externalLlama.kill('SIGTERM');
-      await new Promise<void>((resolve) => externalLlama.once('close', () => resolve()));
+      externalEngine.kill('SIGTERM');
+      await new Promise<void>((resolve) => externalEngine.once('close', () => resolve()));
     }
   });
 });

@@ -11,7 +11,7 @@ import { ImageTokenBudgetSchema } from './image.js';
 import { TaskMetricKindSchema } from './metrics.js';
 
 export const DashboardHealthSchema = z.object({
-  ok: z.boolean(), disableManagedLlamaStartup: z.boolean(), statusPath: z.string(), configPath: z.string(),
+  ok: z.boolean(), disableManagedEngineStartup: z.boolean(), statusPath: z.string(), configPath: z.string(),
   metricsPath: z.string(), idleSummarySnapshotsPath: z.string(), runtimeRoot: z.string(),
 });
 export type DashboardHealth = z.infer<typeof DashboardHealthSchema>;

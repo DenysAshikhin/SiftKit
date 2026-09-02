@@ -4,9 +4,7 @@ import { PassThrough } from 'node:stream';
 
 import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { LlamaRunRecorder } from '../src/status-server/llama-run-recorder.js';
 import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.js';
-import { getManagedLlamaSpeculativeMetricsTracker } from '../src/status-server/managed-llama-speculative-tracker.js';
 import {
   consumeInferenceRunPendingLogChunks,
   readInferenceRun,
@@ -59,7 +57,7 @@ test('the recorder captures a run row, its stream text, and its terminal status'
 test('the recorder counts stdout and stderr characters separately', async () => {
   await withRecorderDatabase(async (flushQueue) => {
     const recorder = new InferenceRunRecorder({
-      backend: 'llama',
+      backend: 'exl3',
       purpose: 'startup',
       entrypointPath: null,
       baseUrl: null,
@@ -129,7 +127,7 @@ test('a failed run records its exit code and error message', async () => {
 test('a null stream is ignored rather than throwing', async () => {
   await withRecorderDatabase(async (flushQueue) => {
     const recorder = new InferenceRunRecorder({
-      backend: 'llama',
+      backend: 'exl3',
       purpose: 'shutdown',
       entrypointPath: null,
       baseUrl: null,
@@ -165,72 +163,28 @@ test('finalize records the terminal status and flushes buffered chunks', async (
 
 /**
  * Child exit lands in an EventEmitter handler, where a throw is an unhandled exception that kills
- * the process. Both backends must survive an exit that arrives after the runtime DB has closed.
+ * the process. The recorder must survive an exit that arrives after the runtime DB has closed.
  */
-for (const backend of ['exl3', 'llama'] as const) {
-  test(`finalize tolerates a closed runtime database for a ${backend} run`, async () => {
-    await withRecorderDatabase(async (flushQueue) => {
-      const recorder = backend === 'llama'
-        ? new LlamaRunRecorder({
-          backend,
-          purpose: 'startup',
-          entrypointPath: null,
-          baseUrl: null,
-          flushQueue,
-        })
-        : new InferenceRunRecorder({
-          backend,
-          purpose: 'startup',
-          entrypointPath: null,
-          baseUrl: null,
-          flushQueue,
-        });
-
-      recorder.appendLine('engine_stderr', 'late\n');
-      closeRuntimeDatabase();
-      assert.doesNotThrow(() => recorder.finalize({ status: 'stopped', exitCode: 0 }));
-    });
-  });
-}
-
-test('finalize evicts the speculative metrics tracker after persisting its metrics', async () => {
+test('finalize tolerates a closed runtime database', async () => {
   await withRecorderDatabase(async (flushQueue) => {
-    const recorder = new LlamaRunRecorder({
-      backend: 'llama',
-      purpose: 'tracker-eviction-test',
+    const recorder = new InferenceRunRecorder({
+      backend: 'exl3',
+      purpose: 'startup',
       entrypointPath: null,
       baseUrl: null,
       flushQueue,
     });
 
-    recorder.appendLine(
-      'engine_stderr',
-      'llama_decode: statistics spec: #gen tokens = 40, #acc tokens = 30\n',
-    );
-    assert.ok(
-      getManagedLlamaSpeculativeMetricsTracker(recorder.runId),
-      'tracker must exist while the run is live',
-    );
-
-    recorder.finalize({ status: 'stopped', exitCode: 0 });
-
-    assert.equal(
-      getManagedLlamaSpeculativeMetricsTracker(recorder.runId),
-      null,
-      'tracker must be evicted once the run has finalized',
-    );
-
-    const run = readInferenceRun(recorder.runId);
-    assert.ok(run, 'run row must exist');
-    assert.equal(run.speculativeGeneratedTokens, 40);
-    assert.equal(run.speculativeAcceptedTokens, 30);
+    recorder.appendLine('engine_stderr', 'late\n');
+    closeRuntimeDatabase();
+    assert.doesNotThrow(() => recorder.finalize({ status: 'stopped', exitCode: 0 }));
   });
 });
 
 test('chunk flushes reach the queue only once the recorder enables it', async () => {
   await withRecorderDatabase(async (flushQueue) => {
     const recorder = new InferenceRunRecorder({
-      backend: 'llama',
+      backend: 'exl3',
       purpose: 'startup',
       entrypointPath: null,
       baseUrl: null,

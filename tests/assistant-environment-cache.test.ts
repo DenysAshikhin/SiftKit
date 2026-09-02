@@ -116,7 +116,7 @@ test('the ingestion route requires the bearer, fails closed on version, and reje
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const initial = getDefaultConfig();
   writeConfig(getConfigPath(), { ...initial, Assistant: { ...initial.Assistant, Enabled: true } });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 

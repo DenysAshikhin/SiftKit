@@ -11,7 +11,8 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import {
-  writeManagedLlamaLauncher,
+  installProbeShim,
+  writeManagedEngineLauncher,
   acquireChildPortLease,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
@@ -27,27 +28,29 @@ const SIFTKIT_REPO_ROOT = process.cwd();
 const requireFromHere = createRequire(path.join(SIFTKIT_REPO_ROOT, '.test-build', 'tests', 'repo-search-status-server.test.js'));
 const ProcessIdSchema = z.coerce.number().int().positive();
 
-function writeManagedLlamaReadinessTestConfig(managed: {
-  baseUrl: string;
-  modelPath: string;
-  executablePath: string;
-}, startupTimeoutMs: number): void {
+function writeManagedEngineReadinessTestConfig(
+  managed: ReturnType<typeof writeManagedEngineLauncher>,
+  startupTimeoutMs: number,
+): void {
   const config = getDefaultConfig();
   const server = config.Server;
   server.ModelPresets.Presets = [{
     ...server.ModelPresets.Presets[0],
     id: 'default',
     label: 'Managed Test',
-    Model: 'managed-test-model',
+    Backend: 'exl3',
+    Model: managed.modelId,
     ExternalServerEnabled: false,
     BaseUrl: managed.baseUrl,
-    ExecutablePath: managed.executablePath,
+    ExecutablePath: null,
     ModelPath: managed.modelPath,
     StartupTimeoutMs: startupTimeoutMs,
     HealthcheckTimeoutMs: 20,
     HealthcheckIntervalMs: 20,
   }];
   server.ModelPresets.ActivePresetId = 'default';
+  // A short shutdown budget keeps the failed-launch cleanup path fast when taskkill is denied.
+  server.Engines.Exl3 = { ...managed.engine, ShutdownTimeoutMs: 1_000 };
   writeConfig(getConfigPath(), config);
 }
 
@@ -94,7 +97,7 @@ test('status server stays responsive while repo-search is running', async () => 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -202,7 +205,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -280,7 +283,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = '120';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -388,10 +391,9 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
   }
 });
 
-test('managed llama readiness wait is serialized by the model request queue', async () => {
+test('managed engine readiness wait is serialized by the model request queue', async () => {
   const tempRoot = createManagedTempDir('siftkit-readiness-outside-queue-');
   const previousCwd = process.cwd();
-  const previousStartupGraceDelayMs = process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
     JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
@@ -412,14 +414,13 @@ test('managed llama readiness wait is serialized by the model request queue', as
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  await using llamaPortLease = await acquireChildPortLease('repo-search-status-server');
-  const llamaPort = llamaPortLease.port;
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
+  await using enginePortLease = await acquireChildPortLease('repo-search-status-server');
+  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  writeManagedLlamaReadinessTestConfig(managed, 500);
+  const restoreProbeShim = installProbeShim(managed.probeShimPath);
+  writeManagedEngineReadinessTestConfig(managed, 500);
 
   const server = startStatusServer();
   await server.startupPromise;
@@ -450,7 +451,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
         repoRoot: process.cwd(),
         question: 'summarize',
         inputText: 'short text',
-        backend: 'llama',
+        backend: 'exl3',
         model: 'managed-test-model',
       },
     });
@@ -471,17 +472,13 @@ test('managed llama readiness wait is serialized by the model request queue', as
     });
     process.chdir(previousCwd);
     closeRuntimeDatabase();
+    restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
       } else {
         process.env[key] = value;
       }
-    }
-    if (previousStartupGraceDelayMs === undefined) {
-      delete process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
-    } else {
-      process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = previousStartupGraceDelayMs;
     }
     await stopManagedTestProcess(managed.pidFilePath);
     // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
@@ -490,10 +487,9 @@ test('managed llama readiness wait is serialized by the model request queue', as
   }
 });
 
-test('health reports unavailable while managed llama bootstrap is still starting', async () => {
+test('health reports unavailable while managed engine bootstrap is still starting', async () => {
   const tempRoot = createManagedTempDir('siftkit-health-bootstrap-');
   const previousCwd = process.cwd();
-  const previousStartupGraceDelayMs = process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
     JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
@@ -514,14 +510,13 @@ test('health reports unavailable while managed llama bootstrap is still starting
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  await using llamaPortLease = await acquireChildPortLease('repo-search-status-server');
-  const llamaPort = llamaPortLease.port;
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
+  await using enginePortLease = await acquireChildPortLease('repo-search-status-server');
+  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  writeManagedLlamaReadinessTestConfig(managed, 250);
+  const restoreProbeShim = installProbeShim(managed.probeShimPath);
+  writeManagedEngineReadinessTestConfig(managed, 250);
 
   const server = startStatusServer();
   await waitForAsyncExpectation(async () => {
@@ -547,17 +542,13 @@ test('health reports unavailable while managed llama bootstrap is still starting
     });
     process.chdir(previousCwd);
     closeRuntimeDatabase();
+    restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
       } else {
         process.env[key] = value;
       }
-    }
-    if (previousStartupGraceDelayMs === undefined) {
-      delete process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
-    } else {
-      process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = previousStartupGraceDelayMs;
     }
     await stopManagedTestProcess(managed.pidFilePath);
     // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
@@ -620,7 +611,7 @@ test('status completion flushing does not block health responses', async () => {
     return originalReadFileSync(filePath, options);
   };
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -701,7 +692,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -967,7 +958,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1066,7 +1057,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1166,7 +1157,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
 
   const repoSearchModulePath = requireFromHere.resolve(path.join(SIFTKIT_REPO_ROOT, 'dist', 'repo-search', 'index.js'));
   const priorCacheEntry = requireFromHere.cache[repoSearchModulePath];
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
 
   try {
     await server.startupPromise;
@@ -1299,7 +1290,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
     { exitCode: 0, stdout: `src/${index}.ts:1:${pattern}`, stderr: '' },
   ]));
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

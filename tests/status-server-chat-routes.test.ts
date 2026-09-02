@@ -126,7 +126,7 @@ async function withCaptionServer(
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const fixture = seedCaptionSession(options);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   return { tempRoot, previousCwd, envBackup, fixture, server, baseUrl: `http://127.0.0.1:${address.port}` };
@@ -278,7 +278,7 @@ test('caption route reports an unknown message as an image-not-found error', asy
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -336,7 +336,7 @@ test('caption route performs one mocked vision pass and persists its caption', a
     imageMeta: [imageMetadata()],
   };
   saveChatSession(runtimeRoot, { ...session, messages: [message] });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

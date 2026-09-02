@@ -13,7 +13,7 @@ async function startServerWithRuntime(namePrefix: string): Promise<{
   const server = await DashboardTestServer.start(
     namePrefix,
     { baseUrl: `http://127.0.0.1:${stub.port}`, model: 'stub-model' },
-    { managedLlamaStartup: true },
+    { managedEngineStartup: true },
   );
   return {
     server,

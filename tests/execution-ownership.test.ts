@@ -24,6 +24,6 @@ test('the status server exposes no execution-lease routes', async () => {
       await assert.rejects(() => requestJson(`${base}/execution`));
       await assert.rejects(() => requestJson(`${base}/execution/acquire`, { method: 'POST', body: '{}' }));
       await assert.rejects(() => requestJson(`${base}/execution/release`, { method: 'POST', body: '{"token":"x"}' }));
-    }, { statusPath, configPath, disableManagedLlamaStartup: true });
+    }, { statusPath, configPath, disableManagedEngineStartup: true });
   });
 });

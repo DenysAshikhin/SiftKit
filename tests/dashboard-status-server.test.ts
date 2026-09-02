@@ -103,7 +103,7 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   config.WebSearch = buildWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -132,25 +132,18 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
 const requireFromHere = createRequire(path.join(process.cwd(), '.test-build', 'tests', 'dashboard-status-server.test.js'));
 const SIFTKIT_REPO_ROOT = process.cwd();
 type RuntimeHelpers = {
-  writeManagedLlamaLauncher: (tempRoot: string, port: number, modelId?: string) => {
-    baseUrl: string;
-    executablePath: string;
-    modelPath: string;
-    readyFilePath: string;
-  };
   acquireChildPortLease: (name: string) => Promise<{
     port: number;
     [Symbol.asyncDispose](): Promise<void>;
   }>;
   getDefaultConfig: () => Dict;
-  setManagedLlamaBaseUrl: (config: Dict, baseUrl: string) => void;
   waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
   startStatusServerProcess: (options: {
     statusPath: string;
     configPath: string;
     idleSummaryDbPath?: string;
     idleSummaryDelayMs?: number;
-    disableManagedLlamaStartup?: boolean;
+    disableManagedEngineStartup?: boolean;
   }) => Promise<{
     statusUrl: string;
     close: () => Promise<void>;
@@ -214,7 +207,7 @@ test('config llama cpp test endpoint reports reachable external server', async (
   await new Promise<void>((resolve, reject) => {
     remoteServer.listen(remotePort, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -259,7 +252,7 @@ test('config llama cpp test endpoint reports unreachable external server', async
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   await using unusedPortLease = await runtimeHelpers.acquireChildPortLease('dashboard-status-server-unreachable');
   const unusedPort = unusedPortLease.port;
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -323,7 +316,7 @@ test('chat session creation uses pass-through host context window', async () => 
   activePreset.Reasoning = 'on';
   writeConfig(configPath, config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -409,7 +402,7 @@ class ChatInferenceMetadataFixture {
   }
 
   async start(): Promise<void> {
-    this.server = startStatusServer({ disableManagedLlamaStartup: true });
+    this.server = startStatusServer({ disableManagedEngineStartup: true });
     await this.server.startupPromise;
     const address = getAddressInfo(this.server);
     this.baseUrl = `http://127.0.0.1:${address.port}`;
@@ -509,7 +502,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -853,7 +846,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
       Reasoning: serverLlama.Presets[0]?.Reasoning,
     },
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -938,7 +931,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1026,7 +1019,7 @@ test('web_search tool calls increment web search usage', async () => {
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1084,7 +1077,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   repoSearchPreset.autoloadFiles = ['missing-repo-context.md'];
   writeConfig(getConfigPath(), streamConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1299,7 +1292,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
   modelPreset.VisionEnabled = true;
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1417,7 +1410,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   baseConfig.Server.Engines.Exl3.Managed = false;
   writeConfig(getConfigPath(), baseConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1592,7 +1585,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   baseConfig.Server.Engines.Exl3.Managed = false;
   writeConfig(getConfigPath(), baseConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1734,7 +1727,7 @@ test('repo-search endpoint rejects images when the active preset lacks vision', 
   modelPreset.VisionEnabled = false;
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1788,7 +1781,7 @@ test('plan stream endpoint rejects images when image retention is zero', async (
   modelPreset.VisionImageRetention = 0;
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1838,7 +1831,7 @@ test('chat session web search defaults on and update persists webSearchEnabled',
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1940,7 +1933,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
   modelPreset.NumCtx = 85_000;
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2020,7 +2013,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2095,7 +2088,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2241,7 +2234,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2342,7 +2335,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2457,7 +2450,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2531,7 +2524,7 @@ test('same session rejects a second request instead of entering the model FIFO',
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2696,7 +2689,7 @@ test('queued model request is dropped when client disconnects before lock grant'
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2880,7 +2873,7 @@ test('invalid model request is rejected without waiting for active model work', 
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2949,7 +2942,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -2995,7 +2988,7 @@ test('chat session create and update reject unknown preset ids without persistin
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -3094,7 +3087,7 @@ test('chat completion replays prior tool evidence without hidden system context'
   }));
   writeConfig(getConfigPath(), chatConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -3252,7 +3245,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
   snapshotPreset.Temperature = 0.31;
   writeConfig(getConfigPath(), snapshotConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -3356,7 +3349,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   chatPreset[0].NumCtx = 85000;
   writeConfig(getConfigPath(), chatConfig);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

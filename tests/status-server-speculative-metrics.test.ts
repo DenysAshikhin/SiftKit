@@ -3,257 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { z } from 'zod';
 
-import { writeConfig } from '../src/status-server/config-store.js';
-
-const StartupRunRowSchema = z.object({ id: z.union([z.string(), z.number()]).nullish() }).optional();
-const SpeculativeRowSchema = z
-  .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
-  .optional();
 import {
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
 } from '../src/status-server/dashboard-runs.js';
-import {
-  captureManagedLlamaSpeculativeMetricsSnapshot,
-  getManagedLlamaSpeculativeMetricsDelta,
-} from '../src/status-server/managed-llama.js';
-import {
-  bufferInferenceRunLogChunk,
-  createInferenceRun,
-  readInferenceRunLogTextByStream,
-  flushInferenceRunLogChunks,
-} from '../src/state/inference-runs.js';
-import {
-  appendManagedLlamaSpeculativeMetricsChunk,
-} from '../src/status-server/managed-llama-speculative-tracker.js';
-
-import {
-  getDefaultConfig,
-  setManagedLlamaBaseUrl,
-  requestJson,
-  withTempEnv,
-  withRealStatusServer,
-  writeManagedLlamaLauncher,
-  acquireChildPortLease,
-  waitForAsyncExpectation,
-  postCompletedStatus,
-} from './_runtime-helpers.js';
-
-test('managed llama speculative delta prefers cumulative token stats over rate lines in the same slice', async () => {
-  await withTempEnv(async () => {
-    const runId = 'repo-run-speculative-same-slice';
-    bufferInferenceRunLogChunk({
-      runId,
-      streamKind: 'launcher_stdout',
-      chunkText: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837\n',
-    });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(runId);
-    assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
-    assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
-
-    bufferInferenceRunLogChunk({
-      runId,
-      streamKind: 'launcher_stderr',
-      chunkText: [
-        'draft acceptance rate = 1.00000 (    4 accepted /     4 generated)',
-        'statistics ngram_mod: #calls(b,g,a) = 21 3028 132, #gen drafts = 132, #acc drafts = 132, #gen tokens = 6200, #acc tokens = 5841',
-      ].join('\n') + '\n',
-    });
-
-    const delta = getManagedLlamaSpeculativeMetricsDelta(runId, snapshot);
-    assert.equal(delta?.speculativeAcceptedTokens, 4);
-    assert.equal(delta?.speculativeGeneratedTokens, 32);
-  });
-});
-
-test('managed llama speculative snapshot prefers tracker state over persisted log text', async () => {
-  await withTempEnv(async () => {
-    const run = createInferenceRun({ id: 'tracker-preferred-run', backend: 'llama', purpose: 'startup' });
-    bufferInferenceRunLogChunk({
-      runId: run.id,
-      streamKind: 'launcher_stdout',
-      chunkText: 'statistics ngram_mod: #gen tokens = 1000, #acc tokens = 900\n',
-    });
-    flushInferenceRunLogChunks(run.id);
-
-    appendManagedLlamaSpeculativeMetricsChunk({
-      runId: run.id,
-      streamKind: 'launcher_stdout',
-      chunkText: 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n',
-    });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(run.id);
-
-    assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
-    assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
-
-    appendManagedLlamaSpeculativeMetricsChunk({
-      runId: run.id,
-      streamKind: 'engine_stderr',
-      chunkText: 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n',
-    });
-
-    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(run.id, snapshot), {
-      speculativeAcceptedTokens: 58,
-      speculativeGeneratedTokens: 258,
-    });
-  });
-});
-
-test('real status server uses managed llama cumulative speculative delta for repo-search run logs', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const requestId = 'repo-run-speculative-cumulative';
-    await using llamaPortLease = await acquireChildPortLease('status-server-speculative-metrics');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      startupLogLine: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837',
-    });
-    const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    const speculativePreset = config.Server.ModelPresets.Presets[0];
-    speculativePreset.BaseUrl = managed.baseUrl;
-    speculativePreset.BindHost = '127.0.0.1';
-    speculativePreset.Port = llamaPort;
-    speculativePreset.ExecutablePath = managed.executablePath;
-    speculativePreset.ModelPath = managed.modelPath;
-    speculativePreset.StartupTimeoutMs = 5000;
-    speculativePreset.HealthcheckTimeoutMs = 100;
-    speculativePreset.HealthcheckIntervalMs = 10;
-    writeConfig(runtimeDbPath, config);
-
-    await withRealStatusServer(async ({ statusUrl }) => {
-      await waitForAsyncExpectation(async () => {
-        const models = await requestJson<{ data: Array<{ id: string }> }>(`${managed.baseUrl}/v1/models`);
-        assert.equal(models.data[0].id, 'managed-test-model');
-      }, 5000);
-
-      const database = new Database(runtimeDbPath);
-      let startupRunId = '';
-      let managedLlamaSnapshot = null;
-      try {
-        const startupRun = StartupRunRowSchema.parse(database.prepare(`
-          SELECT id
-          FROM inference_runs
-          ORDER BY started_at_utc DESC, id DESC
-          LIMIT 1
-        `).get());
-        startupRunId = String(startupRun?.id || '');
-        assert.ok(startupRunId);
-        await waitForAsyncExpectation(async () => {
-          const startupLogs = readInferenceRunLogTextByStream(startupRunId);
-          assert.match(String(startupLogs.launcher_stdout || ''), /#gen tokens = 6168/u);
-        }, 5000);
-        managedLlamaSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(startupRunId);
-        assert.equal(managedLlamaSnapshot?.latestSpeculativeAcceptedTokens, 5837);
-        assert.equal(managedLlamaSnapshot?.latestSpeculativeGeneratedTokens, 6168);
-        upsertRepoSearchRun({
-          database,
-          requestId,
-          taskKind: 'repo-search',
-          prompt: 'find speculative metrics',
-          repoRoot: tempRoot,
-          model: 'mock-model',
-          backend: 'llama',
-          requestMaxTokens: 512,
-          maxTurns: 2,
-          transcriptText: '',
-          artifactPayload: { requestId, prompt: 'find speculative metrics', repoRoot: tempRoot },
-          terminalState: 'completed',
-          startedAtUtc: '2026-04-20T11:49:38.706Z',
-          finishedAtUtc: '2026-04-20T11:50:26.779Z',
-          requestDurationMs: 48073,
-          promptTokens: 10,
-          outputTokens: 5,
-          thinkingTokens: 2,
-          toolTokens: 1,
-          promptCacheTokens: 3,
-          promptEvalTokens: 7,
-          promptEvalDurationMs: null,
-          generationDurationMs: null,
-          speculativeAcceptedTokens: null,
-          speculativeGeneratedTokens: null,
-        });
-      } finally {
-        database.close();
-      }
-
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          running: true,
-          requestId,
-          taskKind: 'repo-search',
-          rawInputCharacterCount: 24,
-          promptCharacterCount: 24,
-        }),
-      });
-
-      bufferInferenceRunLogChunk({
-        runId: startupRunId,
-        streamKind: 'launcher_stderr',
-        chunkText: [
-          'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
-          'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
-          'statistics ngram_mod: #calls(b,g,a) = 26 5746 137, #gen drafts = 137, #acc drafts = 137, #gen tokens = 6426, #acc tokens = 5895',
-        ].join('\n') + '\n',
-      });
-      appendManagedLlamaSpeculativeMetricsChunk({
-        runId: startupRunId,
-        streamKind: 'launcher_stderr',
-        chunkText: [
-          'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
-          'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
-          'statistics ngram_mod: #calls(b,g,a) = 26 5746 137, #gen drafts = 137, #acc drafts = 137, #gen tokens = 6426, #acc tokens = 5895',
-        ].join('\n') + '\n',
-      });
-      const managedLlamaDelta = getManagedLlamaSpeculativeMetricsDelta(
-        startupRunId, managedLlamaSnapshot);
-      assert.equal(managedLlamaDelta?.speculativeAcceptedTokens, 58);
-      assert.equal(managedLlamaDelta?.speculativeGeneratedTokens, 258);
-
-      await postCompletedStatus(statusUrl, {
-        requestId,
-        taskKind: 'repo-search',
-        terminalState: 'completed',
-        promptCharacterCount: 24,
-        inputTokens: 7,
-        outputCharacterCount: 12,
-        outputTokens: 5,
-        thinkingTokens: 2,
-        promptCacheTokens: 3,
-        promptEvalTokens: 7,
-        speculativeAcceptedTokens: 47,
-        speculativeGeneratedTokens: 47,
-        requestDurationMs: 48073,
-      });
-
-      const verifyDb = new Database(runtimeDbPath, { readonly: true });
-      try {
-        await waitForAsyncExpectation(async () => {
-          const row = SpeculativeRowSchema.parse(verifyDb.prepare(`
-            SELECT speculative_accepted_tokens, speculative_generated_tokens
-            FROM run_logs
-            WHERE request_id = ?
-          `).get(requestId));
-          assert.ok(row);
-          assert.equal(row.speculative_accepted_tokens, 58);
-          assert.equal(row.speculative_generated_tokens, 258);
-        }, 1000);
-      } finally {
-        verifyDb.close();
-      }
-    }, {
-      statusPath,
-      configPath: runtimeDbPath,
-      terminalMetadataIdleDelayMs: 0,
-    });
-  });
-});
+import { withTempEnv } from './_runtime-helpers.js';
 
 test('dashboard runs keep persisted speculative totals when artifact payloads disagree', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -272,7 +29,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
-        backend: 'llama',
+        backend: 'exl3',
         requestMaxTokens: 512,
         maxTurns: 2,
         transcriptText: '',
@@ -344,7 +101,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
-        backend: 'llama',
+        backend: 'exl3',
         requestMaxTokens: 512,
         maxTurns: 2,
         transcriptText: '',

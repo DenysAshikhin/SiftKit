@@ -306,7 +306,7 @@ test('the capture routes require the bearer, fail closed on version, and reject 
     Observation: { ...initial.Assistant.Observation, ScreenshotsEnabled: true },
   };
   writeConfig(getConfigPath(), { ...initial, Assistant: enabled });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 

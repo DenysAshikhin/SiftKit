@@ -15,7 +15,7 @@ const TARGETS = [
   'src/status-server/dashboard-runs.ts',
   'src/status-server/http-utils.ts',
   'src/status-server/idle-summary.ts',
-  'src/status-server/managed-llama.ts',
+  'src/status-server/managed-tabby.ts',
   'src/status-server/metrics.ts',
   'src/status-server/preset-runner.ts',
   'src/status-server/repo-search-request-normalizers.ts',

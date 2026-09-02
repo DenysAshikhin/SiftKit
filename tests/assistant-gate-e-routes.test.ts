@@ -59,7 +59,7 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
   writeConfig(getConfigPath(), {
     ...initial, Assistant: { ...initial.Assistant, Enabled: true },
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   const runtimeRoot = path.join(tempRoot, '.siftkit');

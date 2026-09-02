@@ -53,8 +53,10 @@ import {
 } from './helpers/runtime-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
 import {
-  writeManagedLlamaLauncher,
-} from './helpers/managed-llama-fixtures.js';
+  buildProbeShimNodeOptions,
+  installProbeShim,
+  writeManagedEngineLauncher,
+} from './helpers/managed-engine-fixtures.js';
 
 import {
   loadConfig,
@@ -119,7 +121,7 @@ interface LlamaModelsResponse {
 
 interface HealthCheckResponse {
   ok: boolean;
-  disableManagedLlamaStartup: boolean;
+  disableManagedEngineStartup: boolean;
 }
 
 interface StatusPostAck {
@@ -128,12 +130,12 @@ interface StatusPostAck {
   busy?: boolean;
 }
 
-// Rewrites a default config to launch the managed-llama test scripts. Spreads the
-// default preset so every required ManagedLlamaSettings field is present, then
-// applies the script paths and any per-test overrides.
+// Rewrites a default config to launch the fake managed TabbyAPI. Spreads the default
+// preset so every required preset field is present, then points the active preset and
+// the EXL3 engine at the fixture and applies any per-test overrides.
 function applyManagedScriptConfig(
   config: SiftConfig,
-  managed: ReturnType<typeof writeManagedLlamaLauncher>,
+  managed: ReturnType<typeof writeManagedEngineLauncher>,
   overrides: Partial<ModelRuntimePreset> = {},
 ): void {
   const defaultPreset = config.Server.ModelPresets.Presets[0];
@@ -145,16 +147,18 @@ function applyManagedScriptConfig(
         ...defaultPreset,
         id: 'default',
         label: 'Default',
+        Backend: 'exl3',
+        Model: managed.modelId,
         BaseUrl: managed.baseUrl,
         ModelPath: managed.modelPath,
-        ExecutablePath: managed.executablePath,
+        ExecutablePath: null,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
+        HealthcheckTimeoutMs: 2000,
+        HealthcheckIntervalMs: 25,
         ...overrides,
       }],
     },
-    Engines: config.Server.Engines,
+    Engines: { Exl3: managed.engine },
   };
 }
 
@@ -277,8 +281,10 @@ interface RealStatusServerOptions {
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
-  disableManagedLlamaStartup?: boolean;
+  disableManagedEngineStartup?: boolean;
   awaitStartup?: boolean;
+  /** Preloads the EXL3 package-probe shim so the fake venv interpreter passes the launch preflight. */
+  probeShimPath?: string;
 }
 
 interface RealStatusServerContext {
@@ -300,8 +306,9 @@ interface StatusServerProcessOptions {
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
-  disableManagedLlamaStartup?: boolean;
+  disableManagedEngineStartup?: boolean;
   startupTimeoutMs?: number;
+  probeShimPath?: string;
 }
 
 interface StatusServerProcessStartupInfo {
@@ -1054,14 +1061,6 @@ function seedRuntimeConfigFromJson(configPath: string): void {
     return;
   }
   const config = normalizeConfigObject(JsonValueSchema.parse(JSON.parse(fs.readFileSync(configPath, 'utf8'))));
-  const activePreset = getActiveModelPreset(config);
-  if (!activePreset.ModelPath && activePreset.ExecutablePath) {
-    const modelPath = path.join(path.dirname(activePreset.ExecutablePath), 'managed-test-model.gguf');
-    if (!fs.existsSync(modelPath)) {
-      fs.writeFileSync(modelPath, 'fake model', 'utf8');
-    }
-    activePreset.ModelPath = modelPath;
-  }
   writeConfig(getConfigPath(), config);
 }
 
@@ -1152,13 +1151,12 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     SIFTKIT_IDLE_SUMMARY_DELAY_MS: process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
     SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
+  const restoreProbeShim = options.probeShimPath ? installProbeShim(options.probeShimPath) : () => undefined;
 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
   process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
   process.env.sift_kit_status = options.statusPath;
   process.env.SIFTKIT_STATUS_PATH = options.statusPath;
@@ -1189,7 +1187,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
 
   seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
-    disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
+    disableManagedEngineStartup: Boolean(options.disableManagedEngineStartup),
     idleSummaryDelayMs: idleSummaryDelayMs ?? undefined,
     terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
     inferenceRunFlushIdleDelayMs: inferenceRunFlushIdleDelayMs ?? undefined,
@@ -1229,6 +1227,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
         process.env[key] = value;
       }
     }
+    restoreProbeShim();
   }
 }
 
@@ -1245,13 +1244,13 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     ...(getOptionalNonNegativeInteger(options.idleSummaryDelayMs) !== null ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(getOptionalNonNegativeInteger(options.idleSummaryDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs) !== null ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.inferenceRunFlushIdleDelayMs) !== null ? { SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.inferenceRunFlushIdleDelayMs)) } : {}),
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
+    ...(options.probeShimPath ? { NODE_OPTIONS: buildProbeShimNodeOptions(options.probeShimPath) } : {}),
   };
   const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'dist', 'status-server', 'main.js');
   const args = [statusServerEntrypoint];
-  if (options.disableManagedLlamaStartup) {
-    args.push('--disable-managed-llama-startup');
+  if (options.disableManagedEngineStartup) {
+    args.push('--disable-managed-engine-startup');
   }
   const child = spawn(process.execPath, args, {
     cwd: options.workingDirectory || process.cwd(),
@@ -1558,7 +1557,7 @@ export {
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi,
   readIdleSummarySnapshots, getIdleSummaryBlock, acquireChildPortLease,
-  writeManagedLlamaLauncher,
+  writeManagedEngineLauncher, installProbeShim,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
   listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };

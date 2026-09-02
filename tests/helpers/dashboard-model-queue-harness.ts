@@ -101,7 +101,7 @@ export class DashboardModelQueueHarness {
     }
     try {
       await this.startFakeTabby();
-      const server = startStatusServer({ disableManagedLlamaStartup: !this.exl3ActivePreset });
+      const server = startStatusServer({ disableManagedEngineStartup: !this.exl3ActivePreset });
       this.server = server;
       await server.startupPromise;
       const address = getAddressInfo(server);

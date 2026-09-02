@@ -46,7 +46,7 @@ async function runImageCliWithZeroRetention(
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 }

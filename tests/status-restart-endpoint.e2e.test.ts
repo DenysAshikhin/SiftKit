@@ -24,7 +24,7 @@ test('restart refuses an external inference server instead of claiming it restar
   const server = await DashboardTestServer.start(
     'siftkit-restart-external-',
     { baseUrl: `http://127.0.0.1:${stub.port}`, model: 'stub-model' },
-    { managedLlamaStartup: true },
+    { managedEngineStartup: true },
   );
   try {
     const response = await requestJson(`${server.baseUrl}/status/restart`, { method: 'POST' });

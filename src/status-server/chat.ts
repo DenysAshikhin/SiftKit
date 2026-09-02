@@ -282,7 +282,7 @@ type BuildChatOptions = {
   memoryContext?: string;
 };
 
-function getActiveServerLlamaPreset(config: SiftConfig): ModelRuntimePreset | null {
+function getActiveServerModelPreset(config: SiftConfig): ModelRuntimePreset | null {
   const modelPresets = config.Server.ModelPresets;
   const presets = modelPresets.Presets;
   if (presets.length === 0) {
@@ -295,7 +295,7 @@ function getActiveServerLlamaPreset(config: SiftConfig): ModelRuntimePreset | nu
 const overheadRequestBuilder = new InferenceRequestBuilder();
 
 function shouldReplayReasoningContent(config: SiftConfig): boolean {
-  const activePreset = getActiveServerLlamaPreset(config);
+  const activePreset = getActiveServerModelPreset(config);
   return activePreset?.Reasoning === 'on' && activePreset.ReasoningContent === true;
 }
 
@@ -303,11 +303,11 @@ function shouldPreserveThinking(config: SiftConfig, thinkingEnabled: boolean): b
   if (!thinkingEnabled || !shouldReplayReasoningContent(config)) {
     return false;
   }
-  return getActiveServerLlamaPreset(config)?.PreserveThinking === true;
+  return getActiveServerModelPreset(config)?.PreserveThinking === true;
 }
 
 function resolveReasoningEffort(config: SiftConfig): ReasoningEffort {
-  return getActiveServerLlamaPreset(config)?.ReasoningEffort ?? DEFAULT_REASONING_EFFORT;
+  return getActiveServerModelPreset(config)?.ReasoningEffort ?? DEFAULT_REASONING_EFFORT;
 }
 
 

@@ -45,12 +45,6 @@ import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import {
-  captureManagedLlamaSpeculativeMetricsSnapshot,
-  diagnoseManagedLlamaOom,
-  getManagedLlamaSpeculativeMetricsDelta,
-  ManagedLlamaStartupError,
-} from './managed-llama.js';
-import {
   normalizeRepoSearchScorecard,
   type RepoSearchScorecard,
   type RepoSearchTotals,
@@ -74,7 +68,6 @@ export type ChatRepoOperationRequest = {
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
-  managedLlamaRunId: string | null;
   abortSignal?: AbortSignal;
 };
 
@@ -144,12 +137,7 @@ export class ChatRepoOperationRunner {
       ...selected.session,
       planRepoRoot: request.repoRoot,
     };
-    const speculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(
-      request.managedLlamaRunId,
-    );
-    let engineResult: RepoSearchExecutionResult;
-    try {
-      engineResult = await request.engineService.executeRepoSearch({
+    const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
         presetId: selected.preset.id,
         taskKind: operation,
         prompt: this.buildPrompt(operation, request.content),
@@ -168,23 +156,7 @@ export class ChatRepoOperationRunner {
         requestId: request.requestId,
         progressWriter: progress,
         ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
-      });
-    } catch (error) {
-      const diagnosis = diagnoseManagedLlamaOom(
-        error instanceof Error ? error : String(error),
-        {
-          hasImages: request.images.length > 0,
-          visionMaxImagePixels: activePreset.VisionMaxImagePixels,
-        },
-      );
-      if (diagnosis) {
-        if (diagnosis.phase === 'startup') {
-          throw new ManagedLlamaStartupError(diagnosis.guidance, diagnosis.failure);
-        }
-        throw new Error(diagnosis.guidance);
-      }
-      throw error;
-    }
+    });
     const assistantContent = this.buildAssistantContent(
       operation,
       request.content,
@@ -202,7 +174,6 @@ export class ChatRepoOperationRunner {
       admittedImageMeta,
       startedAt,
       progress,
-      speculativeSnapshot,
     });
     return {
       updatedSession,
@@ -257,7 +228,6 @@ export class ChatRepoOperationRunner {
     admittedImageMeta: ImageMetadata[];
     startedAt: number;
     progress: ChatRepoOperationProgressTracker;
-    speculativeSnapshot: ReturnType<typeof captureManagedLlamaSpeculativeMetricsSnapshot>;
   }): Promise<ChatSession> {
     const scorecard = options.engineResult.scorecard;
     const tokenConfig = Array.isArray(options.request.mockResponses)
@@ -267,10 +237,6 @@ export class ChatRepoOperationRunner {
     const inputTokenCount = await telemetry.countInputTokens(options.request.content);
     const turns = await telemetry.countThinkingTokens(
       buildPersistTurnsFromRepoSearchResult(options.engineResult),
-    );
-    const trackedSpeculative = getManagedLlamaSpeculativeMetricsDelta(
-      options.request.managedLlamaRunId,
-      options.speculativeSnapshot,
     );
     const promptEvalTokens = getScorecardTotal(scorecard, 'promptEvalTokens');
     const promptEvalDurationMs = getScorecardTotal(scorecard, 'promptEvalDurationMs');
@@ -304,10 +270,8 @@ export class ChatRepoOperationRunner {
           getScorecardTotal(scorecard, 'generationDurationMs'),
         ),
         ...options.progress.snapshot(),
-        speculativeAcceptedTokens: trackedSpeculative?.speculativeAcceptedTokens
-          ?? getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
-        speculativeGeneratedTokens: trackedSpeculative?.speculativeGeneratedTokens
-          ?? getScorecardTotal(scorecard, 'speculativeGeneratedTokens'),
+        speculativeAcceptedTokens: getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
+        speculativeGeneratedTokens: getScorecardTotal(scorecard, 'speculativeGeneratedTokens'),
         outputTokens: getScorecardTotal(scorecard, 'outputTokens'),
         outputTokensEstimated: this.hasEstimatedTokens(scorecard, 'outputTokensEstimatedCount'),
         thinkingTokens: getScorecardTotal(scorecard, 'thinkingTokens'),

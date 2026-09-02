@@ -176,7 +176,7 @@ test('dashboard initial runs load returns top 20 overall', async () => {
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -220,7 +220,7 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -296,7 +296,7 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -369,7 +369,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -434,7 +434,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

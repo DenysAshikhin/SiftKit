@@ -95,11 +95,6 @@ import {
   getLocalTokenConfig,
   getMockTokenConfig,
 } from '../chat-turn-telemetry.js';
-import {
-  captureManagedLlamaSpeculativeMetricsSnapshot,
-  diagnoseManagedLlamaOom,
-  getManagedLlamaSpeculativeMetricsDelta,
-} from '../managed-llama.js';
 import { createServerJsonLogger, serverLogger } from '../server-logger.js';
 import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS, LiveTextDeltaTracker } from '../live-text-delta.js';
 import {
@@ -240,16 +235,8 @@ function admitSelectedChatImages(
   };
 }
 
-export function formatChatEngineError(
-  error: Error | string,
-  images: string[],
-  visionMaxImagePixels: number | undefined,
-): string {
-  const errorText = error instanceof Error ? error.message : error;
-  return diagnoseManagedLlamaOom(error, {
-    hasImages: images.length > 0,
-    visionMaxImagePixels,
-  })?.guidance ?? errorText;
+export function formatChatEngineError(error: Error | string): string {
+  return error instanceof Error ? error.message : error;
 }
 
 function readRouteStringArray(reader: JsonRecordReader, key: string): string[] | undefined {
@@ -296,7 +283,6 @@ function buildChatRepoOperationRequest(options: {
     availableModels: readRouteStringArray(options.reader, 'availableModels'),
     mockResponses: readRouteMockResponses(options.reader, 'mockResponses'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
-    managedLlamaRunId: options.ctx.managedLlama.lastStartupLogs?.runId ?? null,
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
   };
 }
@@ -486,10 +472,6 @@ class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressE
   }
 }
 
-function captureManagedLlamaSessionCursor(ctx: ServerContext) {
-  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlama.lastStartupLogs?.runId ?? null);
-}
-
 function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
   return {
     speculativeAcceptedTokens: getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
@@ -497,22 +479,11 @@ function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionS
   };
 }
 
-/**
- * One speculative-token policy for every chat route: the managed llama startup-log
- * delta wins, and the turn's own usage/scorecard totals fill in whenever no managed
- * process is being tracked.
- */
-function resolveSessionSpeculativeMetrics(
-  ctx: ServerContext,
-  cursor: ReturnType<typeof captureManagedLlamaSessionCursor>,
-  fallback: Partial<SessionSpeculativeMetrics>,
-): SessionSpeculativeMetrics {
-  const tracked = cursor
-    ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlama.lastStartupLogs?.runId ?? null, cursor)
-    : null;
+/** One speculative-token policy for every chat route: the turn's own usage/scorecard totals. */
+function resolveSessionSpeculativeMetrics(usage: Partial<SessionSpeculativeMetrics>): SessionSpeculativeMetrics {
   return {
-    speculativeAcceptedTokens: tracked?.speculativeAcceptedTokens ?? fallback.speculativeAcceptedTokens ?? null,
-    speculativeGeneratedTokens: tracked?.speculativeGeneratedTokens ?? fallback.speculativeGeneratedTokens ?? null,
+    speculativeAcceptedTokens: usage.speculativeAcceptedTokens ?? null,
+    speculativeGeneratedTokens: usage.speculativeGeneratedTokens ?? null,
   };
 }
 
@@ -800,7 +771,6 @@ class ChatMessageTurn {
   private readonly requestId = randomUUID();
   private readonly startedAt = Date.now();
   private readonly requestStartedAtUtc = new Date(this.startedAt).toISOString();
-  private readonly managedLlamaCursor: ReturnType<typeof captureManagedLlamaSessionCursor>;
   private readonly memory: ChatMemorySeam;
 
   constructor(
@@ -815,7 +785,6 @@ class ChatMessageTurn {
     private readonly userImageMeta: ImageMetadata[],
     private readonly mockResponses: MockPlannerResponse[] | undefined,
   ) {
-    this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     this.memory = new ChatMemorySeam(ctx.assistant);
   }
 
@@ -866,12 +835,7 @@ class ChatMessageTurn {
         compactionSummary: scorecardTasks[0]?.compactionSummary ?? '',
       });
     } catch (error) {
-      const activePreset = getActiveModelPreset(resolveChatSessionConfig(this.config, this.session));
-      this.sendFailure(formatChatEngineError(
-        error instanceof Error ? error : String(error),
-        this.userImages,
-        activePreset.VisionMaxImagePixels,
-      ));
+      this.sendFailure(formatChatEngineError(error instanceof Error ? error : String(error)));
     }
   }
 
@@ -904,7 +868,7 @@ class ChatMessageTurn {
     telemetry: ChatTurnTelemetry,
     turn: ChatTurnContent,
   ): Promise<void> {
-    const speculativeMetrics = resolveSessionSpeculativeMetrics(this.ctx, this.managedLlamaCursor, turn.usage);
+    const speculativeMetrics = resolveSessionSpeculativeMetrics(turn.usage);
     const inputTokenCount = await telemetry.countInputTokens(this.userContent);
     const sessionWithTelemetry = appendChatMessagesWithUsage(
       this.runtimeRoot,
@@ -1085,20 +1049,16 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
-    const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     const engineRequestId = randomUUID();
     const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, true);
-    let selectedImagesForError: { images: string[]; visionMaxImagePixels: number } | null = null;
+    let selectedImagesForError: { images: string[] } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
     try {
       const config = readConfig(configPath);
       const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
       const selectedImages = admitSelectedChatImages(config, selected.session, messageRequest.images);
-      selectedImagesForError = {
-        images: selectedImages.images,
-        visionMaxImagePixels: getActiveModelPreset(selectedImages.effectiveConfig).VisionMaxImagePixels,
-      };
+      selectedImagesForError = { images: selectedImages.images };
       const selectedSession = selected.session;
       const memory = new ChatMemorySeam(ctx.assistant);
       const memoryContext = await memory.buildMemoryContext(selected.preset, userContent);
@@ -1159,7 +1119,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
       };
       const persistTurns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result));
-      const speculativeMetrics = resolveSessionSpeculativeMetrics(ctx, managedLlamaCursor, scorecardSpeculative);
+      const speculativeMetrics = resolveSessionSpeculativeMetrics(scorecardSpeculative);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
       const inputTokenCount = await telemetry.countInputTokens(userContent);
@@ -1204,11 +1164,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         writer: sseWriter,
       })) {
         sseWriter.writeEvent('error', {
-          error: formatChatEngineError(
-            error instanceof Error ? error : String(error),
-            selectedImagesForError?.images ?? [],
-            selectedImagesForError?.visionMaxImagePixels,
-          ),
+          error: formatChatEngineError(error instanceof Error ? error : String(error)),
         });
       }
     } finally {

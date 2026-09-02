@@ -14,7 +14,7 @@ import {
   resolveArtifactLogPathFromStatusPost,
 } from './helpers/runtime-http.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
-import { writeManagedLlamaLauncher } from './helpers/managed-llama-fixtures.js';
+import { writeManagedEngineLauncher } from './helpers/managed-engine-fixtures.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
@@ -124,15 +124,20 @@ test('runtime path helpers resolve planner request artifact paths from the statu
   );
 });
 
-test('managed llama fixture uses the direct launcher and exposes lifecycle observation files', async () => {
+test('managed engine fixture launches the fake TabbyAPI from the fake venv and exposes lifecycle observation files', async () => {
   const tempRoot = createManagedTempDir('siftkit-managed-launcher-fixture-');
   try {
-    const managed = writeManagedLlamaLauncher(tempRoot, 12345, 'fixture-model', {
-      initial503LoadingModelCount: 2,
+    const managed = writeManagedEngineLauncher(tempRoot, 12345, 'fixture-model', {
+      initialUnloadedModelProbeCount: 2,
       deferredLogLine: 'deferred fixture log',
     });
 
-    assert.equal(path.extname(managed.executablePath), '.cmd');
+    assert.equal(managed.engine.PythonPath, managed.pythonPath);
+    assert.equal(managed.engine.Entrypoint, managed.scriptPath);
+    assert.equal(managed.engine.ModelRoot, path.dirname(managed.modelPath));
+    assert.equal(path.basename(managed.modelPath), 'fixture-model');
+    assert.equal(fs.existsSync(path.join(managed.modelPath, 'config.json')), true);
+    assert.equal(fs.existsSync(managed.probeShimPath), true);
     assert.equal(path.dirname(managed.modelProbeCountPath), tempRoot);
     assert.equal(path.dirname(managed.deferredLogMarkerPath), tempRoot);
     assert.equal(path.dirname(managed.pidFilePath), tempRoot);

@@ -26,7 +26,6 @@ import {
   mergeConfig,
 } from '../config-store.js';
 import { ExternalServerRestartError } from '../preset-runtime-coordinator.js';
-import { getManagedLlamaStartupFailure } from '../managed-llama.js';
 import { serverLogger } from '../server-logger.js';
 import {
   getModelRequestQueueDiagnostics,
@@ -86,12 +85,12 @@ export class HealthEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const startupPending = Boolean(ctx.managedLlama.bootstrapStartup || ctx.managedLlama.starting || ctx.managedLlama.startupPromise);
+    const { configPath, statusPath, metricsPath, disableManagedEngineStartup } = ctx;
+    const startupPending = ctx.engineBootstrap.inProgress;
     sendJson(res, startupPending ? 503 : 200, {
       ok: !startupPending,
       startupPending,
-      disableManagedLlamaStartup,
+      disableManagedEngineStartup,
       statusPath,
       configPath,
       metricsPath,
@@ -189,34 +188,22 @@ export class ConfigReadEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, disableManagedLlamaStartup } = ctx;
+    const { configPath, disableManagedEngineStartup } = ctx;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const skipReady = requestUrl.searchParams.get('skip_ready') === '1';
     try {
-      if (skipReady || disableManagedLlamaStartup) {
+      const coordinator = ctx.presetRuntimeCoordinator;
+      if (skipReady || disableManagedEngineStartup || ctx.engineBootstrap.inProgress || !coordinator) {
         sendJson(res, 200, readConfig(configPath));
         return;
       }
-      if (ctx.managedLlama.bootstrapStartup && (ctx.managedLlama.starting || ctx.managedLlama.startupPromise)) {
+      const runtimeStatus = coordinator.getStatus();
+      if (runtimeStatus.processState === 'failed' || runtimeStatus.modelState === 'failed') {
         sendJson(res, 200, readConfig(configPath));
         return;
       }
-      if (ctx.presetRuntimeCoordinator) {
-        const config = readConfig(configPath);
-        const activePreset = getActiveModelPreset(config);
-        const runtimeStatus = ctx.presetRuntimeCoordinator.getStatus();
-        if (
-          (runtimeStatus.processState === 'failed' || runtimeStatus.modelState === 'failed')
-          && (activePreset.Backend !== 'llama' || !activePreset.ExternalServerEnabled)
-        ) {
-          sendJson(res, 200, config);
-          return;
-        }
-        await ctx.presetRuntimeCoordinator.ensureActivePresetReady();
-        sendJson(res, 200, readConfig(configPath));
-        return;
-      }
-      sendJson(res, 200, await ctx.ensureManagedLlamaReady({ allowUnconfigured: true }));
+      await coordinator.ensureActivePresetReady();
+      sendJson(res, 200, readConfig(configPath));
     } catch (error) {
       sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
     }
@@ -271,8 +258,8 @@ export class StatusRestartEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, disableManagedLlamaStartup } = ctx;
-    if (disableManagedLlamaStartup) {
+    const { configPath, disableManagedEngineStartup } = ctx;
+    if (disableManagedEngineStartup) {
       sendJson(res, 400, { ok: false, restarted: false, error: 'Managed backend restart is disabled for this server.' });
       return;
     }
@@ -290,12 +277,10 @@ export class StatusRestartEndpoint implements RouteEndpoint {
         sendJson(res, 400, { ok: false, restarted: false, error: error.message });
         return;
       }
-      const startupFailure = getManagedLlamaStartupFailure(toError(error));
       sendJson(res, 503, {
         ok: false,
         restarted: false,
         error: error instanceof Error ? error.message : String(error),
-        startupFailure,
       });
     }
     return;

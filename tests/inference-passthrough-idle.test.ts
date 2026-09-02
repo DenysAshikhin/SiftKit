@@ -212,68 +212,66 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
   });
 });
 
-test('chat queued during a preset switch is translated for the target backend', async () => {
+/** Minimal external TabbyAPI whose chat handler the test controls; probes are counted per server. */
+function createFakeTabbyServer(
+  state: FakeTabbyModelState,
+  counters: { requests: number; modelProbes: number },
+  onChat: (body: JsonObject, response: http.ServerResponse) => Promise<void>,
+): http.Server {
+  return http.createServer(async (request, response) => {
+    counters.requests += 1;
+    if (request.url === '/v1/models') {
+      counters.modelProbes += 1;
+      response.setHeader('content-type', 'application/json');
+      response.end('{"data":[]}');
+      return;
+    }
+    if (request.url === '/v1/model' && request.method === 'GET') {
+      state.respondCurrentModel(response);
+      return;
+    }
+    if (request.url === '/v1/model/load' && request.method === 'POST') {
+      state.applyLoad(await readBody(request));
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+      return;
+    }
+    if (request.url === '/v1/model/unload' && request.method === 'POST') {
+      state.clear();
+      response.statusCode = 200;
+      response.end();
+      return;
+    }
+    if (request.url === '/v1/chat/completions' && request.method === 'POST') {
+      await onChat(parseJsonObjectText(await readBody(request)), response);
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+}
+
+test('chat queued during a preset switch is translated for the target preset', async () => {
   await withTempEnv(async (tempRoot) => {
-    let releaseLlamaChat = false;
-    let llamaChatCount = 0;
-    let llamaModelProbeCount = 0;
-    const tabbyModel = new FakeTabbyModelState();
-    let tabbyRequestCount = 0;
-    let tabbyModelProbeCount = 0;
-    const tabbyChatBodies: JsonObject[] = [];
-    const llama = http.createServer(async (request, response) => {
-      if (request.url === '/v1/models') {
-        llamaModelProbeCount += 1;
-        response.setHeader('content-type', 'application/json');
-        response.end('{"data":[{"id":"llama-model"}]}');
-        return;
-      }
-      if (request.url === '/v1/chat/completions' && request.method === 'POST') {
-        llamaChatCount += 1;
-        while (!releaseLlamaChat) await new Promise((resolve) => setTimeout(resolve, 10));
-        response.setHeader('content-type', 'application/json');
-        response.end('{"choices":[{"message":{"content":"llama"}}]}');
-        return;
-      }
-      response.statusCode = 404;
-      response.end();
+    let releaseFirstChat = false;
+    let firstChatCount = 0;
+    const first = { requests: 0, modelProbes: 0 };
+    const second = { requests: 0, modelProbes: 0 };
+    const secondChatBodies: JsonObject[] = [];
+    const firstTabby = createFakeTabbyServer(new FakeTabbyModelState(), first, async (_body, response) => {
+      firstChatCount += 1;
+      while (!releaseFirstChat) await new Promise((resolve) => setTimeout(resolve, 10));
+      response.setHeader('content-type', 'application/json');
+      response.end('{"choices":[{"message":{"content":"first"}}]}');
     });
-    const tabby = http.createServer(async (request, response) => {
-      tabbyRequestCount += 1;
-      if (request.url === '/v1/models') {
-        tabbyModelProbeCount += 1;
-        response.setHeader('content-type', 'application/json');
-        response.end('{"data":[]}');
-        return;
-      }
-      if (request.url === '/v1/model' && request.method === 'GET') {
-        tabbyModel.respondCurrentModel(response);
-        return;
-      }
-      if (request.url === '/v1/model/load' && request.method === 'POST') {
-        tabbyModel.applyLoad(await readBody(request));
-        response.writeHead(200, { 'content-type': 'text/event-stream' });
-        response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
-        return;
-      }
-      if (request.url === '/v1/model/unload' && request.method === 'POST') {
-        tabbyModel.clear();
-        response.statusCode = 200;
-        response.end();
-        return;
-      }
-      if (request.url === '/v1/chat/completions' && request.method === 'POST') {
-        tabbyChatBodies.push(parseJsonObjectText(await readBody(request)));
-        response.setHeader('content-type', 'application/json');
-        response.end('{"choices":[{"message":{"content":"tabby"}}]}');
-        return;
-      }
-      response.statusCode = 404;
-      response.end();
+    const secondTabby = createFakeTabbyServer(new FakeTabbyModelState(), second, async (body, response) => {
+      secondChatBodies.push(body);
+      response.setHeader('content-type', 'application/json');
+      response.end('{"choices":[{"message":{"content":"second"}}]}');
     });
     await Promise.all([
-      new Promise<void>((resolve) => llama.listen(0, '127.0.0.1', resolve)),
-      new Promise<void>((resolve) => tabby.listen(0, '127.0.0.1', resolve)),
+      new Promise<void>((resolve) => firstTabby.listen(0, '127.0.0.1', resolve)),
+      new Promise<void>((resolve) => secondTabby.listen(0, '127.0.0.1', resolve)),
     ]);
     let statusServer: ReturnType<typeof startStatusServer> | null = null;
     try {
@@ -282,22 +280,23 @@ test('chat queued during a preset switch is translated for the target backend', 
       const config = getDefaultConfigObject();
       const basePreset = config.Server.ModelPresets.Presets[0];
       if (!basePreset) throw new Error('Default model preset is missing');
-      const llamaPreset = {
+      const firstPreset = {
         ...basePreset,
-        id: 'llama-main',
-        Backend: 'llama' as const,
-        ExternalServerEnabled: true,
-        BaseUrl: `http://127.0.0.1:${getAddressInfo(llama).port}`,
-        Model: 'llama-model',
-        RepetitionPenalty: 1.01,
-      };
-      const exl3Preset = {
-        ...basePreset,
-        id: 'exl3-main',
+        id: 'exl3-first',
         Backend: 'exl3' as const,
-        BaseUrl: `http://127.0.0.1:${getAddressInfo(tabby).port}`,
-        Model: 'tabby-model',
-        ModelPath: path.join(tempRoot, 'tabby-model'),
+        BaseUrl: `http://127.0.0.1:${getAddressInfo(firstTabby).port}`,
+        Model: 'first-model',
+        ModelPath: path.join(tempRoot, 'first-model'),
+        RepetitionPenalty: 1.01,
+        Reasoning: 'off' as const,
+      };
+      const secondPreset = {
+        ...basePreset,
+        id: 'exl3-second',
+        Backend: 'exl3' as const,
+        BaseUrl: `http://127.0.0.1:${getAddressInfo(secondTabby).port}`,
+        Model: 'second-model',
+        ModelPath: path.join(tempRoot, 'second-model'),
         RepetitionPenalty: 1.23,
         Reasoning: 'on' as const,
         ReasoningContent: true,
@@ -313,13 +312,13 @@ test('chat queued during a preset switch is translated for the target backend', 
         ShutdownTimeoutMs: 1_000,
       };
       config.Server.ModelPresets = {
-        ActivePresetId: llamaPreset.id,
-        Presets: [llamaPreset, exl3Preset],
+        ActivePresetId: firstPreset.id,
+        Presets: [firstPreset, secondPreset],
       };
       writeConfig(getConfigPath(), config);
       statusServer = startStatusServer();
       await statusServer.startupPromise;
-      assert.equal(tabbyRequestCount, 0);
+      assert.equal(second.requests, 0);
       const siftBaseUrl = `http://127.0.0.1:${getAddressInfo(statusServer).port}`;
 
       const activeChatPromise = fetch(`${siftBaseUrl}/v1/chat/completions`, {
@@ -327,8 +326,8 @@ test('chat queued during a preset switch is translated for the target backend', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messages: [{ role: 'user', content: 'active' }] }),
       });
-      await waitFor(() => llamaChatCount === 1);
-      config.Server.ModelPresets.ActivePresetId = exl3Preset.id;
+      await waitFor(() => firstChatCount === 1);
+      config.Server.ModelPresets.ActivePresetId = secondPreset.id;
       const update = await fetch(`${siftBaseUrl}/config`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -361,37 +360,37 @@ test('chat queued during a preset switch is translated for the target backend', 
         }),
       });
       await new Promise((resolve) => setTimeout(resolve, 50));
-      releaseLlamaChat = true;
+      releaseFirstChat = true;
 
       assert.equal((await activeChatPromise).status, 200);
       assert.equal((await queuedChatPromise).status, 200);
-      assert.equal(tabbyChatBodies.length, 1);
-      assert.equal(tabbyChatBodies[0]?.repetition_penalty, 1.23);
-      assert.equal(tabbyChatBodies[0]?.repeat_penalty, undefined);
-      assert.equal(tabbyChatBodies[0]?.penalty_range, undefined);
-      assert.deepEqual(tabbyChatBodies[0]?.tools, tools);
-      assert.equal(tabbyChatBodies[0]?.parallel_tool_calls, true);
-      assert.deepEqual(tabbyChatBodies[0]?.response_format, responseFormat);
-      assert.equal(tabbyChatBodies[0]?.cache_prompt, undefined);
-      assert.equal(tabbyChatBodies[0]?.id_slot, undefined);
-      assert.equal(tabbyChatBodies[0]?.timings_per_token, undefined);
-      assert.deepEqual(tabbyChatBodies[0]?.chat_template_kwargs, {
+      assert.equal(secondChatBodies.length, 1);
+      assert.equal(secondChatBodies[0]?.repetition_penalty, 1.23);
+      assert.equal(secondChatBodies[0]?.repeat_penalty, undefined);
+      assert.equal(secondChatBodies[0]?.penalty_range, undefined);
+      assert.deepEqual(secondChatBodies[0]?.tools, tools);
+      assert.equal(secondChatBodies[0]?.parallel_tool_calls, true);
+      assert.deepEqual(secondChatBodies[0]?.response_format, responseFormat);
+      assert.equal(secondChatBodies[0]?.cache_prompt, undefined);
+      assert.equal(secondChatBodies[0]?.id_slot, undefined);
+      assert.equal(secondChatBodies[0]?.timings_per_token, undefined);
+      assert.deepEqual(secondChatBodies[0]?.chat_template_kwargs, {
         enable_thinking: true,
         preserve_thinking: true,
         reasoning_effort: 'xhigh',
       });
 
       // The queued chat only proves the request was translated; the switch it triggered
-      // finishes asynchronously, so settle on exl3 before measuring the reverse switch.
+      // finishes asynchronously, so settle on the second preset before measuring the reverse switch.
       let runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
       await waitFor(async () => {
         runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
-        return runtimeStatus.activePresetId === exl3Preset.id && runtimeStatus.modelState === 'ready';
+        return runtimeStatus.activePresetId === secondPreset.id && runtimeStatus.modelState === 'ready';
       });
 
-      const llamaProbesBeforeReverseSwitch = llamaModelProbeCount;
-      const tabbyModelProbesBeforeReverseSwitch = tabbyModelProbeCount;
-      config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
+      const firstProbesBeforeReverseSwitch = first.modelProbes;
+      const secondProbesBeforeReverseSwitch = second.modelProbes;
+      config.Server.ModelPresets.ActivePresetId = firstPreset.id;
       const reverseUpdate = await fetch(`${siftBaseUrl}/config`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -402,19 +401,19 @@ test('chat queued during a preset switch is translated for the target backend', 
       await waitFor(async () => {
         assert.equal((await fetch(`${siftBaseUrl}/config`)).status, 200);
         runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
-        return runtimeStatus.activePresetId === llamaPreset.id && runtimeStatus.processState === 'ready';
+        return runtimeStatus.activePresetId === firstPreset.id && runtimeStatus.processState === 'ready';
       });
-      assert.equal(runtimeStatus.activePresetId, llamaPreset.id);
-      assert.equal(runtimeStatus.backend, 'llama');
-      assert.ok(llamaModelProbeCount > llamaProbesBeforeReverseSwitch);
-      assert.equal(tabbyModelProbeCount, tabbyModelProbesBeforeReverseSwitch);
+      assert.equal(runtimeStatus.activePresetId, firstPreset.id);
+      assert.equal(runtimeStatus.backend, 'exl3');
+      assert.ok(first.modelProbes > firstProbesBeforeReverseSwitch);
+      assert.equal(second.modelProbes, secondProbesBeforeReverseSwitch);
     } finally {
-      releaseLlamaChat = true;
+      releaseFirstChat = true;
       const serverToClose = statusServer;
       if (serverToClose) await new Promise<void>((resolve) => serverToClose.close(() => resolve()));
       await Promise.all([
-        new Promise<void>((resolve) => llama.close(() => resolve())),
-        new Promise<void>((resolve) => tabby.close(() => resolve())),
+        new Promise<void>((resolve) => firstTabby.close(() => resolve())),
+        new Promise<void>((resolve) => secondTabby.close(() => resolve())),
       ]);
     }
   });

@@ -13,7 +13,7 @@ function optionalStringField(value: OptionalJsonValue): string | null {
 
 /**
  * Sole read path for the engine axis on a run record. Anything that is not a live engine id —
- * a legacy `'llama.cpp'` label, a summary provider id, a missing field — collapses to null
+ * a retired backend label, a summary provider id, a missing field — collapses to null
  * rather than being reported as a backend.
  */
 function optionalInferenceBackendField(value: OptionalJsonValue): InferenceBackendId | null {

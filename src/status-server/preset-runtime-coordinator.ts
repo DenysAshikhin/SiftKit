@@ -31,8 +31,7 @@ export class PresetRuntimeCoordinator {
 
   constructor(
     private readonly configPath: string,
-    private readonly llamaRuntime: ManagedInferenceRuntime,
-    private readonly exl3Runtime: ManagedInferenceRuntime,
+    private readonly runtime: ManagedInferenceRuntime,
     /**
      * The server's live in-flight request map, read on this coordinator's own terms. It is the
      * single owner of that fact: nothing has to remember to notify the coordinator when it changes.
@@ -45,12 +44,12 @@ export class PresetRuntimeCoordinator {
 
   /** The runtime that owns the applied preset right now. Read-only: asking never starts one. */
   getActiveRuntime(): ManagedInferenceRuntime {
-    return this.getRuntime(this.appliedModelPresetState.getPreset());
+    return this.runtime;
   }
 
   async initialize(): Promise<void> {
     const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     try {
       if (runtime.getModelState() === 'frozen') await runtime.restorePreset();
       else await runtime.ensurePresetReady(preset);
@@ -66,7 +65,7 @@ export class PresetRuntimeCoordinator {
     if (
       this.presetsEqual(target, this.appliedModelPresetState.getPreset())
       && this.pendingPresetId === null
-      && this.getRuntime(this.appliedModelPresetState.getPreset()).getModelState() === 'ready'
+      && this.runtime.getModelState() === 'ready'
     ) return 'ready';
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     this.setPendingSwitch(presetId, false);
@@ -101,7 +100,7 @@ export class PresetRuntimeCoordinator {
     }
     if (this.switchPromise) await this.switchPromise;
     const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     const modelState = runtime.getModelState();
     if (modelState === 'ready') {
       this.errorPhase = null;
@@ -146,14 +145,8 @@ export class PresetRuntimeCoordinator {
   async applyIdleResidencyAction(presetId: string, action: 'freeze' | 'unload'): Promise<boolean> {
     if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
     if (this.residencyActionInProgress) return false;
-    const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     if (runtime.getModelState() !== 'ready') return false;
-    if (action === 'freeze' && preset.Backend !== 'exl3') {
-      const error = new Error('Freeze requires the EXL3 backend.');
-      this.fail('model-freeze', error.message);
-      throw error;
-    }
     if (action === 'freeze' && !runtime.supportsFreeze()) {
       const error = new Error(FREEZE_UNSUPPORTED_REASON);
       this.fail('model-freeze', error.message);
@@ -191,8 +184,7 @@ export class PresetRuntimeCoordinator {
   async unloadActivePresetNow(): Promise<ModelLifecycleActionResult> {
     const busy = this.refuseIfBusy();
     if (busy) return busy;
-    const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     if (runtime.getModelState() === 'unloaded') return { status: 'noop' };
     this.beginResidencyAction();
     try {
@@ -209,11 +201,7 @@ export class PresetRuntimeCoordinator {
   async freezeActivePresetNow(): Promise<ModelLifecycleActionResult> {
     const busy = this.refuseIfBusy();
     if (busy) return busy;
-    const preset = this.appliedModelPresetState.getPreset();
-    if (preset.Backend !== 'exl3') {
-      return { status: 'unsupported', reason: 'Freeze requires the EXL3 backend.' };
-    }
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     if (!runtime.supportsFreeze()) {
       return { status: 'unsupported', reason: FREEZE_UNSUPPORTED_REASON };
     }
@@ -237,7 +225,7 @@ export class PresetRuntimeCoordinator {
     const busy = this.refuseIfBusy();
     if (busy) return busy;
     const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     if (runtime.getModelState() === 'ready') return { status: 'noop' };
     this.beginResidencyAction();
     try {
@@ -260,7 +248,7 @@ export class PresetRuntimeCoordinator {
 
   getStatus(): InferenceRuntimeStatus {
     const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.getRuntime(preset);
+    const runtime = this.runtime;
     return {
       activePresetId: preset.id,
       activePresetLabel: preset.label,
@@ -286,8 +274,8 @@ export class PresetRuntimeCoordinator {
       }
     }
     await this.waitForCurrentAdmissionBlocker();
-    const runtime = this.getRuntime(this.appliedModelPresetState.getPreset());
-    if (runtime.id === 'exl3' && runtime.getModelState() !== 'unloaded') {
+    const runtime = this.runtime;
+    if (runtime.getModelState() !== 'unloaded') {
       try {
         await runtime.unloadPreset();
       } catch {
@@ -353,15 +341,11 @@ export class PresetRuntimeCoordinator {
   private async executeSwitch(targetId: string, forceRestart: boolean): Promise<void> {
     const previous = this.appliedModelPresetState.getPreset();
     const target = this.getPreset(targetId);
-    const previousRuntime = this.getRuntime(previous);
-    const targetRuntime = this.getRuntime(target);
-    const mustStopPrevious = previous.Backend !== target.Backend
-      || forceRestart
-      || (previous.Backend === 'llama' && !this.presetsEqual(previous, target));
+    const runtime = this.runtime;
     try {
-      if (previous.Backend === 'exl3') await previousRuntime.unloadPreset();
-      if (mustStopPrevious) await previousRuntime.stopProcess();
-      await targetRuntime.ensurePresetReady(target);
+      await runtime.unloadPreset();
+      if (forceRestart) await runtime.stopProcess();
+      await runtime.ensurePresetReady(target);
       // Config already holds the requested preset: it is the saved intent this switch is
       // applying. Writing it back here would clobber a newer save that landed mid-switch.
       this.appliedModelPresetState.applyPreset(target);
@@ -370,20 +354,20 @@ export class PresetRuntimeCoordinator {
       this.fail('preset-switch', error instanceof Error ? error.message : String(error));
       let cleanupError: string | null = null;
       try {
-        if (targetRuntime.getProcessState() === 'ready' && target.Backend === 'exl3') {
+        if (runtime.getProcessState() === 'ready') {
           try {
-            await targetRuntime.unloadPreset();
+            await runtime.unloadPreset();
           } catch (targetCleanupError) {
             cleanupError = targetCleanupError instanceof Error
               ? targetCleanupError.message
               : String(targetCleanupError);
           }
         }
-        if (mustStopPrevious && targetRuntime.getProcessState() !== 'stopped') {
-          await targetRuntime.stopProcess();
+        if (forceRestart && runtime.getProcessState() !== 'stopped') {
+          await runtime.stopProcess();
         }
         this.restorePreset(previous);
-        await previousRuntime.ensurePresetReady(previous);
+        await runtime.ensurePresetReady(previous);
         this.appliedModelPresetState.applyPreset(previous);
         this.pendingPresetId = null;
         this.rollback = cleanupError
@@ -419,10 +403,6 @@ export class PresetRuntimeCoordinator {
   private getConfiguredPreset(): ModelRuntimePreset {
     const config = readConfig(this.configPath);
     return this.findPreset(config, config.Server.ModelPresets.ActivePresetId);
-  }
-
-  private getRuntime(preset: ModelRuntimePreset): ManagedInferenceRuntime {
-    return preset.Backend === 'llama' ? this.llamaRuntime : this.exl3Runtime;
   }
 
   private presetsEqual(left: ModelRuntimePreset, right: ModelRuntimePreset): boolean {

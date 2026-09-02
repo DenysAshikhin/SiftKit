@@ -90,10 +90,10 @@ test('an unparseable budget override falls back to the default instead of firing
   assert.equal(result.exitCode, 0);
 });
 
-test('managed llama readiness cleanup releases its worker and every failed launcher process', {
+test('managed engine readiness cleanup releases its worker and every failed engine process', {
   timeout: HARD_LIMIT_MS * 3,
 }, async () => {
-  const pidHistoryPath = path.join(createManagedTempDir('managed-llama-pid-history-'), 'pids.txt');
+  const pidHistoryPath = path.join(createManagedTempDir('managed-engine-pid-history-'), 'pids.txt');
   const childEnv = toStringRecord(process.env);
   delete childEnv.NODE_TEST_CONTEXT;
   childEnv.SIFTKIT_FAKE_MANAGED_PID_HISTORY_PATH = pidHistoryPath;
@@ -114,7 +114,7 @@ test('managed llama readiness cleanup releases its worker and every failed launc
       '--test',
       '--test-timeout=30000',
       '--test-concurrency=1',
-      '--test-name-pattern=^managed llama readiness wait is serialized by the model request queue$',
+      '--test-name-pattern=^managed engine readiness wait is serialized by the model request queue$',
       path.join('.test-build', 'tests', 'repo-search-status-server.test.js'),
     ],
     {

@@ -1,5 +1,4 @@
 import type { ActiveStatusRun } from '@siftkit/contracts';
-import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { TaskKind } from './metrics.js';
 import type { StatusMetadata } from './status-file.js';
 
@@ -19,7 +18,6 @@ export type StatusRunStartInput = {
   chunkIndex: number | null;
   chunkTotal: number | null;
   chunkPath: string | null;
-  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
 export type ActiveRunState = {
@@ -36,7 +34,6 @@ export type ActiveRunState = {
   chunkIndex: number | null;
   chunkTotal: number | null;
   chunkPath: string | null;
-  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
 export type TerminalRunState = {
@@ -76,7 +73,6 @@ export function buildStatusRunStartInput(
   statusPath: string,
   metadata: StatusMetadata,
   taskKind: TaskKind | null,
-  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
   nowMs: number,
 ): StatusRunStartInput {
   return {
@@ -90,7 +86,6 @@ export function buildStatusRunStartInput(
     chunkIndex: metadata.chunkIndex,
     chunkTotal: metadata.chunkTotal,
     chunkPath: metadata.chunkPath,
-    managedLlamaSpeculativeSnapshot,
   };
 }
 
@@ -109,7 +104,6 @@ function createActiveRunState(input: StatusRunStartInput): ActiveRunState {
     chunkIndex: input.chunkIndex,
     chunkTotal: input.chunkTotal,
     chunkPath: input.chunkPath,
-    managedLlamaSpeculativeSnapshot: input.managedLlamaSpeculativeSnapshot,
   };
 }
 
@@ -151,9 +145,6 @@ export class StatusRunRegistry {
       if (input.chunkIndex !== null) existing.chunkIndex = input.chunkIndex;
       if (input.chunkTotal !== null) existing.chunkTotal = input.chunkTotal;
       if (input.chunkPath !== null) existing.chunkPath = input.chunkPath;
-      if (input.managedLlamaSpeculativeSnapshot !== null) {
-        existing.managedLlamaSpeculativeSnapshot = input.managedLlamaSpeculativeSnapshot;
-      }
       return { kind: 'advanced', run: existing };
     }
     const run = createActiveRunState(input);

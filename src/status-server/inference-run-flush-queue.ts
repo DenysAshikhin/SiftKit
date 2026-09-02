@@ -10,10 +10,6 @@ import {
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
-import {
-  getManagedLlamaSpeculativeMetricsSnapshot,
-  type ManagedLlamaSpeculativeMetricsSnapshot,
-} from './managed-llama-speculative-tracker.js';
 import { serverLogger } from './server-logger.js';
 
 /**
@@ -40,7 +36,6 @@ type InferenceRunFlushQueueItem = {
   enqueuedAtMs: number;
   attempts: number;
   entries: InferenceRunPendingLogChunkEntry[] | null;
-  metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
 export type InferenceRunFlushQueueOptions = {
@@ -58,7 +53,6 @@ type FlushWorkerResponse = {
   id: number;
   ok: boolean;
   errorMessage?: string;
-  metricsFlushed?: boolean;
 };
 
 export type InferenceRunFlushQueueSnapshot = {
@@ -137,7 +131,6 @@ export class InferenceRunFlushQueue {
       enqueuedAtMs: Date.now(),
       attempts: 0,
       entries: null,
-      metricsSnapshot: null,
     });
     this.pendingOrder.push(normalizedRunId);
     serverLogger.debug({
@@ -239,8 +232,7 @@ export class InferenceRunFlushQueue {
         const waitMs = startedAtMs - item.enqueuedAtMs;
         try {
           item.entries ??= consumeInferenceRunPendingLogChunks(runId);
-          item.metricsSnapshot ??= getManagedLlamaSpeculativeMetricsSnapshot(runId);
-          const metricsFlushed = await this.flushInWorker(runId, item.entries, item.metricsSnapshot);
+          await this.flushInWorker(runId, item.entries);
           const durationMs = Date.now() - startedAtMs;
           this.completedCount += 1;
           serverLogger.dim({
@@ -248,8 +240,7 @@ export class InferenceRunFlushQueue {
             id: runId,
             event: 'flush_done',
             fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
-              + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount} `
-              + `metrics_flushed=${metricsFlushed}`,
+              + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount}`,
           });
         } catch (error) {
           const durationMs = Date.now() - startedAtMs;
@@ -291,22 +282,18 @@ export class InferenceRunFlushQueue {
     return Math.max(0, this.idleDelayMs - (Date.now() - lastFinishedAtMs));
   }
 
-  private flushInWorker(
-    runId: string,
-    entries: InferenceRunPendingLogChunkEntry[],
-    metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
-  ): Promise<boolean> {
+  private flushInWorker(runId: string, entries: InferenceRunPendingLogChunkEntry[]): Promise<void> {
     const worker = this.getWorker();
     const id = this.nextWorkerMessageId;
     this.nextWorkerMessageId += 1;
-    return new Promise<boolean>((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const onMessage = (message: FlushWorkerResponse): void => {
         if (message.id !== id) {
           return;
         }
         cleanup();
         if (message.ok) {
-          resolve(Boolean(message.metricsFlushed));
+          resolve();
         } else {
           reject(new Error(message.errorMessage || 'inference run flush worker failed'));
         }
@@ -326,7 +313,6 @@ export class InferenceRunFlushQueue {
         runId,
         databasePath: getRuntimeDatabasePath(),
         entries,
-        metricsSnapshot,
       });
     });
   }

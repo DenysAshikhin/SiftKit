@@ -21,12 +21,12 @@ export type DashboardTestBackend = {
 };
 
 /**
- * Managed startup is off by default so E2Es never spawn a real llama.cpp. Turning it on
+ * Managed startup is off by default so E2Es never spawn a real engine. Turning it on
  * gives the server a live PresetRuntimeCoordinator, which initializes against whatever
  * backend was seeded before boot.
  */
 export type DashboardTestServerOptions = {
-  managedLlamaStartup?: boolean;
+  managedEngineStartup?: boolean;
 };
 
 const METRICS_SETTLE_TIMEOUT_MS = 10_000;
@@ -85,7 +85,7 @@ export class DashboardTestServer {
     try {
       // The coordinator resolves its preset during startup, so config must land first.
       if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
-      server = startStatusServer({ disableManagedLlamaStartup: options.managedLlamaStartup !== true });
+      server = startStatusServer({ disableManagedEngineStartup: options.managedEngineStartup !== true });
       await server.startupPromise;
       const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
       return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);

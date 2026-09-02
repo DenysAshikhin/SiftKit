@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { ActiveStatusRun } from '@siftkit/contracts';
@@ -29,7 +28,7 @@ import {
   startStatusServerProcess,
   readIdleSummarySnapshots,
   acquireChildPortLease,
-  writeManagedLlamaLauncher,
+  writeManagedEngineLauncher,
   waitForAsyncExpectation,
   postStatusTerminalMetadata,
   postStatusComplete,
@@ -68,7 +67,7 @@ test('real status server normalizes legacy non-boolean status text to false', as
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -90,7 +89,7 @@ test('real status server normalizes non-boolean statuses in POST /status payload
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -121,7 +120,7 @@ test('real status server accepts boolean-like running payload variants', async (
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -148,7 +147,7 @@ test('real status server preserves true status while an active request is tracke
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -204,7 +203,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -227,18 +226,17 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('real status server starts managed llama.cpp during server startup before serving requests and reports idle after ready', async () => {
+test('real status server starts the managed engine during server startup before serving requests and reports idle after ready', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -255,11 +253,7 @@ test('real status server starts managed llama.cpp during server startup before s
         assert.equal(status.status, 'false');
         assert.equal(readStatusText(getConfigPath()), 'false');
       }, 5000);
-      const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
-      assert.equal(fs.existsSync(latestStartupDumpPath), true);
-      const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
-      assert.match(latestStartupDumpText, /Result: ready/u);
-      assert.match(latestStartupDumpText, /launcher_stdout/u);
+      assert.equal(fs.existsSync(managed.invocationLogPath), true);
 
       const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
       const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -268,11 +262,8 @@ test('real status server starts managed llama.cpp during server startup before s
 
       try {
         const loadedConfig = await loadConfig({ ensure: true });
-        assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
-        assert.equal(
-          loadedConfig.Server.ModelPresets.Presets[0].ExecutablePath,
-          managed.executablePath,
-        );
+        assert.equal(loadedConfig.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
+        assert.equal(loadedConfig.Server.ModelPresets.Presets[0].ModelPath, managed.modelPath);
       } finally {
         if (previousConfigUrl === undefined) {
           delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -290,6 +281,7 @@ test('real status server starts managed llama.cpp during server startup before s
     }, {
       statusPath,
       configPath,
+      probeShimPath: managed.probeShimPath,
     });
 
     await waitForAsyncExpectation(
@@ -300,23 +292,21 @@ test('real status server starts managed llama.cpp during server startup before s
   });
 });
 
-test('managed llama live stream logs flush after idle without model request release', async () => {
+test('managed engine live stream logs flush after idle without model request release', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
     const deferredLogLine = 'deferred-live-stderr-log';
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', { deferredLogLine });
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', { deferredLogLine });
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
-      const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       await waitForAsyncExpectation(
-        async () => assert.equal(fs.existsSync(latestStartupDumpPath), true),
+        async () => assert.equal(fs.existsSync(managed.readyFilePath), true),
         5000
       );
 
@@ -328,7 +318,7 @@ test('managed llama live stream logs flush after idle without model request rele
           const row = TextRowSchema.parse(database.prepare(`
             SELECT GROUP_CONCAT(chunk_text, '') AS text
             FROM inference_run_log_chunks
-            WHERE stream_kind = 'launcher_stderr'
+            WHERE stream_kind = 'engine_stderr'
           `).get());
           assert.ok(String(row?.text || '').includes(deferredLogLine));
         } finally {
@@ -339,6 +329,7 @@ test('managed llama live stream logs flush after idle without model request rele
       statusPath,
       configPath,
       inferenceRunFlushIdleDelayMs: 50,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
@@ -375,7 +366,7 @@ test('real status server accepts independent running request ids instead of retu
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -474,18 +465,17 @@ test('real status server accepts deferred summary artifacts on terminal posts an
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 50,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('managed llama scripts no longer receive status-path coordination args or env vars', async () => {
+test('managed engine receives only its launch environment, not status-path coordination args or env vars', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model');
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model');
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
@@ -494,12 +484,8 @@ test('managed llama scripts no longer receive status-path coordination args or e
       await waitForAsyncExpectation(async () => {
         assert.equal(fs.existsSync(managed.invocationLogPath), true);
         const invocation = JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8').replace(/^\uFEFF/u, ''));
-        assert.equal(typeof invocation.ConfigPath, 'string');
-        assert.equal(typeof invocation.ConfigUrl, 'string');
-        assert.equal(typeof invocation.HealthUrl, 'string');
-        assert.equal(typeof invocation.RuntimeRoot, 'string');
-        assert.equal(invocation.StatusPath || '', '');
-        assert.equal(invocation.StatusUrl || '', '');
+        assert.deepEqual(invocation.argv, []);
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
         assert.equal(invocation.ServerConfigPathEnv || '', '');
         assert.equal(invocation.ServerConfigUrlEnv || '', '');
         assert.equal(invocation.ServerStatusPathEnv || '', '');
@@ -509,17 +495,17 @@ test('managed llama scripts no longer receive status-path coordination args or e
     }, {
       statusPath,
       configPath,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
 
-test('real status server ignores legacy non-boolean status text when starting managed llama.cpp', async () => {
+test('real status server ignores legacy non-boolean status text when starting the managed engine', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
@@ -537,17 +523,17 @@ test('real status server ignores legacy non-boolean status text when starting ma
       statusPath,
       configPath,
       awaitStartup: false,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
 
-test('real status server reports idle false while managed llama stays ready', async () => {
+test('real status server reports idle false while the managed engine stays ready', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -560,7 +546,7 @@ test('real status server reports idle false while managed llama stays ready', as
 
       assert.equal(readStatusText(getConfigPath()), 'false');
       // Stability assertion (a non-event): idle stays false and the status stays 'false'
-      // across the lease window while managed llama remains ready. A fixed wait is required
+      // across the lease window while the managed engine remains ready. A fixed wait is required
       // because there is no positive event to poll for; load only lengthens it harmlessly.
       await sleep(FAST_LEASE_WAIT_MS);
 
@@ -571,88 +557,49 @@ test('real status server reports idle false while managed llama stays ready', as
     }, {
       statusPath,
       configPath,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
 
-test('real status server fails closed during startup when managed llama logs contain warnings', async () => {
+test('real status server reports a startup warning when the managed engine exits during startup', async () => {
   await withTempEnv(async (tempRoot) => {
-    process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      llamaLogLine: 'warning: fake llama startup warning',
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
+      engineLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
+      exitAfterLog: true,
+      exitCode: 7,
     });
     const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed);
+    applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 1_000 });
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     const server = await startStatusServerProcess({
-        statusPath,
-        configPath,
+      statusPath,
+      configPath,
+      probeShimPath: managed.probeShimPath,
     });
     try {
-      assert.match(String(server.startupWarning || ''), /startup logs contained warning\/error markers/i);
+      assert.match(String(server.startupWarning || ''), /TabbyAPI exited unexpectedly \(code=7/u);
+      const health = await requestJson<HealthCheckResponse>(`http://127.0.0.1:${server.port}/health`);
+      assert.equal(health.ok, true);
     } finally {
       await server.close();
     }
-
-    const managedLogRoot = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama');
-    const dumpFiles = fs.existsSync(managedLogRoot)
-      ? fs.readdirSync(managedLogRoot, { recursive: true })
-        .map((entry) => path.join(managedLogRoot, String(entry)))
-        .filter((entryPath) => /startup-scan-failure\.log$/u.test(entryPath))
-      : [];
-    assert.ok(dumpFiles.length > 0);
-    const dumpText = fs.readFileSync(dumpFiles[0], 'utf8');
-    assert.match(dumpText, /warning: fake llama startup warning/u);
-    const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
-    assert.equal(fs.existsSync(latestStartupDumpPath), true);
-    assert.match(fs.readFileSync(latestStartupDumpPath, 'utf8'), /Result: failed/u);
   });
 });
 
-test('real status server ignores transient Loading model 503 startup log lines', async () => {
+test('real status server keeps running in degraded mode when the managed engine interpreter is missing', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      llamaLogLine: 'srv  log_server_r: response: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}',
-    });
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed);
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ healthUrl }) => {
-      const health = await requestJson<HealthCheckResponse>(healthUrl);
-      assert.equal(health.ok, true);
-    }, {
-      statusPath,
-      configPath,
-    });
-
-    const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
-    assert.equal(fs.existsSync(latestStartupDumpPath), true);
-    assert.match(fs.readFileSync(latestStartupDumpPath, 'utf8'), /Result: ready/u);
-  });
-});
-
-test('real status server keeps running in degraded mode when managed llama startup is broken', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
-    const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed, {
-      ExecutablePath: path.join(tempRoot, 'missing-start-llama.ps1'),
-      StartupTimeoutMs: 1_000,
-    });
+    applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 1_000 });
+    config.Server.Engines.Exl3.PythonPath = path.join(tempRoot, 'missing-python.exe');
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ healthUrl }) => {
@@ -661,71 +608,12 @@ test('real status server keeps running in degraded mode when managed llama start
       assert.equal('managedLlamaReady' in health, false);
       assert.equal('managedLlamaStarting' in health, false);
       assert.equal('managedLlamaStartupWarning' in health, false);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
       statusPath,
       configPath,
+      probeShimPath: managed.probeShimPath,
     });
-  });
-});
-
-test('real status server clears a stale managed llama process during startup before serving requests', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
-    const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed);
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    const staleChild = spawn(process.execPath, [managed.fakeServerPath], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    fs.writeFileSync(managed.pidFilePath, String(staleChild.pid || ''), 'utf8');
-    try {
-      await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
-        assert.equal(models.data[0].id, 'managed-test-model');
-      }, 5000);
-
-      await withRealStatusServer(async ({ port }) => {
-        const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
-        const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
-        process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
-        process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
-        try {
-          const loadedConfig = await loadConfig({ ensure: true });
-          assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
-          await waitForAsyncExpectation(async () => {
-            const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
-            assert.equal(models.data[0].id, 'managed-test-model');
-          }, 5000);
-        } finally {
-          if (previousConfigUrl === undefined) {
-            delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-          } else {
-            process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
-          }
-          if (previousStatusUrl === undefined) {
-            delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-          } else {
-            process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
-          }
-        }
-      }, {
-        statusPath,
-        configPath,
-      });
-    } finally {
-      if (staleChild.exitCode === null && !staleChild.killed) {
-        staleChild.kill('SIGTERM');
-        await waitForAsyncExpectation(async () => {
-          assert.notEqual(staleChild.exitCode, null);
-        }, 1000).catch(() => undefined);
-      }
-    }
   });
 });
 
@@ -751,7 +639,7 @@ test('real status server falls back to zeroed metrics when the metrics cache is 
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -837,7 +725,7 @@ test('real status server resets metrics when metrics schema is outdated', async 
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
       idleSummaryDbPath,
     });
 
@@ -900,7 +788,7 @@ test('real status server accumulates provider payload totals across a chunked re
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -960,7 +848,7 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -1040,7 +928,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -1094,7 +982,7 @@ test('real status server suppresses intermediate false log for single-step compl
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -1137,7 +1025,7 @@ test('real status server logs intermediate false line for first chunked leaf ste
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -1227,7 +1115,7 @@ test('real status server logs explicit chunk failures and clears them before the
       statusPath,
       configPath,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -1285,7 +1173,7 @@ test('real status server keeps separate request ids active when a new request st
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });

@@ -1,7 +1,6 @@
 import path from 'node:path';
 
 import { getActiveModelPreset } from '../../src/config/getters.js';
-import type { SiftConfig } from '../../src/config/types.js';
 import { getDefaultConfig } from '../../src/status-server/config-store.js';
 import { StatusEngineService } from '../../src/status-server/engine-service.js';
 import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.js';
@@ -28,7 +27,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     statusPath: path.join(root, 'status.txt'),
     metricsPath: path.join(root, 'metrics.sqlite'),
     idleSummarySnapshotsPath: path.join(root, 'idle.sqlite'),
-    disableManagedLlamaStartup: false,
+    disableManagedEngineStartup: false,
     engineService,
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
@@ -67,22 +66,9 @@ export function createTestServerContext(configPath: string, root = path.dirname(
       pending: false,
       database: null,
     },
-    managedLlama: {
-      startupPromise: null,
-      shutdownPromise: null,
-      hostProcess: null,
-      lastStartupLogs: null,
-      starting: false,
-      ready: false,
-      startupWarning: null,
-      bootstrapStartup: false,
-      logCleanupTimer: null,
-    },
+    engineBootstrap: { inProgress: false, warning: null },
+    inferenceRunLogCleanupTimer: null,
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue(),
-    async shutdownManagedLlamaIfNeeded(): Promise<void> {},
-    async ensureManagedLlamaReady(): Promise<SiftConfig> {
-      return getDefaultConfig();
-    },
   };
 }

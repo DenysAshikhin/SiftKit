@@ -14,7 +14,6 @@ import {
   writePublishedStatus,
 } from './server-ops.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { getManagedLlamaSpeculativeMetricsDelta } from './managed-llama.js';
 import { serverLogger } from './server-logger.js';
 import type { ServerContext, TerminalMetadataQueueItem } from './server-types.js';
 import type { ActiveRunState } from './status-run-registry.js';
@@ -262,14 +261,6 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
     }
     if (targetMetadata.chunkPath === null && runState.chunkPath !== null) {
       targetMetadata.chunkPath = runState.chunkPath;
-    }
-    const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      ctx.managedLlama.lastStartupLogs?.runId ?? null,
-      runState.managedLlamaSpeculativeSnapshot,
-    );
-    if (speculativeMetrics) {
-      targetMetadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
-      targetMetadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
     }
     if (metadata.terminalState === 'completed') {
       totalElapsedMs = item.capturedAtMs - runState.overallStartedAt;

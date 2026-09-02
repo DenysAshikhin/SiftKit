@@ -23,7 +23,7 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
   writeConfig(getConfigPath(), {
     ...initial, Assistant: { ...initial.Assistant, Enabled: true },
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -98,7 +98,7 @@ test('GET /assistant/history responds 200 with items and completes the response'
   writeConfig(getConfigPath(), {
     ...initial, Assistant: { ...initial.Assistant, Enabled: true },
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -132,7 +132,7 @@ test('a known path with a wrong method responds 404, not a hang', async () => {
   writeConfig(getConfigPath(), {
     ...initial, Assistant: { ...initial.Assistant, Enabled: true },
   });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

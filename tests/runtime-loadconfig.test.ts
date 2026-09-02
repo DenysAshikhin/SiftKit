@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig } from '../src/config/index.js';
 import {
   fs,
@@ -13,48 +12,21 @@ import {
   getConfigPath,
   getChunkThresholdCharacters,
   initializeRuntime,
+  applyManagedScriptConfig,
   getDefaultConfig,
-  setManagedLlamaBaseUrl,
   requestJson,
   withTempEnv,
   withStubServer,
   withRealStatusServer,
   acquireChildPortLease,
-  writeManagedLlamaLauncher,
+  writeManagedEngineLauncher,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 
-async function createManagedStartupFixture(
-  tempRoot: string,
-  mode: 'managed-startup' | 'verbose-env',
-) {
-  const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, 'config.json');
-  const portLease = await acquireChildPortLease(`runtime-loadconfig-${mode}`);
-  const managed = writeManagedLlamaLauncher(tempRoot, portLease.port, 'managed-test-model', {
-    emitManagedStartupFlag: mode === 'managed-startup',
-    emitVerboseEnvFlags: mode === 'verbose-env',
-  });
-  const config = getDefaultConfig();
-  setManagedLlamaBaseUrl(config, managed.baseUrl);
-  const preset = config.Server.ModelPresets.Presets[0];
-  if (!preset) throw new Error('Default model preset is missing');
-  preset.ExecutablePath = managed.executablePath;
-  preset.StartupTimeoutMs = 5000;
-  preset.HealthcheckTimeoutMs = 100;
-  preset.HealthcheckIntervalMs = 10;
-  preset.VerboseLogging = mode === 'verbose-env';
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-  return {
-    statusPath,
-    configPath,
-    startupDumpPath: path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log'),
-    async [Symbol.asyncDispose]() {
-      await portLease[Symbol.asyncDispose]();
-    },
-  };
-}
+const LaunchInvocationSchema = z.object({
+  argv: z.array(z.string()),
+  launchEnvironment: z.record(z.string(), z.string()),
+});
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -347,35 +319,30 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
   });
 });
 
-test('real status server passes managed startup state to startup scripts', async () => {
+test('real status server launches the managed engine with the active preset launch environment', async () => {
   await withTempEnv(async (tempRoot) => {
-    await using fixture = await createManagedStartupFixture(tempRoot, 'managed-startup');
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await using enginePortLease = await acquireChildPortLease('runtime-loadconfig');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const config = getDefaultConfig();
+    applyManagedScriptConfig(config, managed, { NumCtx: 32_768, UBatchSize: 1024, KvCacheQuantization: 'q8_0' });
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       await waitForAsyncExpectation(() => {
-        const dump = fs.readFileSync(fixture.startupDumpPath, 'utf8');
-        assert.match(dump, /managed_startup=/u);
+        const invocation = LaunchInvocationSchema.parse(JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8')));
+        assert.deepEqual(invocation.argv, []);
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_DIR, managed.modelRoot);
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MAX_SEQ_LEN, '32768');
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_CHUNK_SIZE, '1024');
+        assert.equal(invocation.launchEnvironment.TABBY_MODEL_CACHE_MODE, '8,8');
       });
     }, {
-      statusPath: fixture.statusPath,
-      configPath: fixture.configPath,
-    });
-  });
-});
-
-test('real status server passes verbose environment settings to startup scripts', async () => {
-  await withTempEnv(async (tempRoot) => {
-    await using fixture = await createManagedStartupFixture(tempRoot, 'verbose-env');
-
-    await withRealStatusServer(async () => {
-      await waitForAsyncExpectation(() => {
-        const dump = fs.readFileSync(fixture.startupDumpPath, 'utf8');
-        assert.match(dump, /verbose_logging_env=1/u);
-        assert.match(dump, /verbose_args_env=/u);
-      });
-    }, {
-      statusPath: fixture.statusPath,
-      configPath: fixture.configPath,
+      statusPath,
+      configPath,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
@@ -392,7 +359,7 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -439,44 +406,8 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
 
-test('real status server allows startup scripts to call config before launch and reports idle after ready', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-loadconfig');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      preflightConfigGet: true,
-    });
-    const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    const preset = config.Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    preset.ExecutablePath = managed.executablePath;
-    preset.StartupTimeoutMs = 5000;
-    preset.HealthcheckTimeoutMs = 100;
-    preset.HealthcheckIntervalMs = 10;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ statusUrl }) => {
-      assert.equal(readStatusText(getConfigPath()), 'false');
-      await waitForAsyncExpectation(async () => {
-        const models = await requestJson<{ data: Array<{ id: string }> }>(`${managed.baseUrl}/v1/models`);
-        assert.equal(models.data[0].id, 'managed-test-model');
-      }, 5000);
-
-      const status = await requestJson<{ running: boolean; status: string }>(statusUrl);
-      assert.equal(status.running, false);
-      assert.equal(status.status, 'false');
-      assert.equal(readStatusText(getConfigPath()), 'false');
-    }, {
-      statusPath,
-      configPath,
-    });
-  });
-});

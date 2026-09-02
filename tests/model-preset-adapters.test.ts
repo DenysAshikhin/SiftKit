@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  ManagedLlamaSettingsSchema,
   ModelPresetFieldSchema,
   ModelRuntimePresetSchema,
   type ModelRuntimePreset,
@@ -11,7 +10,6 @@ import {
 } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
-import { LlamaPresetAdapter } from '../src/inference-presets/llama-preset-adapter.js';
 import {
   buildPresetRequestDefaults,
   getExl3CacheModes,
@@ -416,40 +414,6 @@ test('EXL3 adapter returns common request defaults', () => {
   });
 });
 
-test('llama adapter preserves launch settings and common request defaults', () => {
-  const preset = createModelPreset({
-    Backend: 'llama',
-    MaxTokens: 42,
-    Temperature: 0.25,
-    TopP: 0.9,
-    TopK: 17,
-    MinP: 0.05,
-    PresencePenalty: 0.2,
-    RepetitionPenalty: 1.1,
-    Reasoning: 'on',
-    ReasoningContent: true,
-    PreserveThinking: true,
-    MaintainPerStepThinking: true,
-  });
-  const adapter = new LlamaPresetAdapter();
-
-  assert.deepEqual(adapter.buildLaunchSettings(preset), ManagedLlamaSettingsSchema.parse(preset));
-  assert.deepEqual(adapter.buildRequestDefaults(preset), {
-    maxTokens: 42,
-    temperature: 0.25,
-    topP: 0.9,
-    topK: 17,
-    minP: 0.05,
-    presencePenalty: 0.2,
-    repetitionPenalty: 1.1,
-    reasoning: 'on',
-    reasoningEffort: preset.ReasoningEffort,
-    reasoningContent: true,
-    preserveThinking: true,
-    maintainPerStepThinking: true,
-  });
-});
-
 test('exl3 buildLoadRequest rounds a 140k context up to the next 256-token cache page', () => {
   const preset = createModelPreset({
     Backend: 'exl3',
@@ -461,17 +425,6 @@ test('exl3 buildLoadRequest rounds a 140k context up to the next 256-token cache
   const request = adapter.buildLoadRequest(preset);
   assert.equal(request.max_seq_len, 140_000);
   assert.equal(request.cache_size, 140_032);
-});
-
-test('adapters reject presets assigned to the other backend', () => {
-  assert.throws(
-    () => new LlamaPresetAdapter().validatePreset(createModelPreset({ Backend: 'exl3' })),
-    /backend=exl3/u,
-  );
-  assert.throws(
-    () => new Exl3PresetAdapter('D:\\personal\\models\\exl3').validatePreset(createModelPreset({ Backend: 'llama' })),
-    /backend=llama/u,
-  );
 });
 
 test('buildPresetRequestDefaults carries the preset reasoning effort', () => {

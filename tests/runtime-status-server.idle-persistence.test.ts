@@ -79,7 +79,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       idleSummaryDbPath,
       idleSummaryDelayMs: 60,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
       });
     } finally {
       capture.restore();
@@ -134,7 +134,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
       });
     } finally {
       stderrCapture.restore();

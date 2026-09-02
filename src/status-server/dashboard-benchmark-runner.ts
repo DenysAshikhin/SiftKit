@@ -91,7 +91,7 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
  * state in step with the config just written. Anything it cannot restart throws rather
  * than letting the run measure the previous process.
  */
-export async function restartManagedLlama(ctx: ServerContext): Promise<void> {
+export async function restartManagedEngine(ctx: ServerContext): Promise<void> {
   const coordinator = ctx.presetRuntimeCoordinator;
   if (!coordinator) {
     throw new Error('Benchmark cannot restart the inference runtime: the preset runtime coordinator is unavailable.');
@@ -194,8 +194,8 @@ async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<v
         const nextConfig = applyCaseConfig(originalConfig, attempt, detail);
         writeConfig(ctx.configPath, nextConfig);
         log(job, sessionId, null, `Applied case ${attempt.caseIndex}: ${attempt.caseLabel}\n`);
-        await restartManagedLlama(ctx);
-        log(job, sessionId, null, `Restarted managed llama for case ${attempt.caseIndex}.\n`);
+        await restartManagedEngine(ctx);
+        log(job, sessionId, null, `Restarted managed engine for case ${attempt.caseIndex}.\n`);
       }
       updateBenchmarkSessionStatus({
         sessionId,
@@ -238,7 +238,7 @@ async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<v
       }
     }
     writeConfig(ctx.configPath, originalConfig);
-    await restartManagedLlama(ctx);
+    await restartManagedEngine(ctx);
     const completedStatus = job.cancelled ? 'cancelled' : 'completed';
     const session = updateBenchmarkSessionStatus({
       sessionId,
@@ -253,7 +253,7 @@ async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<v
   } catch (error) {
     try {
       writeConfig(ctx.configPath, originalConfig);
-      await restartManagedLlama(ctx);
+      await restartManagedEngine(ctx);
       updateBenchmarkSessionStatus({
         sessionId,
         status: 'failed',

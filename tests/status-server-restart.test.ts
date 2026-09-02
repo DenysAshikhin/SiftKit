@@ -7,14 +7,14 @@ import { z } from 'zod';
 import { writeConfig } from '../src/status-server/config-store.js';
 
 import {
+  applyManagedScriptConfig,
   getDefaultConfig,
   acquireChildPortLease,
   requestJson,
-  setManagedLlamaBaseUrl,
   waitForAsyncExpectation,
   withRealStatusServer,
   withTempEnv,
-  writeManagedLlamaLauncher,
+  writeManagedEngineLauncher,
 } from './_runtime-helpers.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 
@@ -26,19 +26,23 @@ interface RestartResponse {
   ok: boolean;
   restarted: boolean;
   config: {
-    Server: { ModelPresets: { Presets: { BaseUrl: string; ExecutablePath: string }[] } };
+    Server: { ModelPresets: { Presets: { BaseUrl: string; ModelPath: string }[] } };
   };
 }
 
-const StartupFailureResponseSchema = z.object({
+const RestartFailureResponseSchema = z.object({
   ok: z.boolean(),
   restarted: z.boolean(),
-  error: z.string().optional(),
-  startupFailure: z.object({ kind: z.string(), requiredMiB: z.number().nullable(), availableMiB: z.number().nullable() }),
+  error: z.string(),
 }).passthrough();
 
-interface ManagedInvocationLog {
-  argv: string[];
+const ManagedInvocationLogSchema = z.object({
+  argv: z.array(z.string()),
+  launchEnvironment: z.record(z.string(), z.string()),
+});
+
+function readInvocationLog(invocationLogPath: string): z.infer<typeof ManagedInvocationLogSchema> {
+  return ManagedInvocationLogSchema.parse(JSON.parse(fs.readFileSync(invocationLogPath, 'utf8')));
 }
 
 function requestJsonAllowError<T>(
@@ -89,55 +93,18 @@ function requestJsonAllowError<T>(
   });
 }
 
-test('real status server backend restart endpoint restarts managed llama.cpp and returns the live config', async () => {
+test('real status server backend restart endpoint restarts the managed engine and returns the live config', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('status-server-restart');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
-    const defaultPreset = config.Server.ModelPresets.Presets[0];
-
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      ModelPresets: {
-        ActivePresetId: 'default',
-        Presets: [{
-          ...defaultPreset,
-          id: 'default',
-          label: 'Default',
-          ExecutablePath: managed.executablePath,
-          BaseUrl: managed.baseUrl,
-          BindHost: '127.0.0.1',
-          Port: llamaPort,
-          ModelPath: managed.modelPath,
-          NumCtx: 32000,
-          GpuLayers: 999,
-          Threads: 2,
-          FlashAttention: true,
-          ParallelSlots: 1,
-          BatchSize: 512,
-          UBatchSize: 512,
-          CacheRam: 8192,
-          KvCacheQuantization: 'q8_0',
-          MaxTokens: 15000,
-          Temperature: 0.6,
-          TopP: 0.95,
-          TopK: 20,
-          MinP: 0,
-          PresencePenalty: 0,
-          RepetitionPenalty: 1,
-          Reasoning: 'on',
-          ReasoningBudget: 10000,
-          ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-          StartupTimeoutMs: 5000,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-          VerboseLogging: false,
-        }],
-      },
-      Engines: config.Server.Engines,
-    };
+    applyManagedScriptConfig(config, managed, {
+      NumCtx: 32000,
+      UBatchSize: 512,
+      KvCacheQuantization: 'q8_0',
+      Reasoning: 'on',
+    });
     writeConfig(runtimeDbPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -146,20 +113,12 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
-      const initialInvocation: ManagedInvocationLog = JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8'));
-      assert.deepEqual(
-        initialInvocation.argv.filter((entry) => (
-          entry === '--cache-type-k'
-          || entry === '--cache-type-v'
-          || entry === 'q8_0'
-        )),
-        ['--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0'],
-      );
-      assert.equal(initialInvocation.argv.includes('--reasoning-budget-message'), true);
-      assert.equal(
-        initialInvocation.argv[initialInvocation.argv.indexOf('--reasoning-budget-message') + 1],
-        'Thinking budget exhausted. You have to provide the answer now.',
-      );
+      const initialInvocation = readInvocationLog(managed.invocationLogPath);
+      assert.deepEqual(initialInvocation.argv, []);
+      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
+      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_MAX_SEQ_LEN, '32000');
+      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_CHUNK_SIZE, '512');
+      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_CACHE_MODE, '8,8');
 
       const initialPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
       assert.match(initialPid, /^\d+$/u);
@@ -171,7 +130,7 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
       assert.equal(restartResponse.ok, true);
       assert.equal(restartResponse.restarted, true);
       assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
-      assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].ExecutablePath, managed.executablePath);
+      assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].ModelPath, managed.modelPath);
 
       await waitForAsyncExpectation(async () => {
         const nextPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
@@ -183,221 +142,37 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
     }, {
       statusPath: runtimeDbPath,
       configPath: runtimeDbPath,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });
 
-test('real status server backend restart endpoint returns structured GPU OOM details when managed llama.cpp exits during startup', async () => {
+test('real status server backend restart endpoint returns 503 with the exit reason when the managed engine dies during startup', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      startupLogLine: 'llama_params_fit_impl: projected to use 25293 MiB of device memory vs. 22842 MiB of free device memory',
-      llamaLogLine: 'ggml_backend_cuda_buffer_type_alloc_buffer: allocating 9376.00 MiB on device 0: cudaMalloc failed: out of memory',
+    await using enginePortLease = await acquireChildPortLease('status-server-restart');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
+      engineLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
       exitAfterLog: true,
       exitCode: 7,
     });
     const config = getDefaultConfig();
-    const defaultPreset = config.Server.ModelPresets.Presets[0];
-
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      ModelPresets: {
-        ActivePresetId: 'default',
-        Presets: [{
-          ...defaultPreset,
-          id: 'default',
-          label: 'Default',
-          ExecutablePath: managed.executablePath,
-          BaseUrl: managed.baseUrl,
-          BindHost: '127.0.0.1',
-          Port: llamaPort,
-          ModelPath: managed.modelPath,
-          NumCtx: 150000,
-          GpuLayers: 999,
-          Threads: 2,
-          FlashAttention: true,
-          ParallelSlots: 1,
-          BatchSize: 512,
-          UBatchSize: 512,
-          CacheRam: 8192,
-          KvCacheQuantization: 'f16',
-          MaxTokens: 15000,
-          Temperature: 0.6,
-          TopP: 0.95,
-          TopK: 20,
-          MinP: 0,
-          PresencePenalty: 0,
-          RepetitionPenalty: 1,
-          Reasoning: 'on',
-          ReasoningBudget: 10000,
-          ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-          StartupTimeoutMs: 500,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-          VerboseLogging: false,
-        }],
-      },
-      Engines: config.Server.Engines,
-    };
+    applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 500 });
     writeConfig(runtimeDbPath, config);
 
-    process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
     await withRealStatusServer(async ({ statusUrl }) => {
-      const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), StartupFailureResponseSchema, {
+      const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), RestartFailureResponseSchema, {
         method: 'POST',
       });
 
       assert.equal(restartResponse.statusCode, 503);
       assert.equal(restartResponse.body.ok, false);
       assert.equal(restartResponse.body.restarted, false);
-      assert.equal(restartResponse.body.startupFailure.kind, 'gpu_memory_oom');
-      assert.equal(restartResponse.body.startupFailure.requiredMiB, 25293);
-      assert.equal(restartResponse.body.startupFailure.availableMiB, 22842);
+      assert.match(restartResponse.body.error, /TabbyAPI exited unexpectedly \(code=7/u);
     }, {
       statusPath: runtimeDbPath,
       configPath: runtimeDbPath,
-    });
-  });
-});
-
-test('real status server startup OOM guidance uses unknown instead of literal null when memory metrics are absent', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      llamaLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
-      exitAfterLog: true,
-      exitCode: 7,
-    });
-    const config = getDefaultConfig();
-    const defaultPreset = config.Server.ModelPresets.Presets[0];
-
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      ModelPresets: {
-        ActivePresetId: 'default',
-        Presets: [{
-          ...defaultPreset,
-          id: 'default',
-          label: 'Default',
-          ExecutablePath: managed.executablePath,
-          BaseUrl: managed.baseUrl,
-          BindHost: '127.0.0.1',
-          Port: llamaPort,
-          ModelPath: managed.modelPath,
-          NumCtx: 150000,
-          GpuLayers: 999,
-          Threads: 2,
-          FlashAttention: true,
-          ParallelSlots: 1,
-          BatchSize: 512,
-          UBatchSize: 512,
-          CacheRam: 8192,
-          KvCacheQuantization: 'f16',
-          MaxTokens: 15000,
-          Temperature: 0.6,
-          TopP: 0.95,
-          TopK: 20,
-          MinP: 0,
-          PresencePenalty: 0,
-          RepetitionPenalty: 1,
-          Reasoning: 'on',
-          ReasoningBudget: 10000,
-          ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-          StartupTimeoutMs: 5000,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-          VerboseLogging: false,
-        }],
-      },
-      Engines: config.Server.Engines,
-    };
-    writeConfig(runtimeDbPath, config);
-
-    await withRealStatusServer(async ({ statusUrl }) => {
-      const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), StartupFailureResponseSchema, {
-        method: 'POST',
-      });
-
-      assert.equal(restartResponse.statusCode, 503);
-      assert.equal(restartResponse.body.ok, false);
-      assert.equal(restartResponse.body.restarted, false);
-      assert.equal(restartResponse.body.startupFailure.kind, 'gpu_memory_oom');
-      assert.equal(restartResponse.body.startupFailure.requiredMiB, null);
-      assert.equal(restartResponse.body.startupFailure.availableMiB, null);
-      assert.match(restartResponse.body.error ?? '', /unknown MiB/u);
-      assert.doesNotMatch(restartResponse.body.error ?? '', /null MiB/u);
-    }, {
-      statusPath: runtimeDbPath,
-      configPath: runtimeDbPath,
-    });
-  });
-});
-
-test('real status server omits -t when the active managed preset sets Threads to 0', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
-    const config = getDefaultConfig();
-    const defaultPreset = config.Server.ModelPresets.Presets[0];
-
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      ModelPresets: {
-        Presets: [
-          {
-            ...defaultPreset,
-            id: 'default',
-            label: 'Default',
-            ExecutablePath: managed.executablePath,
-            BaseUrl: managed.baseUrl,
-            BindHost: '127.0.0.1',
-            Port: llamaPort,
-            ModelPath: managed.modelPath,
-            NumCtx: 32000,
-            GpuLayers: 999,
-            Threads: 0,
-            FlashAttention: true,
-            ParallelSlots: 1,
-            BatchSize: 512,
-            UBatchSize: 512,
-            CacheRam: 8192,
-            KvCacheQuantization: 'f16',
-            MaxTokens: 15000,
-            Temperature: 0.6,
-            TopP: 0.95,
-            TopK: 20,
-            MinP: 0,
-            PresencePenalty: 0,
-            RepetitionPenalty: 1,
-            Reasoning: 'on',
-            ReasoningBudget: 10000,
-            ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-            StartupTimeoutMs: 5000,
-            HealthcheckTimeoutMs: 100,
-            HealthcheckIntervalMs: 10,
-            VerboseLogging: false,
-          },
-        ],
-        ActivePresetId: 'default',
-      },
-      Engines: config.Server.Engines,
-    };
-    writeConfig(runtimeDbPath, config);
-
-    await withRealStatusServer(async () => {
-      await waitForAsyncExpectation(async () => {
-        const invocation: ManagedInvocationLog = JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8'));
-        assert.equal(invocation.argv.includes('-t'), false);
-      }, 5000);
-    }, {
-      statusPath: runtimeDbPath,
-      configPath: runtimeDbPath,
+      probeShimPath: managed.probeShimPath,
     });
   });
 });

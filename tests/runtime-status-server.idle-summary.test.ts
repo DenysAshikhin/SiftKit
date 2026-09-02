@@ -19,7 +19,8 @@ import {
   readIdleSummarySnapshots,
   getIdleSummaryBlock,
   acquireChildPortLease,
-  writeManagedLlamaLauncher,
+  installProbeShim,
+  writeManagedEngineLauncher,
   waitForAsyncExpectation,
   postCompletedStatus,
   type RuntimeStatusResponse,
@@ -109,7 +110,7 @@ test('real status server prints one idle metrics line only after the full idle d
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
       });
     } finally {
       capture.restore();
@@ -117,18 +118,17 @@ test('real status server prints one idle metrics line only after the full idle d
   });
 });
 
-test('real status server leaves managed llama.cpp running after the idle summary block is emitted', { timeout: 60_000 }, async () => {
+test('real status server leaves the managed engine running after the idle summary block is emitted', { timeout: 60_000 }, async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
-    const requestId = 'idle-summary-llama-shutdown';
+    const requestId = 'idle-summary-engine-shutdown';
 
     const capture = OutputCapture.start(process.stdout);
     try {
@@ -166,6 +166,7 @@ test('real status server leaves managed llama.cpp running after the idle summary
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
+      probeShimPath: managed.probeShimPath,
       });
     } finally {
       capture.restore();
@@ -180,7 +181,7 @@ test('real status server leaves managed llama.cpp running after the idle summary
   });
 });
 
-test('real status server close() stops managed llama.cpp', async () => {
+test('real status server close() stops the managed engine', async () => {
   await withTempEnv(async (tempRoot) => {
     const previous = {
       SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
@@ -193,12 +194,12 @@ test('real status server close() stops managed llama.cpp', async () => {
     };
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
-    const llamaPort = llamaPortLease.port;
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
+    await using enginePortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
+    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
+    const restoreProbeShim = installProbeShim(managed.probeShimPath);
 
     process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
     process.env.SIFTKIT_STATUS_PORT = '0';
@@ -223,13 +224,14 @@ test('real status server close() stops managed llama.cpp', async () => {
       process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
 
       const loadedConfig = await loadConfig({ ensure: true });
-      assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
+      assert.equal(loadedConfig.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
       await waitForAsyncExpectation(async () => {
         const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      restoreProbeShim();
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {
           delete process.env[key];
@@ -273,7 +275,7 @@ test('real status server falls back to request-start prompt chars and elapsed ti
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
     });
   });
 });
@@ -350,7 +352,7 @@ test('real status server restarts the idle countdown when a new request begins b
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
+      disableManagedEngineStartup: true,
       });
     } finally {
       capture.restore();

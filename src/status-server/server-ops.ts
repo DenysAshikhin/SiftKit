@@ -68,8 +68,7 @@ function readModelRequestHoldCeilingMs(): number {
 // ---------------------------------------------------------------------------
 
 export function hasPublishedActivity(ctx: ServerContext): boolean {
-  return ctx.managedLlama.bootstrapStartup
-    || ctx.managedLlama.starting
+  return ctx.engineBootstrap.inProgress
     || ctx.activeModelRequests.size > 0
     || ctx.modelRequestQueue.some((request) => !request.cancelled)
     || hasActiveRuns(ctx);
@@ -327,18 +326,6 @@ function syncInferenceRunFlushQueueModelState(ctx: ServerContext, lastFinishedAt
     active: ctx.activeModelRequests.size > 0,
     queueLength: ctx.modelRequestQueue.length,
     lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadata.lastModelRequestFinishedAtMs,
-  });
-}
-
-export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): void {
-  if (ctx.disableManagedLlamaStartup || ctx.presetRuntimeCoordinator) {
-    return;
-  }
-  void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error) => {
-    const message = getErrorMessage(error);
-    ctx.managedLlama.startupWarning = message;
-    publishStatus(ctx);
-    process.stderr.write(`[siftKitStatus] Failed to wake llama.cpp for incoming request: ${message}\n`);
   });
 }
 
@@ -610,9 +597,6 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
     if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, finishedAtMs);
   }
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
-  if (ctx.managedLlama.lastStartupLogs?.runId) {
-    ctx.inferenceRunFlushQueue.enqueue(ctx.managedLlama.lastStartupLogs.runId, 'llama');
-  }
   scheduleIdleSummaryIfNeeded(ctx);
   return true;
 }
@@ -629,14 +613,7 @@ export function resumeModelRequestAdmission(ctx: ServerContext): void {
   waitForModelRequestAdmission(ctx);
 }
 
+/** No-op when managed engine startup is disabled: the server then has no coordinator and owns no runtime. */
 export async function ensureActivePresetReadyForModelRequest(ctx: ServerContext): Promise<void> {
-  const coordinator = ctx.presetRuntimeCoordinator;
-  if (coordinator) {
-    await coordinator.ensureActivePresetReady();
-    return;
-  }
-  if (ctx.disableManagedLlamaStartup) {
-    return;
-  }
-  await ctx.ensureManagedLlamaReady();
+  await ctx.presetRuntimeCoordinator?.ensureActivePresetReady();
 }

@@ -31,13 +31,8 @@ import {
   getIdleSummaryDatabase,
   getPublishedStatusText,
   scheduleIdleSummaryIfNeeded,
-  wakeManagedLlamaForIncomingModelRequest,
   writePublishedStatus,
 } from '../server-ops.js';
-import {
-  captureManagedLlamaSpeculativeMetricsSnapshot,
-  getManagedLlamaSpeculativeMetricsDelta,
-} from '../managed-llama.js';
 import {
   buildStatusRunStartInput,
   type ActiveRunState,
@@ -318,9 +313,6 @@ class StatusPostRequestHandler {
       case 'unknown':
         break;
     }
-    if (running && normalizeTaskKind(metadata.taskKind) !== null && this.ctx.activeModelRequests.size === 0) {
-      wakeManagedLlamaForIncomingModelRequest(this.ctx);
-    }
     return false;
   }
 
@@ -333,7 +325,6 @@ class StatusPostRequestHandler {
       this.statusPath,
       metadata,
       normalizeTaskKind(metadata.taskKind),
-      captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlama.lastStartupLogs?.runId ?? null),
       now,
     ));
     return { elapsedMs: null, totalElapsedMs: null, requestCompleted: false, suppressLogLine: false };
@@ -414,10 +405,8 @@ class StatusPostRequestHandler {
     timing.elapsedMs = now - runState.currentRequestStartedAt;
     runState.outputTokensTotal += resolvedOutputTokens;
     this.copyRunStateMetadata(targetMetadata, runState);
-    this.applySpeculativeMetrics(requestId, sourceMetadata, targetMetadata, runState);
-    if (sourceMetadata.terminalState === null) {
-      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlama.lastStartupLogs?.runId ?? null);
-    } else if (sourceMetadata.terminalState === 'completed') {
+    this.applySpeculativeMetrics(requestId, sourceMetadata, targetMetadata);
+    if (sourceMetadata.terminalState === 'completed') {
       timing.totalElapsedMs = now - runState.overallStartedAt;
       targetMetadata.totalOutputTokens = runState.outputTokensTotal;
       this.ctx.statusRuns.finalizeTerminal(requestId, now);
@@ -442,16 +431,7 @@ class StatusPostRequestHandler {
     requestId: string,
     sourceMetadata: StatusPostMetadata,
     targetMetadata: StatusPostMetadata | StatusPostDeferredMetadata,
-    runState: ActiveRunState,
   ): void {
-    const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      this.ctx.managedLlama.lastStartupLogs?.runId ?? null,
-      runState.managedLlamaSpeculativeSnapshot,
-    );
-    if (speculativeMetrics) {
-      targetMetadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
-      targetMetadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
-    }
     if (sourceMetadata.terminalState !== null && (targetMetadata.speculativeAcceptedTokens !== null || targetMetadata.speculativeGeneratedTokens !== null)) {
       updateRunLogSpeculativeMetricsByRequestId({
         database: getRuntimeDatabase(),

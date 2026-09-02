@@ -22,7 +22,6 @@ function buildStart(requestId: string, nowMs: number) {
     'C:/runtime/status.txt',
     metadata,
     'chat',
-    null,
     nowMs,
   );
 }
@@ -210,7 +209,6 @@ function buildSparseStart(requestId: string, nowMs: number) {
     'C:/runtime/status.txt',
     metadata,
     'chat',
-    null,
     nowMs,
   );
 }
@@ -243,7 +241,6 @@ test('advancing adopts the chunk path and speculative snapshot supplied on a lat
     'C:/runtime/status.txt',
     chunkMetadata,
     'chat',
-    { stdoutOffset: 64, stderrOffset: 32, latestSpeculativeAcceptedTokens: 7, latestSpeculativeGeneratedTokens: 9 },
     2_000,
   ));
   if (advanced.kind !== 'advanced') {
@@ -252,12 +249,6 @@ test('advancing adopts the chunk path and speculative snapshot supplied on a lat
   assert.equal(advanced.run.chunkIndex, 2);
   assert.equal(advanced.run.chunkTotal, 4);
   assert.equal(advanced.run.chunkPath, 'C:/runtime/chunk-2.txt');
-  assert.deepEqual(advanced.run.managedLlamaSpeculativeSnapshot, {
-    stdoutOffset: 64,
-    stderrOffset: 32,
-    latestSpeculativeAcceptedTokens: 7,
-    latestSpeculativeGeneratedTokens: 9,
-  });
 });
 
 test('advancing with sparse metadata preserves values captured on the first step', () => {
@@ -288,7 +279,6 @@ test('advancing with fresh prompt metadata overwrites the previous step values',
     'C:/runtime/status.txt',
     secondMetadata,
     'chat',
-    null,
     2_000,
   ));
   if (advanced.kind !== 'advanced') {

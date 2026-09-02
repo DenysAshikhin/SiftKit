@@ -1,25 +1,21 @@
 import { parentPort } from 'node:worker_threads';
 import {
   appendInferenceRunLogChunk,
-  updateInferenceRunSpeculativeMetrics,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.js';
-import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama-speculative-tracker.js';
 
 type FlushWorkerRequest = {
   id: number;
   runId: string;
   databasePath: string;
   entries: InferenceRunPendingLogChunkEntry[];
-  metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
 type FlushWorkerResponse = {
   id: number;
   ok: boolean;
   errorMessage?: string;
-  metricsFlushed?: boolean;
 };
 
 function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
@@ -33,21 +29,7 @@ function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
       databasePath: message.databasePath,
     });
   }
-  const metricsFlushed = message.metricsSnapshot
-    ? updateInferenceRunSpeculativeMetrics({
-      runId: message.runId,
-      speculativeAcceptedTokens: message.metricsSnapshot.latestSpeculativeAcceptedTokens,
-      speculativeGeneratedTokens: message.metricsSnapshot.latestSpeculativeGeneratedTokens,
-      stdoutCharacterCount: message.metricsSnapshot.stdoutOffset,
-      stderrCharacterCount: message.metricsSnapshot.stderrOffset,
-      databasePath: message.databasePath,
-    })
-    : false;
-  return {
-    id: message.id,
-    ok: true,
-    metricsFlushed,
-  };
+  return { id: message.id, ok: true };
 }
 
 parentPort?.on('message', (message: FlushWorkerRequest) => {

@@ -20,12 +20,12 @@ function createConfigPath(): string {
   const base = config.Server.ModelPresets.Presets[0];
   if (!base) throw new Error('Default model preset is missing');
   config.Server.ModelPresets = {
-    ActivePresetId: 'llama-main',
+    ActivePresetId: 'exl3-main',
     Presets: [
-      { ...base, id: 'llama-main', label: 'Llama main', Backend: 'llama' },
       { ...base, id: 'exl3-main', label: 'EXL3 main', Backend: 'exl3' },
-      { ...base, id: 'broken-llama', label: 'Broken llama', Backend: 'llama' },
-      { ...base, id: 'external-llama', label: 'External llama', Backend: 'llama', ExternalServerEnabled: true },
+      { ...base, id: 'exl3-alt', label: 'EXL3 alt', Backend: 'exl3' },
+      { ...base, id: 'broken-exl3', label: 'Broken EXL3', Backend: 'exl3' },
+      { ...base, id: 'external-exl3', label: 'External EXL3', Backend: 'exl3', ExternalServerEnabled: true },
     ],
   };
   writeConfig(configPath, config);
@@ -35,37 +35,21 @@ function createConfigPath(): string {
 interface CoordinatorFixture {
   coordinator: PresetRuntimeCoordinator;
   appliedState: AppliedModelPresetState;
-  exl3Runtime: RecordingRuntime;
+  runtime: RecordingRuntime;
   events: string[];
   configPath: string;
   /** Stands in for `ServerContext.activeModelRequests`, the one place in-flight requests live. */
   activeModelRequests: Map<string, ModelRequestLock>;
 }
 
-function createCoordinator(
-  failingLlamaPresetIds = new Set<string>(),
-  failingExl3PresetIds = new Set<string>(),
-): CoordinatorFixture {
+function createCoordinator(failingPresetIds = new Set<string>()): CoordinatorFixture {
   const configPath = createConfigPath();
   const events: string[] = [];
   const activeModelRequests = new Map<string, ModelRequestLock>();
   const appliedState = new AppliedModelPresetState(getActiveModelPreset(readConfig(configPath)));
-  const exl3Runtime = new RecordingRuntime('exl3', events, failingExl3PresetIds);
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events, failingLlamaPresetIds),
-    exl3Runtime,
-    activeModelRequests,
-    appliedState,
-  );
-  return {
-    coordinator,
-    appliedState,
-    exl3Runtime,
-    events,
-    configPath,
-    activeModelRequests,
-  };
+  const runtime = new RecordingRuntime('exl3', events, failingPresetIds);
+  const coordinator = new PresetRuntimeCoordinator(configPath, runtime, activeModelRequests, appliedState);
+  return { coordinator, appliedState, runtime, events, configPath, activeModelRequests };
 }
 
 function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLock>, count: number): void {
@@ -87,35 +71,34 @@ async function disposeCoordinator({ coordinator, configPath }: CoordinatorFixtur
   fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
 }
 
-async function applyExl3Preset(fixture: CoordinatorFixture): Promise<void> {
-  const config = readConfig(fixture.configPath);
-  config.Server.ModelPresets.ActivePresetId = 'exl3-main';
-  writeConfig(fixture.configPath, config);
-  await fixture.coordinator.applyPreset('exl3-main');
-  assert.equal(fixture.coordinator.getStatus().activePresetId, 'exl3-main');
+function persistActivePreset(configPath: string, presetId: string): void {
+  const config = readConfig(configPath);
+  config.Server.ModelPresets.ActivePresetId = presetId;
+  writeConfig(configPath, config);
 }
 
-test('preset coordinator drains by preset and switches backend processes', async () => {
+async function applyAltPreset(fixture: CoordinatorFixture): Promise<void> {
+  persistActivePreset(fixture.configPath, 'exl3-alt');
+  await fixture.coordinator.applyPreset('exl3-alt');
+  assert.equal(fixture.coordinator.getStatus().activePresetId, 'exl3-alt');
+}
+
+test('preset coordinator drains by preset and swaps the resident model without a process restart', async () => {
   const fixture = createCoordinator();
   const { coordinator, appliedState, events, configPath, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    assert.equal(coordinator.getActiveBackend(), 'llama');
+    assert.equal(coordinator.getActiveBackend(), 'exl3');
     setActiveModelRequests(activeModelRequests, 1);
-    const savedConfig = readConfig(configPath);
-    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
-    writeConfig(configPath, savedConfig);
-    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    persistActivePreset(configPath, 'exl3-alt');
+    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
     assert.equal(coordinator.canGrantModelRequest(), false);
     setActiveModelRequests(activeModelRequests, 0);
     await coordinator.onModelRequestReleased();
-    assert.deepEqual(events, [
-      'start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main',
-    ]);
-    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
-    assert.equal(coordinator.getActiveBackend(), 'exl3');
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
-    assert.equal(appliedState.getPreset().id, 'exl3-main');
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-main', 'unload:exl3', 'load:exl3-alt']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-alt');
+    assert.equal(appliedState.getPreset().id, 'exl3-alt');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -127,18 +110,16 @@ test('pending switch waits until the active requests drain to zero', async () =>
   try {
     await coordinator.initialize();
     setActiveModelRequests(activeModelRequests, 2);
-    const savedConfig = readConfig(configPath);
-    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
-    writeConfig(configPath, savedConfig);
-    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    persistActivePreset(configPath, 'exl3-alt');
+    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
 
     setActiveModelRequests(activeModelRequests, 1);
     await coordinator.onModelRequestReleased();
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
 
     setActiveModelRequests(activeModelRequests, 0);
     await coordinator.onModelRequestReleased();
-    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -149,10 +130,10 @@ test('idle unload refuses a preset id that is not applied', async () => {
   const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
-    await applyExl3Preset(fixture);
+    await applyAltPreset(fixture);
     events.length = 0;
 
-    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     await disposeCoordinator(fixture);
@@ -164,7 +145,6 @@ test('idle unload refuses while a model request is active', async () => {
   const { coordinator, events, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    await applyExl3Preset(fixture);
     setActiveModelRequests(activeModelRequests, 1);
     events.length = 0;
 
@@ -182,11 +162,11 @@ test('idle unload refuses while a preset switch is pending', async () => {
   try {
     await coordinator.initialize();
     setActiveModelRequests(activeModelRequests, 1);
-    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
     setActiveModelRequests(activeModelRequests, 0);
     events.length = 0;
 
-    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     setActiveModelRequests(activeModelRequests, 0);
@@ -195,27 +175,26 @@ test('idle unload refuses while a preset switch is pending', async () => {
   }
 });
 
-test('idle unload applies to a ready llama preset', async () => {
+test('idle unload applies to the ready applied preset', async () => {
   const fixture = createCoordinator();
   const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     events.length = 0;
 
-    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), true);
-    assert.deepEqual(events, ['unload:llama']);
+    assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), true);
+    assert.deepEqual(events, ['unload:exl3']);
   } finally {
     await disposeCoordinator(fixture);
   }
 });
 
-test('idle unload refuses an exl3 runtime whose model is not ready', async () => {
+test('idle unload refuses a runtime whose model is not ready', async () => {
   const fixture = createCoordinator();
-  const { coordinator, exl3Runtime, events } = fixture;
+  const { coordinator, runtime, events } = fixture;
   try {
     await coordinator.initialize();
-    await applyExl3Preset(fixture);
-    await exl3Runtime.unloadPreset();
+    await runtime.unloadPreset();
     events.length = 0;
 
     assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
@@ -225,7 +204,7 @@ test('idle unload refuses an exl3 runtime whose model is not ready', async () =>
   }
 });
 
-test('restartConfiguredPreset stops and restarts the running llama preset', async () => {
+test('restartConfiguredPreset unloads, stops, and restarts the running preset', async () => {
   const fixture = createCoordinator();
   const { coordinator, events } = fixture;
   try {
@@ -234,29 +213,9 @@ test('restartConfiguredPreset stops and restarts the running llama preset', asyn
 
     await coordinator.restartConfiguredPreset();
 
-    assert.deepEqual(events, ['stop:llama', 'start:llama', 'load:llama-main']);
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
-    assert.equal(coordinator.getStatus().processState, 'ready');
-  } finally {
-    await disposeCoordinator(fixture);
-  }
-});
-
-test('restartConfiguredPreset unloads and restarts the running exl3 preset', async () => {
-  const fixture = createCoordinator();
-  const { coordinator, events, configPath } = fixture;
-  try {
-    await coordinator.initialize();
-    const savedConfig = readConfig(configPath);
-    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
-    writeConfig(configPath, savedConfig);
-    await coordinator.applyPreset('exl3-main');
-    events.length = 0;
-
-    await coordinator.restartConfiguredPreset();
-
     assert.deepEqual(events, ['unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(coordinator.getStatus().processState, 'ready');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -267,18 +226,16 @@ test('restartConfiguredPreset applies the preset persisted by a plain config sav
   const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
-    const savedConfig = readConfig(configPath);
-    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
-    writeConfig(configPath, savedConfig);
+    persistActivePreset(configPath, 'exl3-alt');
     // A plain save must not have touched the runtime.
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     events.length = 0;
 
     await coordinator.restartConfiguredPreset();
 
-    assert.deepEqual(events, ['stop:llama', 'start:exl3', 'load:exl3-main']);
-    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+    assert.deepEqual(events, ['unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-alt']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-alt');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -305,14 +262,12 @@ test('restartConfiguredPreset refuses a preset whose inference server SiftKit do
   const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
-    const savedConfig = readConfig(configPath);
-    savedConfig.Server.ModelPresets.ActivePresetId = 'external-llama';
-    writeConfig(configPath, savedConfig);
+    persistActivePreset(configPath, 'external-exl3');
     events.length = 0;
 
     await assert.rejects(coordinator.restartConfiguredPreset(), ExternalServerRestartError);
     assert.deepEqual(events, []);
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -324,52 +279,38 @@ test('editing the active preset reloads it and rolls back the previous definitio
   const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
-    failingPresetIds.add('llama-main');
+    failingPresetIds.add('exl3-main');
     events.length = 0;
     const nextConfig = readConfig(configPath);
-    const activePreset = nextConfig.Server.ModelPresets.Presets.find((preset) => preset.id === 'llama-main');
+    const activePreset = nextConfig.Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main');
     if (!activePreset) throw new Error('Active preset is missing');
-    activePreset.label = 'Changed llama';
+    activePreset.label = 'Changed EXL3';
     writeConfig(configPath, nextConfig);
 
-    await assert.rejects(coordinator.ensureActivePresetReady(), /load failed: llama-main/u);
+    await assert.rejects(coordinator.ensureActivePresetReady(), /load failed: exl3-main/u);
     assert.deepEqual(events, [
-      'stop:llama', 'start:llama', 'load:llama-main',
-      'stop:llama', 'start:llama', 'load:llama-main',
+      'unload:exl3', 'load:exl3-main',
+      'unload:exl3', 'load:exl3-main',
     ]);
-    assert.equal(readConfig(configPath).Server.ModelPresets.Presets[0]?.label, 'Llama main');
-    assert.equal(coordinator.getStatus().activePresetLabel, 'Llama main');
+    assert.equal(readConfig(configPath).Server.ModelPresets.Presets[0]?.label, 'EXL3 main');
+    assert.equal(coordinator.getStatus().activePresetLabel, 'EXL3 main');
   } finally {
     await disposeCoordinator(fixture);
   }
 });
 
 test('preset coordinator rolls back by preset id after target load failure', async () => {
-  const fixture = createCoordinator(new Set(['broken-llama']));
+  const fixture = createCoordinator(new Set(['broken-exl3']));
   const { coordinator, appliedState, configPath } = fixture;
   try {
     await coordinator.initialize();
     const previous = appliedState.getPreset();
-    await assert.rejects(coordinator.applyPreset('broken-llama'), /load failed: broken-llama/u);
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
-    assert.equal(coordinator.getStatus().rollback, "Restored preset 'llama-main'.");
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
-    assert.equal(appliedState.getPreset().id, previous.id); // after failed switch rollback
-  } finally {
-    await disposeCoordinator(fixture);
-  }
-});
-
-test('cross-backend rollback restores the previous preset when failed target cleanup also fails', async () => {
-  const fixture = createCoordinator(new Set<string>(), new Set(['exl3-main']));
-  const { coordinator, configPath } = fixture;
-  try {
-    await coordinator.initialize();
-    await assert.rejects(coordinator.applyPreset('exl3-main'), /load failed: exl3-main/u);
-    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    await assert.rejects(coordinator.applyPreset('broken-exl3'), /load failed: broken-exl3/u);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(coordinator.getStatus().processState, 'ready');
-    assert.match(coordinator.getStatus().rollback ?? '', /Restored preset 'llama-main'.*nothing loaded: exl3/u);
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
+    assert.match(coordinator.getStatus().rollback ?? '', /Restored preset 'exl3-main'.*nothing loaded: exl3/u);
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+    assert.equal(appliedState.getPreset().id, previous.id); // after failed switch rollback
   } finally {
     await disposeCoordinator(fixture);
   }

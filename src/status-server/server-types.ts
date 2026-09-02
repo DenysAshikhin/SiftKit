@@ -1,13 +1,9 @@
 import type { Server } from 'node:http';
-import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
-import type { InferenceRunStreamKind } from '../state/inference-runs.js';
-import type { LlamaRunRecorder } from './llama-run-recorder.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
-import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import type { ModelIdleController } from './model-idle-controller.js';
@@ -76,32 +72,20 @@ export type IdleSummaryState = {
   database: DatabaseInstance | null;
 };
 
-export type ManagedLlamaState = {
-  startupPromise: Promise<void> | null;
-  shutdownPromise: Promise<void> | null;
-  hostProcess: ChildProcess | null;
-  lastStartupLogs: LlamaRunRecorder | null;
-  starting: boolean;
-  ready: boolean;
-  startupWarning: string | null;
-  bootstrapStartup: boolean;
-  logCleanupTimer: NodeJS.Timeout | null;
+/** Server-boot readiness of the managed inference engine; `inProgress` is true only while the listen callback readies the active preset. */
+export type EngineBootstrapState = {
+  inProgress: boolean;
+  warning: string | null;
 };
 
-export type EnsureManagedLlamaOptions ={ resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
-export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
-export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
-export type LogEntry = { label: string; streamKind: InferenceRunStreamKind; text: string; matchingLines: string[] };
-
 export type ExtendedServer = Server & {
-  shutdownManagedLlamaForServerExit?: () => Promise<void>;
-  shutdownManagedLlamaForProcessExitSync?: () => void;
+  shutdownEngineForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;
   waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
 };
 
 export type StartStatusServerOptions = {
-  disableManagedLlamaStartup?: boolean;
+  disableManagedEngineStartup?: boolean;
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
@@ -110,14 +94,14 @@ export type StartStatusServerOptions = {
 
 /**
  * Shared mutable state for the status server. Created in `startStatusServer`
- * and threaded through to route handlers and managed-llama lifecycle functions.
+ * and threaded through to route handlers and the managed-engine lifecycle.
  */
 export type ServerContext = {
   readonly configPath: string;
   readonly statusPath: string;
   readonly metricsPath: string;
   readonly idleSummarySnapshotsPath: string;
-  readonly disableManagedLlamaStartup: boolean;
+  readonly disableManagedEngineStartup: boolean;
   readonly engineService: StatusEngineService;
   readonly repoAgentRunStore: RepoAgentRunStore;
   readonly repoAgentSessions: RepoAgentSessionManager;
@@ -151,12 +135,9 @@ export type ServerContext = {
   // Idle summary
   idleSummary: IdleSummaryState;
 
-  // Managed llama
-  managedLlama: ManagedLlamaState;
+  // Managed engine
+  engineBootstrap: EngineBootstrapState;
+  inferenceRunLogCleanupTimer: NodeJS.Timeout | null;
   runtimeHistoryPruneTimer: NodeJS.Timeout | null;
   inferenceRunFlushQueue: InferenceRunFlushQueue;
-
-  // Late-bound function references (set by index.ts to break circular deps)
-  shutdownManagedLlamaIfNeeded(options?: ShutdownManagedLlamaOptions): Promise<void>;
-  ensureManagedLlamaReady(options?: EnsureManagedLlamaOptions): Promise<SiftConfig>;
 };

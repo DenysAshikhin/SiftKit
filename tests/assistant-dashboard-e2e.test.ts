@@ -28,7 +28,7 @@ test('dashboard assistant API authenticates once and reads the live Gate C surfa
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultConfig();
   writeConfig(getConfigPath(), { ...config, Assistant: { ...config.Assistant, Enabled: true } });
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;

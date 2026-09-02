@@ -5,53 +5,18 @@ import { startStubStatusServer } from './_runtime-helpers.js';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
 import { requestJson } from './helpers/dashboard-http.js';
 
-async function startManagedLlamaServer(name: string) {
+async function startManagedEngineServer(name: string) {
   const stub = await startStubStatusServer({});
   const server = await DashboardTestServer.start(
     name,
     { baseUrl: `http://127.0.0.1:${stub.port}`, model: 'stub-model' },
-    { managedLlamaStartup: true },
+    { managedEngineStartup: true },
   );
   return { server, stub };
 }
 
-test('POST /runtime/model/unload rejects an external llama server and preserves readiness', async () => {
-  const { server, stub } = await startManagedLlamaServer('residency-unload-');
-  try {
-    const first = await requestJson(`${server.baseUrl}/runtime/model/unload`, { method: 'POST' });
-    assert.equal(first.statusCode, 503);
-    assert.equal(first.body.ok, false);
-    assert.match(String(first.body.error), /external.*server|cannot unload/u);
-
-    const status = await requestJson(`${server.baseUrl}/runtime/inference`);
-    assert.equal(status.statusCode, 200);
-    assert.equal(status.body.modelState, 'ready');
-
-    const second = await requestJson(`${server.baseUrl}/runtime/model/unload`, { method: 'POST' });
-    assert.equal(second.statusCode, 503);
-    assert.equal(second.body.ok, false);
-    assert.match(String(second.body.error), /external.*server|cannot unload/u);
-  } finally {
-    await server.close();
-    await stub.close();
-  }
-});
-
-test('POST /runtime/model/freeze returns 400 on a llama preset', async () => {
-  const { server, stub } = await startManagedLlamaServer('residency-freeze-unsupported-');
-  try {
-    const response = await requestJson(`${server.baseUrl}/runtime/model/freeze`, { method: 'POST' });
-    assert.equal(response.statusCode, 400);
-    assert.equal(response.body.ok, false);
-    assert.match(String(response.body.error), /EXL3 backend/u);
-  } finally {
-    await server.close();
-    await stub.close();
-  }
-});
-
 test('POST /runtime/model/offload is not an alias for freeze', async () => {
-  const { server, stub } = await startManagedLlamaServer('residency-old-route-');
+  const { server, stub } = await startManagedEngineServer('residency-old-route-');
   try {
     const response = await requestJson(`${server.baseUrl}/runtime/model/offload`, { method: 'POST' });
     assert.equal(response.statusCode, 404);
@@ -62,7 +27,7 @@ test('POST /runtime/model/offload is not an alias for freeze', async () => {
 });
 
 test('GET /runtime/inference reports the configured idle action', async () => {
-  const { server, stub } = await startManagedLlamaServer('residency-status-');
+  const { server, stub } = await startManagedEngineServer('residency-status-');
   try {
     const response = await requestJson(`${server.baseUrl}/runtime/inference`);
     assert.equal(response.statusCode, 200);

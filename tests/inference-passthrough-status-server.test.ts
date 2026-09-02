@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { z } from 'zod';
-import { acquireChildPortLease, writeManagedLlamaLauncher } from './_runtime-helpers.js';
+import { acquireChildPortLease, installProbeShim, writeManagedEngineLauncher } from './_runtime-helpers.js';
+import type { ManagedEngineLauncherOptions } from './helpers/managed-engine-fixtures.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
@@ -17,28 +18,38 @@ import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 
-function writeManagedConfig(
-  model: string,
-  managed: { baseUrl: string; modelPath: string; executablePath: string },
-  timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
-  presetOverrides: Partial<ModelRuntimePreset> = {},
-): void {
-  const config = getDefaultConfig();
-  const preset = config.Server.ModelPresets.Presets[0];
-  preset.Model = model;
-  preset.BaseUrl = managed.baseUrl;
-  preset.NumCtx = 32000;
-  preset.ModelPath = managed.modelPath;
-  preset.ExecutablePath = managed.executablePath;
-  preset.StartupTimeoutMs = timeouts.StartupTimeoutMs;
-  preset.HealthcheckTimeoutMs = timeouts.HealthcheckTimeoutMs;
-  preset.HealthcheckIntervalMs = timeouts.HealthcheckIntervalMs;
-  config.Server.ModelPresets.Presets[0] = { ...preset, ...presetOverrides };
-  writeConfig(getConfigPath(), config);
-}
+// Healthcheck timeout must stay well above realistic localhost round-trip latency under
+// full-suite CPU contention; a sub-100ms timeout made every probe to the freshly-spawned
+// fake engine time out, mis-reading it as offline until the startup deadline expired (503).
+// These tests exercise wake-on-demand and request translation, not tight healthcheck timing.
+const PASSTHROUGH_TIMEOUTS = {
+  StartupTimeoutMs: 10_000,
+  HealthcheckTimeoutMs: 2_000,
+  HealthcheckIntervalMs: 100,
+} as const;
 
 const ModelProbeCountSchema = z.coerce.number().int().nonnegative();
 
+function writeManagedConfig(
+  managed: ReturnType<typeof writeManagedEngineLauncher>,
+  presetOverrides: Partial<ModelRuntimePreset>,
+): void {
+  const config = getDefaultConfig();
+  const preset = config.Server.ModelPresets.Presets[0];
+  config.Server.ModelPresets.Presets[0] = {
+    ...preset,
+    Backend: 'exl3',
+    Model: managed.modelId,
+    BaseUrl: managed.baseUrl,
+    NumCtx: 32000,
+    ModelPath: managed.modelPath,
+    ExecutablePath: null,
+    ...PASSTHROUGH_TIMEOUTS,
+    ...presetOverrides,
+  };
+  config.Server.Engines.Exl3 = managed.engine;
+  writeConfig(getConfigPath(), config);
+}
 
 function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
@@ -114,8 +125,24 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
   });
 }
 
-test('llama passthrough wakes managed llama when the managed process is offline', async () => {
-  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-');
+interface PassthroughServerOptions {
+  tempPrefix: string;
+  modelId: string;
+  launcher?: ManagedEngineLauncherOptions;
+  presetOverrides?: Partial<ModelRuntimePreset>;
+  disableManagedEngineStartup?: boolean;
+}
+
+interface PassthroughServer {
+  baseUrl: string;
+  managed: ReturnType<typeof writeManagedEngineLauncher>;
+}
+
+async function withPassthroughServer(
+  options: PassthroughServerOptions,
+  run: (server: PassthroughServer) => Promise<void>,
+): Promise<void> {
+  const tempRoot = createManagedTempDir(options.tempPrefix);
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -131,170 +158,81 @@ test('llama passthrough wakes managed llama when the managed process is offline'
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const llamaPort = llamaPortLease.port;
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-model');
+  await using enginePortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, options.modelId, options.launcher);
+  const restoreProbeShim = installProbeShim(managed.probeShimPath);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeManagedConfig('managed-passthrough-model', managed, {
-    StartupTimeoutMs: 10000,
-    // Healthcheck timeout must stay well above realistic localhost round-trip
-    // latency under full-suite CPU contention; a sub-100ms timeout made every
-    // probe to the freshly-spawned fake llama time out, mis-reading it as
-    // offline until the 10s startup deadline expired (503). This test exercises
-    // wake-on-demand, not tight healthcheck timing.
-    HealthcheckTimeoutMs: 2000,
-    HealthcheckIntervalMs: 100,
-  });
+  writeManagedConfig(managed, options.presetOverrides ?? {});
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: Boolean(options.disableManagedEngineStartup) });
   await server.startupPromise;
   const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    await run({ baseUrl: `http://127.0.0.1:${address.port}`, managed });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    restoreProbeShim();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+}
+
+test('models passthrough reports the configured model without waking the managed engine', async () => {
+  await withPassthroughServer({
+    tempPrefix: 'siftkit-inference-passthrough-',
+    modelId: 'managed-passthrough-model',
+    disableManagedEngineStartup: true,
+  }, async ({ baseUrl, managed }) => {
     assert.equal(fs.existsSync(managed.readyFilePath), false);
 
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model', object: 'model' }] });
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+    assert.equal(fs.existsSync(managed.readyFilePath), false);
+  });
 });
 
-test('llama passthrough waits through 503 Loading model responses without timing out', async () => {
-  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-503-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
-
-  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const llamaPort = llamaPortLease.port;
-  // Two canonical "Loading model" responses prove that startup retries 503s
-  // before accepting the first successful model probe.
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-503-model', {
-    initial503LoadingModelCount: 2,
-  });
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeManagedConfig('managed-passthrough-503-model', managed, {
-    StartupTimeoutMs: 5000,
-    HealthcheckTimeoutMs: 100,
-    HealthcheckIntervalMs: 10,
-  });
-
-  const server = startStatusServer();
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
+test('managed engine startup waits through unloaded model probes without timing out', async () => {
+  // Two "no model loaded" answers prove that startup keeps polling the model card
+  // before accepting the first resident probe.
+  await withPassthroughServer({
+    tempPrefix: 'siftkit-inference-passthrough-503-',
+    modelId: 'managed-passthrough-503-model',
+    launcher: { initialUnloadedModelProbeCount: 2 },
+  }, async ({ baseUrl, managed }) => {
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
     const modelProbeCount = ModelProbeCountSchema.parse(fs.readFileSync(managed.modelProbeCountPath, 'utf8').trim());
-    assert.ok(modelProbeCount >= 3, `expected two loading probes before success, got ${modelProbeCount}`);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+    assert.ok(modelProbeCount >= 3, `expected two unloaded probes before success, got ${modelProbeCount}`);
+  });
 });
 
 test('chat passthrough logs every forwarded /v1/chat/completions request', async () => {
-  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-chat-log-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
-
-  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const llamaPort = llamaPortLease.port;
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-chat-log-model');
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeManagedConfig('managed-chat-log-model', managed, {
-    StartupTimeoutMs: 10000,
-    HealthcheckTimeoutMs: 2000,
-    HealthcheckIntervalMs: 100,
-  });
-
-  const server = startStatusServer();
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
+  await withPassthroughServer({
+    tempPrefix: 'siftkit-inference-passthrough-chat-log-',
+    modelId: 'managed-chat-log-model',
+  }, async ({ baseUrl }) => {
     const capture = OutputCapture.start(process.stdout);
     try {
       const response = await requestJsonPost(`${baseUrl}/v1/chat/completions`, {
@@ -314,84 +252,20 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
     assert.match(forwardLine, /path=\/v1\/chat\/completions/u);
     assert.match(forwardLine, /messages=2/u);
     assert.match(forwardLine, /body_chars=\d+/u);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+  });
 });
 
 async function withPassthroughChatServer(
   presetOverrides: Partial<ModelRuntimePreset>,
   run: (postChat: (body: JsonValue) => Promise<JsonResponse>) => Promise<void>,
 ): Promise<void> {
-  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-samplers-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
-
-  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const llamaPort = llamaPortLease.port;
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-sampler-model');
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeManagedConfig('managed-sampler-model', managed, {
-    StartupTimeoutMs: 10000,
-    HealthcheckTimeoutMs: 2000,
-    HealthcheckIntervalMs: 100,
-  }, presetOverrides);
-
-  const server = startStatusServer();
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
+  await withPassthroughServer({
+    tempPrefix: 'siftkit-inference-passthrough-samplers-',
+    modelId: 'managed-sampler-model',
+    presetOverrides,
+  }, async ({ baseUrl }) => {
     await run((body) => requestJsonPost(`${baseUrl}/v1/chat/completions`, body, 30_000));
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+  });
 }
 
 function readForwardedRequest(response: JsonResponse): JsonObject {
@@ -417,7 +291,7 @@ test('chat passthrough forces preset samplers and lets callers only lower max_to
       top_k: 99,
       min_p: 0.5,
       presence_penalty: 0,
-      repeat_penalty: 2,
+      repetition_penalty: 2,
       max_tokens: 99_999,
       chat_template_kwargs: { enable_thinking: true },
     }));
@@ -426,7 +300,7 @@ test('chat passthrough forces preset samplers and lets callers only lower max_to
     assert.equal(overreaching.top_k, 17);
     assert.equal(overreaching.min_p, 0.03);
     assert.equal(overreaching.presence_penalty, 0.9);
-    assert.equal(overreaching.repeat_penalty, 1.15);
+    assert.equal(overreaching.repetition_penalty, 1.15);
     assert.equal(overreaching.model, 'managed-sampler-model');
     // min(caller 99999, preset 15000)
     assert.equal(overreaching.max_tokens, 15_000);
@@ -458,7 +332,6 @@ test('chat passthrough forwards the preset thinking kwargs when reasoning is on'
     }));
     assert.deepEqual(forwarded.chat_template_kwargs, {
       enable_thinking: true,
-      reasoning_content: true,
       preserve_thinking: true,
       reasoning_effort: 'xhigh',
     });
@@ -482,74 +355,17 @@ test('chat passthrough replaces a caller reasoning effort with the preset one', 
   });
 });
 
-test('llama passthrough proxies POST /tokenize to managed llama', async () => {
-  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-tokenize-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
-
-  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const llamaPort = llamaPortLease.port;
-  // The fake llama tokenizes at 4 characters per token.
-  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-tokenize-model', {
-    tokenizeCharsPerToken: 4,
-  });
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeManagedConfig('managed-tokenize-model', managed, {
-    StartupTimeoutMs: 10000,
-    // Healthcheck timeout must stay well above realistic localhost round-trip
-    // latency under full-suite CPU contention; a sub-100ms timeout made every
-    // probe to the freshly-spawned fake llama time out, mis-reading it as
-    // offline until the 10s startup deadline expired (503). This test exercises
-    // wake-on-demand, not tight healthcheck timing.
-    HealthcheckTimeoutMs: 2000,
-    HealthcheckIntervalMs: 100,
-  });
-
-  const server = startStatusServer();
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
+test('tokenize passthrough proxies POST /tokenize to the managed engine', async () => {
+  // The fake engine tokenizes at 4 characters per token.
+  await withPassthroughServer({
+    tempPrefix: 'siftkit-inference-passthrough-tokenize-',
+    modelId: 'managed-tokenize-model',
+    launcher: { tokenizeCharsPerToken: 4 },
+  }, async ({ baseUrl }) => {
     // 16 characters at 4 chars/token => 4 tokens.
     const response = await requestJsonPost(`${baseUrl}/tokenize`, { content: 'abcdefghijklmnop' });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.count, 4);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
+  });
 });

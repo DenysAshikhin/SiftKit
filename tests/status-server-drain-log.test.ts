@@ -48,7 +48,7 @@ test('a long drain wait logs once on entry and once on resume', async () => {
     }
     return llamaFlushIdle && originalIsIdle.call(this);
   };
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 10 });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
