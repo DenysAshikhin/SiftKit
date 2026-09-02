@@ -2,6 +2,7 @@ import { z } from '../../lib/zod.js';
 import { InferenceBackendIdSchema } from '../../config/types.js';
 import type { InferenceBackendId } from '../../config/types.js';
 import type { JsonObject } from '../../lib/json-types.js';
+import type { RunOperationType } from '@siftkit/contracts';
 
 export type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
 
@@ -30,11 +31,16 @@ export type DashboardRunLogDeleteCriteria =
     beforeDate: string;
   };
 
-export type { RunRecord } from '@siftkit/contracts';
+export type { RunOperationType, RunRecord } from '@siftkit/contracts';
 
 export const RunLogDbRowSchema = z.object({
   run_id: z.string().nullable(),
   run_kind: z.string().nullable(),
+  operation_type: z.string().nullish(),
+  operation_preset_id: z.string().nullish(),
+  model_preset_id: z.string().nullish(),
+  operation_preset_json: z.string().nullish(),
+  model_preset_json: z.string().nullish(),
   terminal_state: z.string().nullable(),
   started_at_utc: z.string().nullable(),
   finished_at_utc: z.string().nullable(),
@@ -69,6 +75,11 @@ export type RunLogUpsertRow = {
   requestId: string;
   runKind: RunLogKind;
   runGroup: RunLogGroup;
+  operationType: RunOperationType | null;
+  operationPresetId: string | null;
+  modelPresetId: string | null;
+  operationPresetJson: string | null;
+  modelPresetJson: string | null;
   terminalState: RunLogTerminalState;
   startedAtUtc: string | null;
   finishedAtUtc: string | null;

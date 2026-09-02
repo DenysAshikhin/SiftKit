@@ -368,6 +368,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonO
         artifactType: artifact.artifactType,
         artifactRequestId: artifact.artifactRequestId.trim(),
         artifactPayload: artifact.artifactPayload,
+        identity: artifact.identity,
       }));
     if (deferredArtifacts.length > 0) {
       body.deferredArtifacts = deferredArtifacts;

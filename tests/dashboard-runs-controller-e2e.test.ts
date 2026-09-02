@@ -18,15 +18,28 @@ const { createRoot } = dashboardRequire('react-dom/client');
 const { JSDOM } = rootRequire('jsdom');
 
 const RUN_ID = 'run-1';
+const AGENT_RUN_ID = 'run-agent';
 function makeRun() {
   return {
     id: RUN_ID, kind: 'summary', status: 'completed',
+    operationType: null, operationPresetId: null, modelPresetId: null,
+    operationPresetJson: null, modelPresetJson: null,
     startedAtUtc: null, finishedAtUtc: null, title: 'Probe Run',
     model: null, backend: null, inputTokens: null, outputTokens: null, thinkingTokens: null,
     toolTokens: null, promptCacheTokens: null, promptEvalTokens: null,
     promptEvalDurationMs: null, generationDurationMs: null,
     speculativeAcceptedTokens: null, speculativeGeneratedTokens: null,
     durationMs: null, providerDurationMs: null, wallDurationMs: null, rawPaths: {},
+  };
+}
+// A post-migration repo-agent run: legacy kind keeps it in the repo_search group, while the
+// canonical fields identify it exactly.
+function makeAgentRun() {
+  return {
+    ...makeRun(),
+    id: AGENT_RUN_ID, kind: 'repo_search', title: 'Agent Run',
+    operationType: 'repo-agent', operationPresetId: 'repo-agent', modelPresetId: 'default',
+    operationPresetJson: '{"id":"repo-agent"}', modelPresetJson: '{"id":"default"}',
   };
 }
 
@@ -45,12 +58,21 @@ function Probe() {
     runsCacheResetRef: refresh.runsCacheResetRef,
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,
   });
-  const allRuns = Object.values(runs.tabProps.groupedRuns).flat();
+  const groupedRuns = Object.entries(runs.tabProps.groupedRuns)
+    .flatMap(([group, groupRuns]) => groupRuns.map((run) => ({ group, run })));
   return React.createElement(
     'div',
     null,
-    React.createElement('ul', { 'data-testid': 'runs' }, allRuns.map((run) => (
-      React.createElement('li', { key: run.id }, run.title)
+    React.createElement('ul', { 'data-testid': 'runs' }, groupedRuns.map(({ group, run }) => (
+      React.createElement('li', {
+        key: run.id,
+        'data-run-id': run.id,
+        'data-group': group,
+        'data-kind': run.kind,
+        'data-operation-type': run.operationType ?? 'null',
+        'data-operation-preset-id': run.operationPresetId ?? 'null',
+        'data-model-preset-id': run.modelPresetId ?? 'null',
+      }, run.title)
     ))),
     React.createElement('button', { 'data-testid': 'refresh', onClick: refresh.requestDashboardDataRefresh }, 'refresh'),
     React.createElement('button', { 'data-testid': 'delete', onClick: () => { void runs.runDelete.confirm(); } }, 'delete'),
@@ -75,7 +97,7 @@ test('runs controller fetches on mount, re-fetches on refresh, and deletes with 
     }
     if (url.includes('/dashboard/runs')) {
       runsFetchCount += 1;
-      return jsonResponse({ runs: deleted ? [] : [makeRun()], total: deleted ? 0 : 1 });
+      return jsonResponse({ runs: deleted ? [] : [makeRun(), makeAgentRun()], total: deleted ? 0 : 2 });
     }
     return jsonResponse({});
   }
@@ -95,6 +117,22 @@ test('runs controller fetches on mount, re-fetches on refresh, and deletes with 
   await React.act(async () => { root.render(React.createElement(Probe)); });
   assert.equal(runsFetchCount, 1);
   assert.match(container.textContent, /Probe Run/u);
+
+  // Identity fields cross the API contract untouched: legacy rows read null, new rows read
+  // their values, and the legacy kind still decides the dashboard group.
+  const legacyItem = container.querySelector(`[data-run-id="${RUN_ID}"]`);
+  assert.ok(legacyItem);
+  assert.equal(legacyItem.getAttribute('data-group'), 'summary');
+  assert.equal(legacyItem.getAttribute('data-operation-type'), 'null');
+  assert.equal(legacyItem.getAttribute('data-operation-preset-id'), 'null');
+  assert.equal(legacyItem.getAttribute('data-model-preset-id'), 'null');
+  const agentItem = container.querySelector(`[data-run-id="${AGENT_RUN_ID}"]`);
+  assert.ok(agentItem);
+  assert.equal(agentItem.getAttribute('data-group'), 'repo_search');
+  assert.equal(agentItem.getAttribute('data-kind'), 'repo_search');
+  assert.equal(agentItem.getAttribute('data-operation-type'), 'repo-agent');
+  assert.equal(agentItem.getAttribute('data-operation-preset-id'), 'repo-agent');
+  assert.equal(agentItem.getAttribute('data-model-preset-id'), 'default');
 
   // Refresh: requestDashboardDataRefresh bumps refreshToken → effect re-fetches.
   const refreshButton = container.querySelector('[data-testid="refresh"]');

@@ -829,6 +829,8 @@ class ChatMessageTurn {
       const result = await this.ctx.engineService.executeRepoSearch({
         presetId: this.preset.id,
         taskKind: 'chat',
+        modelPresetId: this.session.modelPresetId,
+        modelPreset: this.session.modelPreset,
         prompt: this.userContent,
         repoRoot: process.cwd(),
         statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
@@ -1116,6 +1118,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         presetId: selected.preset.id,
         requestId: engineRequestId,
         taskKind: 'chat',
+        modelPresetId: selectedSession.modelPresetId,
+        modelPreset: selectedSession.modelPreset,
         prompt: userContent,
         repoRoot: process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,

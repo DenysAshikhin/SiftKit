@@ -14,6 +14,7 @@ import {
   type RunLogUpsertRow,
 } from './types.js';
 import { parseOptionalIsoDate } from './run-records.js';
+import type { RunIdentity } from './run-identity.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -66,16 +67,23 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
   ensureRunLogsTable(database);
   database.prepare(`
     INSERT INTO run_logs (
-      run_id, request_id, run_kind, run_group, terminal_state,
+      run_id, request_id, run_kind, run_group,
+      operation_type, operation_preset_id, model_preset_id, operation_preset_json, model_preset_json,
+      terminal_state,
       started_at_utc, finished_at_utc, title, model, backend, repo_root,
       input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, prompt_eval_duration_ms, generation_duration_ms, speculative_accepted_tokens, speculative_generated_tokens, duration_ms, provider_duration_ms, wall_duration_ms,
       request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
       source_paths_json, flushed_at_utc, source_deleted_at_utc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(run_id) DO UPDATE SET
       request_id = excluded.request_id,
       run_kind = CASE WHEN excluded.run_kind = 'unknown' THEN run_logs.run_kind ELSE excluded.run_kind END,
       run_group = CASE WHEN excluded.run_group = 'other' THEN run_logs.run_group ELSE excluded.run_group END,
+      operation_type = COALESCE(excluded.operation_type, run_logs.operation_type),
+      operation_preset_id = COALESCE(excluded.operation_preset_id, run_logs.operation_preset_id),
+      model_preset_id = COALESCE(excluded.model_preset_id, run_logs.model_preset_id),
+      operation_preset_json = COALESCE(excluded.operation_preset_json, run_logs.operation_preset_json),
+      model_preset_json = COALESCE(excluded.model_preset_json, run_logs.model_preset_json),
       terminal_state = CASE WHEN excluded.terminal_state = 'unknown' THEN run_logs.terminal_state ELSE excluded.terminal_state END,
       started_at_utc = COALESCE(excluded.started_at_utc, run_logs.started_at_utc),
       finished_at_utc = COALESCE(excluded.finished_at_utc, run_logs.finished_at_utc),
@@ -109,6 +117,11 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     row.requestId,
     row.runKind,
     row.runGroup,
+    row.operationType,
+    row.operationPresetId,
+    row.modelPresetId,
+    row.operationPresetJson,
+    row.modelPresetJson,
     row.terminalState,
     row.startedAtUtc,
     row.finishedAtUtc,
@@ -175,6 +188,8 @@ export function upsertRunArtifactPayload(options: {
   requestId: string;
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned';
   artifactPayload: RunArtifactPayload;
+  /** Identity the producing run ran under; unrecorded for server-authored artifacts. */
+  identity: RunIdentity;
 }): void {
   const requestId = String(options.requestId || '').trim();
   if (!requestId) {
@@ -218,6 +233,7 @@ export function upsertRunArtifactPayload(options: {
     requestId,
     runKind,
     runGroup,
+    ...options.identity,
     terminalState,
     startedAtUtc: parseOptionalIsoDate(
       options.artifactPayload?.createdAtUtc
@@ -269,7 +285,9 @@ export function upsertRunArtifactPayload(options: {
 export function upsertRepoSearchRun(options: {
   database: DatabaseInstance;
   requestId: string;
+  /** Collapsed kind feeding the legacy `run_kind` grouping; the canonical operation lives in `identity`. */
   taskKind: 'plan' | 'repo-search' | 'chat';
+  identity: RunIdentity;
   prompt: string;
   repoRoot: string;
   model: string | null;
@@ -301,6 +319,7 @@ export function upsertRepoSearchRun(options: {
     requestId: options.requestId,
     runKind,
     runGroup,
+    ...options.identity,
     terminalState: options.terminalState,
     startedAtUtc: options.startedAtUtc,
     finishedAtUtc: options.finishedAtUtc,

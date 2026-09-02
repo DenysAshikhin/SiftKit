@@ -108,6 +108,7 @@ function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact)
     requestId: artifact.artifactRequestId,
     artifactType: artifact.artifactType,
     artifactPayload: artifact.artifactPayload,
+    identity: artifact.identity,
   });
 }
 

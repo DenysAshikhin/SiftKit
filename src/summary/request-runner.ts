@@ -52,6 +52,11 @@ import {
   type PresetSystemContext,
 } from '../preset-system-context.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import {
+  buildRunIdentity,
+  operationOnlyRunIdentity,
+  type RunIdentity,
+} from '../status-server/dashboard-runs/run-identity.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 
 type SummaryExecutionContext = {
@@ -110,6 +115,9 @@ export class SummaryRequestRunner {
   private readonly provider: SummaryProviderId;
   private readonly progress: SummaryProgressReporter;
   private model = 'unknown';
+  // Run identity for every artifact this request emits. The operation is known up front; the
+  // preset snapshots are filled in once the config loads and stay null if the run fails before.
+  private identity: RunIdentity = operationOnlyRunIdentity('summary');
 
   constructor(request: SummaryRequest) {
     this.request = request;
@@ -252,6 +260,11 @@ export class SummaryRequestRunner {
       characterCount: decision.CharacterCount,
     });
     this.progress.decisionDone(this.provider, decision.RawReviewRequired, decision.CharacterCount);
+    this.identity = buildRunIdentity({
+      operationType: 'summary',
+      operationPreset: preset,
+      modelPreset: activeVisionPreset,
+    });
     return {
       config: this.config,
       provider: this.provider,
@@ -400,6 +413,7 @@ export class SummaryRequestRunner {
           summary: result.Summary,
           providerError: result.ProviderError,
           error: null,
+          identity: this.identity,
         }),
       ],
     });
@@ -443,6 +457,7 @@ export class SummaryRequestRunner {
           classification: modelDecision.classification,
           rawReviewRequired: modelDecision.rawReviewRequired,
           providerError: null,
+          identity: this.identity,
         }),
         buildSummaryRequestArtifact({
           requestId: this.requestId,
@@ -457,6 +472,7 @@ export class SummaryRequestRunner {
           summary: modelDecision.output.trim(),
           providerError: null,
           error: null,
+          identity: this.identity,
         }),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null),
     });
@@ -527,6 +543,7 @@ export class SummaryRequestRunner {
         classification: 'command_failure',
         rawReviewRequired: true,
         providerError: getErrorMessage(error),
+        identity: this.identity,
       }),
       ...(/planner/iu.test(getErrorMessage(error))
         ? [buildFailedRequestArtifact({
@@ -536,6 +553,7 @@ export class SummaryRequestRunner {
           command: this.request.debugCommand ?? null,
           error: getErrorMessage(error),
           providerError: getErrorMessage(error),
+          identity: this.identity,
         })]
         : []),
     ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);

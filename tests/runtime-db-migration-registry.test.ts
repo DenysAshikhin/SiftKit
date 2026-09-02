@@ -11,3 +11,8 @@ test('migration versions are strictly ascending and end at CURRENT_SCHEMA_VERSIO
   }
   assert.equal(MIGRATIONS.at(-1)?.version, CURRENT_SCHEMA_VERSION);
 });
+
+test('run-log operation identity capture is registered at schema version 57', () => {
+  assert.ok(MIGRATIONS.some((migration) => migration.version === 57));
+  assert.ok(CURRENT_SCHEMA_VERSION >= 57);
+});

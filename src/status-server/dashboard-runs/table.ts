@@ -15,6 +15,11 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
         CHECK (run_kind IN ('summary_request','failed_request','request_abandoned','repo_search','chat','plan','unknown')),
       run_group TEXT NOT NULL
         CHECK (run_group IN ('summary','repo_search','planner','chat','other')),
+      operation_type TEXT,
+      operation_preset_id TEXT,
+      model_preset_id TEXT,
+      operation_preset_json TEXT,
+      model_preset_json TEXT,
       terminal_state TEXT NOT NULL
         CHECK (terminal_state IN ('completed','failed','abandoned','unknown')),
       started_at_utc TEXT,
@@ -74,6 +79,7 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
   if (!existingColumns.includes('wall_duration_ms')) {
     database.exec('ALTER TABLE run_logs ADD COLUMN wall_duration_ms INTEGER;');
   }
+  // The operation-identity columns are added to pre-existing tables by migration 57, not here.
 }
 
 export function tableExists(database: DatabaseInstance, name: string): boolean {

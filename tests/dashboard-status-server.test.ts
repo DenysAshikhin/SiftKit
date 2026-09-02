@@ -38,6 +38,7 @@ import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp
 import { buildWebSearchConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
+import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
@@ -525,7 +526,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
           rawReviewRequired: false,
           providerError: null,
         },
-      });
+      }, operationOnlyRunIdentity('summary'));
       seeder.summaryRun({
         requestId: 'req-summary',
         question: 'Summarize build output',
@@ -553,7 +554,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         promptCacheTokens: 0,
         promptEvalTokens: 20,
         requestDurationMs: 1000,
-      });
+      }, operationOnlyRunIdentity('summary'));
       seeder.artifact('request_abandoned', 'req-abandoned', {
         requestId: 'req-abandoned',
         terminalState: 'failed',
@@ -561,7 +562,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         createdAtUtc: '2026-04-01T10:10:00.000Z',
         promptCharacterCount: 1200,
         outputTokensTotal: 12,
-      });
+      }, UNRECORDED_RUN_IDENTITY);
       seeder.repoSearchRun({
         requestId: 'req-repo',
         prompt: 'find failing test',

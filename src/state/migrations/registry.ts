@@ -9,6 +9,7 @@ import {
   migrateChatSessionsToModelPresetIdentity,
   migrateChatSessionsToModelPresetSnapshot,
   migrateRunLogsBackendToEngineIds,
+  migrateRunLogsOperationIdentity,
 } from './app-config-migrations.js';
 import {
   ASSISTANT_CORE_SCHEMA_SQL,
@@ -699,6 +700,14 @@ export const MIGRATIONS: readonly Migration[] = [
       );
       database.prepare('UPDATE runtime_metadata SET value = ? WHERE key = ?')
         .run(JSON.stringify(kept), key);
+    },
+  },
+  {
+    // Run logs record the canonical operation and preset identity from here on; see the
+    // migration for exactly which historical values are backfilled and which stay null.
+    version: 57,
+    up: (database) => {
+      migrateRunLogsOperationIdentity(database);
     },
   },
 ];

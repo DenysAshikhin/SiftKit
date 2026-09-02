@@ -5,7 +5,7 @@ import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { DeferredArtifactTypeSchema, type DeferredArtifact } from '../state/status-artifacts.js';
+import { DeferredArtifactSchema, type DeferredArtifact } from '../state/status-artifacts.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
@@ -400,25 +400,8 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
     }
     if (Array.isArray(parsed.deferredArtifacts)) {
       const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): DeferredArtifact[] => {
-        const record = JsonRecordReader.asObject(entry);
-        if (!record) {
-          return [];
-        }
-        const artifactType = DeferredArtifactTypeSchema.safeParse(record.artifactType);
-        if (!artifactType.success) {
-          return [];
-        }
-        if (typeof record.artifactRequestId !== 'string' || !record.artifactRequestId.trim()) {
-          return [];
-        }
-        if (!record.artifactPayload || typeof record.artifactPayload !== 'object' || Array.isArray(record.artifactPayload)) {
-          return [];
-        }
-        return [{
-          artifactType: artifactType.data,
-          artifactRequestId: record.artifactRequestId.trim(),
-          artifactPayload: record.artifactPayload,
-        }];
+        const artifact = DeferredArtifactSchema.safeParse(entry);
+        return artifact.success ? [artifact.data] : [];
       });
       metadata.deferredArtifacts = deferredArtifacts.length > 0 ? deferredArtifacts : null;
     }
