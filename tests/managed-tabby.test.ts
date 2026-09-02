@@ -184,6 +184,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
         TABBY_MODEL_VISION: 'false',
         TABBY_MODEL_VISION_OFFLOAD: 'false',
+        TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
         EXL3_LOAD_ARENA: '0',
         EXL3_QC_ATTN: '0',
     });
