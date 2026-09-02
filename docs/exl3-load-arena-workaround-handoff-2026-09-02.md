@@ -1,8 +1,9 @@
 # EXL3 load-arena workaround handoff (2026-09-02)
 
-**Status:** active and temporary. The implementation is isolated in commit `41e67c55` on
-`main`; this handoff is uncommitted. SiftKit-managed TabbyAPI launches force
-`EXL3_LOAD_ARENA=0`. External TabbyAPI/EXL3 servers are unaffected.
+**Status:** removed on 2026-09-02. The workaround from commit `41e67c55` was deleted after the
+upstream streamed-tensor fix landed; SiftKit no longer sets `EXL3_LOAD_ARENA` and the managed
+child inherits exllamav3's default (`1`) unless the operator exports another value. The rest of
+this document is retained as history.
 
 ## What the setting changes
 
