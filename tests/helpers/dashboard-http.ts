@@ -266,20 +266,16 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
   });
 }
 
-export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs: number = 100): Promise<void> {
+export function fireAndAbortJsonRequest(url: string, body: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     let settled = false;
-    let timer: NodeJS.Timeout | null = null;
     const finish = (error?: Error): void => {
       if (settled) {
         return;
       }
       settled = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      signal.removeEventListener('abort', abortRequest);
       if (!error) {
         resolve();
         return;
@@ -309,13 +305,15 @@ export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs:
         finish();
       },
     );
+    const abortRequest = (): void => {
+      request.destroy(new Error('client aborted request'));
+      finish();
+    };
     request.on('error', (error) => finish(error));
     request.write(body);
     request.end();
-    timer = setTimeout(() => {
-      request.destroy(new Error('client aborted request'));
-      finish();
-    }, Math.max(1, Math.trunc(abortAfterMs)));
+    signal.addEventListener('abort', abortRequest, { once: true });
+    if (signal.aborted) abortRequest();
   });
 }
 

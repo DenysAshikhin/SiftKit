@@ -2630,29 +2630,32 @@ test('same session rejects a second request instead of entering the model FIFO',
 
 test('same session conflicts cover message plan and repo-search JSON and SSE routes', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-dashboard-session-conflicts-', { parallelSlots: 1 });
+  const activeRequestsAbort = new AbortController();
+  let lockHolder: Promise<SseResponse> | null = null;
   await harness.start();
   try {
+    const lockSessionId = await harness.createChatSession('Lock owner', 'Qwen3.5-9B-Q8_0.gguf');
     const messageSessionId = await harness.createChatSession('Message owner', 'Qwen3.5-9B-Q8_0.gguf');
     const planSessionId = await harness.createChatSession('Plan owner', 'Qwen3.5-9B-Q8_0.gguf');
     const repoSearchSessionId = await harness.createChatSession('Repo owner', 'Qwen3.5-9B-Q8_0.gguf');
     const baseUrl = harness.getBaseUrl();
-    const lockHolder = harness.holdModelLock('hold session-conflict matrix', 600);
-    await harness.waitForActiveRequests('repo_search');
+    lockHolder = harness.startChatStream(lockSessionId, 'hold session-conflict matrix');
+    await harness.waitForActiveRequests('dashboard_chat_stream');
 
     const activeMessage = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${messageSessionId}/messages`,
       JSON.stringify({ content: 'active message', assistantContent: 'done' }),
-      500,
+      activeRequestsAbort.signal,
     );
     const activePlan = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`,
       JSON.stringify({ content: 'active plan', repoRoot: process.cwd() }),
-      500,
+      activeRequestsAbort.signal,
     );
     const activeRepoSearch = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${repoSearchSessionId}/repo-search`,
       JSON.stringify({ content: 'active repo search', repoRoot: process.cwd() }),
-      500,
+      activeRequestsAbort.signal,
     );
     await harness.waitForQueuedRequest('dashboard_chat');
     await harness.waitForQueuedRequest('dashboard_plan');
@@ -2684,8 +2687,14 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
       }
     }
 
-    await Promise.all([lockHolder, activeMessage, activePlan, activeRepoSearch]);
+    activeRequestsAbort.abort();
+    await Promise.all([activeMessage, activePlan, activeRepoSearch]);
+    harness.releaseChatResponse('lock released');
+    await lockHolder;
   } finally {
+    activeRequestsAbort.abort();
+    harness.releaseChatResponse('cleanup');
+    await lockHolder?.catch(() => undefined);
     await harness.close();
   }
 });
@@ -2739,7 +2748,7 @@ test('queued model request is dropped when client disconnects before lock grant'
         content: 'dropped-request',
         assistantContent: 'should-not-be-saved',
       }),
-      25,
+      AbortSignal.timeout(25),
     );
 
     const survivorResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -2854,7 +2863,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
         mockResponses: [{ content: "must not run" }],
         mockCommandResults: {},
       }),
-      250,
+      AbortSignal.timeout(250),
     );
     await harness.waitForQueuedRequest('dashboard_repo_search_stream');
     await disconnectedRepoSearch;
