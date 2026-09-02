@@ -1,4 +1,4 @@
-$env:EXL3_LOAD_ARENA = '1'
+$env:EXL3_LOAD_ARENA = '0'
 $env:PYTHONPATH = "$PSScriptRoot\exllamav3"
 
 git -C "$PSScriptRoot\exllamav3" fetch origin dev; git -C "$PSScriptRoot\exllamav3" switch --detach origin/dev
