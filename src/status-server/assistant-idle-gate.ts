@@ -38,18 +38,23 @@ export function evaluateIdleDecision(
       details: { secondsSinceModelActivity: modelQuietSeconds, requiredIdleSeconds: thresholdSeconds },
     };
   }
-  if (inputIdle.mouse < thresholdSeconds) {
+  if (inputIdle.secondsSinceMouseInput < thresholdSeconds) {
     return {
       kind: 'blocked',
       reason: 'mouse_idle_below_threshold',
-      details: { mouseIdleSeconds: inputIdle.mouse, requiredIdleSeconds: thresholdSeconds },
+      details: {
+        mouseIdleSeconds: inputIdle.secondsSinceMouseInput, requiredIdleSeconds: thresholdSeconds,
+      },
     };
   }
-  if (inputIdle.keyboard < thresholdSeconds) {
+  if (inputIdle.secondsSinceKeyboardInput < thresholdSeconds) {
     return {
       kind: 'blocked',
       reason: 'keyboard_idle_below_threshold',
-      details: { keyboardIdleSeconds: inputIdle.keyboard, requiredIdleSeconds: thresholdSeconds },
+      details: {
+        keyboardIdleSeconds: inputIdle.secondsSinceKeyboardInput,
+        requiredIdleSeconds: thresholdSeconds,
+      },
     };
   }
   return { kind: 'allowed' };

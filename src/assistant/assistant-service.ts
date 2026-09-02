@@ -690,16 +690,20 @@ export class AssistantService implements AssistantRuntime {
   async drainJobs(): Promise<void> {
     if (this.drainBlockers > 0) {
       this.graph.backgroundDecisions.record(
-        this.ownerId, 'drain_blocked', { drainBlockers: this.drainBlockers },
+        this.ownerId, { reason: 'drain_blocked', details: { drainBlockers: this.drainBlockers } },
       );
       return;
     }
     if (!this.enabled) {
-      this.graph.backgroundDecisions.record(this.ownerId, 'assistant_disabled', {});
+      this.graph.backgroundDecisions.record(
+        this.ownerId, { reason: 'assistant_disabled', details: {} },
+      );
       return;
     }
     if (this.activeDrain !== null) {
-      this.graph.backgroundDecisions.record(this.ownerId, 'drain_already_running', {});
+      this.graph.backgroundDecisions.record(
+        this.ownerId, { reason: 'drain_already_running', details: {} },
+      );
       return;
     }
     const drain = this.performDrain();
@@ -748,7 +752,7 @@ export class AssistantService implements AssistantRuntime {
     if (!isUsableCapability(this.imageCapability.read())) {
       if (this.captureQueue.countInStates(this.ownerId, PENDING_CAPTURE_STATES) > 0) {
         this.graph.backgroundDecisions.record(
-          this.ownerId, 'image_capability_unavailable', {},
+          this.ownerId, { reason: 'image_capability_unavailable', details: {} },
         );
       }
       return;

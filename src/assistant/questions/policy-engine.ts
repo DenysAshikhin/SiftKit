@@ -147,10 +147,10 @@ export class QuestionPolicyEngine {
     }
     if (environment.presenting) return this.ineligible('presenting');
     if (environment.excludedApplication) return this.ineligible('excluded_application');
-    const secondsSinceInput = Math.min(
+    const secondsSinceAnyInput = Math.min(
       environment.secondsSinceMouseInput, environment.secondsSinceKeyboardInput,
     );
-    if (secondsSinceInput < config.Questions.ActiveInputSuppressionSeconds) {
+    if (secondsSinceAnyInput < config.Questions.ActiveInputSuppressionSeconds) {
       return this.ineligible('recent_input');
     }
 

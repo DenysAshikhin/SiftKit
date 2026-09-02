@@ -65,7 +65,7 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 55);
+  assert.equal(CURRENT_SCHEMA_VERSION, 57);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
   assert.equal(version, CURRENT_SCHEMA_VERSION);
@@ -306,15 +306,15 @@ test('v43 adds the desktop observation tables with their guards and indexes', ()
     database.prepare(`
       INSERT INTO assistant_activity_events (
         id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
-        fullscreen, idle_seconds, session_locked, session_id
+        fullscreen, mouse_idle_seconds, keyboard_idle_seconds, session_locked, session_id
       ) VALUES ('aevt_1', ?, '2026-08-10T09:00:00.000Z', 'app:code', 'Code.exe', 'SiftKit',
-        0, 4, 0, 'asess_1')
+        0, 4, 9, 0, 'asess_1')
     `).run(ownerId);
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_activity_events (
         id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
-        fullscreen, idle_seconds, session_locked, session_id
-      ) VALUES ('aevt_bad', ?, '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, 0, -1, 0, NULL)
+        fullscreen, mouse_idle_seconds, keyboard_idle_seconds, session_locked, session_id
+      ) VALUES ('aevt_bad', ?, '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, 0, -1, 0, 0, NULL)
     `).run(ownerId), /CHECK constraint failed/);
 
     assert.throws(() => database.prepare(`

@@ -15,41 +15,55 @@ export const AssistantStatusResponseSchema = z.object({
 }).strict();
 export type AssistantStatusResponse = z.infer<typeof AssistantStatusResponseSchema>;
 
-export const AssistantBackgroundWorkBlockReasonSchema = z.enum([
-  'drain_blocked',
-  'assistant_disabled',
-  'drain_already_running',
-  'preemption_requested',
-  'server_busy',
-  'environment_heartbeat_missing',
-  'model_recently_active',
-  'mouse_idle_below_threshold',
-  'keyboard_idle_below_threshold',
-  'on_battery',
-  'battery_below_minimum',
-  'daily_gpu_limit',
-  'model_not_resident',
-  'image_capability_unavailable',
-  'no_claimable_job',
-]);
-export type AssistantBackgroundWorkBlockReason = z.infer<
-  typeof AssistantBackgroundWorkBlockReasonSchema
->;
+const CountSchema = z.number().int().min(0);
 
-const AssistantBackgroundWorkDecisionDetailSchema = z.union([
-  z.string(), z.number(), z.boolean(), z.null(),
-]);
+/** One persisted background-work decision: the reason discriminates its `details` payload. */
+function backgroundWorkDecision<Reason extends string, Details extends z.ZodRawShape>(
+  reason: Reason,
+  details: Details,
+) {
+  return z.object({
+    recordedAtUtc: z.string(),
+    reason: z.literal(reason),
+    queuedJobCount: CountSchema,
+    pendingCaptureCount: CountSchema,
+    details: z.object(details).strict(),
+  }).strict();
+}
 
-export const AssistantBackgroundWorkDecisionDtoSchema = z.object({
-  recordedAtUtc: z.string(),
-  reason: AssistantBackgroundWorkBlockReasonSchema,
-  queuedJobCount: z.number().int().min(0),
-  pendingCaptureCount: z.number().int().min(0),
-  details: z.record(z.string(), AssistantBackgroundWorkDecisionDetailSchema),
-}).strict();
+export const AssistantBackgroundWorkDecisionDtoSchema = z.discriminatedUnion('reason', [
+  backgroundWorkDecision('drain_blocked', { drainBlockers: z.number().int().min(1) }),
+  backgroundWorkDecision('assistant_disabled', {}),
+  backgroundWorkDecision('drain_already_running', {}),
+  backgroundWorkDecision('preemption_requested', {}),
+  backgroundWorkDecision('server_busy', {}),
+  backgroundWorkDecision('environment_heartbeat_missing', {}),
+  backgroundWorkDecision('model_recently_active', {
+    secondsSinceModelActivity: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('mouse_idle_below_threshold', {
+    mouseIdleSeconds: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('keyboard_idle_below_threshold', {
+    keyboardIdleSeconds: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('on_battery', {}),
+  backgroundWorkDecision('battery_below_minimum', {}),
+  backgroundWorkDecision('daily_gpu_limit', {}),
+  backgroundWorkDecision('model_not_resident', {}),
+  backgroundWorkDecision('image_capability_unavailable', {}),
+  backgroundWorkDecision('no_claimable_job', {}),
+]);
 export type AssistantBackgroundWorkDecisionDto = z.infer<
   typeof AssistantBackgroundWorkDecisionDtoSchema
 >;
+export type AssistantBackgroundWorkBlockReason = AssistantBackgroundWorkDecisionDto['reason'];
+
+type BlockOf<Decision> = Decision extends { reason: string; details: object }
+  ? Pick<Decision, 'reason' | 'details'>
+  : never;
+/** A reason with its typed payload, before the store adds the recording metadata. */
+export type AssistantBackgroundWorkBlock = BlockOf<AssistantBackgroundWorkDecisionDto>;
 
 export const AssistantBackgroundDecisionHistoryResponseSchema = z.object({
   items: z.array(AssistantBackgroundWorkDecisionDtoSchema).max(100),

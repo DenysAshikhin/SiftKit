@@ -54,7 +54,7 @@
 - Create: `desktop/src-tauri/src/platform/windows/input_tracker.rs`
 - Modify: `desktop/src-tauri/src/platform/windows/mod.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `desktop/src-tauri/src/platform/windows/input_tracker.rs` with only the test module:
 
@@ -103,12 +103,12 @@ mod tests {
 
 Add `pub mod input_tracker;` to `desktop/src-tauri/src/platform/windows/mod.rs` after `pub mod activity;`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail and the compile errors for input_tracker.rs only."`
 Expected: FAIL, `InputIdleTimestamps` and `InputIdleSnapshot` not found.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Insert above the `#[cfg(test)]` module:
 
@@ -158,12 +158,12 @@ impl InputIdleTimestamps {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail, failing test names, and any warnings."`
 Expected: PASS, three `input_tracker::tests::*` tests green, no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add desktop/src-tauri/src/platform/windows/input_tracker.rs desktop/src-tauri/src/platform/windows/mod.rs
@@ -178,7 +178,7 @@ git commit -m "feat(shell): pure mouse/keyboard idle timestamps"
 - Modify: `desktop/src-tauri/src/platform/windows/input_tracker.rs`
 - Modify: `desktop/src-tauri/Cargo.toml:26-46`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append inside `mod tests` in `input_tracker.rs`:
 
@@ -195,12 +195,12 @@ Append inside `mod tests` in `input_tracker.rs`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify it fails**
+- [x] **Step 2: Run tests to verify it fails**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail and compile errors for input_tracker.rs only."`
 Expected: FAIL, `WindowsInputTracker` not found.
 
-- [ ] **Step 3: Add the windows features**
+- [x] **Step 3: Add the windows features**
 
 In `desktop/src-tauri/Cargo.toml`, add to the `[dependencies.windows] features` list, keeping alphabetical order:
 
@@ -209,7 +209,7 @@ In `desktop/src-tauri/Cargo.toml`, add to the `[dependencies.windows] features` 
   "Win32_UI_Input",
 ```
 
-- [ ] **Step 4: Write the tracker**
+- [x] **Step 4: Write the tracker**
 
 Replace the `use` line at the top of `input_tracker.rs` and add the tracker above `InputIdleSnapshot`:
 
@@ -390,12 +390,12 @@ unsafe extern "system" fn input_window_proc(
 
 If the compiler rejects a signature, fix it against the local crate source at `C:\Users\denys\Documents\GitHub\.tooling\siftkit-gate-d\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.1\src\Windows\Win32\UI\Input\mod.rs` and `...\UI\WindowsAndMessaging\mod.rs`. Do not change the behavior.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail, failing test names, compile errors, and warnings."`
 Expected: PASS, four `input_tracker::tests::*` green, no warnings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop/src-tauri/Cargo.toml desktop/src-tauri/src/platform/windows/input_tracker.rs
@@ -414,7 +414,7 @@ git commit -m "feat(shell): Raw Input mouse/keyboard tracker thread"
 - Modify: `desktop/src-tauri/src/platform/windows/activity.rs:1, 12, 17, 145-155`
 - Modify: `desktop/src-tauri/src/main.rs:24-26, 294-308, 311, 402, 679-681`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `desktop/contract-fixtures/environment-state.json` replace `"secondsSinceInput": 4,` with:
 
@@ -461,12 +461,12 @@ and add this test after `environment_emits_every_interval_and_not_between`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail and the first compile error per file."`
 Expected: FAIL, unknown fields `mouse_idle_seconds` / `seconds_since_mouse_input`.
 
-- [ ] **Step 3: Split the DTO fields**
+- [x] **Step 3: Split the DTO fields**
 
 `contracts.rs`, `ActivityEventDto`: replace `pub idle_seconds: u32,` with:
 
@@ -482,7 +482,7 @@ Expected: FAIL, unknown fields `mouse_idle_seconds` / `seconds_since_mouse_input
     pub seconds_since_keyboard_input: u32,
 ```
 
-- [ ] **Step 4: Split `ObservationTick` and the emissions**
+- [x] **Step 4: Split `ObservationTick` and the emissions**
 
 `heartbeat.rs`, `ObservationTick`: replace `pub idle_seconds: u32,` with:
 
@@ -505,13 +505,13 @@ Activity emission: replace `idle_seconds: tick.idle_seconds,` with:
                     keyboard_idle_seconds: tick.keyboard_idle_seconds,
 ```
 
-- [ ] **Step 5: Remove `idle_seconds` from the activity provider**
+- [x] **Step 5: Remove `idle_seconds` from the activity provider**
 
 `platform/mod.rs`: delete the line `fn idle_seconds(&self) -> u32;` from `NativeActivityProvider`.
 
 `activity.rs`: delete the whole `fn idle_seconds(&self) -> u32 { ... }` method (lines 145-155). Delete the import `use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};`. Delete `use windows::Win32::System::SystemInformation::GetTickCount;` if nothing else in the file uses `GetTickCount` (check with `grep -n GetTickCount desktop/src-tauri/src/platform/windows/activity.rs`). Update the module doc on line 1 from `Foreground/idle/lock adapters` to `Foreground/lock adapters`.
 
-- [ ] **Step 6: Own the tracker in `main.rs`**
+- [x] **Step 6: Own the tracker in `main.rs`**
 
 Add the import after the `activity::{...}` import block:
 
@@ -557,12 +557,12 @@ In the `setup` closure, replace the two lines that spawn the worker with:
             std::thread::spawn(move || worker_loop(handle, worker_state, input));
 ```
 
-- [ ] **Step 7: Verify no old signal remains**
+- [x] **Step 7: Verify no old signal remains**
 
 Run: `grep -rn "GetLastInputInfo\|LASTINPUTINFO\|idle_seconds\b\|seconds_since_input\b" desktop/src-tauri/src`
 Expected: no output.
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [x] **Step 8: Run tests to verify they pass**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail, failing test names, compile errors, and warnings."`
 Expected: PASS including `golden_fixtures_parse_and_round_trip` and `both_input_signals_reach_both_dtos_separately`, no warnings.
@@ -570,7 +570,7 @@ Expected: PASS including `golden_fixtures_parse_and_round_trip` and `both_input_
 Run: `npx tsx --test tests/assistant-desktop-contracts.test.ts 2>&1 | tail -5`
 Expected: FAIL on the two updated fixtures (resolved in Task 4).
 
-- [ ] **Step 9: Do not commit yet** (see cross-language note). Proceed to Task 4.
+- [x] **Step 9: Do not commit yet** (see cross-language note). Proceed to Task 4.
 
 ---
 
@@ -588,7 +588,7 @@ Expected: FAIL on the two updated fixtures (resolved in Task 4).
 - Modify: `dashboard/src/tabs/settings/AssistantSettings.tsx:44`
 - Test: `tests/assistant-desktop-contracts.test.ts`, `tests/assistant-idle-gate.test.ts`, `tests/assistant-environment-cache.test.ts:28,48,56`, `tests/assistant-gate-d-e2e.test.ts:156,164,437`, `tests/assistant-question-policy.test.ts:30,132`, `tests/assistant-question-scheduler.test.ts:74`, `tests/assistant-service.test.ts:232,244`, `tests/assistant-activity-log.test.ts:26,51`, `dashboard/tests/assistant-settings.test.tsx:246-249,267,271`
 
-- [ ] **Step 1: Write the failing contract test**
+- [x] **Step 1: Write the failing contract test**
 
 Append to `tests/assistant-desktop-contracts.test.ts`:
 
@@ -616,7 +616,7 @@ test('desktop DTOs carry mouse and keyboard idleness separately and reject the o
 });
 ```
 
-- [ ] **Step 2: Write the failing gate tests**
+- [x] **Step 2: Write the failing gate tests**
 
 Replace the first test in `tests/assistant-idle-gate.test.ts` with:
 
@@ -674,7 +674,7 @@ test('the environment cache exposes both input signals only while heartbeats are
 
 Update the other three tests in that file that pass a number: `evaluateIdleDecision(true, 500, 180)` becomes `evaluateIdleDecision(true, { mouse: 500, keyboard: 500 }, 180)`; `evaluateIdleDecision(false, 0, 0)` becomes `evaluateIdleDecision(false, { mouse: 0, keyboard: 0 }, 0)`; `evaluateIdleDecision(true, 0, 0)` becomes `evaluateIdleDecision(true, { mouse: 0, keyboard: 0 }, 0)`. The `null` cases stay `null`.
 
-- [ ] **Step 3: Update the remaining test fixtures**
+- [x] **Step 3: Update the remaining test fixtures**
 
 Apply each replacement exactly:
 
@@ -699,12 +699,12 @@ Apply each replacement exactly:
 - `tests/assistant-activity-log.test.ts:51` stays `assert.equal(first.idle_seconds, 3);` and now proves the stored value is `min(mouse, keyboard)`.
 - `dashboard/tests/assistant-settings.test.tsx:246` `reason: 'input_idle_below_threshold',` → `reason: 'mouse_idle_below_threshold',`; line 249 `details: { inputIdleSeconds: 12, requiredIdleSeconds: 180 },` → `details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },`; line 267 `/Input idle below threshold/u` → `/Mouse idle below threshold/u`; line 271 `/inputIdleSeconds: 12/u` → `/mouseIdleSeconds: 12/u`.
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `npx tsx --test tests/assistant-desktop-contracts.test.ts tests/assistant-idle-gate.test.ts 2>&1 | tail -20`
 Expected: FAIL (the fixtures no longer parse, `readInputIdle` does not exist).
 
-- [ ] **Step 5: Split the zod DTOs**
+- [x] **Step 5: Split the zod DTOs**
 
 `packages/contracts/src/assistant-desktop.ts`, `ActivityEventDtoSchema`: replace `idleSeconds: z.number().int().min(0),` with:
 
@@ -720,7 +720,7 @@ Expected: FAIL (the fixtures no longer parse, `readInputIdle` does not exist).
   secondsSinceKeyboardInput: z.number().int().min(0),
 ```
 
-- [ ] **Step 6: Replace the reason**
+- [x] **Step 6: Replace the reason**
 
 `packages/contracts/src/assistant.ts`: replace `'input_idle_below_threshold',` with:
 
@@ -729,7 +729,7 @@ Expected: FAIL (the fixtures no longer parse, `readInputIdle` does not exist).
   'keyboard_idle_below_threshold',
 ```
 
-- [ ] **Step 7: Cache and environment state**
+- [x] **Step 7: Cache and environment state**
 
 `src/assistant/questions/environment-state.ts`: replace `readonly secondsSinceInput: number;` with:
 
@@ -764,7 +764,7 @@ In `read()`, replace `secondsSinceInput: fresh.secondsSinceInput,` with:
       secondsSinceKeyboardInput: fresh.secondsSinceKeyboardInput,
 ```
 
-- [ ] **Step 8: Service, policy engine, activity log**
+- [x] **Step 8: Service, policy engine, activity log**
 
 `src/assistant/assistant-service.ts`: replace the `desktopInputIdleSeconds` method with:
 
@@ -794,7 +794,7 @@ and add `type DesktopInputIdle` to the existing import from `./observation/envir
       Math.min(event.mouseIdleSeconds, event.keyboardIdleSeconds),
 ```
 
-- [ ] **Step 9: Five-branch gate**
+- [x] **Step 9: Five-branch gate**
 
 Replace `src/status-server/assistant-idle-gate.ts` in full:
 
@@ -868,7 +868,7 @@ export class StatusServerIdleGate implements InteractivityGate {
 }
 ```
 
-- [ ] **Step 10: Dashboard labels**
+- [x] **Step 10: Dashboard labels**
 
 `dashboard/src/tabs/settings/AssistantSettings.tsx`: replace `input_idle_below_threshold: 'Input idle below threshold',` with:
 
@@ -877,12 +877,12 @@ export class StatusServerIdleGate implements InteractivityGate {
   keyboard_idle_below_threshold: 'Keyboard idle below threshold',
 ```
 
-- [ ] **Step 11: Verify nothing references the old names**
+- [x] **Step 11: Verify nothing references the old names**
 
 Run: `grep -rn "secondsSinceInput\b\|idleSeconds\b\|input_idle_below_threshold\|readInputIdleSeconds\|desktopInputIdleSeconds\|inputIdleSeconds" src packages dashboard/src dashboard/tests tests --include=*.ts --include=*.tsx`
 Expected: no output.
 
-- [ ] **Step 12: Run tests to verify they pass**
+- [x] **Step 12: Run tests to verify they pass**
 
 Run: `npx tsx --test tests/assistant-desktop-contracts.test.ts tests/assistant-idle-gate.test.ts tests/assistant-environment-cache.test.ts tests/assistant-question-policy.test.ts tests/assistant-question-scheduler.test.ts tests/assistant-service.test.ts tests/assistant-activity-log.test.ts tests/assistant-gate-d-e2e.test.ts 2>&1 | siftkit summary --question "Return pass/fail counts and failing test names with error text."`
 Expected: all pass.
@@ -893,7 +893,7 @@ Expected: all pass.
 Run: `npm run typecheck 2>&1 | siftkit summary --question "Return pass/fail and every error with file:line."`
 Expected: pass.
 
-- [ ] **Step 13: Commit Tasks 3 and 4 together**
+- [x] **Step 13: Commit Tasks 3 and 4 together**
 
 ```bash
 git add -A desktop packages/contracts/src src tests dashboard
@@ -913,7 +913,7 @@ git commit -m "feat(assistant): split desktop input idleness into mouse and keyb
 - Modify: `dashboard/src/tabs/settings/AssistantSettings.tsx`
 - Test: `tests/assistant-idle-gate.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/assistant-idle-gate.test.ts` (import `secondsSinceModelActivity` alongside `evaluateIdleDecision`):
 
@@ -956,12 +956,12 @@ test('model activity is measured from server start until the first request finis
 
 Update every existing `evaluateIdleDecision(...)` call in that file to pass a fourth argument of `500` (model quiet), except in the two new tests above.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx tsx --test tests/assistant-idle-gate.test.ts 2>&1 | tail -20`
 Expected: FAIL, `secondsSinceModelActivity` not exported.
 
-- [ ] **Step 3: Add `serverStartedAtMs`**
+- [x] **Step 3: Add `serverStartedAtMs`**
 
 `src/status-server/server-types.ts`, `TerminalMetadataState`: add after `lastModelRequestFinishedAtMs: number | null;`:
 
@@ -974,13 +974,13 @@ Expected: FAIL, `secondsSinceModelActivity` not exported.
 
 `tests/helpers/server-context-fixture.ts` `terminalMetadata` literal: add `serverStartedAtMs: 0,` after `lastModelRequestFinishedAtMs: null,`.
 
-- [ ] **Step 4: Add the reason**
+- [x] **Step 4: Add the reason**
 
 `packages/contracts/src/assistant.ts`: add `'model_recently_active',` immediately before `'mouse_idle_below_threshold',`.
 
 `dashboard/src/tabs/settings/AssistantSettings.tsx`: add `model_recently_active: 'Model recently active',` immediately before `mouse_idle_below_threshold: ...`.
 
-- [ ] **Step 5: Add the condition to the gate**
+- [x] **Step 5: Add the condition to the gate**
 
 In `src/status-server/assistant-idle-gate.ts`, add `TerminalMetadataState` to the type import from `./server-types.js`, add the helper, and add the branch:
 
@@ -1019,7 +1019,7 @@ Update the doc comment to list the six branches in order: server busy, heartbeat
     );
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `npx tsx --test tests/assistant-idle-gate.test.ts tests/assistant-job-runner.test.ts tests/assistant-background-work-decisions.test.ts 2>&1 | siftkit summary --question "Return pass/fail counts and failing test names with error text."`
 Expected: all pass.
@@ -1027,7 +1027,7 @@ Expected: all pass.
 Run: `npm run typecheck 2>&1 | siftkit summary --question "Return pass/fail and every error with file:line."`
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/contracts/src/assistant.ts src/status-server tests/assistant-idle-gate.test.ts tests/helpers/server-context-fixture.ts dashboard/src/tabs/settings/AssistantSettings.tsx
@@ -1038,12 +1038,12 @@ git commit -m "feat(assistant): gate background work on model quiet since last r
 
 ### Task 6: Full verification
 
-- [ ] **Step 1: Rust**
+- [x] **Step 1: Rust**
 
 Run: `npm run desktop:test 2>&1 | siftkit summary --question "Return pass/fail, failing tests, and warnings."`
 Expected: pass, no warnings.
 
-- [ ] **Step 2: TypeScript suite**
+- [x] **Step 2: TypeScript suite**
 
 Run: `npm run build:test && npm run test 2>&1 | siftkit summary --question "Return pass/fail counts, failing test names, and root errors with file:line."`
 Expected: pass.
@@ -1051,17 +1051,17 @@ Expected: pass.
 Run: `npm run test:dashboard 2>&1 | siftkit summary --question "Return pass/fail counts and failing test names."`
 Expected: pass.
 
-- [ ] **Step 3: Typecheck and lint**
+- [x] **Step 3: Typecheck and lint**
 
 Run: `npm run typecheck 2>&1 | siftkit summary --question "Return pass/fail and every error with file:line."`
 Run: `npm run lint 2>&1 | siftkit summary --question "Return pass/fail and every error with file:line."`
 Expected: both pass.
 
-- [ ] **Step 4: Old-signal sweep**
+- [x] **Step 4: Old-signal sweep**
 
 Run: `grep -rn "GetLastInputInfo\|secondsSinceInput\b\|seconds_since_input\b\|input_idle_below_threshold\|inputIdleSeconds" desktop/src-tauri/src desktop/contract-fixtures src packages/contracts/src dashboard/src tests`
 Expected: no output.
 
-- [ ] **Step 5: Live acceptance (primary agent, after the shell is rebuilt with `npm run desktop:build`)**
+- [x] **Step 5: Live acceptance (primary agent, after the shell is rebuilt with `npm run desktop:build`)**
 
 With the Xbox controller connected, leave mouse and keyboard untouched for more than 180 s with no model work. Expect `GET /assistant/background-decisions` to stop recording `mouse_idle_below_threshold` / `keyboard_idle_below_threshold`, queued jobs to show `attempts > 0`, and the pending capture count to fall.

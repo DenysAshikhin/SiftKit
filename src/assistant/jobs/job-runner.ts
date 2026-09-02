@@ -1,7 +1,4 @@
-import type {
-  AssistantBackgroundWorkBlockReason,
-  AssistantBackgroundWorkDecisionDto,
-} from '@siftkit/contracts';
+import type { AssistantBackgroundWorkBlock } from '@siftkit/contracts';
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { AssistantConfig } from '../../config/types.js';
 import type { CandidateConsolidator } from '../ingestion/consolidator.js';
@@ -23,11 +20,7 @@ export interface InteractivityGate {
 
 export type BackgroundWorkAdmissionDecision =
   | { readonly kind: 'allowed' }
-  | {
-    readonly kind: 'blocked';
-    readonly reason: AssistantBackgroundWorkBlockReason;
-    readonly details: AssistantBackgroundWorkDecisionDto['details'];
-  };
+  | ({ readonly kind: 'blocked' } & AssistantBackgroundWorkBlock);
 
 /** Reports whether the inference model can currently accept background work. */
 export interface ModelResidencyGate {
@@ -108,17 +101,17 @@ export class AssistantJobRunner {
 
     while (maxJobs < 0 || claimed < maxJobs) {
       if (this.preemptionRequested) {
-        this.recordBlock(ownerId, 'preemption_requested', {});
+        this.recordBlock(ownerId, { reason: 'preemption_requested', details: {} });
         break;
       }
       const interactivity = this.options.idleGate.evaluate();
       if (interactivity.kind === 'blocked') {
-        this.recordBlock(ownerId, interactivity.reason, interactivity.details);
+        this.recordBlock(ownerId, interactivity);
         break;
       }
       const backgroundResource = this.options.resourcePolicy.canStartBackgroundWork();
       if (backgroundResource.kind === 'blocked') {
-        this.recordBlock(ownerId, backgroundResource.reason, {});
+        this.recordBlock(ownerId, { reason: backgroundResource.reason, details: {} });
         break;
       }
       const modelWork = this.modelWorkDecision();
@@ -131,9 +124,9 @@ export class AssistantJobRunner {
       if (job === null) {
         if (this.options.graph.jobs.countByStatus(ownerId, 'queued') > 0) {
           if (modelWork.kind === 'blocked') {
-            this.recordBlock(ownerId, modelWork.reason, modelWork.details);
+            this.recordBlock(ownerId, modelWork);
           } else {
-            this.recordBlock(ownerId, 'no_claimable_job', {});
+            this.recordBlock(ownerId, { reason: 'no_claimable_job', details: {} });
           }
         }
         break;
@@ -150,7 +143,7 @@ export class AssistantJobRunner {
           const currentModelWork = this.modelWorkDecision();
           if (currentModelWork.kind === 'blocked') {
             this.options.graph.jobs.requeuePreempted(job.id);
-            this.recordBlock(ownerId, currentModelWork.reason, currentModelWork.details);
+            this.recordBlock(ownerId, currentModelWork);
             break;
           }
         }
@@ -162,7 +155,7 @@ export class AssistantJobRunner {
         if (this.preemptionRequested || error instanceof JobPreemptedError) {
           this.options.graph.jobs.requeuePreempted(job.id);
           preempted += 1;
-          this.recordBlock(ownerId, 'preemption_requested', {});
+          this.recordBlock(ownerId, { reason: 'preemption_requested', details: {} });
           break;
         }
         if (modelBacked && !this.options.residencyGate.isModelResident()) {
@@ -171,7 +164,7 @@ export class AssistantJobRunner {
           this.options.graph.jobs.requeuePreempted(job.id);
           preempted += 1;
           shouldRecordGpuUse = false;
-          this.recordBlock(ownerId, 'model_not_resident', {});
+          this.recordBlock(ownerId, { reason: 'model_not_resident', details: {} });
           break;
         }
         this.options.graph.jobs.fail(
@@ -189,12 +182,8 @@ export class AssistantJobRunner {
     return { claimed, completed, failed, preempted, recovered };
   }
 
-  private recordBlock(
-    ownerId: string,
-    reason: AssistantBackgroundWorkBlockReason,
-    details: AssistantBackgroundWorkDecisionDto['details'],
-  ): void {
-    this.options.graph.backgroundDecisions.record(ownerId, reason, details);
+  private recordBlock(ownerId: string, block: AssistantBackgroundWorkBlock): void {
+    this.options.graph.backgroundDecisions.record(ownerId, block);
   }
 
   private async execute(ownerId: string, job: JobRow, signal: AbortSignal): Promise<void> {

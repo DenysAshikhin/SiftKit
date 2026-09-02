@@ -61,13 +61,12 @@ export class ActivityLog {
     this.database.prepare(`
       INSERT INTO assistant_activity_events (
         id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
-        fullscreen, idle_seconds, session_locked, session_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        fullscreen, mouse_idle_seconds, keyboard_idle_seconds, session_locked, session_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, ownerId, event.capturedAtUtc, event.foreground.applicationId,
       event.foreground.processName, event.foreground.normalizedTitle,
-      event.foreground.fullscreen ? 1 : 0,
-      Math.min(event.mouseIdleSeconds, event.keyboardIdleSeconds),
+      event.foreground.fullscreen ? 1 : 0, event.mouseIdleSeconds, event.keyboardIdleSeconds,
       event.sessionLocked ? 1 : 0, sessionId,
     );
     this.database

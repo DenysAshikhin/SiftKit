@@ -28,7 +28,11 @@ import {
   ensureRuntimeArtifactsSchema,
   ensureRuntimeErrorEventsSchema,
 } from './schema-helpers.js';
-import { DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON } from './constants.js';
+import {
+  BACKGROUND_WORK_DECISIONS_METADATA_KEY,
+  DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON,
+  REMOVED_COMBINED_INPUT_IDLE_REASON,
+} from './constants.js';
 
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -685,7 +689,7 @@ export const MIGRATIONS: readonly Migration[] = [
     // history entries with the removed reason cannot be re-expressed truthfully, so they go.
     version: 56,
     up: (database) => {
-      const key = 'assistant.background_work_decisions.v1';
+      const key = BACKGROUND_WORK_DECISIONS_METADATA_KEY;
       const row = database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(key);
       if (row === undefined || row === null) return;
       const histories = parseJsonText(
@@ -694,11 +698,26 @@ export const MIGRATIONS: readonly Migration[] = [
       );
       const kept = Object.fromEntries(
         Object.entries(histories).map(([ownerId, entries]) => [
-          ownerId, entries.filter((entry) => entry.reason !== 'input_idle_below_threshold'),
+          ownerId, entries.filter((entry) => entry.reason !== REMOVED_COMBINED_INPUT_IDLE_REASON),
         ]),
       );
       database.prepare('UPDATE runtime_metadata SET value = ? WHERE key = ?')
         .run(JSON.stringify(kept), key);
+    },
+  },
+  {
+    // The activity event stores both input signals instead of their minimum under the old
+    // combined name. Rows written before the split carried one value; it seeds both columns.
+    version: 57,
+    up: (database) => {
+      if (!tableHasColumn(database, 'assistant_activity_events', 'idle_seconds')) return;
+      database.exec(`
+        ALTER TABLE assistant_activity_events RENAME COLUMN idle_seconds TO mouse_idle_seconds;
+        ALTER TABLE assistant_activity_events
+          ADD COLUMN keyboard_idle_seconds INTEGER NOT NULL DEFAULT 0
+          CHECK (keyboard_idle_seconds >= 0);
+        UPDATE assistant_activity_events SET keyboard_idle_seconds = mouse_idle_seconds;
+      `);
     },
   },
 ];
