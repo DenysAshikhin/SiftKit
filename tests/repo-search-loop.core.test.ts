@@ -380,8 +380,8 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      // 20000 total leaves the same 5000-token usable prompt budget this test was
-      // written against: 10000 response reserve, then 5000 held back for compaction.
+      // 20000 total leaves a 10000-token prompt limit after the 10000-token response
+      // reserve; the per-tool cap derived from it is what truncates this output.
       totalContextTokens: 20000,
       mockResponses: [
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },

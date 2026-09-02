@@ -17,13 +17,15 @@ import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../sr
 import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
+import { POST_LIMIT_ANSWER_SLACK_TURNS, resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
-import { getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js';
+import { estimateTokenCount, getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js';
+import { buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -477,8 +479,8 @@ test('runTaskLoop replays effective read range after native unread expansion', a
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      // 15k response reserve + 10k compaction reserve leaves the 10000 usable prompt
-      // tokens this scenario needs for the first read to return all 80 lines.
+      // The 15k response reserve leaves a 20000-token prompt limit, enough for the
+      // first read to return all 80 lines.
       totalContextTokens: 35000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
@@ -795,14 +797,36 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
       tools: [],
       includeReasoningContent: false,
     }),
-    totalContextTokens: 7000,
-    responseReserveTokens: 4000,
+    maxPromptTokens: 3000,
   });
 
   assert.equal(preflight.ok, false);
   assert.equal(preflight.maxPromptBudget, 3000);
   assert.equal(preflight.promptTokenCount > preflight.maxPromptBudget, true);
   assert.equal(preflight.overflowTokens > 0, true);
+});
+
+test('preflightPlannerPromptBudget accepts a prompt at the limit and overflows one token past it', async () => {
+  const prompt = renderWirePrompt({
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'x '.repeat(500) },
+    ],
+    tools: [],
+    includeReasoningContent: false,
+  });
+  const measured = await preflightPlannerPromptBudget({ prompt, maxPromptTokens: 1_000_000 });
+  const promptTokenCount = measured.promptTokenCount;
+
+  const atLimit = await preflightPlannerPromptBudget({ prompt, maxPromptTokens: promptTokenCount });
+  assert.equal(atLimit.ok, true);
+  assert.equal(atLimit.maxPromptBudget, promptTokenCount);
+  assert.equal(atLimit.overflowTokens, 0);
+
+  const oneOver = await preflightPlannerPromptBudget({ prompt, maxPromptTokens: promptTokenCount - 1 });
+  assert.equal(oneOver.ok, false);
+  assert.equal(oneOver.maxPromptBudget, promptTokenCount - 1);
+  assert.equal(oneOver.overflowTokens, 1);
 });
 
 test('preflightPlannerPromptBudget counts tool schemas against context budget', async () => {
@@ -812,8 +836,7 @@ test('preflightPlannerPromptBudget counts tool schemas against context budget', 
   ];
   const withoutTools = await preflightPlannerPromptBudget({
     prompt: renderWirePrompt({ messages, tools: [], includeReasoningContent: false }),
-    totalContextTokens: 4200,
-    responseReserveTokens: 4000,
+    maxPromptTokens: 200,
   });
   const withTools = await preflightPlannerPromptBudget({
     prompt: renderWirePrompt({
@@ -828,8 +851,7 @@ test('preflightPlannerPromptBudget counts tool schemas against context budget', 
       }],
       includeReasoningContent: false,
     }),
-    totalContextTokens: 4200,
-    responseReserveTokens: 4000,
+    maxPromptTokens: 200,
   });
 
   assert.equal(withoutTools.ok, true);
@@ -933,7 +955,7 @@ test('runTaskLoop compacts an overflowing repo-agent history and continues from 
       // 15k response reserve leaves a 17000-token prompt budget; the 100k-character
       // history is 25000 tokens at mock mode's 4-characters-per-token estimate, so
       // turn 1 overflows and the compaction summary is the first mock response
-      // consumed. The 10k compaction reserve keeps the summarization request fitting.
+      // consumed. The summarization request fits the physical remainder of the window.
       totalContextTokens: 32000,
       historyMessages: [{ role: 'assistant', content: 'H'.repeat(100_000) }],
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
@@ -1020,11 +1042,11 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
   const events: JsonObject[] = [];
-  // 15k goes to the shared response reserve and 10k to the compaction reserve, leaving
-  // the 25500 usable prompt tokens this scenario is tuned to.
+  // 15k goes to the shared response reserve, leaving the 35500 prompt tokens this
+  // scenario is tuned to.
   const totalContextTokens = 50500;
   const budget = new TurnBudget({ totalContextTokens, maxTurns: 10, config: MOCK_LOOP_DEFAULTS.config });
-  const targetQuestionTokens = budget.usablePromptTokens - budget.perToolCapTokens(0, 1) + 1;
+  const targetQuestionTokens = budget.maxPromptTokens - budget.perToolCapTokens(0, 1) + 1;
   const oversizedQuestion = 'Q'.repeat(Math.ceil(
     targetQuestionTokens * getTokenEstimateCharactersPerToken(undefined),
   ));
@@ -2241,4 +2263,206 @@ test('runTaskLoop forces a repo-search answer when the prompt outgrows the conte
   // The overflowing turn never reaches the planner, and nothing is compacted away.
   assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
   assert.equal(events.some((event) => event.kind === 'turn_model_request'), false);
+});
+
+// ---------------------------------------------------------------------------
+// Single response reserve: the former blind zone between the tool-result limit and
+// the preflight limit no longer exists, and a zero-capacity tool never executes.
+// ---------------------------------------------------------------------------
+
+const BLIND_ZONE_COMMAND = 'git operation="grep" path="src" pattern="planner"';
+const BLIND_ZONE_TOOL_CALL = { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'planner', path: 'src' } }] };
+const BLIND_ZONE_QUESTION = 'Find planner text.';
+const BLIND_ZONE_TOOLS = resolveRepoSearchPlannerToolDefinitions(['git']);
+
+type LoopTaskKind = 'repo-search' | 'repo-agent' | 'chat';
+
+function blindZoneHistory(historyChars: number): ChatMessage[] {
+  return [
+    { role: 'user', content: 'H'.repeat(historyChars) },
+    { role: 'assistant', content: 'noted' },
+  ];
+}
+
+function finishResponsesFor(taskKind: LoopTaskKind): MockPlannerResponseInput[] {
+  switch (taskKind) {
+    case 'repo-search':
+      return [{ content: 'done' }, { content: '{"verdict":"pass","reason":"supported"}' }];
+    case 'repo-agent':
+      return repoAgentFinishResponses('done');
+    case 'chat':
+      return [{ content: 'done' }];
+  }
+}
+
+async function runHistoryLoop(options: {
+  taskKind: LoopTaskKind;
+  totalContextTokens: number;
+  historyChars: number;
+  mockResponses: MockPlannerResponseInput[];
+  events: JsonObject[];
+}): Promise<TaskResult> {
+  return runTaskLoop(
+    { id: `task-single-reserve-${options.taskKind}`, question: BLIND_ZONE_QUESTION },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      runtimeProfile: new RepoSearchRuntimeProfile(options.taskKind),
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: options.totalContextTokens,
+      historyMessages: blindZoneHistory(options.historyChars),
+      plannerToolDefinitions: BLIND_ZONE_TOOLS,
+      mockResponses: options.mockResponses,
+      mockCommandResults: {
+        [BLIND_ZONE_COMMAND]: { exitCode: 0, stdout: 'planner hit', stderr: '' },
+      },
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          options.events.push(parseLoggedEvent(event));
+        },
+      },
+    },
+  );
+}
+
+function turnOnePromptTokens(events: JsonObject[]): number {
+  const budget = events.find((event) => event.kind === 'turn_preflight_budget' && event.turn === 1);
+  assert.ok(budget, 'turn 1 must log turn_preflight_budget');
+  return Number(budget.promptTokenCount);
+}
+
+/** The wire prompt the loop preflights on turn 1 for runHistoryLoop's transcript. */
+function renderTurnOnePrompt(taskKind: LoopTaskKind, historyChars: number): string {
+  return renderWirePrompt({
+    messages: [
+      { role: 'system', content: buildTaskSystemPrompt(MOCK_LOOP_DEFAULTS.systemContext, BLIND_ZONE_TOOLS) },
+      ...blindZoneHistory(historyChars),
+      { role: 'user', content: taskKind === 'chat' ? BLIND_ZONE_QUESTION : buildTaskInitialUserPrompt(BLIND_ZONE_QUESTION) },
+    ],
+    tools: toProtocolTools(BLIND_ZONE_TOOLS),
+    includeReasoningContent: resolvePlannerThinkingFlags(MOCK_LOOP_DEFAULTS.config).reasoningContentEnabled,
+  }).text;
+}
+
+/**
+ * Sizes the history so turn 1 lands exactly on the prompt limit: healthy preflight, zero
+ * tool-result capacity. Mock mode preflights with the config-less estimator, so the
+ * rendered prompt is counted the same way here and the padding is exact by construction.
+ */
+function historyCharsForPromptLimit(taskKind: LoopTaskKind, totalContextTokens: number): number {
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+  const fixedChars = renderTurnOnePrompt(taskKind, 0).length;
+  const historyChars = budget.maxPromptTokens * getTokenEstimateCharactersPerToken(undefined) - fixedChars;
+  assert.ok(historyChars > 0, `the fixed prompt (${fixedChars} chars) must sit below the limit`);
+  assert.equal(estimateTokenCount(undefined, renderTurnOnePrompt(taskKind, historyChars)), budget.maxPromptTokens);
+  return historyChars;
+}
+
+test('a repo-agent prompt inside the former 129k-140k blind zone still receives its tool result intact', async () => {
+  const totalContextTokens = 155_000;
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+  assert.equal(budget.responseReserveTokens, 15_000);
+  assert.equal(budget.maxPromptTokens, 140_000);
+  const events: JsonObject[] = [];
+
+  const result = await runHistoryLoop({
+    taskKind: 'repo-agent',
+    totalContextTokens,
+    historyChars: 134_000 * getTokenEstimateCharactersPerToken(undefined),
+    mockResponses: [BLIND_ZONE_TOOL_CALL, ...repoAgentFinishResponses('done')],
+    events,
+  });
+
+  const promptTokenCount = turnOnePromptTokens(events);
+  assert.ok(
+    promptTokenCount > 129_000 && promptTokenCount <= 140_000,
+    `prompt ${promptTokenCount} must sit in the former blind zone`,
+  );
+  const command = result.commands[0];
+  assert.equal(command?.safe, true);
+  assert.equal(command?.exitCode, 0);
+  assert.match(command?.output ?? '', /planner hit/u);
+  assert.doesNotMatch(command?.output ?? '', /truncated due to per-tool context limit/u);
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
+  assert.equal(result.reason, 'finish');
+});
+
+for (const taskKind of ['repo-agent', 'chat'] as const) {
+  test(`a ${taskKind} loop at the prompt limit blocks the tool, compacts, and lets the model reissue it`, async () => {
+    const totalContextTokens = 32_000;
+    const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+    const historyChars = historyCharsForPromptLimit(taskKind, totalContextTokens);
+    const events: JsonObject[] = [];
+
+    const result = await runHistoryLoop({
+      taskKind,
+      totalContextTokens,
+      historyChars,
+      mockResponses: [
+        BLIND_ZONE_TOOL_CALL,
+        { content: 'SUMMARY: the earlier history was noted.' },
+        BLIND_ZONE_TOOL_CALL,
+        ...finishResponsesFor(taskKind),
+      ],
+      events,
+    });
+
+    assert.equal(turnOnePromptTokens(events), budget.maxPromptTokens);
+
+    const blocked = result.commands[0];
+    assert.equal(blocked?.safe, false);
+    assert.equal(blocked?.exitCode, null);
+    assert.match(
+      blocked?.reason ?? '',
+      /context budget exhausted: prompt_tokens=\d+ max_prompt_tokens=\d+ remaining_tool_tokens=0/u,
+    );
+    assert.match(blocked?.output ?? '', /tool was not executed/u);
+    assert.doesNotMatch(blocked?.output ?? '', /planner hit/u);
+
+    const starts = events.filter(
+      (event) => event.kind === 'turn_command_start' && event.requestedCommand === BLIND_ZONE_COMMAND,
+    );
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0]?.turn, 2);
+    assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 1);
+
+    const reissued = result.commands[1];
+    assert.equal(reissued?.safe, true);
+    assert.equal(reissued?.exitCode, 0);
+    assert.match(reissued?.output ?? '', /planner hit/u);
+    assert.equal(result.commands.length, 2);
+    assert.equal(result.reason, 'finish');
+  });
+}
+
+test('a repo-search loop at the prompt limit blocks the tool and forces an answer instead of compacting', async () => {
+  const totalContextTokens = 32_000;
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+  const historyChars = historyCharsForPromptLimit('repo-search', totalContextTokens);
+  const events: JsonObject[] = [];
+
+  const result = await runHistoryLoop({
+    taskKind: 'repo-search',
+    totalContextTokens,
+    historyChars,
+    mockResponses: [
+      BLIND_ZONE_TOOL_CALL,
+      { content: 'best effort from partial evidence' },
+    ],
+    events,
+  });
+
+  assert.equal(turnOnePromptTokens(events), budget.maxPromptTokens);
+  const blocked = result.commands[0];
+  assert.equal(blocked?.safe, false);
+  assert.equal(blocked?.exitCode, null);
+  assert.match(blocked?.output ?? '', /tool was not executed/u);
+  assert.equal(events.some((event) => event.kind === 'turn_command_start'), false);
+  assert.ok(events.some((event) => event.kind === 'turn_context_overflow_forced_answer'));
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
+  assert.equal(result.reason, 'context_overflow');
+  assert.equal(result.finalOutput, 'best effort from partial evidence');
+  assert.equal(result.commands.length, 1);
 });

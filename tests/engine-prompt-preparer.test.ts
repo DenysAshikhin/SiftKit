@@ -97,9 +97,8 @@ function withKind(prepared: PreparedTurnBudget, kind: PreparedTurnBudget['kind']
   return prepared;
 }
 
-// Sized to the worst case a real turn can produce at a 9000-token window: over the
-// 4500-token prompt budget, but inside the 6750 tokens the compaction reserve
-// guarantees the summarizer can still swallow in one shot.
+// Sized to overflow a 9000-token window: over the 4500-token prompt limit, while the
+// physical remainder still leaves the summarizer room to answer in one shot.
 function makeCompactableTranscript(): TranscriptManager {
   return new TranscriptManager({
     systemPromptContent: 'SYSTEM',

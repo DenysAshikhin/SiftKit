@@ -145,7 +145,7 @@ const GREP_TOOL = {
   function: { name: 'grep', description: 'search the repository', parameters: { type: 'object' } },
 } satisfies LlamaCppToolDefinition;
 
-const PREFLIGHT_BUDGET = { totalContextTokens: 9_000, responseReserveTokens: 1_000 };
+const PREFLIGHT_BUDGET = { maxPromptTokens: 8_000 };
 
 test('preflight counts tool schemas as part of the prompt', async () => {
   const seen: string[] = [];
@@ -228,15 +228,13 @@ test('a delta-derived count near the budget forces one exact recount', async () 
     await preflightPlannerPromptBudget({
       config,
       prompt: firstPrompt,
-      totalContextTokens: 3000,
-      responseReserveTokens: 0,
+      maxPromptTokens: 3000,
       promptTokenCounter,
     });
     const second = await preflightPlannerPromptBudget({
       config,
       prompt: secondPrompt,
-      totalContextTokens: 3000,
-      responseReserveTokens: 0,
+      maxPromptTokens: 3000,
       promptTokenCounter,
     });
     assert.equal(second.promptTokenCount, secondPrompt.text.length);
@@ -255,14 +253,12 @@ test('preflight without counters keeps the one-shot behavior', async () => {
     await preflightPlannerPromptBudget({
       config,
       prompt: firstPrompt,
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     await preflightPlannerPromptBudget({
       config,
       prompt: secondPrompt,
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.deepEqual(seen, [firstPrompt.text, secondPrompt.text]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });

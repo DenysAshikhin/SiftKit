@@ -240,8 +240,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
       tools: plannerTools,
       includeReasoningContent: thinking.reasoningContentEnabled,
     }),
-    totalContextTokens: budget.totalContextTokens,
-    responseReserveTokens: budget.responseReserveTokens,
+    maxPromptTokens: budget.maxPromptTokens,
   });
   assert.ok(
     Math.abs(replayPreflight.promptTokenCount - source.sourcePromptTokenCount)

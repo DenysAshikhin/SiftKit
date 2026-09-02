@@ -99,7 +99,7 @@ const PRESET_FIELD_SUPPORT = {
   NumCtx: 'both',
   GpuLayers: 'llama-only',
   Threads: 'llama-only',
-  NcpuMoe: 'llama-only',
+  NcpuMoe: 'exl3-managed-only',
   FlashAttention: 'llama-only',
   ParallelSlots: 'exl3-managed-only',
   BatchSize: 'llama-only',

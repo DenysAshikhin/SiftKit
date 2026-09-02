@@ -5,6 +5,9 @@
 /node_modules
 /thinking_bench/qwen35-best-only-search
 /thinking_bench/results
+/pristine_exle/exllamav3/
+/pristine_exle/tabbyAPI/
+/pristine_exle/runs/
 
 # Build artifacts
 /.tscache

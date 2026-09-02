@@ -10,7 +10,7 @@ import {
 } from '../src/repo-search/engine/transcript-compactor.js';
 import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import { COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import {
@@ -373,25 +373,56 @@ test('latest_user retention fails loudly when the transcript has no user message
   );
 });
 
-// The reserve clamps on small windows; the summary output budget has to clamp with it,
-// or compaction becomes impossible exactly where the window is tightest.
+// The reserve clamps on small windows; the summary generation budget has to clamp with it,
+// or compaction becomes impossible exactly where the window is tightest. A transcript at
+// the shared prompt limit is the ordinary compaction trigger, so it must always fit.
 for (const totalContextTokens of [150_000, 32_000, 9_000]) {
-  test(`the worst-case transcript at a ${totalContextTokens}-token window still compacts`, async () => {
+  test(`a transcript at the prompt limit of a ${totalContextTokens}-token window compacts inside the reserve`, async () => {
     const budget = new TurnBudget({ totalContextTokens, maxTurns: 45, config: null });
-    const worstCaseTranscriptTokens = budget.usablePromptTokens + budget.responseReserveTokens;
     const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
     const messages: ChatMessage[] = [
       { role: 'system', content: 'SYSTEM PROMPT' },
       // 4 characters per token is the estimate mock mode counts with.
-      { role: 'assistant', content: 'H'.repeat(worstCaseTranscriptTokens * 4) },
+      { role: 'assistant', content: 'H'.repeat(budget.maxPromptTokens * 4) },
       { role: 'user', content: 'latest user intent' },
     ];
 
     const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0, retention: { kind: 'latest_user' }, cacheOrigin: NEW_EPOCH });
 
     assert.equal(outcome.summaryText, 'SUMMARY BODY');
+    assert.equal(outcome.summaryGenerationTokenBudget <= budget.responseReserveTokens, true);
+    assert.equal(
+      outcome.summaryGenerationTokenBudget,
+      outcome.summaryReasoningTokenBudget + outcome.summaryOutputTokenBudget,
+    );
+    assert.equal(outcome.summaryOutputTokenBudget >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, true);
   });
 }
+
+// Between the prompt limit and the physical window the generation budget is whatever the
+// window actually leaves: below the reserve ceiling, above the summary minimum.
+test('a transcript near the physical window clamps the generation budget below the reserve', async () => {
+  const totalContextTokens = 32_000;
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 45, config: null });
+  const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
+  // 4 characters per token: leaves roughly 2,000 tokens of the 32,000-token window.
+  const transcriptTokens = totalContextTokens - 2_000;
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM PROMPT' },
+    { role: 'assistant', content: 'H'.repeat(transcriptTokens * 4) },
+    { role: 'user', content: 'latest user intent' },
+  ];
+
+  const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0, retention: { kind: 'latest_user' }, cacheOrigin: NEW_EPOCH });
+
+  assert.equal(outcome.summaryText, 'SUMMARY BODY');
+  assert.equal(outcome.summaryGenerationTokenBudget < budget.responseReserveTokens, true);
+  assert.equal(outcome.summaryOutputTokenBudget >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS, true);
+  assert.equal(
+    outcome.summaryGenerationTokenBudget,
+    outcome.summaryReasoningTokenBudget + outcome.summaryOutputTokenBudget,
+  );
+});
 
 test('TaskResultSchema requires compactionSummary so a missed producer fails loudly', () => {
   const task = buildMockScorecard('done').tasks[0];

@@ -36,6 +36,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
   /** Per-job draft windows adapted from the acceptance EMA, capped by DRAFT_NUM_TOKENS. */
   TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: z.enum(['true', 'false']),
+  /** Temporary upstream workaround: bypass the load arena to avoid peak-VRAM allocation failure. */
+  EXL3_LOAD_ARENA: z.literal('0'),
   /**
    * exllamav3 defaults to quant-direct attention kernels for quantized caches; the
    * dequantize-then-attend path is ~7% faster at prefill and decode-neutral for ~240 MiB
@@ -45,6 +47,13 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_MODEL_VISION: z.enum(['true', 'false']),
   /** Pins the vision tower in host RAM and streams it per request; Tabby ignores it while vision is off. */
   TABBY_MODEL_VISION_OFFLOAD: z.enum(['true', 'false']),
+  /**
+   * `NcpuMoe` as exllamav3's per-layer expert split: the coldest N routed experts of every
+   * eligible MoE layer live in host RAM and run on the CPU worker, overlapping that layer's own
+   * GPU expert compute. Higher frees more VRAM. `0` leaves every expert on the GPU. Non-MoE
+   * models and layers that fail exllamav3's eligibility probes ignore it.
+   */
+  TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: z.string(),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -59,6 +68,9 @@ export class Exl3PresetAdapter {
     }
     const relativeModelPath = this.getRelativeModelPath(preset);
     this.getCacheModes(preset);
+    if (preset.NcpuMoe < 0) {
+      throw new Error(`preset=${preset.id} backend=exl3 NcpuMoe=${preset.NcpuMoe} must not be negative`);
+    }
     if (preset.VisionOffload && !preset.VisionEnabled) {
       throw new Error(`preset=${preset.id} backend=exl3 VisionOffload=true requires VisionEnabled=true`);
     }
@@ -105,9 +117,11 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
       TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: preset.SpeculativeEnabled && preset.SpeculativeDynamic ? 'true' : 'false',
+      EXL3_LOAD_ARENA: '0',
       EXL3_QC_ATTN: '0',
       TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
       TABBY_MODEL_VISION_OFFLOAD: preset.VisionOffload ? 'true' : 'false',
+      TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: String(preset.NcpuMoe),
     });
   }
 
