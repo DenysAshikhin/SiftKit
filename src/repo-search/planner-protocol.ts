@@ -600,12 +600,12 @@ const APPROVAL_VERDICT_MAX_TOKENS = 512;
  * docs/superpowers/plans/2026-09-02-bounded-thinking-approval-verdict.md.
  */
 const APPROVAL_VERDICT_REASONING_BUDGET_TOKENS = 1024;
-/** Outer ceiling for the thinking case: the budget above is the real cap; this leaves answer room. */
-const APPROVAL_VERDICT_THINKING_MAX_TOKENS = APPROVAL_VERDICT_REASONING_BUDGET_TOKENS + 512;
+/** Outer ceiling for the thinking case: the budget is the real cap, plus the same answer room as a non-thinking verdict. */
+const APPROVAL_VERDICT_THINKING_MAX_TOKENS = APPROVAL_VERDICT_REASONING_BUDGET_TOKENS + APPROVAL_VERDICT_MAX_TOKENS;
 /** Floor for the continuation that emits the JSON after the budget is hit. */
 const APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS = 256;
 /** Spliced into the closed think block when the verdict budget is hit; steers straight to the JSON. */
-const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
+export const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
   'Thinking budget reached. Output the approval verdict JSON now.';
 
 /** Executing transcript, pending assistant tool call, then the transient verdict question. */

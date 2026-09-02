@@ -23,6 +23,16 @@ export type FakeChatServerOptions = {
   reportedReasoningTokens?: 'none' | 'cumulative' | 'zero';
 };
 
+/** Prompt usage streamed on the first frame of request 1 and of every later request. */
+export const FAKE_PROMPT_USAGE = {
+  first: { promptTokens: 100, cachedTokens: 60 },
+  later: { promptTokens: 110, cachedTokens: 100 },
+} as const;
+
+function toPromptUsageFrame(usage: { promptTokens: number; cachedTokens: number }): JsonObject {
+  return { prompt_tokens: usage.promptTokens, prompt_tokens_details: { cached_tokens: usage.cachedTokens } };
+}
+
 /** `count` reasoning deltas of `chars` characters each: `r00.....`, `r01.....`, ... */
 export function buildReasoningDeltas(count: number, chars: number): string[] {
   return Array.from({ length: count }, (_unused, index) => `r${String(index).padStart(2, '0')}`.padEnd(chars, '.'));
@@ -59,10 +69,7 @@ export function startFakeChatServer(options: FakeChatServerOptions): Promise<Fak
         };
         // Prompt usage rides the first frame of every request, so the first
         // request's stats survive the mid-stream budget abort.
-        const promptUsage = bodies.length === 1
-          ? { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 60 } }
-          : { prompt_tokens: 110, prompt_tokens_details: { cached_tokens: 100 } };
-        writeDelta({}, promptUsage);
+        writeDelta({}, toPromptUsageFrame(bodies.length === 1 ? FAKE_PROMPT_USAGE.first : FAKE_PROMPT_USAGE.later));
         if (bodies.length === 1) {
           (options.reasoningDeltas ?? []).forEach((text, index) => {
             const usage = reportedMode === 'none'

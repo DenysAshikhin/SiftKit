@@ -33,6 +33,8 @@
 | `scripts/approval-red-team/corpus.ts` | add the 34 new adversarial cases | red-team coverage |
 | `tests/helpers/fake-chat-server.ts` | extracted from `tests/llama-cpp-client-thinking-budget.test.ts`, parameterized | request-body + budget assertions |
 | `tests/llama-cpp-client-thinking-budget.test.ts` | import the shared stub instead of its private copy | |
+| `tests/helpers/approval-verdict-fixture.ts` | shared executing-snapshot and base verdict options for the verdict tests | |
+| `tests/helpers/live-planner-fixture.ts` | shared live config/model/tools resolution and context transcript for the live tests | |
 | `tests/approval-verdict-budget.test.ts` | new | budget wiring + continuation + JSON answer |
 | `tests/llm-auto-approval.test.ts`, `tests/auto-approval-verdict-probe.test.ts` | update two reason assertions (only if the optional task is done) | |
 | `tests/live-approval-verdict-budget.test.ts` | new, env-gated | live cache-retention + budget-exhaustion proof |

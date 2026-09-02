@@ -1,21 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  captureExecutingPlannerRequest,
+  APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
   requestApprovalVerdict,
-  resolveRepoSearchPlannerToolDefinitions,
-  serializeProtocolMessages,
   type ChatMessage,
-  type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { buildReasoningDeltas, startFakeChatServer } from './helpers/fake-chat-server.js';
+import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
 
 const VERDICT = '{"verdict":"deny","reason":"introduces a remote-execution dropper"}';
-const VERDICT_BUDGET_MESSAGE = 'Thinking budget reached. Output the approval verdict JSON now.';
 const transcript: ChatMessage[] = [
   { role: 'system', content: 'sys' },
   { role: 'user', content: 'task' },
@@ -40,26 +36,12 @@ function exl3Config(baseUrl: string): SiftConfig {
   });
 }
 
-const THINKING_ON = {
-  thinkingEnabled: true,
-  reasoningContentEnabled: true,
-  preserveThinking: true,
-} satisfies PlannerThinkingFlags;
-
 function verdictOptions(baseUrl: string) {
   return {
     config: exl3Config(baseUrl),
     baseUrl,
     model: 'mock',
-    transcriptMessages: transcript,
-    pendingMessages: [],
-    question: 'approve?',
-    executing: captureExecutingPlannerRequest(
-      serializeProtocolMessages(transcript, THINKING_ON.reasoningContentEnabled),
-      THINKING_ON,
-      toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
-      2,
-    ),
+    ...baseVerdictOptions(transcript, captureExecutingForVerdict(transcript)),
     timeoutMs: 30_000,
   };
 }
@@ -75,7 +57,7 @@ test('a verdict whose reasoning exceeds the budget closes the think block and re
     assert.ok(!('response_prefix' in fake.bodyAt(0)));
     const prefix = String(fake.bodyAt(1).response_prefix);
     assert.ok(prefix.startsWith('<think>\n'));
-    assert.ok(prefix.includes(VERDICT_BUDGET_MESSAGE));
+    assert.ok(prefix.includes(APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE));
     assert.ok(prefix.trimEnd().endsWith('</think>'));
     // The template kwargs are untouched on both requests: thinking stays on at render time.
     for (const index of [0, 1]) {
