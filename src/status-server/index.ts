@@ -282,6 +282,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       drainScheduled: false,
       drainRunning: false,
       lastModelRequestFinishedAtMs: null,
+      serverStartedAtMs: Date.now(),
       idleDelayMs: getTerminalMetadataIdleDelayMs(options),
     },
     idleSummary: {

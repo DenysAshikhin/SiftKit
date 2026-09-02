@@ -41,6 +41,7 @@ const BACKGROUND_REASON_LABELS = {
   preemption_requested: 'Preemption requested',
   server_busy: 'Server busy',
   environment_heartbeat_missing: 'Environment heartbeat missing',
+  model_recently_active: 'Model recently active',
   mouse_idle_below_threshold: 'Mouse idle below threshold',
   keyboard_idle_below_threshold: 'Keyboard idle below threshold',
   on_battery: 'Running on battery',

@@ -4,23 +4,39 @@ import type {
 import type { DesktopInputIdle } from '../assistant/observation/environment-cache.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../config/defaults.js';
 import { isIdle } from './server-ops.js';
-import type { ServerContext } from './server-types.js';
+import type { ServerContext, TerminalMetadataState } from './server-types.js';
+
+export function secondsSinceModelActivity(
+  metadata: Pick<TerminalMetadataState, 'lastModelRequestFinishedAtMs' | 'serverStartedAtMs'>,
+  nowMs: number,
+): number {
+  const lastActivityMs = metadata.lastModelRequestFinishedAtMs ?? metadata.serverStartedAtMs;
+  return Math.floor((nowMs - lastActivityMs) / 1000);
+}
 
 /**
- * Ordered truth table, first match wins: server busy, then data availability, then each input
- * signal. Every blocked branch names the signal holding the gate so the decision history shows
- * which one to look at (design §3.5).
+ * Ordered truth table, first match wins: server busy, heartbeat missing, model recently active,
+ * mouse, keyboard, allowed. Every blocked branch names the signal holding the gate so the
+ * decision history shows which one to look at (design §3.5).
  */
 export function evaluateIdleDecision(
   busy: boolean,
   inputIdle: DesktopInputIdle | null,
   thresholdSeconds: number,
+  modelQuietSeconds: number,
 ): BackgroundWorkAdmissionDecision {
   if (busy) {
     return { kind: 'blocked', reason: 'server_busy', details: {} };
   }
   if (inputIdle === null) {
     return { kind: 'blocked', reason: 'environment_heartbeat_missing', details: {} };
+  }
+  if (modelQuietSeconds < thresholdSeconds) {
+    return {
+      kind: 'blocked',
+      reason: 'model_recently_active',
+      details: { secondsSinceModelActivity: modelQuietSeconds, requiredIdleSeconds: thresholdSeconds },
+    };
   }
   if (inputIdle.mouse < thresholdSeconds) {
     return {
@@ -61,7 +77,10 @@ export class StatusServerIdleGate implements InteractivityGate {
       this.reportedMissingInputData = false;
     }
     return evaluateIdleDecision(
-      !isIdle(this.ctx), inputIdle, background.IdleSecondsBeforeProcessing,
+      !isIdle(this.ctx),
+      inputIdle,
+      background.IdleSecondsBeforeProcessing,
+      secondsSinceModelActivity(this.ctx.terminalMetadata, Date.now()),
     );
   }
 }

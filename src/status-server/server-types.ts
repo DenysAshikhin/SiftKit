@@ -60,6 +60,8 @@ export type TerminalMetadataState = {
   drainScheduled: boolean;
   drainRunning: boolean;
   lastModelRequestFinishedAtMs: number | null;
+  /** Set once at context construction; model quiet counts from here until the first request finishes. */
+  serverStartedAtMs: number;
   readonly idleDelayMs: number;
 };
 

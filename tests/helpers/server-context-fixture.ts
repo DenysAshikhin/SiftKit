@@ -57,6 +57,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
       drainScheduled: false,
       drainRunning: false,
       lastModelRequestFinishedAtMs: null,
+      serverStartedAtMs: 0,
       idleDelayMs: 0,
     },
     idleSummary: {

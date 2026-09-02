@@ -22,6 +22,7 @@ export const AssistantBackgroundWorkBlockReasonSchema = z.enum([
   'preemption_requested',
   'server_busy',
   'environment_heartbeat_missing',
+  'model_recently_active',
   'mouse_idle_below_threshold',
   'keyboard_idle_below_threshold',
   'on_battery',
