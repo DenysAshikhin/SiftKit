@@ -1,4 +1,4 @@
-//! Foreground/idle/lock adapters over Win32 (spec §4). Failure to identify the foreground is an
+//! Foreground/lock adapters over Win32 (spec §4). Failure to identify the foreground is an
 //! `Err` the preflight treats as suppression — never a capturable unknown.
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, MAX_PATH, RECT};
@@ -9,12 +9,10 @@ use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, GetUserObjectInformationW, OpenInputDesktop, DESKTOP_CONTROL_FLAGS,
     DESKTOP_READOBJECTS, UOI_NAME,
 };
-use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::Shell::{
     SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
@@ -140,18 +138,6 @@ impl NativeActivityProvider for WindowsActivityProvider {
             raw_title: window_title(window),
             fullscreen: is_fullscreen(window),
         })
-    }
-
-    fn idle_seconds(&self) -> u32 {
-        let mut info = LASTINPUTINFO {
-            cbSize: u32::try_from(std::mem::size_of::<LASTINPUTINFO>()).expect("size fits"),
-            dwTime: 0,
-        };
-        if !unsafe { GetLastInputInfo(&mut info) }.as_bool() {
-            return 0;
-        }
-        let now = unsafe { GetTickCount() };
-        now.wrapping_sub(info.dwTime) / 1000
     }
 
     fn session_locked(&self) -> bool {

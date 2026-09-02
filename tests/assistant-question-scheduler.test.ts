@@ -71,7 +71,7 @@ function enabledConfig(maxPerDay = 1): AssistantConfig {
 const environment: QuestionEnvironmentState = {
   kind: 'available', nowUtc: '2026-08-05T09:00:00.000Z', localTime: '19:00',
   fullscreen: false, locked: false, doNotDisturb: false, presenting: false,
-  excludedApplication: false, secondsSinceInput: 1_000,
+  excludedApplication: false, secondsSinceMouseInput: 1_000, secondsSinceKeyboardInput: 1_000,
 };
 
 test('scheduler orders by score, respects capacity, and marks one eligible question', async () => {

@@ -6,7 +6,8 @@
   "doNotDisturb": false,
   "presenting": false,
   "excludedApplication": false,
-  "secondsSinceInput": 4,
+  "secondsSinceMouseInput": 4,
+  "secondsSinceKeyboardInput": 9,
   "power": {
     "kind": "available",
     "onBattery": false,

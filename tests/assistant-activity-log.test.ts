@@ -23,7 +23,7 @@ function activityDto(overrides: {
       normalizedTitle: 'SiftKit - Visual Studio Code',
       fullscreen: false,
     },
-    idleSeconds: 3,
+    mouseIdleSeconds: 9, keyboardIdleSeconds: 3,
     sessionLocked: overrides.sessionLocked ?? false,
   };
 }

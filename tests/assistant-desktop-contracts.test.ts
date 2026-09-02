@@ -98,3 +98,25 @@ test('key material requires non-empty ids and values', () => {
   assert.equal(KeyMaterialDtoSchema.safeParse({ ...fixture, activeKeyId: '' }).success, false);
   assert.equal(KeyMaterialDtoSchema.safeParse({ ...fixture, keys: { akey_001: '' } }).success, false);
 });
+
+test('desktop DTOs carry mouse and keyboard idleness separately and reject the old combined field', () => {
+  const environment = readFixture('environment-state.json');
+  const activity = readFixture('activity-event.json');
+  assert.ok(environment !== null && typeof environment === 'object' && !Array.isArray(environment));
+  assert.ok(activity !== null && typeof activity === 'object' && !Array.isArray(activity));
+
+  const { secondsSinceMouseInput, secondsSinceKeyboardInput, ...environmentRest } = environment;
+  assert.equal(secondsSinceMouseInput, 4);
+  assert.equal(secondsSinceKeyboardInput, 9);
+  assert.equal(EnvironmentStateDtoSchema.safeParse(environmentRest).success, false);
+  assert.equal(
+    EnvironmentStateDtoSchema.safeParse({ ...environmentRest, secondsSinceInput: 4 }).success,
+    false,
+  );
+
+  const { mouseIdleSeconds, keyboardIdleSeconds, ...activityRest } = activity;
+  assert.equal(mouseIdleSeconds, 4);
+  assert.equal(keyboardIdleSeconds, 9);
+  assert.equal(ActivityEventDtoSchema.safeParse(activityRest).success, false);
+  assert.equal(ActivityEventDtoSchema.safeParse({ ...activityRest, idleSeconds: 4 }).success, false);
+});

@@ -27,7 +27,7 @@ const available: QuestionEnvironmentState = {
   doNotDisturb: false,
   presenting: false,
   excludedApplication: false,
-  secondsSinceInput: 1_000,
+  secondsSinceMouseInput: 1_000, secondsSinceKeyboardInput: 1_000,
 };
 
 const candidate: QuestionCandidate = {
@@ -129,7 +129,8 @@ test('question policy returns stable reasons for every hard gate', () => {
     ['excluded_application', evaluate({
       environment: { ...available, excludedApplication: true },
     })],
-    ['recent_input', evaluate({ environment: { ...available, secondsSinceInput: 10 } })],
+    ['recent_input', evaluate({ environment: { ...available, secondsSinceMouseInput: 10 } })],
+    ['recent_input', evaluate({ environment: { ...available, secondsSinceKeyboardInput: 10 } })],
     ['private_mode', evaluate({ config: { ...config(), PrivateMode: {
       Active: true, ExpiresAtUtc: null,
     } } })],

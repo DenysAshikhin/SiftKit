@@ -28,7 +28,8 @@ export const ActivityEventDtoSchema = z.object({
   schemaVersion: z.literal(1),
   capturedAtUtc: z.string(),
   foreground: ForegroundContextDtoSchema,
-  idleSeconds: z.number().int().min(0),
+  mouseIdleSeconds: z.number().int().min(0),
+  keyboardIdleSeconds: z.number().int().min(0),
   sessionLocked: z.boolean(),
 }).strict();
 export type ActivityEventDto = z.infer<typeof ActivityEventDtoSchema>;
@@ -48,7 +49,8 @@ export const EnvironmentStateDtoSchema = z.object({
   doNotDisturb: z.boolean(),
   presenting: z.boolean(),
   excludedApplication: z.boolean(),
-  secondsSinceInput: z.number().int().min(0),
+  secondsSinceMouseInput: z.number().int().min(0),
+  secondsSinceKeyboardInput: z.number().int().min(0),
   power: z.discriminatedUnion('kind', [
     z.object({
       kind: z.literal('available'),

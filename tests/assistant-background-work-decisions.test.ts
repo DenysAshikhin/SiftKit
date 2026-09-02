@@ -40,8 +40,8 @@ test('background-work decisions persist across a database reopen', () => {
   enqueuePendingJob(new JobStore(database, clock, new SequentialIdGenerator()));
   new BackgroundWorkDecisionStore(database, clock).record(
     LOCAL_OWNER_ID,
-    'input_idle_below_threshold',
-    { inputIdleSeconds: 12, requiredIdleSeconds: 180 },
+    'mouse_idle_below_threshold',
+    { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
   );
   closeRuntimeDatabase();
 
@@ -52,10 +52,10 @@ test('background-work decisions persist across a database reopen', () => {
   assert.deepEqual(items, [
     {
       recordedAtUtc: START,
-      reason: 'input_idle_below_threshold',
+      reason: 'mouse_idle_below_threshold',
       queuedJobCount: 1,
       pendingCaptureCount: 0,
-      details: { inputIdleSeconds: 12, requiredIdleSeconds: 180 },
+      details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
     },
   ]);
 });
@@ -68,16 +68,16 @@ test('background-work decision history retains only the newest 100 entries', () 
   const store = new BackgroundWorkDecisionStore(database, clock);
 
   for (let index = 0; index < 101; index += 1) {
-    store.record(LOCAL_OWNER_ID, 'input_idle_below_threshold', {
-      inputIdleSeconds: index,
+    store.record(LOCAL_OWNER_ID, 'mouse_idle_below_threshold', {
+      mouseIdleSeconds: index,
     });
     clock.advanceSeconds(1);
   }
 
   const items = store.list(LOCAL_OWNER_ID);
   assert.equal(items.length, 100);
-  assert.equal(items[0]?.details.inputIdleSeconds, 100);
-  assert.equal(items.at(-1)?.details.inputIdleSeconds, 1);
+  assert.equal(items[0]?.details.mouseIdleSeconds, 100);
+  assert.equal(items.at(-1)?.details.mouseIdleSeconds, 1);
 });
 
 test('background-work decisions are not written when nothing is pending', () => {

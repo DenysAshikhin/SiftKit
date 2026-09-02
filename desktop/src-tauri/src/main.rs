@@ -25,6 +25,7 @@ use siftkit_assistant_shell_lib::platform::windows::activity::{
     WindowsActivityProvider, WindowsNotificationProvider,
 };
 use siftkit_assistant_shell_lib::platform::windows::capture::{encode_png, WindowsCaptureProvider};
+use siftkit_assistant_shell_lib::platform::windows::input_tracker::WindowsInputTracker;
 use siftkit_assistant_shell_lib::platform::windows::job::JobObjectDaemonControl;
 use siftkit_assistant_shell_lib::platform::windows::power::WindowsPowerStateProvider;
 use siftkit_assistant_shell_lib::platform::windows::secure_key::DpapiSecureKeyProvider;
@@ -291,16 +292,23 @@ fn connect(state: &ShellState) -> Result<(), String> {
     Ok(())
 }
 
-fn observation_tick(paused: bool) -> ObservationTick {
+fn observation_tick(paused: bool, input: &WindowsInputTracker) -> ObservationTick {
     let activity = WindowsActivityProvider;
     let notifications = WindowsNotificationProvider;
     let power = WindowsPowerStateProvider;
+    let idle = input.snapshot().unwrap_or_else(|error| {
+        // No fallback signal exists; a shell that cannot report idleness must not keep
+        // heartbeating a guess.
+        eprintln!("input tracker failed: {error}; shell exiting");
+        std::process::exit(1);
+    });
     ObservationTick {
         now_epoch_seconds: now_epoch_seconds(),
         now_utc: iso8601_now(),
         paused,
         foreground: activity.foreground().ok(),
-        idle_seconds: activity.idle_seconds(),
+        mouse_idle_seconds: idle.mouse_seconds,
+        keyboard_idle_seconds: idle.keyboard_seconds,
         session_locked: activity.session_locked(),
         notification: notifications.read(),
         power: power.read(),
@@ -308,7 +316,7 @@ fn observation_tick(paused: bool) -> ObservationTick {
 }
 
 #[allow(clippy::too_many_lines)]
-fn worker_loop(app: AppHandle, state: std::sync::Arc<ShellState>) {
+fn worker_loop(app: AppHandle, state: std::sync::Arc<ShellState>, input: WindowsInputTracker) {
     let mut heartbeat = Heartbeat::new();
     let mut observation = ObservationConfig::default();
     let mut scheduler = CaptureScheduler::new(
@@ -399,7 +407,7 @@ fn worker_loop(app: AppHandle, state: std::sync::Arc<ShellState>) {
         let effective_paused = paused || daemon_paused;
 
         // Heartbeat + activity.
-        let tick = observation_tick(effective_paused);
+        let tick = observation_tick(effective_paused, &input);
         let emissions = heartbeat.tick(&tick);
         {
             let client = state.client.lock().expect("client lock");
@@ -676,9 +684,10 @@ fn main() {
                 })
                 .build(app)?;
 
+            let input = WindowsInputTracker::start()?;
             let worker_state = state.clone();
             let handle = app.handle().clone();
-            std::thread::spawn(move || worker_loop(handle, worker_state));
+            std::thread::spawn(move || worker_loop(handle, worker_state, input));
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -48,7 +48,8 @@ pub struct ActivityEventDto {
     pub schema_version: SchemaV1,
     pub captured_at_utc: String,
     pub foreground: ForegroundContextDto,
-    pub idle_seconds: u32,
+    pub mouse_idle_seconds: u32,
+    pub keyboard_idle_seconds: u32,
     pub session_locked: bool,
 }
 
@@ -73,7 +74,8 @@ pub struct EnvironmentStateDto {
     pub do_not_disturb: bool,
     pub presenting: bool,
     pub excluded_application: bool,
-    pub seconds_since_input: u32,
+    pub seconds_since_mouse_input: u32,
+    pub seconds_since_keyboard_input: u32,
     pub power: PowerStateDto,
 }
 

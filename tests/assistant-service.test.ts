@@ -229,7 +229,7 @@ test('the environment heartbeat closes a foreground session that simply stopped 
       schemaVersion: 1,
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
       foreground,
-      idleSeconds: 2,
+      mouseIdleSeconds: 2, keyboardIdleSeconds: 2,
       sessionLocked: false,
     });
 
@@ -241,7 +241,7 @@ test('the environment heartbeat closes a foreground session that simply stopped 
       doNotDisturb: false,
       presenting: false,
       excludedApplication: false,
-      secondsSinceInput: 30,
+      secondsSinceMouseInput: 30, secondsSinceKeyboardInput: 30,
       power: { kind: 'available', onBattery: false, batteryPercent: 90 },
     });
 

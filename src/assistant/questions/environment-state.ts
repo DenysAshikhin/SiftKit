@@ -9,7 +9,8 @@ export type QuestionEnvironmentState =
     readonly doNotDisturb: boolean;
     readonly presenting: boolean;
     readonly excludedApplication: boolean;
-    readonly secondsSinceInput: number;
+    readonly secondsSinceMouseInput: number;
+    readonly secondsSinceKeyboardInput: number;
   };
 
 export interface QuestionEnvironmentStateProvider {

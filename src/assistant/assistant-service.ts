@@ -51,7 +51,9 @@ import {
 import { ImageExtractor } from './images/image-extractor.js';
 import { ActivityLog } from './observation/activity-log.js';
 import { CaptureIntake, type CaptureOutcome } from './observation/capture-intake.js';
-import { DesktopEnvironmentCache } from './observation/environment-cache.js';
+import {
+  DesktopEnvironmentCache, type DesktopInputIdle,
+} from './observation/environment-cache.js';
 import { ProjectionCompiler } from './projections/projection-compiler.js';
 import { ProjectionSummarizer } from './projections/projection-summarizer.js';
 import { MemoryRetriever, type RetrieveResult } from './retrieval/memory-retriever.js';
@@ -493,9 +495,9 @@ export class AssistantService implements AssistantRuntime {
     return this.graph.backgroundDecisions.list(this.ownerId);
   }
 
-  /** Shell-reported seconds since keyboard/mouse input; null when the shell is gone or stale. */
-  desktopInputIdleSeconds(): number | null {
-    return this.environment.readInputIdleSeconds();
+  /** Shell-reported mouse/keyboard idleness; null when the shell is gone or stale. */
+  desktopInputIdle(): DesktopInputIdle | null {
+    return this.environment.readInputIdle();
   }
 
   ingestSuppression(suppression: SuppressionAuditDto): void {

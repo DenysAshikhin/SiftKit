@@ -18,7 +18,8 @@ pub struct ObservationTick {
     pub paused: bool,
     /// `None` when the activity provider errored; nothing identity-bearing is emitted then.
     pub foreground: Option<ForegroundSample>,
-    pub idle_seconds: u32,
+    pub mouse_idle_seconds: u32,
+    pub keyboard_idle_seconds: u32,
     pub session_locked: bool,
     pub notification: NotificationSample,
     pub power: PowerSample,
@@ -88,7 +89,8 @@ impl Heartbeat {
                 do_not_disturb: tick.notification.do_not_disturb,
                 presenting: tick.notification.presenting,
                 excluded_application: false,
-                seconds_since_input: tick.idle_seconds,
+                seconds_since_mouse_input: tick.mouse_idle_seconds,
+                seconds_since_keyboard_input: tick.keyboard_idle_seconds,
                 power: match tick.power {
                     PowerSample::Available { on_battery, battery_percent } => {
                         PowerStateDto::Available { on_battery, battery_percent }
@@ -108,7 +110,8 @@ impl Heartbeat {
                     schema_version: SchemaV1,
                     captured_at_utc: tick.now_utc.clone(),
                     foreground,
-                    idle_seconds: tick.idle_seconds,
+                    mouse_idle_seconds: tick.mouse_idle_seconds,
+                    keyboard_idle_seconds: tick.keyboard_idle_seconds,
                     session_locked: tick.session_locked,
                 }));
             }
@@ -137,7 +140,8 @@ mod tests {
             now_utc: format!("2026-08-10T09:00:{:02}.000Z", now % 60),
             paused: false,
             foreground,
-            idle_seconds: 3,
+            mouse_idle_seconds: 3,
+            keyboard_idle_seconds: 7,
             session_locked: false,
             notification: NotificationSample::default(),
             power: PowerSample::Available { on_battery: false, battery_percent: 80.0 },
@@ -152,6 +156,26 @@ mod tests {
         assert!(heartbeat.tick(&tick(10, None)).is_empty());
         let second = heartbeat.tick(&tick(HEARTBEAT_INTERVAL_SECONDS, None));
         assert!(matches!(second.as_slice(), [HeartbeatEmission::Environment(_)]));
+    }
+
+    #[test]
+    fn both_input_signals_reach_both_dtos_separately() {
+        let mut heartbeat = Heartbeat::new();
+        let emissions = heartbeat.tick(&tick(0, Some(sample("SiftKit - Code"))));
+        let environment = emissions.iter().find_map(|emission| match emission {
+            HeartbeatEmission::Environment(env) => Some(env),
+            HeartbeatEmission::Activity(_) => None,
+        });
+        let activity = emissions.iter().find_map(|emission| match emission {
+            HeartbeatEmission::Activity(event) => Some(event),
+            HeartbeatEmission::Environment(_) => None,
+        });
+        let environment = environment.expect("environment");
+        let activity = activity.expect("activity");
+        assert_eq!(environment.seconds_since_mouse_input, 3);
+        assert_eq!(environment.seconds_since_keyboard_input, 7);
+        assert_eq!(activity.mouse_idle_seconds, 3);
+        assert_eq!(activity.keyboard_idle_seconds, 7);
     }
 
     #[test]

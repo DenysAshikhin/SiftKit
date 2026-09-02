@@ -25,7 +25,7 @@ function environmentDto(overrides: Partial<EnvironmentStateDto> = {}): Environme
     doNotDisturb: false,
     presenting: false,
     excludedApplication: false,
-    secondsSinceInput: 4,
+    secondsSinceMouseInput: 4, secondsSinceKeyboardInput: 9,
     power: { kind: 'available', onBattery: false, batteryPercent: 87 },
     ...overrides,
   };
@@ -45,7 +45,7 @@ test('an empty cache reports both seams unavailable', () => {
 test('fresh environment state feeds both providers', () => {
   const clock = new FixedClock(CAPTURED_AT);
   const cache = new DesktopEnvironmentCache(clock);
-  cache.ingest(environmentDto({ doNotDisturb: true, secondsSinceInput: 12 }));
+  cache.ingest(environmentDto({ doNotDisturb: true, secondsSinceMouseInput: 12, secondsSinceKeyboardInput: 20 }));
 
   const environment = cache.read();
   assert.equal(environment.kind, 'available');
@@ -53,7 +53,8 @@ test('fresh environment state feeds both providers', () => {
   assert.equal(environment.nowUtc, clock.nowUtc());
   assert.equal(environment.localTime, localTimeOf(clock));
   assert.equal(environment.doNotDisturb, true);
-  assert.equal(environment.secondsSinceInput, 12);
+  assert.equal(environment.secondsSinceMouseInput, 12);
+  assert.equal(environment.secondsSinceKeyboardInput, 20);
   assert.equal(environment.fullscreen, false);
   assert.equal(environment.locked, false);
   assert.equal(environment.presenting, false);

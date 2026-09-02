@@ -1,34 +1,42 @@
 import type {
   BackgroundWorkAdmissionDecision, InteractivityGate,
 } from '../assistant/jobs/job-runner.js';
+import type { DesktopInputIdle } from '../assistant/observation/environment-cache.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../config/defaults.js';
 import { isIdle } from './server-ops.js';
 import type { ServerContext } from './server-types.js';
 
 /**
- * Idle means: the server is serving/queueing nothing right now, AND the user's keyboard/mouse
- * (shell-reported seconds since last OS input) have been quiet for the configured threshold.
- * No fresh shell heartbeat means no input data, which means not idle — background work waits
- * for the shell instead of guessing (§12.4).
+ * Ordered truth table, first match wins: server busy, then data availability, then each input
+ * signal. Every blocked branch names the signal holding the gate so the decision history shows
+ * which one to look at (design §3.5).
  */
 export function evaluateIdleDecision(
   busy: boolean,
-  inputIdleSeconds: number | null,
+  inputIdle: DesktopInputIdle | null,
   thresholdSeconds: number,
 ): BackgroundWorkAdmissionDecision {
   if (busy) {
     return { kind: 'blocked', reason: 'server_busy', details: {} };
   }
-  if (inputIdleSeconds === null) {
+  if (inputIdle === null) {
     return { kind: 'blocked', reason: 'environment_heartbeat_missing', details: {} };
   }
-  return inputIdleSeconds >= thresholdSeconds
-    ? { kind: 'allowed' }
-    : {
+  if (inputIdle.mouse < thresholdSeconds) {
+    return {
       kind: 'blocked',
-      reason: 'input_idle_below_threshold',
-      details: { inputIdleSeconds, requiredIdleSeconds: thresholdSeconds },
+      reason: 'mouse_idle_below_threshold',
+      details: { mouseIdleSeconds: inputIdle.mouse, requiredIdleSeconds: thresholdSeconds },
     };
+  }
+  if (inputIdle.keyboard < thresholdSeconds) {
+    return {
+      kind: 'blocked',
+      reason: 'keyboard_idle_below_threshold',
+      details: { keyboardIdleSeconds: inputIdle.keyboard, requiredIdleSeconds: thresholdSeconds },
+    };
+  }
+  return { kind: 'allowed' };
 }
 
 export class StatusServerIdleGate implements InteractivityGate {
@@ -41,8 +49,8 @@ export class StatusServerIdleGate implements InteractivityGate {
     const background = control === null
       ? DEFAULT_ASSISTANT_CONFIG.Background
       : control.config.Background;
-    const inputIdleSeconds = control === null ? null : control.desktopInputIdleSeconds();
-    if (inputIdleSeconds === null && control !== null && control.enabled) {
+    const inputIdle = control === null ? null : control.desktopInputIdle();
+    if (inputIdle === null && control !== null && control.enabled) {
       if (!this.reportedMissingInputData) {
         this.reportedMissingInputData = true;
         process.stderr.write(
@@ -53,7 +61,7 @@ export class StatusServerIdleGate implements InteractivityGate {
       this.reportedMissingInputData = false;
     }
     return evaluateIdleDecision(
-      !isIdle(this.ctx), inputIdleSeconds, background.IdleSecondsBeforeProcessing,
+      !isIdle(this.ctx), inputIdle, background.IdleSecondsBeforeProcessing,
     );
   }
 }

@@ -243,10 +243,10 @@ test('configuration shows persisted background-work decisions newest-first', { c
       if (input === '/assistant/background-decisions') return json({ items: [
         {
           recordedAtUtc: '2026-08-31T12:01:00.000Z',
-          reason: 'input_idle_below_threshold',
+          reason: 'mouse_idle_below_threshold',
           queuedJobCount: 29,
           pendingCaptureCount: 941,
-          details: { inputIdleSeconds: 12, requiredIdleSeconds: 180 },
+          details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
         },
         {
           recordedAtUtc: '2026-08-31T12:00:00.000Z',
@@ -264,10 +264,10 @@ test('configuration shows persisted background-work decisions newest-first', { c
 
   await screen.findByText('Background work decisions');
   const decisions = screen.getAllByRole('article');
-  assert.match(decisions[0]?.textContent ?? '', /Input idle below threshold/u);
+  assert.match(decisions[0]?.textContent ?? '', /Mouse idle below threshold/u);
   assert.match(decisions[1]?.textContent ?? '', /Server busy/u);
   screen.getByText(/29 queued jobs/u);
   screen.getByText(/941 pending captures/u);
-  screen.getByText(/inputIdleSeconds: 12/u);
+  screen.getByText(/mouseIdleSeconds: 12/u);
   screen.getByText(/requiredIdleSeconds: 180/u);
 });

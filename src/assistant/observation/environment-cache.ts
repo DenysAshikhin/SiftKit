@@ -6,6 +6,9 @@ import type {
   QuestionEnvironmentState, QuestionEnvironmentStateProvider,
 } from '../questions/environment-state.js';
 
+/** Shell-reported seconds since the last physical mouse and keyboard input, respectively. */
+export type DesktopInputIdle = { readonly mouse: number; readonly keyboard: number };
+
 function localTimeOf(epochMs: number): string {
   const now = new Date(epochMs);
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -42,10 +45,12 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
     this.power = new DesktopPowerStateProvider(this);
   }
 
-  /** Seconds since the last OS keyboard/mouse input, or null while heartbeats are stale. */
-  readInputIdleSeconds(): number | null {
+  /** Both input signals, or null while heartbeats are stale. */
+  readInputIdle(): DesktopInputIdle | null {
     const fresh = this.fresh();
-    return fresh === null ? null : fresh.secondsSinceInput;
+    return fresh === null
+      ? null
+      : { mouse: fresh.secondsSinceMouseInput, keyboard: fresh.secondsSinceKeyboardInput };
   }
 
   ingest(state: EnvironmentStateDto): void {
@@ -66,7 +71,8 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
       doNotDisturb: fresh.doNotDisturb,
       presenting: fresh.presenting,
       excludedApplication: fresh.excludedApplication,
-      secondsSinceInput: fresh.secondsSinceInput,
+      secondsSinceMouseInput: fresh.secondsSinceMouseInput,
+      secondsSinceKeyboardInput: fresh.secondsSinceKeyboardInput,
     };
   }
 

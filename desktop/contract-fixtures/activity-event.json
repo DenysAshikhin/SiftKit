@@ -8,6 +8,7 @@
     "normalizedTitle": "SiftKit - Visual Studio Code",
     "fullscreen": false
   },
-  "idleSeconds": 4,
+  "mouseIdleSeconds": 4,
+  "keyboardIdleSeconds": 9,
   "sessionLocked": false
 }

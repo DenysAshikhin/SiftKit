@@ -54,7 +54,8 @@ export function activityEvent(index: number, capturedAtUtc: string): ActivityEve
       normalizedTitle: `Window ${index % 200}`,
       fullscreen: false,
     },
-    idleSeconds: index % 30,
+    mouseIdleSeconds: index % 30,
+    keyboardIdleSeconds: index % 30,
     sessionLocked: false,
   };
 }

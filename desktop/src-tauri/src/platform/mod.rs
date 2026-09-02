@@ -35,7 +35,6 @@ pub trait NativeActivityProvider: Send {
     /// `Err` means the OS refused the query; callers must treat that as suppression, never as
     /// an unknown-but-capturable foreground (spec §4).
     fn foreground(&self) -> Result<ForegroundSample, String>;
-    fn idle_seconds(&self) -> u32;
     fn session_locked(&self) -> bool;
     /// UAC prompt / secure desktop: `OpenInputDesktop` failing is `true` here.
     fn secure_desktop_active(&self) -> bool;

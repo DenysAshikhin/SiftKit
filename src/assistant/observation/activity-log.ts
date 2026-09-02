@@ -66,7 +66,8 @@ export class ActivityLog {
     `).run(
       id, ownerId, event.capturedAtUtc, event.foreground.applicationId,
       event.foreground.processName, event.foreground.normalizedTitle,
-      event.foreground.fullscreen ? 1 : 0, event.idleSeconds,
+      event.foreground.fullscreen ? 1 : 0,
+      Math.min(event.mouseIdleSeconds, event.keyboardIdleSeconds),
       event.sessionLocked ? 1 : 0, sessionId,
     );
     this.database

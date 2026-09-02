@@ -5,18 +5,28 @@ import path from 'node:path';
 
 import { evaluateIdleDecision } from '../src/status-server/assistant-idle-gate.js';
 
-test('idle requires shell-reported input quiet for the full threshold', () => {
-  assert.deepEqual(evaluateIdleDecision(false, 180, 180), { kind: 'allowed' });
-  assert.deepEqual(evaluateIdleDecision(false, 179, 180), {
+test('idle requires mouse and keyboard quiet for the full threshold, mouse checked first', () => {
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 180, keyboard: 180 }, 180), { kind: 'allowed' });
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 179, keyboard: 500 }, 180), {
     kind: 'blocked',
-    reason: 'input_idle_below_threshold',
-    details: { inputIdleSeconds: 179, requiredIdleSeconds: 180 },
+    reason: 'mouse_idle_below_threshold',
+    details: { mouseIdleSeconds: 179, requiredIdleSeconds: 180 },
   });
-  assert.deepEqual(evaluateIdleDecision(false, 500, 180), { kind: 'allowed' });
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 500, keyboard: 179 }, 180), {
+    kind: 'blocked',
+    reason: 'keyboard_idle_below_threshold',
+    details: { keyboardIdleSeconds: 179, requiredIdleSeconds: 180 },
+  });
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 0, keyboard: 0 }, 180), {
+    kind: 'blocked',
+    reason: 'mouse_idle_below_threshold',
+    details: { mouseIdleSeconds: 0, requiredIdleSeconds: 180 },
+  });
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 500, keyboard: 500 }, 180), { kind: 'allowed' });
 });
 
 test('server busyness overrides reported input idleness', () => {
-  assert.deepEqual(evaluateIdleDecision(true, 500, 180), {
+  assert.deepEqual(evaluateIdleDecision(true, { mouse: 500, keyboard: 500 }, 180), {
     kind: 'blocked', reason: 'server_busy', details: {},
   });
 });
@@ -31,8 +41,8 @@ test('missing shell input data means not idle, never a fallback path', () => {
 });
 
 test('a zero threshold drains as soon as input stops and the server is quiet', () => {
-  assert.deepEqual(evaluateIdleDecision(false, 0, 0), { kind: 'allowed' });
-  assert.deepEqual(evaluateIdleDecision(true, 0, 0), {
+  assert.deepEqual(evaluateIdleDecision(false, { mouse: 0, keyboard: 0 }, 0), { kind: 'allowed' });
+  assert.deepEqual(evaluateIdleDecision(true, { mouse: 0, keyboard: 0 }, 0), {
     kind: 'blocked', reason: 'server_busy', details: {},
   });
 });
@@ -52,13 +62,13 @@ test('no server code stamps or references the removed idle-gate activity plumbin
   }
 });
 
-test('the environment cache exposes input idleness only while heartbeats are fresh', async () => {
+test('the environment cache exposes both input signals only while heartbeats are fresh', async () => {
   const { DesktopEnvironmentCache } = await import('../src/assistant/observation/environment-cache.js');
   const { FixedClock } = await import('../src/assistant/clock.js');
   const clock = new FixedClock('2026-08-28T09:00:00.000Z');
   const cache = new DesktopEnvironmentCache(clock);
 
-  assert.equal(cache.readInputIdleSeconds(), null);
+  assert.equal(cache.readInputIdle(), null);
 
   cache.ingest({
     schemaVersion: 1,
@@ -68,11 +78,12 @@ test('the environment cache exposes input idleness only while heartbeats are fre
     doNotDisturb: false,
     presenting: false,
     excludedApplication: false,
-    secondsSinceInput: 240,
+    secondsSinceMouseInput: 240,
+    secondsSinceKeyboardInput: 300,
     power: { kind: 'unavailable' },
   });
-  assert.equal(cache.readInputIdleSeconds(), 240);
+  assert.deepEqual(cache.readInputIdle(), { mouse: 240, keyboard: 300 });
 
   clock.advanceSeconds(120);
-  assert.equal(cache.readInputIdleSeconds(), null);
+  assert.equal(cache.readInputIdle(), null);
 });

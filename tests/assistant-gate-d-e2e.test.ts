@@ -153,7 +153,7 @@ test('gate D e2e: a disabled assistant rejects every ingestion route and writes 
       ['/assistant/ingest/environment', {
         schemaVersion: 1, capturedAtUtc: new Date().toISOString(), fullscreen: false,
         locked: false, doNotDisturb: false, presenting: false, excludedApplication: false,
-        secondsSinceInput: 4, power: { kind: 'unavailable' },
+        secondsSinceMouseInput: 4, secondsSinceKeyboardInput: 4, power: { kind: 'unavailable' },
       }],
       ['/assistant/ingest/activity', {
         schemaVersion: 1, capturedAtUtc: new Date().toISOString(),
@@ -161,7 +161,7 @@ test('gate D e2e: a disabled assistant rejects every ingestion route and writes 
           processName: 'Code.exe', executablePath: 'C:/Code.exe', applicationId: 'app:code',
           normalizedTitle: 'SiftKit', fullscreen: false,
         },
-        idleSeconds: 4, sessionLocked: false,
+        mouseIdleSeconds: 4, keyboardIdleSeconds: 4, sessionLocked: false,
       }],
       ['/assistant/ingest/capture', captureSubmissionDto('1', 'f0e1d2c3b4a59687')],
       ['/assistant/ingest/suppression', suppressionDto()],
@@ -434,7 +434,7 @@ test('gate D e2e: a stale environment makes question policy report unavailable, 
       doNotDisturb: false,
       presenting: false,
       excludedApplication: false,
-      secondsSinceInput: 600,
+      secondsSinceMouseInput: 600, secondsSinceKeyboardInput: 600,
       power: { kind: 'available', onBattery: false, batteryPercent: 90 },
     });
     const fresh = engine.evaluate(candidate, {
