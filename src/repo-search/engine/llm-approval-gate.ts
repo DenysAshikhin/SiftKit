@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errors.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
@@ -86,6 +87,7 @@ export class LlmApprovalGate {
     question: string,
     pendingMessages: ChatMessage[],
   ): Promise<ApprovalVerdictAttempt> {
+    let lastFailure = 'no attempt made';
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
@@ -96,11 +98,13 @@ export class LlmApprovalGate {
           kind: 'verdict',
           value: ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || ''))),
         };
-      } catch {
-        // Inference failure or schema mismatch: retry once, then escalate to the human gate.
+      } catch (error) {
+        // Inference failure or schema mismatch: retry once, then escalate to the human gate
+        // with the cause collapsed onto one line so the progress log says why.
+        lastFailure = getErrorMessage(error).replace(/\s+/gu, ' ').trim().slice(0, 200);
       }
     }
-    return { kind: 'failure', reason: 'verdict call failed' };
+    return { kind: 'failure', reason: `verdict call failed: ${lastFailure}` };
   }
 
   private emitVerdict(input: ApprovalRequestInput, verdict: string, reason: string): void {

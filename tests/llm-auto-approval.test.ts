@@ -295,7 +295,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
     const auto = writer.ofKind('approval_auto');
     assert.equal(auto.length, 1);
     assert.equal(auto[0].verdict, 'unsure');
-    assert.equal(auto[0].reason, 'verdict call failed');
+    assert.match(auto[0].reason, /^verdict call failed: /u);
     assert.equal(writer.ofKind('approval_request').length, 1);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

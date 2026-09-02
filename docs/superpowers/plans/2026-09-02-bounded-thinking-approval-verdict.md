@@ -20,7 +20,7 @@
 
 1024 tokens matches unbounded-thinking recall exactly and preserves 93% of the prefix cache on warm calls. Smaller budgets leak subtle control-bypass edits (an `.eslintrc.json` disabling security lint rules, widening CORS to `*`, adding a host to a web allowlist). The single residual leak at 1024 (`x-widen-cors-star`) is also missed by unbounded thinking, so it is a model-capability limit, not a budget limit; it is handled out of band, not by this plan.
 
-**Do not commit.** Per `AGENTS.md`, leave commits to the user. Preserve the unrelated uncommitted StreamStop changes already in the tree.
+**Do not commit.** Per `AGENTS.md`, leave commits to the user.
 
 ---
 
@@ -31,7 +31,8 @@
 | `src/repo-search/planner-protocol.ts` | verdict budget constants + budget wiring in `requestApprovalVerdict` | verdict request contract |
 | `src/repo-search/engine/llm-approval-gate.ts` | carry the failure message into the `unsure` reason (optional) | loud verdict failures |
 | `scripts/approval-red-team/corpus.ts` | add the 34 new adversarial cases | red-team coverage |
-| `tests/helpers/fake-chat-server.ts` | new generic SSE stub | request-body + budget assertions |
+| `tests/helpers/fake-chat-server.ts` | extracted from `tests/llama-cpp-client-thinking-budget.test.ts`, parameterized | request-body + budget assertions |
+| `tests/llama-cpp-client-thinking-budget.test.ts` | import the shared stub instead of its private copy | |
 | `tests/approval-verdict-budget.test.ts` | new | budget wiring + continuation + JSON answer |
 | `tests/llm-auto-approval.test.ts`, `tests/auto-approval-verdict-probe.test.ts` | update two reason assertions (only if the optional task is done) | |
 | `tests/live-approval-verdict-budget.test.ts` | new, env-gated | live cache-retention + budget-exhaustion proof |
@@ -44,6 +45,8 @@ Running a single test file after building: `npm run build:test && node .\dist\te
 ---
 
 ### Task 1: Replace the verdict token constants with a reasoning budget
+
+Do Tasks 1 and 2 together: `npm run typecheck` runs eslint's unused-vars rule, so Task 1 alone fails validation.
 
 **Files:**
 - Modify: `src/repo-search/planner-protocol.ts:592-595` (comment + the two `APPROVAL_VERDICT_*` constants)
@@ -149,9 +152,11 @@ Expected: exit 0, all four new constants now consumed.
 - Create: `tests/approval-verdict-budget.test.ts`
 - Regression: `tests/approval-verdict-request.test.ts` must keep passing unchanged (mock-mode, never reaches the client)
 
-- [ ] **Step 1: Create the fake SSE server helper**
+- [ ] **Step 1: Extract the fake SSE server helper**
 
-`tests/helpers/fake-chat-server.ts`:
+`tests/llama-cpp-client-thinking-budget.test.ts` already has `startFakeStreamServer`, a private copy of this stub. Move it to `tests/helpers/fake-chat-server.ts`, generalize its options (content string, explicit reasoning deltas, optional per-delta usage), and switch the existing test to import it. Do not leave a second copy.
+
+`tests/helpers/fake-chat-server.ts` (shape):
 
 ```ts
 import http from 'node:http';
@@ -340,7 +345,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 - [ ] **Step 3: Run the new test and confirm it fails before Tasks 1-2, passes after**
 
 Run: `npm run build:test && node .\dist\test-runner\run-tests.js approval-verdict-budget`
-Expected before Tasks 1-2: the first test FAILS (one request only, no continuation) because the preset's 8-token budget is not overridden and/or the verdict does not pass a budget. After Tasks 1-2: both PASS.
+Expected before Tasks 1-2: the first test FAILS on the budget-message assertion. The preset's 8-token budget still trips a continuation, but the prefix carries the preset's stock message rather than the verdict message. After Tasks 1-2: both PASS.
 
 - [ ] **Step 4: Regression — the mock-mode verdict tests are unaffected**
 
@@ -515,6 +520,8 @@ import { toProtocolTools } from '../src/providers/llama-cpp.js';
 const ENABLED = process.env.SIFTKIT_TEST_LIVE_APPROVAL_VERDICT_BUDGET === '1';
 const CONTEXT_LINE_COUNT = 1_200;
 const CACHE_RETENTION_FRACTION = 0.9;
+/** The client derives its stream deadline from maxTokens, so the priming turns need real headroom. */
+const PLANNER_MAX_TOKENS = 4_096;
 const LIVE_REQUEST_TIMEOUT_MS = 300_000;
 const LIVE_TEST_TIMEOUT_MS = 600_000;
 
@@ -559,8 +566,8 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   const executing = captureExecutingPlannerRequest(plannerMessages, thinking, tools, slotId);
   await requestRepoSearchPlannerProtocolAction({
     config, baseUrl, model, messages: plannerMessages, slotId,
-    timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: 1, ...thinking,
-    stage: 'planner_action', tools, responseSchema: null,
+    timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: PLANNER_MAX_TOKENS, ...thinking,
+    stage: 'planner_action', tools, toolChoice: 'none', responseSchema: null,
   });
 
   // A payload the reviewer must inspect closely: this is what makes a real verdict think.
@@ -581,8 +588,8 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   const next = await requestRepoSearchPlannerProtocolAction({
     config, baseUrl, model,
     messages: serializeProtocolMessages([...transcript, { role: 'user', content: 'Reply with the single word ok again.' }], thinking.reasoningContentEnabled),
-    slotId, timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: 1, ...thinking,
-    stage: 'planner_action', tools, responseSchema: null,
+    slotId, timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: PLANNER_MAX_TOKENS, ...thinking,
+    stage: 'planner_action', tools, toolChoice: 'none', responseSchema: null,
   });
   assert.ok(retention(next, 'next planner turn') >= CACHE_RETENTION_FRACTION, `next-turn retention ${retention(next, 'next planner turn')}`);
 });
