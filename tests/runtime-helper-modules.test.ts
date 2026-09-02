@@ -54,7 +54,7 @@ test('output capture has no callback helpers or local duplicate declarations', (
 // (with derived keys stripped). Validate that shape at the boundary so reads stay typed.
 const MergedRuntimeConfigSchema = z
   .object({
-    Runtime: z.object({ LlamaCpp: z.object({ BaseUrl: z.string() }).passthrough() }).passthrough(),
+    Runtime: z.object({ Engine: z.object({ BaseUrl: z.string() }).passthrough() }).passthrough(),
     Thresholds: JsonObjectSchema,
   })
   .passthrough();
@@ -63,7 +63,7 @@ test('runtime config helpers merge nested overrides and strip derived fields', (
   const config = getDefaultConfig();
   const merged = MergedRuntimeConfigSchema.parse(mergeConfig(config, {
     Runtime: {
-      LlamaCpp: {
+      Engine: {
         BaseUrl: 'http://127.0.0.1:9999',
       },
     },
@@ -78,7 +78,7 @@ test('runtime config helpers merge nested overrides and strip derived fields', (
     },
   }));
 
-  assert.equal(merged.Runtime.LlamaCpp.BaseUrl, 'http://127.0.0.1:9999');
+  assert.equal(merged.Runtime.Engine.BaseUrl, 'http://127.0.0.1:9999');
   assert.equal('Paths' in merged, false);
   assert.equal('Effective' in merged, false);
   assert.equal('MaxInputCharacters' in merged.Thresholds, false);

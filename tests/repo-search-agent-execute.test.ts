@@ -18,7 +18,7 @@ before(() => { deadEndpoints.apply(); });
 after(() => { deadEndpoints.restore(); });
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
+  Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
 });
 
 async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number | undefined> {
@@ -59,12 +59,12 @@ test('repo-agent resumes after compacting recoverable reasoning history', async 
       prompt: 'inspect the helper directory',
       repoRoot: dir,
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { NumCtx: 9_000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
             Presets: [{
               id: 'default',
+              NumCtx: 9_000,
               Reasoning: 'on',
               ReasoningContent: true,
               PreserveThinking: true,
@@ -104,7 +104,7 @@ test('repo-agent attempts compaction and fails when its summarization prompt is 
         taskKind: 'repo-agent',
         prompt: 'Q'.repeat(60_000),
         repoRoot: dir,
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { NumCtx: 9_000 } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ NumCtx: 9_000 }] } } }),
         model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],

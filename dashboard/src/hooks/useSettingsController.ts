@@ -29,11 +29,9 @@ import {
   getDirtyActionRequirement,
   isBackendRestartSupported,
   type DirtyContinuation,
-  type ModelPresetPathField,
   type SettingsPathPickerBusyTarget,
 } from '../settings-flow';
 import { type SettingsSectionId } from '../settings-sections';
-import { buildManagedLlamaRestartFailureModal } from '../managed-llama-restart';
 import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
 import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 import type {
@@ -65,7 +63,6 @@ export type SettingsController = {
   selectedModelPreset: DashboardModelRuntimePreset | null;
   maintainPerStepThinkingForCurrentPreset: boolean;
   settingsDirty: boolean;
-  restartFailureModal: { title: string; message: string } | null;
   confirm: {
     show: boolean;
     saving: boolean;
@@ -74,7 +71,6 @@ export type SettingsController = {
     onDiscard(): void;
     onCancel(): void;
   };
-  closeRestartFailureModal(): void;
   onRequestTabChange(nextTab: DashboardTabKey): void;
   restartDashboardBackendCore(): Promise<boolean>;
 };
@@ -99,7 +95,6 @@ export function useSettingsController(deps: {
   const [selectedSettingsPresetId, setSelectedSettingsPresetId] = useState<string | null>(null);
   const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
-  const [settingsRestartFailureModal, setSettingsRestartFailureModal] = useState<{ title: string; message: string } | null>(null);
 
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
@@ -325,10 +320,6 @@ export function useSettingsController(deps: {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-boolean', presetId, field, value });
     },
-    setBackend(value) {
-      const presetId = getSelectedModelPresetId();
-      if (presetId) applySettingsAction({ type: 'set-model-backend', presetId, value });
-    },
     setIdleAction(value) {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-idle-action', presetId, value });
@@ -349,18 +340,14 @@ export function useSettingsController(deps: {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-reasoning-content', presetId, value });
     },
-    setSpeculativeType(value) {
-      const presetId = getSelectedModelPresetId();
-      if (presetId) applySettingsAction({ type: 'set-model-speculative-type', presetId, value });
-    },
     addPreset() {
       applySettingsAction({ type: 'add-model-preset' });
     },
     deletePreset(presetId) {
       applySettingsAction({ type: 'delete-model-preset', presetId });
     },
-    pickPath(target) {
-      return onPickModelPresetPath(target);
+    pickModelPath() {
+      return onPickModelPath();
     },
     testBaseUrl(baseUrl, timeoutMs) {
       return onTestLlamaCppBaseUrl(baseUrl, timeoutMs);
@@ -440,23 +427,19 @@ export function useSettingsController(deps: {
     }
   }
 
-  async function onPickModelPresetPath(target: ModelPresetPathField): Promise<void> {
+  async function onPickModelPath(): Promise<void> {
     if (!dashboardConfig || !selectedModelPreset) {
       return;
     }
     const picked = await pickFilePath(
-      { kind: 'model-preset', field: target },
-      target === 'ExecutablePath' ? 'managed-llama-executable' : 'managed-llama-model',
-      target === 'ExecutablePath' ? selectedModelPreset.ExecutablePath : selectedModelPreset.ModelPath,
+      { kind: 'model-preset' },
+      'model-preset-path',
+      selectedModelPreset.ModelPath,
     );
     if (picked === null) {
       return;
     }
-    if (target === 'ExecutablePath') {
-      modelPresetActions.setNullableString('ExecutablePath', picked);
-    } else {
-      modelPresetActions.setModelPath(picked);
-    }
+    modelPresetActions.setModelPath(picked);
   }
 
   async function onPickPresetAutoloadFile(presetId: string, index: number): Promise<void> {
@@ -502,16 +485,11 @@ export function useSettingsController(deps: {
   async function restartDashboardBackendCore(): Promise<boolean> {
     setSettingsRestarting(true);
     setSettingsError(null);
-    setSettingsRestartFailureModal(null);
     try {
       const response = await restartBackend();
       if (!response.ok || !response.restarted) {
         const message = response.error || 'Backend restart failed.';
-        const modal = buildManagedLlamaRestartFailureModal(response);
         setSettingsError(message);
-        if (modal) {
-          setSettingsRestartFailureModal(modal);
-        }
         deps.enqueueToast('error', `Backend restart failed: ${message}`);
         return false;
       }
@@ -628,7 +606,6 @@ export function useSettingsController(deps: {
     selectedModelPreset,
     maintainPerStepThinkingForCurrentPreset,
     settingsDirty,
-    restartFailureModal: settingsRestartFailureModal,
     confirm: {
       show: showSettingsConfirm,
       saving: settingsSaving,
@@ -637,7 +614,6 @@ export function useSettingsController(deps: {
       onDiscard: onConfirmDiscardSettingsAction,
       onCancel: closeSettingsConfirm,
     },
-    closeRestartFailureModal: () => setSettingsRestartFailureModal(null),
     onRequestTabChange,
     restartDashboardBackendCore,
   };

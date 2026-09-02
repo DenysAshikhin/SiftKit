@@ -23,15 +23,15 @@ export async function invokeConfigSet(configUrl: string, config: ConfigRecord): 
   }, ConfigRecordSchema);
 }
 
-export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string): OptionalJsonValue {
-  const runtime = isJsonObject(config.Runtime) ? config.Runtime : null;
-  const runtimeLlamaCpp = runtime && isJsonObject(runtime.LlamaCpp) ? runtime.LlamaCpp : null;
-  if (runtimeLlamaCpp && Object.prototype.hasOwnProperty.call(runtimeLlamaCpp, key)) {
-    return runtimeLlamaCpp[key];
+export function getActivePresetBaseUrl(config: ConfigRecord): OptionalJsonValue {
+  const server = isJsonObject(config.Server) ? config.Server : null;
+  const modelPresets = server && isJsonObject(server.ModelPresets) ? server.ModelPresets : null;
+  if (!modelPresets || !Array.isArray(modelPresets.Presets)) {
+    return undefined;
   }
-
-  const llamaCpp = isJsonObject(config.LlamaCpp) ? config.LlamaCpp : null;
-  return llamaCpp?.[key];
+  const presets = modelPresets.Presets.filter(isJsonObject);
+  const active = presets.find((preset) => preset.id === modelPresets.ActivePresetId) ?? presets[0];
+  return active?.BaseUrl;
 }
 
 export async function getLlamaModels(baseUrl: string): Promise<string[]> {

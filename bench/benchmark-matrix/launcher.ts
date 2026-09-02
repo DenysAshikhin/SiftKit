@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
 import { sleep } from '../../src/lib/time.js';
 import { getRequiredString } from './args.js';
-import { invokeConfigGet, getRuntimeLlamaCppConfigValue, waitForLlamaReadiness } from './config-rpc.js';
+import { invokeConfigGet, getActivePresetBaseUrl, waitForLlamaReadiness } from './config-rpc.js';
 import { spawnAndWait } from './process.js';
 import {
   powerShellExe,
@@ -171,6 +171,6 @@ export async function restartLlamaForTarget(
   }
   await startLlamaLauncher(manifest, target, runId);
   const config = await invokeConfigGet(manifest.configUrl);
-  const baseUrl = getRequiredString(getRuntimeLlamaCppConfigValue(config, 'BaseUrl'), 'config.Runtime.LlamaCpp.BaseUrl');
+  const baseUrl = getRequiredString(getActivePresetBaseUrl(config), 'active preset BaseUrl');
   await waitForLlamaReadiness(baseUrl, target.modelId);
 }

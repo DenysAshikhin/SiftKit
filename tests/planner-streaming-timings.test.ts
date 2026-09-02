@@ -7,16 +7,11 @@ import { asObject } from './helpers/dashboard-http.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 
-const PREDICTED_MS = 4321;
-const PREDICTED_N = 7;
+type FakeInferenceServer = { baseUrl: string; lastBody: () => string; close: () => Promise<void> };
 
-type FakeLlamaServer = { baseUrl: string; lastBody: () => string; close: () => Promise<void> };
-
-// Fake llama SSE server. Mirrors real llama.cpp: a cumulative `timings` object
-// is attached to non-final chunks ONLY when the request asks for
-// timings_per_token. The final chunk omits timings so this verifies that the
-// latest per-token timing survives normal stream completion.
-function startFakeLlamaServer(): Promise<FakeLlamaServer> {
+// Fake OpenAI-compatible SSE server shaped like TabbyAPI: chunks carry deltas only, never a
+// llama.cpp `timings` object, so generation duration must come from the client's own clock.
+function startFakeInferenceServer(): Promise<FakeInferenceServer> {
   return new Promise((resolve) => {
     let lastBody = '';
     const server = http.createServer((req, res) => {
@@ -24,30 +19,16 @@ function startFakeLlamaServer(): Promise<FakeLlamaServer> {
       req.on('data', (chunk) => { raw += chunk; });
       req.on('end', () => {
         lastBody = raw;
-        const perToken = raw.includes('"timings_per_token":true');
-        const timings = {
-          cache_n: 0,
-          prompt_n: 3,
-          prompt_ms: 30,
-          predicted_n: PREDICTED_N,
-          predicted_ms: PREDICTED_MS,
-          predicted_per_second: (PREDICTED_N / PREDICTED_MS) * 1000,
-        };
-        const writeChunk = (delta: JsonObject, withTimings: boolean): void => {
-          const payload: JsonObject = {
-            choices: [{ index: 0, delta }],
-            object: 'chat.completion.chunk',
-          };
-          if (withTimings) payload.timings = timings;
-          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        const writeChunk = (delta: JsonObject): void => {
+          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk' })}\n\n`);
         };
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
         });
-        writeChunk({ reasoning_content: 'inspect evidence' }, perToken);
-        writeChunk({ content: 'final answer' }, perToken);
+        writeChunk({ reasoning_content: 'inspect evidence' });
+        writeChunk({ content: 'final answer' });
         res.write(`data: ${JSON.stringify({
           choices: [{ index: 0, finish_reason: 'stop', delta: {} }],
           object: 'chat.completion.chunk',
@@ -86,23 +67,24 @@ async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<
   });
 }
 
-test('streaming planner turn records predicted_ms from per-chunk timings', async () => {
-  const fake = await startFakeLlamaServer();
+test('streaming planner turn measures generation duration on the client clock', async () => {
+  const fake = await startFakeInferenceServer();
   try {
     const response = await runStreamingPlanner(fake.baseUrl);
-    assert.equal(response.generationDurationMs, PREDICTED_MS);
+    assert.equal(typeof response.generationDurationMs, 'number');
+    assert.ok(Number(response.generationDurationMs) >= 0);
   } finally {
     await fake.close();
   }
 });
 
-test('streaming planner request body sets stream and timings_per_token', async () => {
-  const fake = await startFakeLlamaServer();
+test('streaming planner request body sets stream and carries no llama.cpp timing flag', async () => {
+  const fake = await startFakeInferenceServer();
   try {
     await runStreamingPlanner(fake.baseUrl);
     const parsed = asObject(parseJsonValueText(fake.lastBody()));
     assert.equal(parsed.stream, true);
-    assert.equal(parsed.timings_per_token, true);
+    assert.equal('timings_per_token' in parsed, false);
   } finally {
     await fake.close();
   }

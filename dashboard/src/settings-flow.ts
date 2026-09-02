@@ -20,17 +20,12 @@ export function isBackendRestartSupported(activeModelPreset: DashboardModelRunti
   return activeModelPreset !== null && !activeModelPreset.ExternalServerEnabled;
 }
 
-export type ModelPresetPathField = 'ExecutablePath' | 'ModelPath';
-
 export type SettingsPathPickerBusyTarget =
-  | { kind: 'model-preset'; field: ModelPresetPathField }
+  | { kind: 'model-preset' }
   | { kind: 'preset-autoload'; presetId: string; index: number };
 
-export function isModelPresetPickerBusy(
-  busyTarget: SettingsPathPickerBusyTarget | null,
-  field: ModelPresetPathField,
-): boolean {
-  return busyTarget?.kind === 'model-preset' && busyTarget.field === field;
+export function isModelPresetPickerBusy(busyTarget: SettingsPathPickerBusyTarget | null): boolean {
+  return busyTarget?.kind === 'model-preset';
 }
 
 export function isPresetAutoloadPickerBusy(

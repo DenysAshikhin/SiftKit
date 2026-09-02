@@ -67,7 +67,7 @@ export function isStrictConfigPayload(value: OptionalJsonValue): boolean {
   if (!runtime || !thresholds || !interactive || !server) {
     return false;
   }
-  return Object.prototype.hasOwnProperty.call(runtime, 'LlamaCpp')
+  return Object.prototype.hasOwnProperty.call(runtime, 'Engine')
     && Object.prototype.hasOwnProperty.call(thresholds, 'MinCharactersForSummary')
     && Object.prototype.hasOwnProperty.call(thresholds, 'MinLinesForSummary')
     && Object.prototype.hasOwnProperty.call(interactive, 'Enabled')

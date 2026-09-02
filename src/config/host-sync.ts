@@ -1,6 +1,6 @@
 import { httpClient } from '../lib/http-client.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
-import { getActiveModelPreset, getFinitePositiveNumber } from './getters.js';
+import { getActiveModelPreset } from './getters.js';
 import { normalizeConfigObject } from './normalization.js';
 import { overlayActivePreset } from './overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from './types.js';
@@ -34,7 +34,7 @@ function isPassThroughMode(config: SiftConfig): boolean {
 }
 
 function getHostBaseUrl(config: SiftConfig): string | null {
-  const candidate = getActiveModelPreset(config).BaseUrl ?? config.Runtime.LlamaCpp.BaseUrl;
+  const candidate = getActiveModelPreset(config).BaseUrl;
   if (typeof candidate !== 'string' || !candidate.trim()) {
     return null;
   }
@@ -46,21 +46,18 @@ async function fetchHostPresetSettings(baseUrl: string): Promise<HostPresetSetti
   if (cached && Date.now() - cached.fetchedAtMs < HOST_SETTINGS_TTL_MS) {
     return cached.settings;
   }
-  // `skip_ready=1` lets the host return its config without booting managed llama.
+  // `skip_ready=1` lets the host return its config without booting its managed engine.
   const hostConfig = normalizeConfigObject(await httpClient.requestJson({
     url: `${baseUrl}/config?skip_ready=1`,
     method: 'GET',
     timeoutMs: HOST_CONFIG_TIMEOUT_MS,
   }, JsonObjectSchema));
   const hostPreset = getActiveModelPreset(hostConfig);
-  const hostLlama = hostConfig.Runtime.LlamaCpp;
   const hostModel = typeof hostPreset.Model === 'string' && hostPreset.Model.trim() ? hostPreset.Model.trim() : null;
   const settings: HostPresetSettings = {
     Model: hostModel,
-    // A llama-backed host records the launched values on Runtime.LlamaCpp; an
-    // exl3 host only has them on the preset.
-    NumCtx: getFinitePositiveNumber(hostLlama.NumCtx) ?? hostPreset.NumCtx,
-    Reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : hostPreset.Reasoning,
+    NumCtx: hostPreset.NumCtx,
+    Reasoning: hostPreset.Reasoning,
     ReasoningEffort: hostPreset.ReasoningEffort,
     ReasoningContent: hostPreset.ReasoningContent,
     PreserveThinking: hostPreset.PreserveThinking,
@@ -89,9 +86,9 @@ function buildPresetOverlay(settings: HostPresetSettings): Partial<ModelRuntimeP
  * so prompt-budget math, the requested model, and the samplers match the server
  * that actually serves the request. Falls back to the unchanged local config when
  * the host is unreachable or is not a SiftKit (e.g. `BaseUrl` points straight at a
- * raw llama.cpp endpoint).
+ * raw TabbyAPI endpoint).
  */
-export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise<SiftConfig> {
+export async function applyHostEngineRuntimeSettings(config: SiftConfig): Promise<SiftConfig> {
   if (!isPassThroughMode(config)) {
     return config;
   }
@@ -111,6 +108,6 @@ export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise
 }
 
 /** Test-only: clears the in-process host-settings cache. */
-export function resetHostLlamaSettingsCacheForTests(): void {
+export function resetHostEngineSettingsCacheForTests(): void {
   hostSettingsCache.clear();
 }

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import {
-  getConfiguredLlamaBaseUrl,
+  getConfiguredEngineBaseUrl,
   getConfiguredModel,
   loadConfig,
 } from '../../src/config/index.js';
@@ -56,7 +56,7 @@ export async function main(): Promise<void> {
   const probe = new AutoApprovalVerdictProbe(
     new ConfiguredApprovalVerdictModelClient({
       config,
-      baseUrl: getConfiguredLlamaBaseUrl(config),
+      baseUrl: getConfiguredEngineBaseUrl(config),
       model,
       slotId: allocateLlamaCppSlotId(config),
       timeoutMs: DEFAULT_TIMEOUT_MS,

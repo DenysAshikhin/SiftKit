@@ -840,7 +840,7 @@ test('context compaction branches from an actual preceding planner request', asy
       };
       const serializedPlanner = serializeProtocolMessages(plannerHistory, true);
       await requestRepoSearchPlannerProtocolAction({
-        config: buildTestConfig({ Backend: 'llama' }),
+        config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
         messages: serializedPlanner,
@@ -854,7 +854,7 @@ test('context compaction branches from an actual preceding planner request', asy
       });
       const executing = captureExecutingPlannerRequest(serializedPlanner, flags, tools, 2);
       const response = await requestContextCompactionSummary({
-        config: buildTestConfig({ Backend: 'llama' }),
+        config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
         messages: branchHistory,
@@ -873,8 +873,8 @@ test('context compaction branches from an actual preceding planner request', asy
       const requestMessages = asObjectArray(body.messages);
       assert.deepEqual(requestMessages.slice(0, branchHistory.length), plannerMessages.slice(0, branchHistory.length));
       assert.deepEqual(requestMessages.at(-1), { role: 'user', content: instruction });
-      assert.equal(body.cache_prompt, true);
-      assert.equal(body.id_slot, 2);
+      assert.equal('cache_prompt' in body, false);
+      assert.equal('id_slot' in body, false);
       assert.deepEqual(body.tools, tools);
       assert.equal(body.tool_choice, 'none');
       assert.equal(body.response_format, undefined);
@@ -941,10 +941,10 @@ test('first compaction request explicitly starts a new cache epoch', async () =>
     continuationMinTokens: 170,
   }), 'SUMMARY TEXT');
 
-  assert.equal(captured.id_slot, 2);
+  assert.equal('id_slot' in captured, false);
   assert.deepEqual(captured.tools, tools);
   assert.equal(captured.tool_choice, 'none');
-  assert.equal(captured.cache_prompt, true);
+  assert.equal('cache_prompt' in captured, false);
 });
 
 test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection without fallback retry', async () => {

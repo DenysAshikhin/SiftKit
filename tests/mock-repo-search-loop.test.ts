@@ -21,7 +21,7 @@ import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-lo
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
-import type { SiftConfig } from '../src/config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
@@ -67,12 +67,12 @@ async function startNotFoundServer(): Promise<{ baseUrl: string; close: () => Pr
   };
 }
 
-function modelPresetReasoning(reasoning: 'on' | 'off'): DeepPartial<SiftConfig> {
+function modelPresetReasoning(reasoning: 'on' | 'off', presetFields: Partial<ModelRuntimePreset> = {}): DeepPartial<SiftConfig> {
   return {
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload' }],
+        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload', ...presetFields }],
       },
     },
   };
@@ -324,7 +324,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
-        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl } } }),
+        config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl }] } } }),
         maxTurns: 3,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -857,7 +857,7 @@ test('runTaskLoop fails before any provider request when the repo-agent summariz
           runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
           baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
-          config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
+          config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: notFound.baseUrl }] } } }),
           maxTurns: 1,
           maxInvalidResponses: 1,
           minToolCallsBeforeFinish: 0,
@@ -1136,12 +1136,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('off'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('off', { NumCtx: 32000 }),
       }),
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -1179,12 +1174,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('on'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('on', { NumCtx: 32000 }),
       }),
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -1246,12 +1236,7 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('off'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('off', { NumCtx: 32000 }),
       }),
       maxTurns: 11,
       maxInvalidResponses: 2,
@@ -1287,12 +1272,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('off'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('off', { NumCtx: 32000 }),
       }),
       maxTurns: 3,
       // Above the post-budget strike count (the slack turns) so the run reaches
@@ -1397,7 +1377,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
-        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl } } }),
+        config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl }] } } }),
         maxTurns: 6,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -1470,7 +1450,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         model: 'mock-model',
         // Preflight tokenizing must not wait on the delayed port, or the planner
         // request would only fire once the endpoint is already up.
-        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
+        config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: notFound.baseUrl }] } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -1530,7 +1510,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
-        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: `http://127.0.0.1:${port}` } } }),
+        config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: `http://127.0.0.1:${port}` }] } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -1811,12 +1791,7 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('on'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('on', { NumCtx: 32000 }),
       }),
       maxTurns: 6,
       maxInvalidResponses: 2,
@@ -1867,12 +1842,7 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
-        ...modelPresetReasoning('off'),
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 32000,
-          },
-        },
+        ...modelPresetReasoning('off', { NumCtx: 32000 }),
       }),
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -1996,12 +1966,13 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       config: mockLoopConfig({
-        Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'thinking-off',
             Presets: [{
               id: 'thinking-off',
+              BaseUrl: DEAD_BASE_URL,
+              NumCtx: 32000,
               Reasoning: 'on',
               ReasoningContent: true,
               PreserveThinking: true,

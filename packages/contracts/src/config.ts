@@ -1,16 +1,11 @@
 import { z } from 'zod';
 import { KeyCustodySchema } from './assistant-desktop.js';
-import { ManagedLlamaStartupFailureSchema } from './managed-llama-failure.js';
 
-export const ManagedLlamaKvCacheQuantizationSchema = z.enum([
-  'f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0',
+/** KV cache quantizations the EXL3 engine can express as TabbyAPI cache modes. */
+export const ModelKvCacheQuantizationSchema = z.enum([
+  'f16', 'q8_0', 'q4_0', 'q5_0', 'q8_0/q4_0', 'q8_0/q5_0',
 ]);
-export type ManagedLlamaKvCacheQuantization = z.infer<typeof ManagedLlamaKvCacheQuantizationSchema>;
-
-export const ManagedLlamaSpeculativeTypeSchema = z.enum([
-  'draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache',
-]);
-export type ManagedLlamaSpeculativeType = z.infer<typeof ManagedLlamaSpeculativeTypeSchema>;
+export type ModelKvCacheQuantization = z.infer<typeof ModelKvCacheQuantizationSchema>;
 
 const ReasoningSchema = z.enum(['on', 'off']);
 
@@ -23,7 +18,7 @@ export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 /** Matches the Qwen3.8 template's own default, so an unset preset renders what it always did. */
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'xhigh';
 
-export const InferenceBackendIdSchema = z.enum(['llama', 'exl3']);
+export const InferenceBackendIdSchema = z.enum(['exl3']);
 export type InferenceBackendId = z.infer<typeof InferenceBackendIdSchema>;
 
 export const InferenceProcessStateSchema = z.enum([
@@ -53,60 +48,50 @@ export const InferenceConfigSchema = z.object({
 });
 export type InferenceConfig = z.infer<typeof InferenceConfigSchema>;
 
-export const RuntimeLlamaCppConfigSchema = z.object({
+export const RuntimeEngineConfigSchema = z.object({
   BaseUrl: z.string().nullable().optional(), NumCtx: z.number().nullable().optional(),
   ModelPath: z.string().nullable().optional(), Temperature: z.number().nullable().optional(),
   TopP: z.number().nullable().optional(), TopK: z.number().nullable().optional(), MinP: z.number().nullable().optional(),
   PresencePenalty: z.number().nullable().optional(), RepetitionPenalty: z.number().nullable().optional(),
-  MaxTokens: z.number().nullable().optional(), GpuLayers: z.number().nullable().optional(),
-  Threads: z.number().nullable().optional(), NcpuMoe: z.number().nullable().optional(),
-  FlashAttention: z.boolean().nullable().optional(), ParallelSlots: z.number().nullable().optional(),
+  MaxTokens: z.number().nullable().optional(), ParallelSlots: z.number().nullable().optional(),
   Reasoning: ReasoningSchema.nullable().optional(),
 });
-export type RuntimeLlamaCppConfig = z.infer<typeof RuntimeLlamaCppConfigSchema>;
+export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
-const ManagedLlamaSettingsShape = {
-  ExternalServerEnabled: z.boolean(), ExecutablePath: z.string().nullable(), BaseUrl: z.string().nullable(),
-  BindHost: z.string(), Port: z.number(), ModelPath: z.string().nullable(), NumCtx: z.number(),
-  GpuLayers: z.number(), Threads: z.number(), NcpuMoe: z.number(), FlashAttention: z.boolean(), ParallelSlots: z.number(),
-  BatchSize: z.number(), UBatchSize: z.number(), CacheRam: z.number(), CacheRecurrentRam: z.number(),
-  KvCacheQuantization: ManagedLlamaKvCacheQuantizationSchema,
+const ModelPresetSettingsShape = {
+  ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
+  NumCtx: z.number(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
+  CacheRecurrentRam: z.number(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   MaxTokens: z.number(), Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
   Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
-  PreserveThinking: z.boolean(), MaintainPerStepThinking: z.boolean(), SpeculativeEnabled: z.boolean(),
-  SpeculativeType: ManagedLlamaSpeculativeTypeSchema, SpeculativeMtpEnabled: z.boolean(),
-  SpeculativeNgramSizeN: z.number(), SpeculativeNgramSizeM: z.number(), SpeculativeNgramMinHits: z.number(),
-  SpeculativeNgramModNMatch: z.number(), SpeculativeNgramModNMin: z.number(), SpeculativeNgramModNMax: z.number(),
-  SpeculativeDraftMax: z.number(), SpeculativeDraftMin: z.number(), SpeculativeDynamic: z.boolean(),
+  PreserveThinking: z.boolean(), MaintainPerStepThinking: z.boolean(),
+  SpeculativeEnabled: z.boolean(), SpeculativeDraftMax: z.number(), SpeculativeDynamic: z.boolean(),
   ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), IdleAction: ModelIdleActionSchema,
-  VerboseLogging: z.boolean(), VisionEnabled: z.boolean(), VisionOffload: z.boolean(),
+  VisionEnabled: z.boolean(), VisionOffload: z.boolean(),
   VisionImageRetention: z.number().int().min(-1), VisionMaxImagePixels: z.number().int().min(0),
 };
 
 export const ModelPresetFieldSchema = z.enum([
-  'Model', 'ExternalServerEnabled', 'ExecutablePath', 'BaseUrl', 'BindHost', 'Port', 'ModelPath', 'NumCtx',
-  'GpuLayers', 'Threads', 'NcpuMoe', 'FlashAttention', 'ParallelSlots', 'BatchSize', 'UBatchSize', 'CacheRam',
+  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'ParallelSlots', 'UBatchSize', 'CacheRam',
   'CacheRecurrentRam', 'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
-  'SpeculativeEnabled', 'SpeculativeType', 'SpeculativeMtpEnabled', 'SpeculativeNgramSizeN',
-  'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
-  'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'SpeculativeDynamic', 'ReasoningBudget',
+  'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
-  'SleepIdleSeconds', 'IdleAction', 'VerboseLogging', 'VisionEnabled', 'VisionOffload', 'VisionImageRetention',
+  'SleepIdleSeconds', 'IdleAction', 'VisionEnabled', 'VisionOffload', 'VisionImageRetention',
   'VisionMaxImagePixels',
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 
-export const ManagedLlamaSettingsSchema = z.object(ManagedLlamaSettingsShape);
-export type ManagedLlamaSettings = z.infer<typeof ManagedLlamaSettingsSchema>;
+export const ModelPresetSettingsSchema = z.object(ModelPresetSettingsShape);
+export type ModelPresetSettings = z.infer<typeof ModelPresetSettingsSchema>;
 
 export const ModelRuntimePresetSchema = z.object({
   id: z.string(), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
-  ...ManagedLlamaSettingsShape,
+  ...ModelPresetSettingsShape,
 });
 export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
 
@@ -318,7 +303,7 @@ export const SiftConfigSchema = z.object({
   ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,
-  Runtime: z.object({ LlamaCpp: RuntimeLlamaCppConfigSchema }),
+  Runtime: z.object({ Engine: RuntimeEngineConfigSchema }),
   Thresholds: z.object({ MinCharactersForSummary: z.number(), MinLinesForSummary: z.number() }),
   Interactive: z.object({
     Enabled: z.boolean(), WrappedCommands: z.array(z.string()), IdleTimeoutMs: z.number(),
@@ -348,6 +333,5 @@ export type DashboardConfig = SiftConfig;
 export const RestartBackendResponseSchema = z.object({
   ok: z.boolean(), restarted: z.boolean(), error: z.string().optional(),
   config: SiftConfigSchema.optional(),
-  startupFailure: ManagedLlamaStartupFailureSchema.nullable().optional(),
 });
 export type RestartBackendResponse = z.infer<typeof RestartBackendResponseSchema>;

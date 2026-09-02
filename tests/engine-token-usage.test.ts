@@ -82,7 +82,7 @@ test('recordModelResponse estimates completion/thinking tokens when usage is mis
 
 test('recordModelResponse uses the server tokenizer for text and thinking', async () => {
   const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/tokenize') {
+    if (req.method !== 'POST' || req.url !== '/v1/token/encode') {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));
       return;
@@ -92,7 +92,7 @@ test('recordModelResponse uses the server tokenizer for text and thinking', asyn
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       const parsed = asObject(parseJsonValueText(body || '{}'));
-      const content = String(parsed.content || '');
+      const content = String(parsed.text || '');
       const count = content === 'exact answer'
         ? 17
         : content === 'exact thinking'
@@ -108,7 +108,7 @@ test('recordModelResponse uses the server tokenizer for text and thinking', asyn
 
   try {
     const tracker = new TokenUsageTracker(mockConfig({
-      Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
+      Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } },
     }));
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',

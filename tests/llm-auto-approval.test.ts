@@ -404,10 +404,10 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
-      if (req.method === 'POST' && req.url === '/tokenize') {
+      if (req.method === 'POST' && req.url === '/v1/token/encode') {
         const parsed = asObject(parseJsonValueText(body || '{}'));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.content || '').length / 4)) }));
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.text || '').length / 4)) }));
         return;
       }
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -450,11 +450,10 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
       runtimeProfile: RUNTIME_PROFILE,
       systemContext: createEmptyPresetSystemContext(),
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32_000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
-            Presets: [{ id: 'default', Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, IdleAction: 'unload' }],
+            Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 32_000, Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true, IdleAction: 'unload' }],
           },
         },
       }),

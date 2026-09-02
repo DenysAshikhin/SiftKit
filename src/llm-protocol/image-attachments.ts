@@ -145,9 +145,6 @@ export const IMAGE_RETENTION_DISABLED_REASON =
 
 /** Why this preset refuses image input, or `null` when it accepts it. */
 function presetImageRejection(preset: ModelRuntimePreset): string | null {
-  if (preset.Backend === 'llama') {
-    return 'Images require exl3 backend; llama backend does not support images';
-  }
   if (!preset.VisionEnabled) {
     return 'Vision is not enabled for this preset; enable VisionEnabled to use images';
   }

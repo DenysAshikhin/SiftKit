@@ -36,16 +36,8 @@ export async function buildTestResult(): Promise<TestResult> {
     modelError = error instanceof Error ? error.message : String(error);
   }
   const engine = getActiveInferenceBackend(config);
-  const usesManagedLlama = engine === 'llama';
-  const providerStatus = usesManagedLlama
-    ? await getLlamaCppProviderStatus(config)
-    : {
-        Available: true,
-        Reachable: true,
-        BaseUrl: 'mock://local',
-        Error: null,
-      };
-  const models = usesManagedLlama && providerStatus.Reachable ? await listLlamaCppModels(config) : ['mock-model'];
+  const providerStatus = await getLlamaCppProviderStatus(config);
+  const models = providerStatus.Reachable ? await listLlamaCppModels(config) : [];
   const modelPresent = model === null || models.length === 0 ? null : models.includes(model);
   const issues: string[] = [];
 
@@ -53,7 +45,7 @@ export async function buildTestResult(): Promise<TestResult> {
     issues.push('Backend is not available.');
   }
   if (!providerStatus.Reachable) {
-    issues.push('llama.cpp server is not reachable.');
+    issues.push('Inference server is not reachable.');
   }
   if (modelError) {
     issues.push(modelError);

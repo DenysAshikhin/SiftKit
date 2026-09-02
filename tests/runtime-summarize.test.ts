@@ -25,7 +25,7 @@ import {
   waitForAsyncExpectation,
   mockConfig,
 } from './_runtime-helpers.js';
-import { resetHostLlamaSettingsCacheForTests } from '../src/config/index.js';
+import { resetHostEngineSettingsCacheForTests } from '../src/config/index.js';
 
 // Index-signature view of the dynamic JsonObject status posts these tests read:
 // named optional fields stay precisely typed while the index keeps it a
@@ -331,16 +331,7 @@ test('summarizeRequest does not recurse forever when token-aware planning return
         );
       }, 1000);
     }, {
-      config: {
-        LlamaCpp: {
-          NumCtx: 10_000,
-        },
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 10_000,
-          },
-        },
-      },
+      config: { Server: { ModelPresets: { Presets: [{ NumCtx: 10_000 }] } } },
       tokenizeCharsPerToken: 10,
       metrics: {
         inputCharactersTotal: 1000,
@@ -388,16 +379,7 @@ test('summarizeRequest keeps oversized llama.cpp requests on the planner path wi
         }
         return '{"classification":"summary","raw_review_required":false,"output":"direct finish"}';
       },
-      config: {
-        LlamaCpp: {
-          NumCtx: 50_000,
-        },
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 50_000,
-          },
-        },
-      },
+      config: { Server: { ModelPresets: { Presets: [{ NumCtx: 50_000 }] } } },
       tokenizeTokenCount: (content) => {
         const inputSection = extractPromptSection(String(content), 'Input:');
         const inputLength = inputSection.length > 0 ? inputSection.length : String(content).length;
@@ -1041,7 +1023,7 @@ test('empty structured output retries once then fails, and subsequent requests s
 test('summary requests use the host model and the caller MaxTokens overlay', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
-      resetHostLlamaSettingsCacheForTests();
+      resetHostEngineSettingsCacheForTests();
       const stubBaseUrl = `http://127.0.0.1:${server.port}`;
       const hostPreset = server.state.config.Server.ModelPresets.Presets[0];
       if (!hostPreset) {
@@ -1049,7 +1031,6 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
       }
       hostPreset.Model = 'host-loaded-model.gguf';
       const config = mockConfig({
-        Runtime: { LlamaCpp: { BaseUrl: stubBaseUrl } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',

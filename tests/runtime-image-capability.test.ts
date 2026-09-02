@@ -113,7 +113,6 @@ test('a repeated transition to the same state does not change the instance id', 
 
 test('a preset that cannot accept images is healthy but never vision capable', async () => {
   for (const preset of [
-    visionPreset({ Backend: 'llama' }),
     visionPreset({ VisionEnabled: false }),
     visionPreset({ VisionImageRetention: 0 }),
   ]) {

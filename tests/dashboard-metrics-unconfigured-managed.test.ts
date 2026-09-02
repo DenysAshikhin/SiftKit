@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -17,30 +18,26 @@ interface MetricsTimeseriesResponse {
   toolStats: JsonObject;
 }
 
-test('dashboard metrics timeseries loads when managed llama is unconfigured', async () => {
+test('dashboard metrics timeseries loads when the managed engine is unconfigured', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const config = getDefaultConfig();
     // Managed startup still probes the preset, and the default preset points at the
-    // production llama port; a closed port keeps "unconfigured" local to this test.
+    // production engine port; a closed port keeps "unconfigured" local to this test.
     for (const preset of config.Server.ModelPresets.Presets) {
       preset.BaseUrl = DEAD_BASE_URL;
     }
-    config.Runtime.LlamaCpp.BaseUrl = null;
-    config.Runtime.LlamaCpp.NumCtx = 0;
-    config.Runtime.LlamaCpp.ModelPath = null;
-    config.Runtime.LlamaCpp.Temperature = 0;
-    config.Runtime.LlamaCpp.TopP = 0;
-    config.Runtime.LlamaCpp.TopK = 0;
-    config.Runtime.LlamaCpp.MinP = 0;
-    config.Runtime.LlamaCpp.PresencePenalty = 0;
-    config.Runtime.LlamaCpp.RepetitionPenalty = 0;
-    config.Runtime.LlamaCpp.MaxTokens = 0;
-    config.Runtime.LlamaCpp.GpuLayers = 0;
-    config.Runtime.LlamaCpp.Threads = 0;
-    config.Runtime.LlamaCpp.FlashAttention = null;
-    config.Runtime.LlamaCpp.ParallelSlots = 0;
-    config.Runtime.LlamaCpp.Reasoning = null;
+    getActiveModelPreset(config).BaseUrl = null;
+    getActiveModelPreset(config).NumCtx = 0;
+    getActiveModelPreset(config).ModelPath = null;
+    getActiveModelPreset(config).Temperature = 0;
+    getActiveModelPreset(config).TopP = 0;
+    getActiveModelPreset(config).TopK = 0;
+    getActiveModelPreset(config).MinP = 0;
+    getActiveModelPreset(config).PresencePenalty = 0;
+    getActiveModelPreset(config).RepetitionPenalty = 0;
+    getActiveModelPreset(config).MaxTokens = 0;
+    getActiveModelPreset(config).ParallelSlots = 0;
     writeConfig(runtimeDbPath, config);
 
     await withRealStatusServer(async ({ port }) => {

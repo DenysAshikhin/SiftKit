@@ -33,7 +33,7 @@ test('summary emits preflight tokenization progress', async () => {
       assert.ok((tokenizeStart?.promptChars ?? 0) > 0);
       const tokenizeDone = writer.events.find((event) => event.kind === 'tokenize_done');
       assert.equal(tokenizeDone?.promptTokens, 456);
-      assert.equal(tokenizeDone?.tokenSource, 'llama');
+      assert.equal(tokenizeDone?.tokenSource, 'exl3');
     }, {
       tokenizeTokenCount: () => 456,
       metrics: {

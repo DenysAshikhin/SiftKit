@@ -33,24 +33,6 @@ const defaults = {
   maintainPerStepThinking: false,
 } as const;
 
-test('llama request includes llama-only cache and slot controls', () => {
-  const request = new InferenceRequestBuilder().build({
-    backend: 'llama',
-    model: 'llama-model',
-    messages,
-    tools: [],
-    defaults,
-    maxTokens: defaults.maxTokens,
-    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
-    llama: { cachePrompt: true, slotId: 2 },
-  });
-
-  assert.equal(request.cache_prompt, true);
-  assert.equal(request.id_slot, 2);
-  assert.equal(request.timings_per_token, true);
-  assert.deepEqual(request.stream_options, { include_usage: true });
-});
-
 test('streamed EXL3 request asks the server for usage in the final chunk', () => {
   const request = new InferenceRequestBuilder().build({
     backend: 'exl3',
@@ -66,7 +48,7 @@ test('streamed EXL3 request asks the server for usage in the final chunk', () =>
   assert.deepEqual(request.stream_options, { include_usage: true });
 });
 
-test('EXL3 request omits llama-only fields and maps thinking policy', () => {
+test('EXL3 request never carries slot or prompt-cache fields and maps thinking policy', () => {
   const request = new InferenceRequestBuilder().build({
     backend: 'exl3',
     model: '3.6_27B',
@@ -134,27 +116,25 @@ test('request builder emits every shared sampler for EXL3', () => {
   assert.equal(request.response_format, undefined);
 });
 
-test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbounded-window cost', () => {
-  for (const backend of ['exl3', 'llama'] as const) {
-    const request = new InferenceRequestBuilder().build({
-      backend,
-      model: 'model',
-      messages,
-      tools: [],
-      defaults,
-      maxTokens: defaults.maxTokens,
-      thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
-      llama: { cachePrompt: false },
-    });
+test('requests never send penalty_range — exllamav3 8e08af9 removed the unbounded-window cost', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: 'model',
+    messages,
+    tools: [],
+    defaults,
+    maxTokens: defaults.maxTokens,
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
+    llama: { cachePrompt: false },
+  });
 
-    assert.equal('penalty_range' in request, false);
-  }
+  assert.equal('penalty_range' in request, false);
 });
 
 test('sampling always comes from preset defaults; maxTokens is the sole request override', () => {
   const request = new InferenceRequestBuilder().build({
-    backend: 'llama',
-    model: 'llama-model',
+    backend: 'exl3',
+    model: '3.6_27B',
     messages,
     tools: [],
     defaults: {
@@ -182,8 +162,8 @@ test('sampling always comes from preset defaults; maxTokens is the sole request 
   assert.equal(request.top_k, 20);
   assert.equal(request.min_p, 0);
   assert.equal(request.presence_penalty, 0);
-  assert.equal(request.repeat_penalty, 1.25);
-  assert.equal(request.repetition_penalty, undefined);
+  assert.equal(request.repetition_penalty, 1.25);
+  assert.equal(request.repeat_penalty, undefined);
 });
 
 test('request builder omits thinking kwargs when no thinking override is supplied', () => {
@@ -201,27 +181,7 @@ test('request builder omits thinking kwargs when no thinking override is supplie
   assert.equal(request.chat_template_kwargs, undefined);
 });
 
-test('llama request includes reasoning content when requested', () => {
-  const request = new InferenceRequestBuilder().build({
-    backend: 'llama',
-    model: 'llama-model',
-    messages,
-    tools: [],
-    defaults,
-    maxTokens: defaults.maxTokens,
-    thinking: { enabled: true, preserve: true, reasoningContent: true, effort: 'xhigh' as const },
-    llama: { cachePrompt: false },
-  });
-
-  assert.deepEqual(request.chat_template_kwargs, {
-    enable_thinking: true,
-    reasoning_content: true,
-    preserve_thinking: true,
-    reasoning_effort: 'xhigh',
-  });
-});
-
-test('request builder preserves the canonical planner schema for llama', () => {
+test('request builder preserves the canonical planner schema', () => {
   const schema = {
     type: 'object',
     properties: {
@@ -231,8 +191,8 @@ test('request builder preserves the canonical planner schema for llama', () => {
     required: ['requiredText'],
   };
   const request = new InferenceRequestBuilder().build({
-    backend: 'llama',
-    model: 'llama-model',
+    backend: 'exl3',
+    model: '3.6_27B',
     messages,
     tools: [],
     defaults,

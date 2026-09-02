@@ -8,9 +8,7 @@ import { ModelPresetsSection } from '../dashboard/src/tabs/settings/ModelPresets
 import type { ModelPresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
 
 interface PresetRenderOptions {
-  backend?: 'llama' | 'exl3';
   externalServerEnabled?: boolean;
-  kvCacheQuantization?: 'bf16' | 'f16';
   parallelSlots?: number;
   reasoning?: 'on' | 'off';
 }
@@ -23,16 +21,14 @@ const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setInteger() {},
   setFloat() {},
   setBoolean() {},
-  setBackend() {},
   setIdleAction() {},
   setKvCacheQuantization() {},
   setReasoning() {},
   setReasoningEffort() {},
   setReasoningContent() {},
-  setSpeculativeType() {},
   addPreset() {},
   deletePreset() {},
-  async pickPath() {},
+  async pickModelPath() {},
   async testBaseUrl() {},
 };
 
@@ -40,13 +36,11 @@ function renderPreset(options: PresetRenderOptions = {}): string {
   const config = getDefaultConfigObject();
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default config must include a model preset.');
-  preset.Backend = options.backend ?? 'exl3';
   preset.ExternalServerEnabled = options.externalServerEnabled ?? false;
-  preset.KvCacheQuantization = options.kvCacheQuantization ?? 'f16';
+  preset.KvCacheQuantization = 'f16';
   preset.ParallelSlots = options.parallelSlots ?? 1;
   preset.Reasoning = options.reasoning ?? 'off';
   preset.SpeculativeEnabled = true;
-  preset.SpeculativeType = 'draft-mtp';
 
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, {
     dashboardConfig: config,
@@ -72,14 +66,15 @@ function assertFieldAbsent(markup: string, label: string): void {
   assert.equal(findRenderedField(markup, label), undefined, `Rendered field '${label}' should be hidden.`);
 }
 
-test('managed EXL3 hides llama-only fields and exposes only MTP drafting', () => {
+test('a managed preset exposes every launch control and no backend selector', () => {
   const markup = renderPreset({ parallelSlots: 2 });
 
-  assert.match(markup, /aria-label="Preset backend"/u);
-  assertFieldAbsent(markup, 'GpuLayers');
+  assert.doesNotMatch(markup, /aria-label="Preset backend"/u);
+  assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
+  assertFieldAbsent(markup, 'Executable path');
   assertFieldAbsent(markup, 'Bind host');
   assertFieldAbsent(markup, 'Port');
-  assertFieldAbsent(markup, 'BatchSize');
+  assertFieldAbsent(markup, 'Speculative type');
   assert.doesNotMatch(getRenderedField(markup, 'ParallelSlots'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'CacheRam'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'CacheRecurrentRam'), /disabled/u);
@@ -88,13 +83,9 @@ test('managed EXL3 hides llama-only fields and exposes only MTP drafting', () =>
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
   assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /type="checkbox" checked=""/u);
-  assert.match(markup, /<option value="draft-mtp" selected="">draft-mtp<\/option>/u);
-  assert.doesNotMatch(markup, /<option value="ngram-map-k">/u);
-  assert.doesNotMatch(markup, /MTP speculative decoding does not support parallel slots/u);
-  assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
 });
 
-test('external EXL3 exposes chunk size but disables process-scoped controls', () => {
+test('an external preset exposes chunk size but disables process-scoped controls', () => {
   const markup = renderPreset({ externalServerEnabled: true, parallelSlots: 2 });
 
   assert.match(getRenderedField(markup, 'ParallelSlots'), /disabled/u);
@@ -105,22 +96,14 @@ test('external EXL3 exposes chunk size but disables process-scoped controls', ()
   assert.match(markup, /Requires SiftKit-managed TabbyAPI/u);
 });
 
-test('llama hides the EXL3-only fields it has no equivalent for', () => {
-  const markup = renderPreset({ backend: 'llama' });
+test('the KV cache control offers exactly the EXL3 cache modes', () => {
+  const field = getRenderedField(renderPreset(), 'KV cache quant');
 
-  assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
-  assertFieldAbsent(markup, 'SpeculativeDynamic');
-  assertFieldAbsent(markup, 'CacheRecurrentRam');
-  assertFieldAbsent(markup, 'Vision enabled');
-  assert.doesNotMatch(getRenderedField(markup, 'GpuLayers'), /disabled/u);
-  assert.doesNotMatch(getRenderedField(markup, 'CacheRam'), /disabled/u);
-});
-
-test('EXL3 enum controls disable incompatible values without changing the preset', () => {
-  const markup = renderPreset({ kvCacheQuantization: 'bf16' });
-
-  assert.match(markup, /<option value="bf16"[^>]*disabled=""[^>]*>bf16<\/option>/u);
-  assert.match(markup, /<select[^>]*><option value="f32" disabled="">/u);
+  for (const mode of ['f16', 'q8_0', 'q4_0', 'q5_0', 'q8_0/q4_0', 'q8_0/q5_0']) {
+    assert.match(field, new RegExp(`<option value="${mode.replace('/', '\\/')}"`, 'u'));
+  }
+  assert.doesNotMatch(field, /disabled=""/u);
+  assert.doesNotMatch(field, /value="bf16"|value="f32"/u);
 });
 
 test('the reasoning effort dropdown offers the three levels the template distinguishes', () => {

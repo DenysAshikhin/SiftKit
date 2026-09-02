@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildNodeTestArgs } from './test-targets.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
 import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
-import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../config/constants.js';
+import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../config/constants.js';
 
 /**
  * Wall-clock ceiling for the whole run. Exceeding it exits with `TIMEOUT_EXIT_CODE`.
@@ -50,7 +50,7 @@ const child = spawn(process.execPath, ['--test', ...testArgs], {
     // injected into their module graphs. The ports therefore travel to it as env, sourced
     // from the same constants src uses so there is nothing to keep in sync.
     SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
-    SIFTKIT_GUARD_LLAMA_PORT: String(SIFT_DEFAULT_LLAMA_PORT),
+    SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

@@ -271,18 +271,13 @@ test('buildUserContent handles empty text with images', () => {
 });
 
 test('assertPresetAcceptsImages is no-op for zero images', () => {
-  const preset = makeTestPreset({ Backend: 'llama', VisionEnabled: false });
+  const preset = makeTestPreset({ Backend: 'exl3', VisionEnabled: false });
   assert.doesNotThrow(() => assertPresetAcceptsImages(preset, []));
 });
 
 test('assertPresetAcceptsImages accepts managed EXL3 with VisionEnabled=true', () => {
   const preset = makeTestPreset({ Backend: 'exl3', VisionEnabled: true });
   assert.doesNotThrow(() => assertPresetAcceptsImages(preset, [VALID_PNG_URI]));
-});
-
-test('assertPresetAcceptsImages throws for llama backend', () => {
-  const preset = makeTestPreset({ Backend: 'llama', VisionEnabled: true });
-  assert.throws(() => assertPresetAcceptsImages(preset, [VALID_PNG_URI]), /llama/iu);
 });
 
 test('assertPresetAcceptsImages throws for VisionEnabled=false', () => {

@@ -17,7 +17,7 @@ import {
 } from '../src/status-server/chat.js';
 import {
   getActiveModelPreset,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   getConfiguredReasoning,
 } from '../src/config/getters.js';
@@ -42,32 +42,16 @@ function mockChatSession(session: object): ChatSession {
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
   return normalizeConfig(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), {
-    Runtime: {
-      LlamaCpp: {
-        BaseUrl: 'http://127.0.0.1:8080',
-        NumCtx: 8192,
-        Temperature: 0.7,
-        TopP: 0.9,
-        TopK: 40,
-        MinP: 0.05,
-        PresencePenalty: 0,
-        RepetitionPenalty: 1.1,
-        MaxTokens: 512,
-        Reasoning: 'on',
-      },
-    },
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           id: 'default',
           label: 'Default',
-          Backend: 'llama',
-          Model: 'managed.gguf',
-          ExecutablePath: '',
-          ModelPath: 'managed.gguf',
-          BindHost: '127.0.0.1',
-          Port: 8080,
+          Backend: 'exl3',
+          Model: 'managed-model',
+          ModelPath: 'managed-model',
+          BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 8192,
           Temperature: 0.7,
           TopP: 0.9,
@@ -150,7 +134,6 @@ test('active model preset identity uses current configured inference metadata', 
   preset.Backend = 'exl3';
   preset.Model = 'active-model';
   preset.NumCtx = 150_000;
-  config.Runtime.LlamaCpp.NumCtx = 30_000;
 
   const staleSnapshotSession = mockChatSession({
     id: 'active',
@@ -185,19 +168,19 @@ test('inactive model preset identity preserves inference snapshots', () => {
   const resolved = resolveChatSessionConfig(config, session);
   assert.equal(getActiveModelPreset(resolved).Temperature, 0.2);
   assert.equal(getConfiguredModel(resolved), 'historical-model');
-  assert.equal(getConfiguredLlamaNumCtx(resolved), 30_000);
+  assert.equal(getConfiguredEngineNumCtx(resolved), 30_000);
 });
 
-// Runtime.LlamaCpp outranks the preset for a llama-backed snapshot, so the substitution
-// has to reach it too or the session would run against the live launch context window.
-test('a llama-backed snapshot session runs against its own context window and reasoning mode', () => {
+// The substituted snapshot must reach the resolved runtime too, or the session would run
+// against the live preset's context window.
+test('a snapshot session runs against its own context window and reasoning mode', () => {
   const config = createConfig();
   const session = mockChatSession({
     id: 'historical-llama',
     modelPresetId: 'historical-preset',
     modelPreset: mockModelPreset({
       id: 'historical-preset',
-      Backend: 'llama',
+      Backend: 'exl3',
       Model: 'historical-model',
       NumCtx: 30_000,
       Reasoning: 'off',
@@ -206,9 +189,9 @@ test('a llama-backed snapshot session runs against its own context window and re
 
   const resolved = resolveChatSessionConfig(config, session);
 
-  assert.equal(getConfiguredLlamaNumCtx(resolved), 30_000);
+  assert.equal(getConfiguredEngineNumCtx(resolved), 30_000);
   assert.equal(getConfiguredReasoning(resolved), 'off');
-  assert.equal(resolveChatSessionContextWindow(config, session), getConfiguredLlamaNumCtx(resolved));
+  assert.equal(resolveChatSessionContextWindow(config, session), getConfiguredEngineNumCtx(resolved));
 });
 
 test('substituting a snapshot preset keeps the other presets resolvable', () => {

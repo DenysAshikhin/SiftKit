@@ -8,7 +8,7 @@ import {
   getActiveModelPreset,
   type DashboardModelRuntimePreset,
 } from '../dashboard/src/model-runtime-presets.js';
-import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
+import type { DashboardConfig } from '../dashboard/src/types.js';
 import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
@@ -19,30 +19,9 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
   if (!defaultPreset) throw new Error('Default model preset is missing');
   return {
     ...defaultPreset,
-    Model: 'default.gguf',
+    Model: 'default-model',
     NumCtx: 150_000,
     ...overrides,
-  };
-}
-
-function presetToLlamaCpp(preset: DashboardModelRuntimePreset): DashboardLlamaCppConfig {
-  return {
-    BaseUrl: preset.BaseUrl,
-    NumCtx: preset.NumCtx,
-    ModelPath: preset.ModelPath,
-    Temperature: preset.Temperature,
-    TopP: preset.TopP,
-    TopK: preset.TopK,
-    MinP: preset.MinP,
-    PresencePenalty: preset.PresencePenalty,
-    RepetitionPenalty: preset.RepetitionPenalty,
-    MaxTokens: preset.MaxTokens,
-    GpuLayers: preset.GpuLayers,
-    Threads: preset.Threads,
-    NcpuMoe: preset.NcpuMoe,
-    FlashAttention: preset.FlashAttention,
-    ParallelSlots: preset.ParallelSlots,
-    Reasoning: preset.Reasoning,
   };
 }
 
@@ -51,10 +30,9 @@ function createConfig(): DashboardConfig {
   const qwenPreset = createPreset({
     id: 'qwen-27b',
     label: 'Qwen 27B',
-    Model: 'qwen-27b.gguf',
-    ModelPath: 'D:\\models\\qwen-27b.gguf',
-    Threads: 0,
-    Port: 8098,
+    Model: 'qwen-27b',
+    ModelPath: 'D:\\models\\qwen-27b',
+    UBatchSize: 1024,
     SleepIdleSeconds: 120,
   });
   return {
@@ -71,7 +49,7 @@ function createConfig(): DashboardConfig {
     },
     Presets: [],
     Runtime: {
-      LlamaCpp: presetToLlamaCpp(defaultPreset),
+      Engine: {},
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -126,11 +104,9 @@ function normalizeSingleModelPreset(
 test('applyModelPresetSelection switches the active managed preset', () => {
   const config = createConfig();
   Object.assign(config.Server.ModelPresets.Presets[1], {
-    NcpuMoe: 8,
     ReasoningContent: true,
     PreserveThinking: true,
     SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-simple',
     SpeculativeDraftMax: 32,
   });
 
@@ -138,33 +114,17 @@ test('applyModelPresetSelection switches the active managed preset', () => {
 
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
   const active = getActiveModelPreset(config);
-  assert.equal(active.ModelPath, 'D:\\models\\qwen-27b.gguf');
-  assert.equal(active.Threads, 0);
-  assert.equal(active.NcpuMoe, 8);
-  assert.equal(active.Port, 8098);
+  assert.equal(active.ModelPath, 'D:\\models\\qwen-27b');
+  assert.equal(active.UBatchSize, 1024);
   assert.equal(active.ReasoningContent, true);
   assert.equal(active.PreserveThinking, true);
   assert.equal(active.MaintainPerStepThinking, false);
   assert.equal(active.SpeculativeEnabled, true);
-  assert.equal(active.SpeculativeType, 'ngram-simple');
   assert.equal(active.SpeculativeDraftMax, 32);
   assert.equal(active.SleepIdleSeconds, 120);
 });
 
-test('changing a preset backend preserves backend-incompatible saved values', () => {
-  const config = createConfig();
-  const preset = config.Server.ModelPresets.Presets[0];
-  preset.KvCacheQuantization = 'bf16';
-  preset.GpuLayers = 37;
-
-  preset.Backend = 'exl3';
-
-  assert.equal(preset.Backend, 'exl3');
-  assert.equal(preset.KvCacheQuantization, 'bf16');
-  assert.equal(preset.GpuLayers, 37);
-});
-
-test('managed llama preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
+test('model preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
   const config = normalizeSingleModelPreset({
     id: 'thinking-on',
     label: 'Thinking On',
@@ -179,7 +139,7 @@ test('managed llama preset defaults MaintainPerStepThinking on when reasoning is
   assert.equal(preset.MaintainPerStepThinking, true);
 });
 
-test('managed llama preset honors explicit MaintainPerStepThinking false when reasoning is enabled', () => {
+test('model preset honors explicit MaintainPerStepThinking false when reasoning is enabled', () => {
   const config = normalizeSingleModelPreset({
     id: 'thinking-on-last-only',
     label: 'Thinking On Last Only',
@@ -193,7 +153,7 @@ test('managed llama preset honors explicit MaintainPerStepThinking false when re
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
 });
 
-test('managed llama preset disables MaintainPerStepThinking when reasoning is disabled', () => {
+test('model preset disables MaintainPerStepThinking when reasoning is disabled', () => {
   const config = normalizeSingleModelPreset({
     id: 'thinking-off',
     label: 'Thinking Off',
@@ -203,26 +163,6 @@ test('managed llama preset disables MaintainPerStepThinking when reasoning is di
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
-});
-
-test('applyModelPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {
-  const config = createConfig();
-  Object.assign(config.Server.ModelPresets.Presets[1], {
-    SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-mod',
-    SpeculativeMtpEnabled: true,
-    SpeculativeNgramModNMatch: 24,
-    SpeculativeNgramModNMin: 12,
-    SpeculativeNgramModNMax: 48,
-  });
-
-  applyModelPresetSelection(config, 'qwen-27b');
-
-  const active = getActiveModelPreset(config);
-  assert.equal(active.SpeculativeMtpEnabled, true);
-  assert.equal(active.SpeculativeNgramModNMatch, 24);
-  assert.equal(active.SpeculativeNgramModNMin, 12);
-  assert.equal(active.SpeculativeNgramModNMax, 48);
 });
 
 test('addModelPreset clones the active preset and creates a unique id', () => {
@@ -242,7 +182,7 @@ test('deleteModelPreset removes the preset and falls back to another preset', ()
 
   assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default'), false);
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
-  assert.equal(getActiveModelPreset(config).ModelPath, 'D:\\models\\qwen-27b.gguf');
+  assert.equal(getActiveModelPreset(config).ModelPath, 'D:\\models\\qwen-27b');
 });
 
 test('set-model-boolean VisionEnabled toggles the targeted preset and leaves others unchanged', () => {

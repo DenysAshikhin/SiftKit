@@ -1,10 +1,19 @@
 import { z } from 'zod';
 import { ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
-  ManagedLlamaKvCacheQuantization,
+  ModelKvCacheQuantization,
   ModelPresetField,
   ModelRuntimePreset,
 } from '@siftkit/contracts';
+
+/** How SiftKit shapes OpenAI-style chat requests for TabbyAPI. */
+export const INFERENCE_REQUEST_COMPATIBILITY = {
+  repetitionPenaltyKey: 'repetition_penalty',
+  /** llama.cpp-era request fields TabbyAPI rejects; stripped from passthrough requests. */
+  removedFields: ['repeat_penalty', 'cache_prompt', 'id_slot', 'timings_per_token'],
+  /** TabbyAPI templates do not accept a `reasoning_content` kwarg. */
+  reasoningContent: false,
+} as const;
 
 /**
  * Whether a field belongs on the active backend's form at all and, when it does, whether it can be
@@ -49,13 +58,13 @@ export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRe
 }
 
 export interface Exl3CacheModes {
-  /** TabbyAPI `cache_mode`; null overall when EXL3 cannot express the quantization at all. */
+  /** TabbyAPI `cache_mode`. */
   cache: string;
   /** TabbyAPI `draft_cache_mode`; null when EXL3 has no draft equivalent for the quantization. */
   draft: string | null;
 }
 
-export function getExl3CacheModes(value: ManagedLlamaKvCacheQuantization): Exl3CacheModes | null {
+export function getExl3CacheModes(value: ModelKvCacheQuantization): Exl3CacheModes {
   switch (value) {
     case 'f16': return { cache: 'FP16', draft: 'FP16' };
     case 'q8_0': return { cache: '8,8', draft: 'Q8' };
@@ -63,93 +72,59 @@ export function getExl3CacheModes(value: ManagedLlamaKvCacheQuantization): Exl3C
     case 'q5_0': return { cache: '5,5', draft: null };
     case 'q8_0/q4_0': return { cache: '8,4', draft: 'Q8' };
     case 'q8_0/q5_0': return { cache: '8,5', draft: 'Q8' };
-    case 'f32':
-    case 'bf16':
-    case 'q4_1':
-    case 'iq4_nl':
-    case 'q5_1':
-      return null;
   }
 }
 
 /**
- * How one preset field's backend support is decided. Every field names exactly one of these, so a
- * field's availability is stated in a single place and no backend gets a blanket enable.
+ * How one preset field's support is decided. Every field names exactly one of these, so a field's
+ * availability is stated in a single place.
  */
 type PresetFieldSupport =
-  /** Both backends accept it. */
-  | 'both'
-  /** llama.cpp launch or sampler setting with no EXL3 equivalent. */
-  | 'llama-only'
-  /** Both accept it, but EXL3 can only apply it to an engine SiftKit launches. */
-  | 'exl3-managed-only'
-  /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
-  | 'exl3-cache-modes'
-  /** EXL3-managed only; llama.cpp has no equivalent at all, so it is hidden there. */
-  | 'exl3-managed-only-unsupported-by-llama';
+  /** Applies to any TabbyAPI endpoint. */
+  | 'always'
+  /** A launch setting; only an engine SiftKit launches can apply it. */
+  | 'managed-only';
 
 const PRESET_FIELD_SUPPORT = {
-  Model: 'both',
-  ExternalServerEnabled: 'both',
-  ExecutablePath: 'llama-only',
-  BaseUrl: 'both',
-  BindHost: 'llama-only',
-  Port: 'llama-only',
-  ModelPath: 'both',
-  NumCtx: 'both',
-  GpuLayers: 'llama-only',
-  Threads: 'llama-only',
-  NcpuMoe: 'llama-only',
-  FlashAttention: 'llama-only',
-  ParallelSlots: 'exl3-managed-only',
-  BatchSize: 'llama-only',
-  UBatchSize: 'both',
-  CacheRam: 'exl3-managed-only',
-  CacheRecurrentRam: 'exl3-managed-only-unsupported-by-llama',
-  KvCacheQuantization: 'exl3-cache-modes',
-  MaxTokens: 'both',
-  Temperature: 'both',
-  TopP: 'both',
-  TopK: 'both',
-  MinP: 'both',
-  PresencePenalty: 'both',
-  RepetitionPenalty: 'both',
-  Reasoning: 'both',
-  // Jinja templates guard their variables with `is defined`, so a template that does not read
-  // `reasoning_effort` simply ignores the extra kwarg. Hiding the field would make it wrong the
-  // moment a GGUF ships a template that reads it.
-  ReasoningEffort: 'both',
-  ReasoningContent: 'both',
-  PreserveThinking: 'both',
-  MaintainPerStepThinking: 'both',
-  SpeculativeEnabled: 'exl3-managed-only',
-  SpeculativeType: 'exl3-managed-only',
-  SpeculativeMtpEnabled: 'llama-only',
-  SpeculativeNgramSizeN: 'llama-only',
-  SpeculativeNgramSizeM: 'llama-only',
-  SpeculativeNgramMinHits: 'llama-only',
-  SpeculativeNgramModNMatch: 'llama-only',
-  SpeculativeNgramModNMin: 'llama-only',
-  SpeculativeNgramModNMax: 'llama-only',
-  SpeculativeDraftMax: 'exl3-managed-only',
-  SpeculativeDynamic: 'exl3-managed-only-unsupported-by-llama',
-  SpeculativeDraftMin: 'llama-only',
-  ReasoningBudget: 'both',
-  ReasoningBudgetMessage: 'both',
-  StartupTimeoutMs: 'both',
-  HealthcheckTimeoutMs: 'both',
-  HealthcheckIntervalMs: 'both',
-  SleepIdleSeconds: 'both',
-  IdleAction: 'both',
-  VerboseLogging: 'llama-only',
-  VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
-  VisionOffload: 'exl3-managed-only-unsupported-by-llama',
-  VisionImageRetention: 'exl3-managed-only-unsupported-by-llama',
-  VisionMaxImagePixels: 'exl3-managed-only-unsupported-by-llama',
+  Model: 'always',
+  ExternalServerEnabled: 'always',
+  BaseUrl: 'always',
+  ModelPath: 'always',
+  NumCtx: 'always',
+  ParallelSlots: 'managed-only',
+  UBatchSize: 'always',
+  CacheRam: 'managed-only',
+  CacheRecurrentRam: 'managed-only',
+  KvCacheQuantization: 'always',
+  MaxTokens: 'always',
+  Temperature: 'always',
+  TopP: 'always',
+  TopK: 'always',
+  MinP: 'always',
+  PresencePenalty: 'always',
+  RepetitionPenalty: 'always',
+  Reasoning: 'always',
+  ReasoningEffort: 'always',
+  ReasoningContent: 'always',
+  PreserveThinking: 'always',
+  MaintainPerStepThinking: 'always',
+  SpeculativeEnabled: 'managed-only',
+  SpeculativeDraftMax: 'managed-only',
+  SpeculativeDynamic: 'managed-only',
+  ReasoningBudget: 'always',
+  ReasoningBudgetMessage: 'always',
+  StartupTimeoutMs: 'always',
+  HealthcheckTimeoutMs: 'always',
+  HealthcheckIntervalMs: 'always',
+  SleepIdleSeconds: 'always',
+  IdleAction: 'always',
+  VisionEnabled: 'managed-only',
+  VisionOffload: 'managed-only',
+  VisionImageRetention: 'managed-only',
+  VisionMaxImagePixels: 'managed-only',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 const AVAILABLE = { visible: true, enabled: true, reason: null } as const;
-const HIDDEN = { visible: false } as const;
 const NEEDS_MANAGED_TABBY = {
   visible: true,
   enabled: false,
@@ -157,27 +132,17 @@ const NEEDS_MANAGED_TABBY = {
 } as const;
 
 /**
- * Single source of truth for how a field appears on a backend's settings form. Every decision the
- * form makes about a field comes from here, so the form never carries its own copy of which field
- * belongs to which backend.
+ * Single source of truth for how a field appears on the settings form. Every decision the form
+ * makes about a field comes from here, so the form never carries its own copy of the rules.
  */
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,
 ): PresetFieldAvailability {
   switch (PRESET_FIELD_SUPPORT[field]) {
-    case 'both':
+    case 'always':
       return AVAILABLE;
-    case 'llama-only':
-      return preset.Backend === 'llama' ? AVAILABLE : HIDDEN;
-    case 'exl3-managed-only':
-      return preset.Backend === 'llama' || !preset.ExternalServerEnabled ? AVAILABLE : NEEDS_MANAGED_TABBY;
-    case 'exl3-cache-modes':
-      return preset.Backend === 'llama'
-        ? AVAILABLE
-        : { visible: true, enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
-    case 'exl3-managed-only-unsupported-by-llama':
-      if (preset.Backend === 'llama') return HIDDEN;
+    case 'managed-only':
       return preset.ExternalServerEnabled ? NEEDS_MANAGED_TABBY : AVAILABLE;
   }
 }

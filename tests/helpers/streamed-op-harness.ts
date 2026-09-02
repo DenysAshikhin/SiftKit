@@ -5,6 +5,9 @@ import type { TestContext } from 'node:test';
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { getConfigPath } from '../../src/config/index.js';
+import { writeConfig } from '../../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './mock-config.js';
 import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboard-http.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
@@ -57,6 +60,7 @@ export async function startHarness(namePrefix: string, t: TestContext): Promise<
   process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;

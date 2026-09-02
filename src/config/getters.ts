@@ -2,18 +2,18 @@ import { SIFT_DEFAULT_NUM_CTX } from './constants.js';
 import type {
   InferenceBackendId,
   ModelRuntimePreset,
-  RuntimeLlamaCppConfig,
+  RuntimeEngineConfig,
   SiftConfig,
 } from './types.js';
 
-const EMPTY_RUNTIME_LLAMA_CPP_CONFIG: RuntimeLlamaCppConfig = {};
+const EMPTY_RUNTIME_ENGINE_CONFIG: RuntimeEngineConfig = {};
 
 export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
 }
 
-export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime.LlamaCpp ?? EMPTY_RUNTIME_LLAMA_CPP_CONFIG;
+export function getRuntimeEngine(config: SiftConfig): RuntimeEngineConfig {
+  return config.Runtime.Engine ?? EMPTY_RUNTIME_ENGINE_CONFIG;
 }
 
 export function getActiveModelPreset(config: SiftConfig): ModelRuntimePreset {
@@ -27,14 +27,9 @@ export function getActiveInferenceBackend(config: SiftConfig): InferenceBackendI
   return getActiveModelPreset(config).Backend;
 }
 
-/**
- * True only when SiftKit should drive the standalone managed-llama.cpp lifecycle:
- * the active preset must be llama-backed. The exl3/TabbyAPI runtime is owned by the
- * PresetRuntimeCoordinator, so these llama-specific start/stop/reap paths no-op when
- * an exl3 preset is active.
- */
-export function managesManagedLlamaLifecycle(config: SiftConfig): boolean {
-  return getActiveInferenceBackend(config) === 'llama';
+/** True when SiftKit launches and owns the engine process for the active preset. */
+export function managesManagedEngineLifecycle(config: SiftConfig): boolean {
+  return config.Server.Engines.Exl3.Managed && !getActiveModelPreset(config).ExternalServerEnabled;
 }
 
 export function getFinitePositiveNumber(value?: number | string | null): number | null {
@@ -48,7 +43,7 @@ export function getConfiguredModel(config: SiftConfig): string {
     return model.trim();
   }
 
-  throw new Error('SiftKit runtime config is missing Model. Start a launcher script first.');
+  throw new Error('SiftKit runtime config is missing Model. Select a model on the active preset first.');
 }
 
 export function getConfiguredPromptPrefix(config: SiftConfig): string | undefined {
@@ -56,37 +51,26 @@ export function getConfiguredPromptPrefix(config: SiftConfig): string | undefine
   return typeof promptPrefix === 'string' && promptPrefix.trim() ? promptPrefix : undefined;
 }
 
-export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
-  const activePreset = getActiveModelPreset(config);
-  const baseUrl = activePreset.Backend === 'exl3'
-    ? activePreset.BaseUrl
-    : getRuntimeLlamaCpp(config).BaseUrl ?? activePreset.BaseUrl;
+export function getConfiguredEngineBaseUrl(config: SiftConfig): string {
+  const baseUrl = getActiveModelPreset(config).BaseUrl;
   if (typeof baseUrl === 'string' && baseUrl.trim()) {
     return baseUrl.trim();
   }
 
-  throw new Error('SiftKit runtime config is missing LlamaCpp.BaseUrl. Start a launcher script first.');
+  throw new Error('SiftKit runtime config is missing Engine.BaseUrl. Set BaseUrl on the active preset first.');
 }
 
-export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
-  const activePreset = getActiveModelPreset(config);
-  const numCtx = getFinitePositiveNumber(
-    activePreset.Backend === 'exl3'
-      ? activePreset.NumCtx
-      : getRuntimeLlamaCpp(config).NumCtx ?? activePreset.NumCtx,
-  );
+export function getConfiguredEngineNumCtx(config: SiftConfig): number {
+  const numCtx = getFinitePositiveNumber(getActiveModelPreset(config).NumCtx);
   if (numCtx !== null) {
     return numCtx;
   }
 
-  throw new Error('SiftKit runtime config is missing LlamaCpp.NumCtx. Start a launcher script first.');
+  throw new Error('SiftKit runtime config is missing Engine.NumCtx. Set NumCtx on the active preset first.');
 }
 
 export function getConfiguredReasoning(config: SiftConfig): ModelRuntimePreset['Reasoning'] {
-  const activePreset = getActiveModelPreset(config);
-  return activePreset.Backend === 'exl3'
-    ? activePreset.Reasoning
-    : getRuntimeLlamaCpp(config).Reasoning ?? activePreset.Reasoning;
+  return getActiveModelPreset(config).Reasoning;
 }
 
 export function getMissingRuntimeFields(config: SiftConfig): string[] {
@@ -98,15 +82,15 @@ export function getMissingRuntimeFields(config: SiftConfig): string[] {
   }
 
   try {
-    getConfiguredLlamaBaseUrl(config);
+    getConfiguredEngineBaseUrl(config);
   } catch {
-    missing.push('LlamaCpp.BaseUrl');
+    missing.push('Engine.BaseUrl');
   }
 
   try {
-    getConfiguredLlamaNumCtx(config);
+    getConfiguredEngineNumCtx(config);
   } catch {
-    missing.push('LlamaCpp.NumCtx');
+    missing.push('Engine.NumCtx');
   }
 
   return missing;

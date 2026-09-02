@@ -5,7 +5,7 @@ import { ModelPresetFieldSchema, ModelRuntimePresetSchema } from '@siftkit/contr
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store.js';
 import { isReadExpansionEnabled } from '../src/config/index.js';
 import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.js';
-import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants.js';
+import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_ENGINE_CACHE_RAM } from '../src/config/constants.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
@@ -44,12 +44,6 @@ function activePresetObject(config: JsonObject): JsonObject {
   return asObjectArray(modelPresets.Presets)[0];
 }
 
-function configWithSpeculativeType(speculativeType: string): JsonObject {
-  const config = defaultConfigObject();
-  activePresetObject(config).SpeculativeType = speculativeType;
-  return config;
-}
-
 test('normalizeConfig produces default WebSearch config', () => {
   const normalized = normalizeConfig(getDefaultConfig());
   assert.deepEqual(normalized.WebSearch, {
@@ -78,13 +72,6 @@ test('normalization rejects removed global and backend-specific configuration sh
   assert.throws(
     () => normalizeConfig(JsonValueSchema.parse({
       ...defaults,
-      Server: { ...asObject(defaults.Server), LlamaCpp: {} },
-    })),
-    /Unsupported configuration field Server\.LlamaCpp; use Server\.ModelPresets\./u,
-  );
-  assert.throws(
-    () => normalizeConfig(JsonValueSchema.parse({
-      ...defaults,
       Runtime: { ...asObject(defaults.Runtime), Model: 'legacy-model' },
     })),
     /Unsupported configuration field Runtime\.Model; use the active model preset/u,
@@ -108,7 +95,9 @@ test('new default config supplies the default preset backend and EXL3 engine', (
   const normalized = getDefaultConfig();
   const serialized = JSON.stringify(normalized);
 
-  assert.match(serialized, /"Backend":"llama"/u);
+  assert.match(serialized, /"Backend":"exl3"/u);
+  assert.equal(activePreset(normalized).Model, null);
+  assert.equal(activePreset(normalized).ModelPath, null);
   assert.match(serialized, /"WorkingDirectory":"C:\\\\Users\\\\denys\\\\Documents\\\\GitHub\\\\TabbyAPI"/u);
   assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl313-turbo\\\\Scripts\\\\python\.exe"/u);
   assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
@@ -194,50 +183,43 @@ test('normalizeConfig falls back an unknown ActivePresetId to the first preset',
   assert.equal(llama.ActivePresetId, llama.Presets[0].id);
 });
 
-test('normalizeConfig accepts draft-mtp speculative decoding type', () => {
-  const normalized = normalizeConfig(JsonValueSchema.parse(configWithSpeculativeType('draft-mtp')));
+test('normalizeConfig defaults a missing preset Backend to exl3 and rejects any other backend', () => {
+  const missing = defaultConfigObject();
+  delete activePresetObject(missing).Backend;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(missing))).Backend, 'exl3');
 
-  assert.equal(activePreset(normalized).SpeculativeType, 'draft-mtp');
+  const stale = defaultConfigObject();
+  activePresetObject(stale).Backend = 'llama';
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(stale)),
+    /Unsupported model preset Backend 'llama'; only exl3 is supported/u,
+  );
 });
 
-test('normalizeConfig falls back unknown speculative decoding type to ngram-map-k', () => {
-  const normalized = normalizeConfig(JsonValueSchema.parse(configWithSpeculativeType('unknown-speculation')));
-
-  assert.equal(activePreset(normalized).SpeculativeType, 'ngram-map-k');
-});
-
-test('normalizeConfig defaults the MTP combination and ngram-mod fields when absent', () => {
+test('normalizeConfig rejects a KvCacheQuantization EXL3 cannot express', () => {
   const config = defaultConfigObject();
-  const preset = activePresetObject(config);
-  delete preset.SpeculativeMtpEnabled;
-  delete preset.SpeculativeNgramModNMatch;
-  delete preset.SpeculativeNgramModNMin;
-  delete preset.SpeculativeNgramModNMax;
-
-  const preset2 = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
-
-  assert.equal(preset2.SpeculativeMtpEnabled, false);
-  assert.equal(preset2.SpeculativeNgramModNMatch, 24);
-  assert.equal(preset2.SpeculativeNgramModNMin, 4);
-  assert.equal(preset2.SpeculativeNgramModNMax, 16);
+  activePresetObject(config).KvCacheQuantization = 'bf16';
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(config)),
+    /Unsupported KvCacheQuantization 'bf16'; expected one of f16, q8_0, q4_0, q5_0, q8_0\/q4_0, q8_0\/q5_0/u,
+  );
 });
 
-test('normalizeConfig preserves an enabled MTP combination with ngram-mod parameters', () => {
+test('normalizeConfig drops the speculative fields the EXL3 launcher never reads', () => {
   const config = defaultConfigObject();
   Object.assign(activePresetObject(config), {
-    SpeculativeType: 'ngram-mod',
-    SpeculativeMtpEnabled: true,
-    SpeculativeNgramModNMatch: 24,
-    SpeculativeNgramModNMin: 12,
-    SpeculativeNgramModNMax: 48,
+    SpeculativeEnabled: true,
+    SpeculativeDraftMax: 12,
+    SpeculativeDynamic: false,
   });
 
   const preset = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
 
-  assert.equal(preset.SpeculativeMtpEnabled, true);
-  assert.equal(preset.SpeculativeNgramModNMatch, 24);
-  assert.equal(preset.SpeculativeNgramModNMin, 12);
-  assert.equal(preset.SpeculativeNgramModNMax, 48);
+  assert.equal(preset.SpeculativeEnabled, true);
+  assert.equal(preset.SpeculativeDraftMax, 12);
+  assert.equal(preset.SpeculativeDynamic, false);
+  assert.equal('SpeculativeType' in preset, false);
+  assert.equal('SpeculativeMtpEnabled' in preset, false);
 });
 
 test('normalizeConfig returns the typed live config fields used by server and dashboard', () => {
@@ -305,9 +287,9 @@ test('cache RAM fields preserve zero and reject negative, fractional, and invali
   const cases = [
     { value: 0, expected: 0 },
     { value: 4096, expected: 4096 },
-    { value: -1, expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
-    { value: 1.5, expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
-    { value: 'invalid', expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
+    { value: -1, expected: SIFT_DEFAULT_ENGINE_CACHE_RAM },
+    { value: 1.5, expected: SIFT_DEFAULT_ENGINE_CACHE_RAM },
+    { value: 'invalid', expected: SIFT_DEFAULT_ENGINE_CACHE_RAM },
   ] as const;
 
   for (const { value, expected } of cases) {

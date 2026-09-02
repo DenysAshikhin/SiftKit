@@ -1,8 +1,10 @@
 import { z } from '../../src/lib/zod.js';
-import { JsonValueSchema, type OptionalJsonValue } from '../../src/lib/json-types.js';
+import { JsonValueSchema, isJsonObject, type JsonValue, type OptionalJsonValue } from '../../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
 import type { WebSearchConfig } from '../../src/web-search/types.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
+import { getActiveModelPreset } from '../../src/config/getters.js';
+import { getDefaultConfig } from '../../src/status-server/config-store.js';
 import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
 import { DEAD_BASE_URL } from './dead-endpoints.js';
 
@@ -18,13 +20,50 @@ type DeepPartial<T> = T extends (infer U)[]
 
 const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 
-export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
-  const merged = mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), JsonValueSchema.parse(partial));
-  return normalizeConfigObject(merged);
+/** The default preset names no model; fixtures need one so `getConfiguredModel` resolves. */
+export const MOCK_MODEL_ID = 'mock-model';
+
+/**
+ * Each entry of a partial `Server.ModelPresets.Presets` is merged over the default preset (plus
+ * `MOCK_MODEL_ID`) instead of replacing the whole array, so a fixture can name only the fields
+ * it exercises, e.g. `{ Server: { ModelPresets: { Presets: [{ BaseUrl }] } } }`.
+ */
+export function mockSiftConfig(partial: DeepPartial<SiftConfig> = {}): SiftConfig {
+  const base = JsonValueSchema.parse(getDefaultConfigObject());
+  const basePreset = JsonValueSchema.parse(mockModelPreset());
+  const partialJson = JsonValueSchema.parse(partial);
+  const presetPartials = readPresetPartials(partialJson);
+  const presets = (presetPartials.length > 0 ? presetPartials : [{}])
+    .map((entry) => withMockModel(mergeConfig(basePreset, entry)));
+  const withPresets = mergeConfig(partialJson, { Server: { ModelPresets: { Presets: presets } } });
+  return normalizeConfigObject(mergeConfig(base, withPresets));
+}
+
+// A preset fixture that names no model (the production default, or a copy of it) gets the mock id.
+function withMockModel(preset: JsonValue): JsonValue {
+  if (!isJsonObject(preset) || (preset.Model !== null && preset.Model !== undefined)) return preset;
+  return { ...preset, Model: MOCK_MODEL_ID };
+}
+
+/**
+ * The production default config for server fixtures: identical to `getDefaultConfig()` except the
+ * active preset names `MOCK_MODEL_ID`, so chat sessions and inference resolve a model.
+ */
+export function getDefaultServerConfig(): SiftConfig {
+  const config = getDefaultConfig();
+  getActiveModelPreset(config).Model = MOCK_MODEL_ID;
+  return config;
+}
+
+function readPresetPartials(partial: JsonValue): JsonValue[] {
+  const server = isJsonObject(partial) ? partial.Server : undefined;
+  const modelPresets = isJsonObject(server) ? server.ModelPresets : undefined;
+  const presets = isJsonObject(modelPresets) ? modelPresets.Presets : undefined;
+  return Array.isArray(presets) ? presets : [];
 }
 
 export function mockOfflineSiftConfig(): SiftConfig {
-  return mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL } } });
+  return mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL }] } } });
 }
 
 // A fully-populated ModelRuntimePreset for fixtures that need a preset snapshot
@@ -35,7 +74,7 @@ export function mockModelPreset(overrides: Partial<ModelRuntimePreset> = {}): Mo
   if (!preset) {
     throw new Error('Default config has no model preset.');
   }
-  return { ...preset, ...overrides };
+  return { ...preset, Model: MOCK_MODEL_ID, ...overrides };
 }
 
 // Brand an already-constructed runtime config object (e.g. a stub server's live

@@ -5,9 +5,9 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.js';
+import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../../src/config/constants.js';
 
-const GUARDED_PORTS = new Set([SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT]);
+const GUARDED_PORTS = new Set([SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT]);
 const PORT_LEASE_ROOT = path.join(fs.realpathSync(os.tmpdir()), 'siftkit-test-port-leases');
 const FileErrorSchema = z.object({ code: z.string() });
 const heldLeaseDirectories = new Set<string>();

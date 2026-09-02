@@ -27,7 +27,7 @@ async function runImageCliWithZeroRetention(
     const config = getDefaultConfigObject();
     const activePreset = config.Server.ModelPresets.Presets[0];
     if (!activePreset) throw new Error('Default model preset is missing');
-    activePreset.Backend = 'exl3';
+    activePreset.Model = 'mock-model';
     activePreset.VisionEnabled = true;
     activePreset.VisionImageRetention = 0;
     config.Server.ModelPresets.ActivePresetId = activePreset.id;

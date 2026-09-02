@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getActiveInferenceBackend, getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
+import { getActiveInferenceBackend, getConfigPath, getConfiguredEngineBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
 import { findNearestSiftKitRepoRoot, moduleDirname } from './lib/paths.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
@@ -89,11 +89,9 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
   let models: string[] = [];
   let providerReachable = false;
   try {
-    if (engine === 'llama') {
-      const providerStatus = await getLlamaCppProviderStatus(config);
-      providerReachable = Boolean(providerStatus.Reachable);
-      models = providerReachable ? await listLlamaCppModels(config) : [];
-    }
+    const providerStatus = await getLlamaCppProviderStatus(config);
+    providerReachable = Boolean(providerStatus.Reachable);
+    models = providerReachable ? await listLlamaCppModels(config) : [];
   } catch {
     models = [];
   }
@@ -106,7 +104,7 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
     EvalResultsPath: paths.EvalResults,
     Backend: engine,
     Model: getConfiguredModel(config),
-    LlamaCppBaseUrl: getConfiguredLlamaBaseUrl(config),
+    LlamaCppBaseUrl: getConfiguredEngineBaseUrl(config),
     LlamaCppReachable: providerReachable,
     AvailableModels: models,
   };

@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -5,7 +6,7 @@ import {
   loadConfig,
   saveConfig,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../src/config/index.js';
 import { summarizeRequest } from '../src/summary.js';
@@ -611,11 +612,11 @@ test('summary below planner threshold disables thinking for fully ingested one-s
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const plannerThreshold = Math.floor(
-        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75,
+        getConfiguredEngineNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75,
       );
       const inputText = 'A'.repeat(Math.max(plannerThreshold - 10, 1));
 
-      config.Runtime.LlamaCpp.Reasoning = 'on';
+      getActiveModelPreset(config).Reasoning = 'on';
       if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
         config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
@@ -650,11 +651,11 @@ test('summary above planner threshold respects runtime reasoning for planner req
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const plannerThreshold = Math.floor(
-        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75,
+        getConfiguredEngineNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75,
       );
       const inputText = buildOversizedTransitionsInput(plannerThreshold + 100);
 
-      config.Runtime.LlamaCpp.Reasoning = 'on';
+      getActiveModelPreset(config).Reasoning = 'on';
       if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
         config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }

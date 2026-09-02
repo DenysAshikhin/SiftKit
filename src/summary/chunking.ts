@@ -2,7 +2,7 @@ import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
   getActiveModelPreset,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
 import { computeResponseReserveTokens } from '../lib/response-reserve.js';
@@ -218,7 +218,7 @@ export function allocateLlamaCppSlotId(config: SiftConfig): number {
 }
 
 export function getPlannerPromptBudget(config: SiftConfig): PlannerPromptBudget {
-  const numCtxTokens = getConfiguredLlamaNumCtx(config);
+  const numCtxTokens = getConfiguredEngineNumCtx(config);
   const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens: numCtxTokens, config });
   return {
     numCtxTokens,
@@ -236,7 +236,7 @@ export function estimatePromptTokenCount(config: SiftConfig, text: string): numb
 
 export function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number {
   const reserveChars = Math.ceil(
-    computeResponseReserveTokens({ totalContextTokens: getConfiguredLlamaNumCtx(config), config })
+    computeResponseReserveTokens({ totalContextTokens: getConfiguredEngineNumCtx(config), config })
     * getEffectiveInputCharactersPerContextToken(config)
   );
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
@@ -245,7 +245,7 @@ export function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number 
 export function getPlannerActivationThresholdCharacters(config: SiftConfig): number {
   return Math.max(
     1,
-    Math.floor(getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * PLANNER_TRIGGER_CONTEXT_RATIO),
+    Math.floor(getConfiguredEngineNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * PLANNER_TRIGGER_CONTEXT_RATIO),
   );
 }
 

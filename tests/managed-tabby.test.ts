@@ -29,7 +29,6 @@ async function createManagedTabbyFixture(root: string, leaseName: string) {
     UBatchSize: 1_024,
     KvCacheQuantization: 'q8_0/q4_0' as const,
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' as const,
     SpeculativeDraftMax: 5,
   };
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -136,25 +135,6 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       await flushQueue.close();
     }
   });
-});
-
-test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
-  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-  if (!preset) throw new Error('Default model preset is missing');
-  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-  const runtime = new ManagedTabbyRuntime({
-    Managed: false,
-    WorkingDirectory: '.',
-    PythonPath: process.execPath,
-    Entrypoint: 'unused',
-    ModelRoot: '.',
-    AdminApiKey: '',
-    ShutdownTimeoutMs: 100,
-  }, flushQueue);
-
-  await assert.rejects(runtime.ensurePresetReady(preset), /cannot be loaded by the EXL3 runtime/u);
-  assert.equal(runtime.getProcessState(), 'stopped');
-  assert.equal(runtime.getModelState(), 'unloaded');
 });
 
 test('managed Tabby launches with the complete preset environment', async () => {
@@ -280,7 +260,6 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
     Model: 'model-a',
     ModelPath: path.join('.', 'model-a'),
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' as const,
   }), /cannot enable MTP drafting/u);
 });
 
@@ -312,7 +291,6 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
         Model: 'model-a',
         ModelPath: path.join(root, 'model-a'),
         SpeculativeEnabled: true,
-        SpeculativeType: 'draft-mtp' as const,
         HealthcheckTimeoutMs: 1_000,
         HealthcheckIntervalMs: 10,
       });
@@ -349,7 +327,6 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
         Model: 'model-a',
         ModelPath: path.join(root, 'model-a'),
         SpeculativeEnabled: true,
-        SpeculativeType: 'draft-mtp' as const,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,
       }), /startup log never reported the MTP draft component/u);

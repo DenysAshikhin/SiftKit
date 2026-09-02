@@ -23,8 +23,8 @@ test('returns null when no snapshot has been written', () => {
 test('round-trips a written snapshot', () => {
   const dbPath = tempDbPath();
   const snapshot: RuntimeLaunchSnapshot = {
-    Model: 'qwen.gguf',
-    LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 85000, Reasoning: 'off' },
+    Model: 'qwen',
+    Engine: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 85000, Reasoning: 'off' },
   };
   writeRuntimeLaunchSnapshot(dbPath, snapshot);
   assert.deepEqual(readRuntimeLaunchSnapshot(dbPath), snapshot);
@@ -32,7 +32,7 @@ test('round-trips a written snapshot', () => {
 
 test('overwrites a previous snapshot', () => {
   const dbPath = tempDbPath();
-  writeRuntimeLaunchSnapshot(dbPath, { Model: 'a', LlamaCpp: { NumCtx: 1 } });
-  writeRuntimeLaunchSnapshot(dbPath, { Model: 'b', LlamaCpp: { NumCtx: 2 } });
-  assert.deepEqual(readRuntimeLaunchSnapshot(dbPath), { Model: 'b', LlamaCpp: { NumCtx: 2 } });
+  writeRuntimeLaunchSnapshot(dbPath, { Model: 'a', Engine: { NumCtx: 1 } });
+  writeRuntimeLaunchSnapshot(dbPath, { Model: 'b', Engine: { NumCtx: 2 } });
+  assert.deepEqual(readRuntimeLaunchSnapshot(dbPath), { Model: 'b', Engine: { NumCtx: 2 } });
 });

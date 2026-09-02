@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import {
   getActiveInferenceBackend,
-  getConfiguredLlamaBaseUrl,
+  getConfiguredEngineBaseUrl,
   getConfiguredModel,
   loadConfig,
 } from '../config/index.js';
@@ -51,7 +51,7 @@ export async function runAutoApprovalVerdictProbeCli(
     const probe = new AutoApprovalVerdictProbe(
       new ConfiguredApprovalVerdictModelClient({
         config,
-        baseUrl: getConfiguredLlamaBaseUrl(config),
+        baseUrl: getConfiguredEngineBaseUrl(config),
         model,
         slotId: allocateLlamaCppSlotId(config),
         timeoutMs: DEFAULT_TIMEOUT_MS,

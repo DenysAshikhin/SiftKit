@@ -17,9 +17,7 @@ import {
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount } from '../src/lib/token-estimate.js';
 import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import type { SiftConfig } from '../src/config/types.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
@@ -31,38 +29,6 @@ import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/plan
 import { createJsonLogger } from '../src/repo-search/logging.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
-
-// These mock-mode loops read only Runtime.LlamaCpp. Build a real default config
-// and override those fields so the value is fully typed (no casts).
-function mockConfig(overrides: {
-  Runtime: { LlamaCpp: Partial<SiftConfig['Runtime']['LlamaCpp']> };
-  Server?: {
-    ModelPresets: {
-      ActivePresetId: string;
-      Presets: Array<Partial<SiftConfig['Server']['ModelPresets']['Presets'][number]> & { id: string }>;
-    };
-  };
-}): SiftConfig {
-  const base = getDefaultConfigObject();
-  const basePreset = base.Server.ModelPresets.Presets[0];
-  if (!basePreset) throw new Error('Default config must include a model preset.');
-  return {
-    ...base,
-    Runtime: {
-      ...base.Runtime,
-      LlamaCpp: { ...base.Runtime.LlamaCpp, ...overrides.Runtime.LlamaCpp },
-    },
-    Server: {
-      ...base.Server,
-      ModelPresets: overrides.Server
-        ? {
-            ActivePresetId: overrides.Server.ModelPresets.ActivePresetId,
-            Presets: overrides.Server.ModelPresets.Presets.map((preset) => ({ ...basePreset, ...preset })),
-          }
-        : base.Server.ModelPresets,
-    },
-  };
-}
 
 function createTempRepoRoot(gitignoreText = '') {
   const root = createManagedTempDir('siftkit-repo-search-ignore-');
@@ -95,12 +61,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',
     config: mockSiftConfig({
-      Runtime: {
-        LlamaCpp: {
-          BaseUrl: 'http://127.0.0.1:8097',
-          NumCtx: 70000,
-        },
-      },
+      Server: { ModelPresets: { Presets: [{ BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 }] } },
     }),
     model: 'Qwen3.5-9B-Q8_0.gguf',
     baseUrl: 'http://127.0.0.1:8097',
@@ -123,7 +84,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',
     config: mockSiftConfig({
-      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
+      Server: { ModelPresets: { Presets: [{ BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 }] } },
       WebSearch: {
         EnabledDefault: true,
         Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
@@ -441,13 +402,13 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
   const tokenizedContent: string[] = [];
   let chatRequestCount = 0;
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       let body = '';
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
         const parsed = asObject(parseJsonValueText(body || '{}'));
-        const content = String(parsed.content || '');
+        const content = String(parsed.text || '');
         tokenizedContent.push(content);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
@@ -495,10 +456,8 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
-        config: mockConfig({
-          Runtime: {
-            LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
-          },
+        config: mockSiftConfig({
+          Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 128000 }] } },
         }),
         totalContextTokens: 128000,
         maxTurns: 2,
@@ -690,7 +649,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
           ...MOCK_LOOP_DEFAULTS,
           baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
-          config: mockConfig({ Runtime: { LlamaCpp: { BaseUrl: tokenizeBaseUrl } } }),
+          config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: tokenizeBaseUrl }] } } }),
           timeoutMs: 500,
           maxTurns: 1,
           maxInvalidResponses: 1,
@@ -1032,11 +991,11 @@ test('runTaskLoop records line-read stats for read windows', async () => {
   }
 });
 
-test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
+test('runTaskLoop sends append-only chat requests without llama slot or cache fields', async () => {
   const chatRequests: JsonObject[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       let body = '';
       req.setEncoding('utf8');
       req.on('data', (chunk) => {
@@ -1044,7 +1003,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
       });
       req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
-        const content = String(parsed.content || '');
+        const content = String(parsed.text || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
       });
@@ -1113,17 +1072,11 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
-        config: mockConfig({
-          Runtime: {
-            LlamaCpp: {
-              BaseUrl: baseUrl,
-              NumCtx: 70000,
-            },
-          },
+        config: mockSiftConfig({
           Server: {
             ModelPresets: {
               ActivePresetId: 'default',
-              Presets: [{ id: 'default', ParallelSlots: 4, Reasoning: 'off' }],
+              Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 70000, ParallelSlots: 4, Reasoning: 'off' }],
             },
           },
         }),
@@ -1138,10 +1091,8 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
 
     assert.equal(result.reason, 'finish');
     assert.equal(chatRequests.length, 2);
-    assert.equal(chatRequests[0].cache_prompt, true);
-    assert.equal(chatRequests[1].cache_prompt, true);
-    assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
-    assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
+    assert.equal('cache_prompt' in chatRequests[0], false);
+    assert.equal('id_slot' in chatRequests[0], false);
     assert.equal(chatRequests[0]?.response_format, undefined);
     assert.equal(Array.isArray(chatRequests[0]?.tools), true);
     assert.equal(chatRequests[0]?.parallel_tool_calls, true);
@@ -1166,7 +1117,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
   const chatRequests: JsonObject[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       let body = '';
       req.setEncoding('utf8');
       req.on('data', (chunk) => {
@@ -1174,7 +1125,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
       });
       req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
-        const content = String(parsed.content || '');
+        const content = String(parsed.text || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
       });
@@ -1247,17 +1198,11 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
-        config: mockConfig({
-          Runtime: {
-            LlamaCpp: {
-              BaseUrl: baseUrl,
-              NumCtx: 70000,
-            },
-          },
+        config: mockSiftConfig({
           Server: {
             ModelPresets: {
               ActivePresetId: 'default',
-              Presets: [{ id: 'default', ParallelSlots: 4, Reasoning: 'off' }],
+              Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 70000, ParallelSlots: 4, Reasoning: 'off' }],
             },
           },
         }),
@@ -1360,9 +1305,8 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
   // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
-  const config = mockConfig({
-    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 20000 } },
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
+  const config = mockSiftConfig({
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 20000, MaxTokens: 100_000 }] } },
   });
 
   try {
@@ -1438,9 +1382,8 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
   // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
-  const config = mockConfig({
-    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 14000 } },
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
+  const config = mockSiftConfig({
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 14000, MaxTokens: 100_000 }] } },
   });
 
   try {
@@ -1484,10 +1427,10 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
     assert.equal(asObject(terminalMessages[terminalMessages.length - 1]).role, 'user');
     assert.equal(asObject(terminalMessages[0]).role, 'system');
     assert.equal(asObject(terminalMessages[1]).role, 'user');
-    assert.equal(terminalRequest.id_slot, plannerRequest.id_slot);
+    assert.equal('id_slot' in terminalRequest, false);
     assert.deepEqual(terminalRequest.tools, plannerRequest.tools);
     assert.equal(terminalRequest.tool_choice, 'none');
-    assert.equal(terminalRequest.cache_prompt, true);
+    assert.equal('cache_prompt' in terminalRequest, false);
     assert.equal(terminalPromptTokenCounts.length, 1);
     assert.equal(
       Number(terminalRequest.max_tokens),
@@ -1534,9 +1477,8 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
   // MaxTokens sits far below the shared reserve, so the preset cap is what must survive.
-  const config = mockConfig({
-    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 12000 } },
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 900 }] } },
+  const config = mockSiftConfig({
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 12000, MaxTokens: 900 }] } },
   });
 
   try {

@@ -42,7 +42,6 @@ function writeManagedEngineReadinessTestConfig(
     Model: managed.modelId,
     ExternalServerEnabled: false,
     BaseUrl: managed.baseUrl,
-    ExecutablePath: null,
     ModelPath: managed.modelPath,
     StartupTimeoutMs: startupTimeoutMs,
     HealthcheckTimeoutMs: 20,

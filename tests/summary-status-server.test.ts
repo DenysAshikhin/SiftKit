@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { summarizeRequest } from '../src/summary.js';
-import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './helpers/mock-config.js';
+import { getConfigPath } from '../src/config/index.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
@@ -712,6 +714,7 @@ test('command-output endpoint analyzes captured command output on the server', a
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  writeConfig(getConfigPath(), getDefaultServerConfig());
 
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
@@ -761,8 +764,6 @@ test('summarizeRequest uses explicit config without requiring config service', a
 
   try {
     const config = getDefaultConfig();
-    const runtimeSnapshot = buildRuntimeLaunchSnapshot(config);
-    config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;
     config.Server.ModelPresets.Presets[0].Model = 'mock-model';
     const result = await summarizeRequest({
       repoRoot: process.cwd(),

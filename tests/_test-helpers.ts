@@ -132,22 +132,7 @@ export function getDefaultConfig(): TestConfig {
       Thinking: { Enabled: false, Preserve: false },
     },
     Runtime: {
-      LlamaCpp: {
-        BaseUrl: 'http://127.0.0.1:8080',
-        NumCtx: 128000,
-        ModelPath: null,
-        Temperature: 0.2,
-        TopP: 0.95,
-        TopK: 20,
-        MinP: 0.0,
-        PresencePenalty: 0.0,
-        RepetitionPenalty: 1.0,
-        MaxTokens: 4096,
-        Threads: -1,
-        FlashAttention: true,
-        ParallelSlots: 1,
-        Reasoning: 'off',
-      },
+      Engine: {},
     },
     Server: {
       ModelPresets: {
@@ -155,10 +140,18 @@ export function getDefaultConfig(): TestConfig {
         Presets: [{
           id: 'default',
           label: 'Default',
-          Backend: 'llama',
+          Backend: 'exl3',
           Model: 'mock-model',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
+          Temperature: 0.2,
+          TopP: 0.95,
+          TopK: 20,
+          MinP: 0.0,
+          PresencePenalty: 0.0,
+          RepetitionPenalty: 1.0,
+          MaxTokens: 4096,
+          Reasoning: 'off',
         }],
       },
       Engines: {
@@ -300,13 +293,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
-      const runtimeLlamaCpp = asObject(state.config.Runtime.LlamaCpp);
-      const savedBaseUrl = typeof runtimeLlamaCpp.BaseUrl === 'string'
-        ? runtimeLlamaCpp.BaseUrl : undefined;
       state.config = mergeConfig(getDefaultConfig(), parsed);
-      if (savedBaseUrl) {
-        asObject(asObject(state.config.Runtime).LlamaCpp).BaseUrl = savedBaseUrl;
-      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
       return;
@@ -524,27 +511,19 @@ export async function withTestEnvAndServer(
   process.env.SIFTKIT_STATUS_BACKEND_URL = stub.statusUrl;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = stub.configUrl;
 
-  const runtime = asObject(stub.state.config.Runtime);
-  stub.state.config.Runtime = runtime;
-  const runtimeLlamaCpp = asObject(runtime.LlamaCpp);
-  runtime.LlamaCpp = runtimeLlamaCpp;
-  runtimeLlamaCpp.BaseUrl = stub.baseUrl;
-  runtimeLlamaCpp.NumCtx = runtimeLlamaCpp.NumCtx || 128000;
   const server = asObject(stub.state.config.Server);
   stub.state.config.Server = server;
   const modelPresets = asObject(server.ModelPresets);
   server.ModelPresets = modelPresets;
-  const stubPort = Number(new URL(stub.baseUrl).port);
   modelPresets.ActivePresetId = 'default';
   // Normalized, not a literal: a preset missing MaxTokens/samplers is a shape the config
   // store never produces, and the engine reads those fields on every request.
   modelPresets.Presets = normalizeModelRuntimePresetArray([{
     id: 'default',
     label: 'Default',
-    Backend: 'llama',
+    Backend: 'exl3',
     Model: 'mock-model',
     BaseUrl: stub.baseUrl,
-    Port: stubPort,
     NumCtx: 128000,
     IdleAction: 'unload',
   }], {}).map((preset) => JsonObjectSchema.parse(JSON.parse(JSON.stringify(preset))));

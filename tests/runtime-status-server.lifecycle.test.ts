@@ -209,8 +209,8 @@ test('real status server rejects removed config fields without leaving the reque
     await withRealStatusServer(async ({ configUrl }) => {
       await assert.rejects(requestJson(configUrl, {
         method: 'PUT',
-        body: JSON.stringify({ Server: { LlamaCpp: {} } }),
-      }), /HTTP 400:.*Unsupported configuration field Server\.LlamaCpp/u);
+        body: JSON.stringify({ Server: { Exl3: {} } }),
+      }), /HTTP 400:.*Unsupported configuration field Server\.Exl3/u);
     }, {
       statusPath,
       configPath,

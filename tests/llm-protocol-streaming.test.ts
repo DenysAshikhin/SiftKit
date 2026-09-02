@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -43,11 +44,10 @@ class StreamingHttpClient {
 function buildStreamingConfig(): SiftConfig {
   const config = getDefaultConfigObject();
   config.Server.ModelPresets.Presets[0].Model = 'local';
-  config.Runtime.LlamaCpp = {
-    ...config.Runtime.LlamaCpp,
+  Object.assign(getActiveModelPreset(config), {
     BaseUrl: 'http://127.0.0.1:8097',
     Reasoning: 'on',
-  };
+  });
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
     throw new Error('default config must include a managed llama preset');
@@ -97,7 +97,7 @@ test('llama streaming client assembles reasoning, content, timings, and native t
 
   const body = JSON.parse(http.requests[0]?.body || '{}');
   assert.equal(body.stream, true);
-  assert.equal(body.timings_per_token, true);
+  assert.equal(body.timings_per_token, undefined);
   assert.equal(response.text, 'answer ');
   assert.equal(response.reasoningText, 'thinking ');
   assert.equal(response.toolCalls[0]?.function.arguments, '{"pattern":"x"}');

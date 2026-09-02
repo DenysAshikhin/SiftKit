@@ -1,6 +1,6 @@
 import {
-  getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
   type SiftConfig,
 } from '../config/index.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
@@ -306,7 +306,7 @@ export function filterModelInventory(
 }
 
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
-  const baseUrl = getConfiguredLlamaBaseUrl(config);
+  const baseUrl = getConfiguredEngineBaseUrl(config);
   try {
     const serverModels = await llamaCppClient.listModelsAtBaseUrl(baseUrl, 5000);
     return filterModelInventory(
@@ -336,7 +336,7 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Lla
   };
 
   try {
-    status.BaseUrl = getConfiguredLlamaBaseUrl(config);
+    status.BaseUrl = getConfiguredEngineBaseUrl(config);
     const response = await llamaCppClient.probeModelsAtBaseUrl(status.BaseUrl, 500);
     if (response.statusCode >= 400) {
       const detail = response.rawText.trim();
@@ -394,14 +394,14 @@ export async function generateLlamaCppChatResponse(options: {
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
 }): Promise<LlamaCppGenerateResult> {
-  const baseUrl = getConfiguredLlamaBaseUrl(options.config);
+  const baseUrl = getConfiguredEngineBaseUrl(options.config);
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
   const maxTokens = getDynamicMaxOutputTokens({
     config: options.config,
-    totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
+    totalContextTokens: Math.max(1, Number(getConfiguredEngineNumCtx(options.config) || 0)),
     promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
       ? Number(options.promptTokenCount)
       : estimateTokenCountFromCharacters(options.config, promptChars),

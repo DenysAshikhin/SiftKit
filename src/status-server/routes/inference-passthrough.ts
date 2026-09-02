@@ -7,14 +7,14 @@ import {
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
-import type { ModelRuntimePreset, SiftConfig } from '../../config/types.js';
+import type { ModelRuntimePreset } from '../../config/types.js';
 import { getConfiguredModel } from '../../config/getters.js';
 import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
-import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
-import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
+import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.js';
+import { getActiveModelPreset, readConfig } from '../config-store.js';
 import { serverLogger } from '../server-logger.js';
 import { toError } from '../../lib/errors.js';
 import { readBody, sendBodyReadError, sendJson } from '../http-utils.js';
@@ -44,10 +44,6 @@ function isInferencePath(pathname: string): boolean {
     || pathname === EXL3_TOKENIZE_PATH;
 }
 
-function getBaseUrl(config: SiftConfig, preset: ModelRuntimePreset): string | null {
-  if (preset.Backend === 'llama') return getManagedLlamaInternalBaseUrl(config) ?? preset.BaseUrl;
-  return preset.BaseUrl;
-}
 
 function isSelfBaseUrl(ctx: ServerContext, baseUrl: string): boolean {
   return new URL(baseUrl).origin === new URL(ctx.getServiceBaseUrl()).origin;
@@ -72,7 +68,7 @@ function buildResponseHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders
 
 /** The preset owns thinking; a caller's `chat_template_kwargs` is replaced, not merged. */
 function applyThinkingSettings(body: JsonObject, preset: ModelRuntimePreset): void {
-  const compatibility = getInferenceRequestCompatibility(preset.Backend);
+  const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
   const thinkingEnabled = preset.Reasoning === 'on';
   const reasoningContent = thinkingEnabled && preset.ReasoningContent;
   body.chat_template_kwargs = {
@@ -109,7 +105,7 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string
   parsed.min_p = defaults.minP;
   parsed.presence_penalty = defaults.presencePenalty;
   applyThinkingSettings(parsed, preset);
-  const compatibility = getInferenceRequestCompatibility(preset.Backend);
+  const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
   parsed[compatibility.repetitionPenaltyKey] = defaults.repetitionPenalty;
   // removedFields drops keys the *caller* sent that this backend cannot take; SiftKit never adds them.
   for (const field of compatibility.removedFields) delete parsed[field];
@@ -232,7 +228,7 @@ class WorkloadEndpoint implements RouteEndpoint {
       await ensureActivePresetReadyForModelRequest(ctx);
       const currentConfig = readConfig(ctx.configPath);
       const currentPreset = getActiveModelPreset(currentConfig);
-      const baseUrl = getBaseUrl(currentConfig, currentPreset);
+      const baseUrl = currentPreset.BaseUrl;
       if (!baseUrl) {
         sendJson(res, 503, { error: 'The active preset BaseUrl is not configured.' });
         return;

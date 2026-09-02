@@ -23,13 +23,13 @@ const CONTEXT_FREE_PRESETS = PresetCatalog.createDefault().list().map((preset) =
 }));
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
+  Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
   Presets: CONTEXT_FREE_PRESETS,
 });
 
 // Web-exercising fixtures must clear the web tool policy: an enabled config with a usable provider.
 const WEB_MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
+  Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
   Presets: CONTEXT_FREE_PRESETS,
   WebSearch: usableWebSearchConfig(),
 });
@@ -95,7 +95,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     availableModels: ['mock'],
     model: 'mock',
     config: mockSiftConfig({
-      Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
+      Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
       Presets: CONTEXT_FREE_PRESETS,
       WebSearch: usableWebSearchConfig(),
     }),
@@ -344,9 +344,8 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     availableModels: ['mock'],
     model: 'mock',
     config: mockSiftConfig({
-      Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
       Presets: CONTEXT_FREE_PRESETS,
-      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on', IdleAction: 'unload' }] } },
+      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload' }] } },
     }),
     mockResponses: [{ content: "Hello" }],
   });

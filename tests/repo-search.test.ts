@@ -481,7 +481,7 @@ test('executeRepoSearchRequest logs repo-search preflight without the character 
     for (const line of preflightLines) {
       assert.match(
         line,
-        /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=\d+tok {2}elapsed=\d+s( {2}tokenize=\d+ms\(llama\))?$/u,
+        /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=\d+tok {2}elapsed=\d+s( {2}tokenize=\d+ms\(exl3\))?$/u,
         lines.join('\n'),
       );
     }
@@ -496,7 +496,7 @@ test('a slow tokenize trails the preflight line with its duration and source', a
     const lines = await capturePreflightLogLines(tempRoot, asRuntimeSiftConfig(stub.state.config));
 
     assert.ok(
-      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=[\d,]+tok {2}elapsed=\d+s {2}tokenize=\d+ms\(llama\)$/u.test(line)),
+      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=[\d,]+tok {2}elapsed=\d+s {2}tokenize=\d+ms\(exl3\)$/u.test(line)),
       lines.join('\n'),
     );
   }, {
@@ -623,7 +623,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       const address = getAddressInfo(modelServer);
       const baseUrl = `http://127.0.0.1:${address.port}`;
       const configValue = structuredClone(asRuntimeSiftConfig(stub.state.config));
-      configValue.Runtime.LlamaCpp.BaseUrl = baseUrl;
+      getActiveModelPreset(configValue).BaseUrl = baseUrl;
       const activePreset = configValue.Server.ModelPresets.Presets[0];
       if (!activePreset) throw new Error('Stub config must include a model preset.');
       activePreset.BaseUrl = baseUrl;

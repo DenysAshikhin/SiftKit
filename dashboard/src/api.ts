@@ -5,7 +5,7 @@ import {
   SiftConfigSchema, RestartBackendResponseSchema,
   DashboardBenchmarkQuestionPresetsResponseSchema, DashboardBenchmarkQuestionPresetSchema,
   DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
-  ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
+  ManagedFilePickerResponseSchema, EngineConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
   ChatSessionBusyResponseSchema,
   ChatOperationStatusResponseSchema,
@@ -24,7 +24,7 @@ import {
   type MetricsResponse,
   type ManagedFilePickerResponse,
   type ManagedFilePickerTarget,
-  type LlamaCppConnectionTestResponse,
+  type EngineConnectionTestResponse,
   type RestartBackendResponse,
   type RunLogDeleteCriteria,
   type RunLogDeletePreviewResponse,
@@ -353,8 +353,8 @@ export function pickManagedFile(
 export function testLlamaCppBaseUrl(
   baseUrl: string,
   healthcheckTimeoutMs: number,
-): Promise<LlamaCppConnectionTestResponse> {
-  return fetchJson('/config/llama-cpp/test', LlamaCppConnectionTestResponseSchema, {
+): Promise<EngineConnectionTestResponse> {
+  return fetchJson('/config/llama-cpp/test', EngineConnectionTestResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ BaseUrl: baseUrl, HealthcheckTimeoutMs: healthcheckTimeoutMs }),

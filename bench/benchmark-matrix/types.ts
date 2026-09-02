@@ -113,7 +113,6 @@ export type MatrixIndex = {
 export type ConfigRecord = JsonObject & {
   Backend?: string;
   Model?: string;
-  LlamaCpp?: JsonObject;
 };
 
 // Bench config mirror is an open record (callers index arbitrary keys), so the

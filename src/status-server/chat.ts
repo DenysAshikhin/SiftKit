@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
 import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
-import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
+import { getActiveModelPreset, getConfiguredEngineBaseUrl, getConfiguredEngineNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
@@ -159,7 +159,7 @@ export function resolveChatSessionContextWindow(
   session: ChatSession,
 ): number {
   if (sessionUsesActiveModelPreset(config, session)) {
-    return getConfiguredLlamaNumCtx(config);
+    return getConfiguredEngineNumCtx(config);
   }
 
   const persistedContextWindow = session.modelPreset.NumCtx;
@@ -852,7 +852,7 @@ export async function condenseChatSession(
   const totalContextTokens = resolveChatSessionContextWindow(config, session);
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,
-    baseUrl: getConfiguredLlamaBaseUrl(effectiveConfig),
+    baseUrl: getConfiguredEngineBaseUrl(effectiveConfig),
     model: resolveChatSessionModel(config, session),
     timeoutMs: DEFAULT_TIMEOUT_MS,
     totalContextTokens,

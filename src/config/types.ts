@@ -7,11 +7,10 @@ import type {
   InferenceProcessState as ContractInferenceProcessState,
   InferenceModelState as ContractInferenceModelState,
   InferenceThinkingConfig as ContractInferenceThinkingConfig,
-  ManagedLlamaKvCacheQuantization as ContractManagedLlamaKvCacheQuantization,
-  ManagedLlamaSettings as ContractManagedLlamaSettings,
-  ManagedLlamaSpeculativeType as ContractManagedLlamaSpeculativeType,
+  ModelKvCacheQuantization as ContractModelKvCacheQuantization,
+  ModelPresetSettings as ContractModelPresetSettings,
   ModelRuntimePreset as ContractModelRuntimePreset,
-  RuntimeLlamaCppConfig as ContractRuntimeLlamaCppConfig,
+  RuntimeEngineConfig as ContractRuntimeEngineConfig,
   ServerModelPresetsConfig as ContractServerModelPresetsConfig,
   SiftConfig as ContractSiftConfig,
 } from '@siftkit/contracts';
@@ -30,10 +29,9 @@ export type InferenceModelState = ContractInferenceModelState;
 export type InferenceThinkingConfig = ContractInferenceThinkingConfig;
 export type InferenceConfig = ContractInferenceConfig;
 export type Exl3EngineConfig = ContractExl3EngineConfig;
-export type RuntimeLlamaCppConfig = ContractRuntimeLlamaCppConfig;
-export type ManagedLlamaKvCacheQuantization = ContractManagedLlamaKvCacheQuantization;
-export type ManagedLlamaSpeculativeType = ContractManagedLlamaSpeculativeType;
-export type ManagedLlamaSettings = ContractManagedLlamaSettings;
+export type RuntimeEngineConfig = ContractRuntimeEngineConfig;
+export type ModelKvCacheQuantization = ContractModelKvCacheQuantization;
+export type ModelPresetSettings = ContractModelPresetSettings;
 export type ModelRuntimePreset = ContractModelRuntimePreset;
 export type ServerModelPresetsConfig = ContractServerModelPresetsConfig;
 export type SiftConfig = ContractSiftConfig;
@@ -47,7 +45,7 @@ export type {
 } from '../web-search/types.js';
 
 export type DashboardModelRuntimePreset = ModelRuntimePreset;
-export type DashboardLlamaCppConfig = RuntimeLlamaCppConfig;
+export type DashboardRuntimeEngineConfig = RuntimeEngineConfig;
 export type DashboardOperationModeAllowedTools = OperationModeAllowedTools;
 export type DashboardPreset = SiftPreset;
 

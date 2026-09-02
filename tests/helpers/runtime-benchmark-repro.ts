@@ -29,11 +29,6 @@ function getStubLlamaBaseUrl(): StubLlamaTarget {
 export async function saveFixture60ChunkingConfig(): Promise<void> {
   const config = await loadConfig({ ensure: true });
   const stubLlama = getStubLlamaBaseUrl();
-  config.Runtime.LlamaCpp = {
-    ...config.Runtime.LlamaCpp,
-    BaseUrl: stubLlama.baseUrl,
-    NumCtx: 12_000,
-  };
   const basePreset = config.Server.ModelPresets.Presets[0];
   config.Server.ModelPresets.ActivePresetId = 'default';
   config.Server.ModelPresets.Presets = [{
@@ -41,8 +36,6 @@ export async function saveFixture60ChunkingConfig(): Promise<void> {
     id: 'default',
     label: 'Default',
     BaseUrl: stubLlama.baseUrl,
-    BindHost: stubLlama.host,
-    Port: stubLlama.port,
     NumCtx: 12_000,
   }];
   await saveConfig(config);

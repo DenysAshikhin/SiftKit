@@ -20,7 +20,7 @@ function writeConfig(dir: string, obj: JsonValue): void {
 function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'llama', ...overrides });
+  return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', ...overrides });
 }
 
 test('Exl3ModelCapabilities accepts valid vision_config object', () => {

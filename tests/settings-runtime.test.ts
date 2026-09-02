@@ -26,7 +26,6 @@ test('deriveRuntimeModelId trims whitespace and returns empty text for empty inp
 
 test('syncDerivedSettingsFields uses the active managed preset model when present', () => {
   const config = mockConfig({
-    Runtime: { LlamaCpp: {} },
     Server: {
       ModelPresets: {
         ActivePresetId: 'preset-a',

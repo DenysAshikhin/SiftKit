@@ -43,8 +43,6 @@ const SummaryRequestSchema = z.object({
     function: z.object({ name: z.string() }).passthrough(),
   }).passthrough()),
   tool_choice: z.string(),
-  id_slot: z.number(),
-  cache_prompt: z.boolean(),
   max_tokens: z.number().int().positive(),
 }).passthrough();
 
@@ -199,8 +197,6 @@ test('chat compaction sends only completed history to the real summary request',
     assert.equal(captured.messages.some((message) => message.content === 'fresh tool result'), false);
     assert.deepEqual(captured.tools, PLANNER_TOOLS);
     assert.equal(captured.tool_choice, 'none');
-    assert.equal(captured.id_slot, 2);
-    assert.equal(captured.cache_prompt, true);
     assert.equal(captured.max_tokens, 15_000);
   } finally {
     await new Promise<void>((resolve, reject) => {

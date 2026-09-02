@@ -239,14 +239,17 @@ test('repo-search reports only processed prompt tokens to the status backend whe
         statusBackendUrl: server.statusUrl,
         config: {
           ...server.state.config,
-          Runtime: {
-            ...server.state.config.Runtime,
-            LlamaCpp: {
-              ...server.state.config.Runtime.LlamaCpp,
-              BaseUrl: `http://127.0.0.1:${server.port}`,
-              NumCtx: 128000,
+          Server: {
+            ...server.state.config.Server,
+            ModelPresets: {
+              ...server.state.config.Server.ModelPresets,
+              Presets: server.state.config.Server.ModelPresets.Presets.map((preset) => ({
+                ...preset,
+                BaseUrl: `http://127.0.0.1:${server.port}`,
+                NumCtx: 128000,
+              })),
             },
-          },
+            },
         },
         model: 'mock-model',
         maxTurns: 1,

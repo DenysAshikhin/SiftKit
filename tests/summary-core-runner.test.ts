@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,10 +55,9 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
   try {
     tempEnv.setup();
     const config = getDefaultConfigObject();
-    config.Runtime.LlamaCpp = {
-      ...config.Runtime.LlamaCpp,
+    Object.assign(getActiveModelPreset(config), {
       NumCtx: 150_000,
-    };
+    });
     const result = await invokeSummaryCore({
       requestId: 'summary-core-runner-test',
       slotId: null,

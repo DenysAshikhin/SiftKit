@@ -16,7 +16,7 @@ import type { ClientRequestArgs } from 'node:http';
  * graphs, which both slows them down and stops them from exercising the artifact they ship.
  * The ports therefore arrive as env from src/test-runner/run-tests.ts, which reads them from
  * src/config/constants.ts, and tests/live-instance-guard.test.ts asserts the hand-off lands
- * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_LLAMA_PORT so the two cannot drift apart.
+ * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_ENGINE_PORT so the two cannot drift apart.
  *
  * It lives under src/test-runner/ so the main TypeScript build first emits a transient staging
  * copy, then sync flattens it to dist/test-runner alongside the runner. Preloading the compiled
@@ -36,7 +36,7 @@ function readGuardedPort(envName: string): string {
 
 const GUARDED_PORTS = new Map<string, string>([
   [readGuardedPort('SIFTKIT_GUARD_STATUS_PORT'), 'status server'],
-  [readGuardedPort('SIFTKIT_GUARD_LLAMA_PORT'), 'llama.cpp server'],
+  [readGuardedPort('SIFTKIT_GUARD_ENGINE_PORT'), 'llama.cpp server'],
 ]);
 
 const violations: string[] = [];

@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { getConfigPath } from '../../src/config/index.js';
+import { writeConfig } from '../../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './mock-config.js';
 
 export function configureDashboardTestEnv(
   tempRoot: string,
@@ -28,6 +31,9 @@ export function configureDashboardTestEnv(
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = '0';
   process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
+  // The production default preset names no model; dashboard servers need one so chat sessions and
+  // inference resolve. Tests that seed their own config overwrite this row afterwards.
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   return envBackup;
 }
 

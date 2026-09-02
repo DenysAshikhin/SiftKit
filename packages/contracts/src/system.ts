@@ -17,18 +17,17 @@ export const DashboardHealthSchema = z.object({
 export type DashboardHealth = z.infer<typeof DashboardHealthSchema>;
 
 export const ManagedFilePickerTargetSchema = z.enum([
-  'managed-llama-executable',
-  'managed-llama-model',
+  'model-preset-path',
   'preset-autoload-file',
 ]);
 export type ManagedFilePickerTarget = z.infer<typeof ManagedFilePickerTargetSchema>;
 export const ManagedFilePickerResponseSchema = z.object({ ok: z.boolean(), cancelled: z.boolean(), path: z.string().nullable() });
 export type ManagedFilePickerResponse = z.infer<typeof ManagedFilePickerResponseSchema>;
 
-export const LlamaCppConnectionTestResponseSchema = z.object({
+export const EngineConnectionTestResponseSchema = z.object({
   ok: z.boolean(), statusCode: z.number(), baseUrl: z.string().optional(), error: z.string().optional(),
 });
-export type LlamaCppConnectionTestResponse = z.infer<typeof LlamaCppConnectionTestResponseSchema>;
+export type EngineConnectionTestResponse = z.infer<typeof EngineConnectionTestResponseSchema>;
 
 export const InferenceRuntimeErrorPhaseSchema = z.enum([
   'process-start', 'process-stop', 'model-load', 'model-unload', 'model-freeze', 'preset-switch',

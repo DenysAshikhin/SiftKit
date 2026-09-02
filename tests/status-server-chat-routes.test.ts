@@ -17,7 +17,8 @@ import { startStatusServer } from '../src/status-server/index.js';
 import { getAddressInfo, requestJson, asObject } from './helpers/dashboard-http.js';
 import { configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo } from './helpers/dashboard-test-repo.js';
 import path from 'node:path';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
@@ -46,7 +47,7 @@ function seedCaptionSession(options: {
   withMetadata?: boolean;
 } = {}) {
   const runtimeRoot = path.dirname(getConfigPath());
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const configuredPreset = getActiveModelPreset(config);
   configuredPreset.Backend = 'exl3';
   configuredPreset.VisionEnabled = options.visionEnabled ?? true;
@@ -312,7 +313,7 @@ test('caption route performs one mocked vision pass and persists its caption', a
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const activePreset = getActiveModelPreset(config);
   activePreset.Backend = 'exl3';
   activePreset.VisionEnabled = true;

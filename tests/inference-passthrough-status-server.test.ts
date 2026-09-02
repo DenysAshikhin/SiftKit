@@ -43,7 +43,6 @@ function writeManagedConfig(
     BaseUrl: managed.baseUrl,
     NumCtx: 32000,
     ModelPath: managed.modelPath,
-    ExecutablePath: null,
     ...PASSTHROUGH_TIMEOUTS,
     ...presetOverrides,
   };

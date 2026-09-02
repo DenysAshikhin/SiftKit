@@ -108,7 +108,7 @@ test('tokenizeStart/tokenizeDone mirror the preflight tokenize event shape', () 
   const { events, reporter } = collect();
   reporter.tokenizeStart(1, 999);
   reporter.tokenizeDone(1, 999, {
-    promptTokenCount: 40, tokenCountSource: 'llama',
+    promptTokenCount: 40, tokenCountSource: 'exl3',
     tokenizeElapsedMs: 5, tokenizeRetryCount: 0,
     tokenizeTimeoutMs: 10_000, tokenizeRetryMaxWaitMs: 30_000,
     tokenizeStatus: 'ok', tokenizeErrorMessage: null,

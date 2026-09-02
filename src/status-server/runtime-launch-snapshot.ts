@@ -2,29 +2,29 @@ import { getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runti
 import { z } from '../lib/zod.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
-import type { RuntimeLlamaCppConfig } from '../config/types.js';
+import type { RuntimeEngineConfig } from '../config/types.js';
 
-const SNAPSHOT_KEY = 'runtime_llama_launch_snapshot';
+const SNAPSHOT_KEY = 'runtime_engine_launch_snapshot';
 
 /**
- * Snapshot of the active managed-llama preset taken when the managed server
- * boots. The config service reads this to populate `Runtime.LlamaCpp` /
+ * Snapshot of the active model preset taken when the managed engine
+ * boots. The config service reads this to populate `Runtime.Engine` and the
  * active preset model, so prompt-budget math matches the server that was launched.
  */
 export type RuntimeLaunchSnapshot = {
   Model: string | null;
-  LlamaCpp: RuntimeLlamaCppConfig;
+  Engine: RuntimeEngineConfig;
 };
 
 // The snapshot is written by writeRuntimeLaunchSnapshot from a typed
 // RuntimeLaunchSnapshot, so this trusted-boundary validator only confirms the
-// stored JSON is an object whose LlamaCpp member is a nested object.
+// stored JSON is an object whose Engine member is a nested object.
 const RuntimeLaunchSnapshotSchema = z.custom<RuntimeLaunchSnapshot>((value) => {
   const parsed = JsonObjectSchema.safeParse(value);
   return parsed.success
-    && typeof parsed.data.LlamaCpp === 'object'
-    && parsed.data.LlamaCpp !== null
-    && !Array.isArray(parsed.data.LlamaCpp);
+    && typeof parsed.data.Engine === 'object'
+    && parsed.data.Engine !== null
+    && !Array.isArray(parsed.data.Engine);
 });
 
 export function writeRuntimeLaunchSnapshot(

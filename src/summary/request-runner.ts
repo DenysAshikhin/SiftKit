@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyHostLlamaRuntimeSettings,
+  applyHostEngineRuntimeSettings,
   applyMaxTokensOverrideToConfig,
   applyModelOverrideToConfig,
   loadConfig,
   normalizeLoadedConfig,
   type SiftConfig,
   getChunkThresholdCharacters,
-  getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   getActiveInferenceBackend,
   getActiveModelPreset,
@@ -218,8 +218,8 @@ export class SummaryRequestRunner {
       traceSummary('loadConfig done');
     }
     configSpan?.end();
-    getConfiguredLlamaBaseUrl(this.config);
-    getConfiguredLlamaNumCtx(this.config);
+    getConfiguredEngineBaseUrl(this.config);
+    getConfiguredEngineNumCtx(this.config);
     // Host sync first, then caller overlays: an explicit --model/MaxTokens must win
     // over whatever the host reports, and both must be visible to every getter below.
     this.config = await this.applyHostLlamaSettings(this.config);
@@ -266,9 +266,9 @@ export class SummaryRequestRunner {
   }
 
   private async applyHostLlamaSettings(config: SiftConfig): Promise<SiftConfig> {
-    const localNumCtx = getConfiguredLlamaNumCtx(config);
-    const hostConfig = await applyHostLlamaRuntimeSettings(config);
-    const effectiveNumCtx = getConfiguredLlamaNumCtx(hostConfig);
+    const localNumCtx = getConfiguredEngineNumCtx(config);
+    const hostConfig = await applyHostEngineRuntimeSettings(config);
+    const effectiveNumCtx = getConfiguredEngineNumCtx(hostConfig);
     if (effectiveNumCtx !== localNumCtx) {
       this.progress.hostSync(localNumCtx, effectiveNumCtx);
     }

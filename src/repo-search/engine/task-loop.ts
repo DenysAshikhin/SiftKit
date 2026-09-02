@@ -1,7 +1,7 @@
 import {
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   getActiveModelPreset,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
 } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
@@ -218,7 +218,7 @@ export class TaskLoop {
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
     this.budget = new TurnBudget({
-      totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
+      totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredEngineNumCtx(options.config) : 32000))),
       maxTurns: this.maxTurns,
       config: options.config,
     });
@@ -232,23 +232,10 @@ export class TaskLoop {
     // choice and outranks the planner wording; chat answers the user directly,
     // so the answer-oriented preset/default message is already right there.
     const presetBudgetMessageCustomized = Boolean(activePreset.ReasoningBudgetMessage)
-      && activePreset.ReasoningBudgetMessage !== SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+      && activePreset.ReasoningBudgetMessage !== SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE;
     this.plannerBudgetMessageOverride = this.loopKind === 'chat' || presetBudgetMessageCustomized
       ? null
       : PLANNER_REASONING_BUDGET_MESSAGE;
-    if (this.loopKind !== 'chat'
-      && activePreset.Backend === 'llama'
-      && Number.isFinite(activePreset.ReasoningBudget)
-      && activePreset.ReasoningBudget > 0) {
-      // llama enforces the budget server-side with a launch-time message, so the
-      // planner wording cannot apply there; surface the gap instead of hiding it.
-      options.logger?.write({
-        kind: 'planner_budget_backend_gap',
-        taskId: task.id,
-        warningText: 'llama backend injects the preset ReasoningBudgetMessage server-side on budget exhaustion; '
-          + 'the planner action budget message cannot apply, so the model may still read it as "finish now".',
-      });
-    }
     this.plannerToolDefinitions = options.plannerToolDefinitions;
     this.plannerProtocolTools = toProtocolTools(this.plannerToolDefinitions);
     const activePlannerToolNames = this.plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);

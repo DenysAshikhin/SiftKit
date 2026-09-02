@@ -4,7 +4,7 @@ import test from 'node:test';
 import { applyMaxTokensOverrideToConfig, applyModelOverrideToConfig, overlayActivePreset } from '../src/config/overrides.js';
 import {
   getActiveModelPreset,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   getConfiguredReasoning,
 } from '../src/config/index.js';
@@ -64,11 +64,9 @@ test('applyMaxTokensOverrideToConfig rejects non-positive and non-finite values 
   assert.throws(() => applyMaxTokensOverrideToConfig(config, Number.POSITIVE_INFINITY), /MaxTokens/u);
 });
 
-// Runtime.LlamaCpp is the live launch record and outranks the persisted preset in the
-// getters, so an overlay that leaves it untouched would be ignored for these two fields.
-test('overlayActivePreset mirrors NumCtx and Reasoning onto the launch record', () => {
+// The getters read the active preset, so an overlay must land on that preset.
+test('overlayActivePreset writes NumCtx and Reasoning onto the active preset', () => {
   const config = mockSiftConfig({
-    Runtime: { LlamaCpp: { NumCtx: 8000, Reasoning: 'off' } },
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
@@ -79,28 +77,27 @@ test('overlayActivePreset mirrors NumCtx and Reasoning onto the launch record', 
 
   const overlaid = overlayActivePreset(config, { NumCtx: 200_000, Reasoning: 'on' });
 
-  assert.equal(getConfiguredLlamaNumCtx(overlaid), 200_000);
+  assert.equal(getConfiguredEngineNumCtx(overlaid), 200_000);
   assert.equal(getConfiguredReasoning(overlaid), 'on');
-  assert.equal(overlaid.Runtime.LlamaCpp.NumCtx, 200_000);
-  assert.equal(overlaid.Runtime.LlamaCpp.Reasoning, 'on');
+  assert.equal(getActiveModelPreset(overlaid).NumCtx, 200_000);
+  assert.equal(getActiveModelPreset(overlaid).Reasoning, 'on');
 });
 
-test('overlayActivePreset leaves the launch record alone for fields it does not overlay', () => {
+test('overlayActivePreset leaves preset fields it does not overlay untouched', () => {
   const config = mockSiftConfig({
-    Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off' } },
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, IdleAction: 'unload' }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', BaseUrl: 'http://127.0.0.1:9999', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload' }],
       },
     },
   });
 
   const overlaid = overlayActivePreset(config, { Model: 'override-model' });
 
-  assert.equal(overlaid.Runtime.LlamaCpp.BaseUrl, 'http://127.0.0.1:9999');
-  assert.equal(overlaid.Runtime.LlamaCpp.NumCtx, 8000);
-  assert.equal(overlaid.Runtime.LlamaCpp.Reasoning, 'off');
+  assert.equal(getActiveModelPreset(overlaid).BaseUrl, 'http://127.0.0.1:9999');
+  assert.equal(getActiveModelPreset(overlaid).NumCtx, 8000);
+  assert.equal(getActiveModelPreset(overlaid).Reasoning, 'off');
 });
 
 test('overlays follow the active preset id rather than the first preset', () => {

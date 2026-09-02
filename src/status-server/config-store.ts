@@ -10,23 +10,18 @@ import { PresetCatalog } from '../preset-catalog.js';
 import { toError } from '../lib/errors.js';
 import { PersistedConfigInvalidError } from '../config/errors.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
-import { getActiveModelPreset, managesManagedLlamaLifecycle } from '../config/getters.js';
+import { getActiveModelPreset, managesManagedEngineLifecycle } from '../config/getters.js';
 import {
   getFinitePositiveInteger,
-  getLlamaBaseUrl,
-  getManagedLlamaConfig,
-  getManagedLlamaInternalBaseUrl,
   getManagedStartupTimeoutMs,
   getNullableTrimmedString,
-  getRuntimeLlamaCpp,
+  getRuntimeEngine,
   mergeConfig,
   normalizeAssistantConfig,
   normalizeConfigObject,
   normalizeModelRuntimePresetArray,
   normalizeWebSearchConfig,
-  type ManagedLlamaConfig,
 } from '../config/normalization.js';
-import { SIFT_DEFAULT_LLAMA_MODEL } from '../config/constants.js';
 import type {
   ModelRuntimePreset,
   SiftConfig,
@@ -36,7 +31,6 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { LOCAL_OWNER_ID } from '../assistant/storage/schema.js';
 import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
-export const DEFAULT_LLAMA_MODEL = SIFT_DEFAULT_LLAMA_MODEL;
 export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = getDefaultConfigObject().WebSearch;
 
 export function getDefaultConfig(): SiftConfig {
@@ -164,7 +158,7 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
     ExpandReads: row.expand_reads !== 0,
     PromptPrefix: row.prompt_prefix,
     Runtime: {
-      LlamaCpp: {},
+      Engine: {},
     },
     Thresholds: {
       MinCharactersForSummary: row.thresholds_min_characters_for_summary,
@@ -323,46 +317,18 @@ export function readConfig(configPath: string): SiftConfig {
   // the preset afterwards). Before any launch there is no snapshot, so the
   // active preset is the best available source for the runtime config.
   const snapshot = readRuntimeLaunchSnapshot(configPath) ?? buildRuntimeLaunchSnapshot(config);
-  config.Runtime.LlamaCpp = snapshot.LlamaCpp;
+  config.Runtime.Engine = snapshot.Engine;
   return config;
 }
 
 /**
- * Builds the runtime launch snapshot (resolved `Model` + `Runtime.LlamaCpp`)
- * from the active managed-llama preset. Written verbatim to `runtime_metadata`
- * when the managed server boots; also used as the runtime fallback before any
- * launch has happened.
+ * Builds the runtime launch snapshot (resolved `Model` + `Runtime.Engine`) from the
+ * active preset. Written verbatim to `runtime_metadata` when the managed engine boots;
+ * also used as the runtime fallback before any launch has happened. The engine's launch
+ * values live on the preset itself, so the runtime record carries only the model id.
  */
 export function buildRuntimeLaunchSnapshot(config: SiftConfig): RuntimeLaunchSnapshot {
-  const activePreset = getActiveModelPreset(config);
-  if (activePreset.Backend !== 'llama') {
-    // Non-llama presets (e.g. exl3) have no managed-llama runtime. Emitting the
-    // preset's own BaseUrl/Port as "LlamaCpp" runtime would masquerade exl3
-    // settings as llama config, so publish an empty runtime instead.
-    return { Model: getNullableTrimmedString(activePreset.Model), LlamaCpp: {} };
-  }
-  const managed = getManagedLlamaConfig(config);
-  return {
-    Model: managed.Model ?? null,
-    LlamaCpp: {
-      BaseUrl: getManagedLlamaInternalBaseUrl(config),
-      NumCtx: managed.NumCtx,
-      ModelPath: managed.ModelPath,
-      Temperature: managed.Temperature,
-      TopP: managed.TopP,
-      TopK: managed.TopK,
-      MinP: managed.MinP,
-      PresencePenalty: managed.PresencePenalty,
-      RepetitionPenalty: managed.RepetitionPenalty,
-      MaxTokens: managed.MaxTokens,
-      GpuLayers: managed.GpuLayers,
-      Threads: managed.Threads,
-      NcpuMoe: managed.NcpuMoe,
-      FlashAttention: managed.FlashAttention,
-      ParallelSlots: managed.ParallelSlots,
-      Reasoning: managed.Reasoning,
-    },
-  };
+  return { Model: getNullableTrimmedString(getActiveModelPreset(config).Model), Engine: {} };
 }
 
 export function writeConfig(configPath: string, config: SiftConfig): void {
@@ -374,15 +340,10 @@ export function writeConfig(configPath: string, config: SiftConfig): void {
 
 export {
   getActiveModelPreset,
-  managesManagedLlamaLifecycle,
+  managesManagedEngineLifecycle,
   getFinitePositiveInteger,
-  getLlamaBaseUrl,
-  getManagedLlamaConfig,
-  getManagedLlamaInternalBaseUrl,
   getManagedStartupTimeoutMs,
-  getRuntimeLlamaCpp,
+  getRuntimeEngine,
   mergeConfig,
   normalizeWebSearchConfig,
 };
-
-export type { ManagedLlamaConfig };

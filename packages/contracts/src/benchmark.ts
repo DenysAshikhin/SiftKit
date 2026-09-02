@@ -8,7 +8,7 @@ export const DashboardBenchmarkSortKeySchema = z.enum([
   'toolUseQualityScore', 'failureCount', 'sampleCount',
 ]);
 export type DashboardBenchmarkSortKey = z.infer<typeof DashboardBenchmarkSortKeySchema>;
-export const DashboardBenchmarkLogStreamKindSchema = z.enum(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama']);
+export const DashboardBenchmarkLogStreamKindSchema = z.enum(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_engine']);
 export type DashboardBenchmarkLogStreamKind = z.infer<typeof DashboardBenchmarkLogStreamKindSchema>;
 
 export const DashboardBenchmarkQuestionPresetSchema = z.object({

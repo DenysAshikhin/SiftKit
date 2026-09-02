@@ -14,8 +14,8 @@ import {
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
-import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
-import { getConfigPath, SIFT_DEFAULT_LLAMA_BASE_URL } from '../src/config/index.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { getConfigPath } from '../src/config/index.js';
 import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
 import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.js';
 import {
@@ -35,7 +35,7 @@ import {
   type SseResponse,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { buildWebSearchConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
+import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import {
@@ -99,7 +99,7 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   config.WebSearch = buildWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
@@ -292,19 +292,16 @@ test('chat session creation uses pass-through host context window', async () => 
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const hostConfig = getDefaultConfig();
+  const hostConfig = getDefaultServerConfig();
   const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
   if (!hostPreset) {
     throw new Error('Default model preset is missing.');
   }
-  hostConfig.Runtime.LlamaCpp.NumCtx = 75_008;
-  hostConfig.Runtime.LlamaCpp.Reasoning = 'off';
   hostPreset.NumCtx = 75_008;
   hostPreset.Reasoning = 'off';
-  hostPreset.Model = 'host-loaded-model.gguf';
-  hostPreset.Backend = 'llama';
+  hostPreset.Model = 'host-loaded-model';
   const host = await startHostConfigServer(hostConfig);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const serverConfig = d(config.Server);
   const llamaServerConfig = d(serverConfig.ModelPresets);
   const presets = asObjectArray(llamaServerConfig.Presets);
@@ -312,7 +309,7 @@ test('chat session creation uses pass-through host context window', async () => 
   activePreset.ExternalServerEnabled = true;
   activePreset.BaseUrl = host.baseUrl;
   activePreset.NumCtx = 150_000;
-  activePreset.Model = 'local-stale-model.gguf';
+  activePreset.Model = 'local-stale-model';
   activePreset.Reasoning = 'on';
   writeConfig(configPath, config);
 
@@ -330,7 +327,7 @@ test('chat session creation uses pass-through host context window', async () => 
     assert.equal(createSession.statusCode, 200);
     const session = d(createSession.body.session);
     const contextUsage = d(createSession.body.contextUsage);
-    assert.equal(session.model, 'host-loaded-model.gguf');
+    assert.equal(session.model, 'host-loaded-model');
     assert.equal(session.contextWindowTokens, 75_008);
     assert.equal(session.thinkingEnabled, false);
     assert.equal(contextUsage.contextWindowTokens, 75_008);
@@ -368,16 +365,13 @@ class ChatInferenceMetadataFixture {
     fs.mkdirSync(path.dirname(this.statusPath), { recursive: true });
     fs.writeFileSync(this.statusPath, 'false', 'utf8');
     this.envBackup = configureDashboardTestEnv(this.tempRoot, this.statusPath, this.configPath);
-    const config = getDefaultConfig();
+    const config = getDefaultServerConfig();
     const activePreset = d(asObjectArray(d(d(config.Server).ModelPresets).Presets)[0]);
     activePreset.Backend = 'exl3';
     activePreset.Model = 'active-model';
     activePreset.NumCtx = 150_000;
     activePreset.Reasoning = 'off';
     this.activePresetId = String(activePreset.id);
-    const runtimeLlama = d(d(config.Runtime).LlamaCpp);
-    runtimeLlama.NumCtx = 30_000;
-    runtimeLlama.Reasoning = 'on';
     writeConfig(this.configPath, config);
   }
 
@@ -807,7 +801,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const tokenizedContents: string[] = [];
   const tokenizerServer = http.createServer(async (request, response) => {
-    if (request.method !== 'POST' || request.url !== '/tokenize') {
+    if (request.method !== 'POST' || request.url !== '/v1/token/encode') {
       response.writeHead(404, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: 'not found' }));
       return;
@@ -819,7 +813,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
       request.on('end', () => resolve(data));
     });
     const parsed = asObject(parseJsonValueText(bodyText));
-    const content = String(parsed.content || '');
+    const content = String(parsed.text || '');
     tokenizedContents.push(content);
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ count: content === 'exact route user prompt' ? 23 : Math.max(1, Math.ceil(content.length / 4)) }));
@@ -827,25 +821,18 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
   const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const serverLlama = config.Server.ModelPresets;
   serverLlama.Presets = [{
     ...serverLlama.Presets[0],
     id: 'default',
     label: 'Default',
     ExternalServerEnabled: false,
-    BaseUrl: SIFT_DEFAULT_LLAMA_BASE_URL,
+    BaseUrl: tokenizerBaseUrl,
   }];
   serverLlama.ActivePresetId = 'default';
   writeConfig(configPath, config);
-  writeRuntimeLaunchSnapshot(configPath, {
-    Model: serverLlama.Presets[0]?.Model ?? null,
-    LlamaCpp: {
-      BaseUrl: tokenizerBaseUrl,
-      NumCtx: serverLlama.Presets[0]?.NumCtx,
-      Reasoning: serverLlama.Presets[0]?.Reasoning,
-    },
-  });
+  writeRuntimeLaunchSnapshot(configPath, { Model: serverLlama.Presets[0]?.Model ?? null, Engine: {} });
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -905,23 +892,14 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   fs.writeFileSync(configPath, JSON.stringify({
-    Summary: {
-      PreferredBackend: 'llama.cpp',
-    },
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      Model: 'mock-model.gguf',
-      NumCtx: 32000,
-      PromptTokenReserve: 4000,
-    },
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           id: 'default',
           label: 'Default',
-          Backend: 'llama',
-          Model: 'mock-model.gguf',
+          Backend: 'exl3',
+          Model: 'mock-model',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 32000,
         }],
@@ -1067,7 +1045,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const streamConfig = getDefaultConfig();
+  const streamConfig = getDefaultServerConfig();
   const planPreset = streamConfig.Presets.find((preset) => preset.id === 'plan');
   const repoSearchPreset = streamConfig.Presets.find((preset) => preset.id === 'repo-search');
   if (!planPreset || !repoSearchPreset) {
@@ -1283,7 +1261,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const modelPreset = config.Server.ModelPresets.Presets[0];
   if (!modelPreset) {
     throw new Error('Default model preset is required.');
@@ -1395,7 +1373,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
   const secondOversizedImage = toDataUrl('image/png', rasterBuffer('png', 1800, 1000));
   const sessionCap = 500_000;
-  const baseConfig = getDefaultConfig();
+  const baseConfig = getDefaultServerConfig();
   const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
   if (!snapshotPreset) {
     throw new Error('Default model preset is required.');
@@ -1570,7 +1548,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
   const sessionCap = 500_000;
   const laterActiveCap = 100_000;
-  const baseConfig = getDefaultConfig();
+  const baseConfig = getDefaultServerConfig();
   const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
   if (!snapshotPreset) {
     throw new Error('Default model preset is required.');
@@ -1718,7 +1696,7 @@ test('repo-search endpoint rejects images when the active preset lacks vision', 
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const modelPreset = config.Server.ModelPresets.Presets[0];
   if (!modelPreset) {
     throw new Error('Default model preset is required.');
@@ -1771,7 +1749,7 @@ test('plan stream endpoint rejects images when image retention is zero', async (
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const modelPreset = config.Server.ModelPresets.Presets[0];
   if (!modelPreset) {
     throw new Error('Default model preset is required.');
@@ -1923,7 +1901,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
   });
   const llamaAddress = getAddressInfo(llamaServer);
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   const modelPreset = config.Server.ModelPresets.Presets[0];
   if (!modelPreset) {
     throw new Error('Default model preset is required.');
@@ -2083,7 +2061,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
@@ -2229,7 +2207,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
@@ -2330,7 +2308,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   config.WebSearch = usableWebSearchConfig();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeConfig(getConfigPath(), config);
@@ -3076,7 +3054,7 @@ test('chat completion replays prior tool evidence without hidden system context'
   const llamaAddress = getAddressInfo(llamaServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const chatConfig = getDefaultConfig();
+  const chatConfig = getDefaultServerConfig();
   const chatPreset = chatConfig.Server.ModelPresets.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
@@ -3237,7 +3215,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
   const llamaAddress = getAddressInfo(llamaServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const snapshotConfig = getDefaultConfig();
+  const snapshotConfig = getDefaultServerConfig();
   const snapshotPreset = snapshotConfig.Server.ModelPresets.Presets[0];
   snapshotPreset.Model = 'snapshot-model.gguf';
   snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
@@ -3267,7 +3245,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
     const basePreset = d(asObjectArray(modelPresets.Presets)[0]);
     modelPresets.Presets = [
       basePreset,
-      { ...basePreset, id: 'live', label: 'Live', Model: 'live-model.gguf', Temperature: 0.94, Port: Number(basePreset.Port) + 1 },
+      { ...basePreset, id: 'live', label: 'Live', Model: 'live-model.gguf', Temperature: 0.94 },
     ];
     modelPresets.ActivePresetId = 'live';
     const putResponse = await requestJson(`${baseUrl}/config?skip_ready=1`, {
@@ -3342,7 +3320,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   const llamaAddress = getAddressInfo(llamaServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const chatConfig = getDefaultConfig();
+  const chatConfig = getDefaultServerConfig();
   const chatPreset = chatConfig.Server.ModelPresets.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;

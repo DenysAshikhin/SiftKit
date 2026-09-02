@@ -22,10 +22,10 @@ function startFakeServer(): Promise<FakeServer> {
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        if (req.url === '/tokenize') {
+        if (req.url === '/v1/token/encode') {
           res.writeHead(200, { 'content-type': 'application/json' });
-          const content = String(asObject(parseJsonValueText(body || '{}')).content || '');
-          res.end(JSON.stringify({ count: Math.ceil(content.length / 2) }));
+          const content = String(asObject(parseJsonValueText(body || '{}')).text || '');
+          res.end(JSON.stringify({ length: Math.ceil(content.length / 2) }));
           return;
         }
         sendChatCompletionSse(res, {
@@ -49,7 +49,7 @@ test('generateLlamaCppChatResponse reports locally counted tokens, not provider 
   const fake = await startFakeServer();
   try {
     const result = await generateLlamaCppChatResponse({
-      config: mockConfig({ Runtime: { LlamaCpp: { BaseUrl: fake.baseUrl, NumCtx: 32000 } } }),
+      config: mockConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: fake.baseUrl, NumCtx: 32000 }] } } }),
       model: 'mock',
       messages: [{ role: 'user', content: USER_MESSAGE }],
       idleTimeoutSeconds: 10,

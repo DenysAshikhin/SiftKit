@@ -30,7 +30,7 @@ import {
 } from '../http-utils.js';
 import { readConfig } from '../config-store.js';
 import {
-  applyHostLlamaRuntimeSettings,
+  applyHostEngineRuntimeSettings,
   getActiveModelPreset,
   getConfiguredReasoning,
   notifyStatusBackend,
@@ -123,7 +123,7 @@ import type { JsonObject } from '../../lib/json-types.js';
 
 async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
   const localConfig = readConfig(configPath);
-  return await applyHostLlamaRuntimeSettings(localConfig);
+  return await applyHostEngineRuntimeSettings(localConfig);
 }
 
 function normalizeChatGroundingStatus(value: ChatGroundingStatus | null | undefined): ChatGroundingStatus | null {

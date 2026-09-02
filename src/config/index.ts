@@ -4,29 +4,25 @@
 export {
   SIFTKIT_VERSION,
   SIFT_DEFAULT_NUM_CTX,
-  SIFT_DEFAULT_LLAMA_MODEL,
-  SIFT_DEFAULT_LLAMA_BASE_URL,
-  SIFT_DEFAULT_LLAMA_BIND_HOST,
-  SIFT_DEFAULT_LLAMA_PORT,
-  SIFT_DEFAULT_LLAMA_GPU_LAYERS,
-  SIFT_DEFAULT_LLAMA_BATCH_SIZE,
-  SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
-  SIFT_DEFAULT_LLAMA_CACHE_RAM,
-  SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  SIFT_DEFAULT_ENGINE_BASE_URL,
+  SIFT_DEFAULT_ENGINE_PORT,
+  SIFT_DEFAULT_ENGINE_UBATCH_SIZE,
+  SIFT_DEFAULT_ENGINE_CACHE_RAM,
+  SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
 
 export type {
-  ManagedLlamaKvCacheQuantization,
+  ModelKvCacheQuantization,
   Exl3EngineConfig,
   InferenceBackendId,
   InferenceConfig,
   InferenceThinkingConfig,
-  RuntimeLlamaCppConfig,
-  ManagedLlamaSettings,
+  RuntimeEngineConfig,
+  ModelPresetSettings,
   ModelRuntimePreset,
   ServerModelPresetsConfig,
   SiftConfig,
@@ -49,12 +45,12 @@ export {
 } from './paths.js';
 
 export {
-  getRuntimeLlamaCpp,
+  getRuntimeEngine,
   getActiveModelPreset,
   getActiveInferenceBackend,
-  managesManagedLlamaLifecycle,
-  getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
+  managesManagedEngineLifecycle,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
   getConfiguredReasoning,
   getConfiguredModel,
   getConfiguredPromptPrefix,
@@ -77,8 +73,8 @@ export {
 } from './effective.js';
 
 export {
-  applyHostLlamaRuntimeSettings,
-  resetHostLlamaSettingsCacheForTests,
+  applyHostEngineRuntimeSettings,
+  resetHostEngineSettingsCacheForTests,
 } from './host-sync.js';
 
 export {

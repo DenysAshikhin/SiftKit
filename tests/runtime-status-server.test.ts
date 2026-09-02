@@ -870,7 +870,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
           prompt: 'find tool calls',
           repoRoot: tempRoot,
           model: 'mock-model',
-          backend: 'llama',
+          backend: 'exl3',
           requestMaxTokens: 512,
           maxTurns: 2,
           transcriptText: '',

@@ -173,7 +173,7 @@ test('repo-search puts the image part on the first user message it sends', async
         model: 'mock',
         baseUrl: `http://127.0.0.1:${port}`,
         runtimeProfile: new RepoSearchRuntimeProfile('chat'),
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: `http://127.0.0.1:${port}` } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: `http://127.0.0.1:${port}` }] } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -478,12 +478,3 @@ test('the repo-agent runner refuses an image when the preset has no vision', asy
   }
 });
 
-// The chat guard runs on the preset the chat route resolves, which is the llama-backed
-// default in a fresh config. That is the backend branch rather than the vision branch.
-test('the chat preset guard rejects an image on a llama-backed preset', () => {
-  const llamaPreset = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'llama' });
-  assert.throws(
-    () => assertPresetAcceptsImages(llamaPreset, ['data:image/png;base64,AAAA']),
-    /llama/iu,
-  );
-});

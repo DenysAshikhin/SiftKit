@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import {
   getActiveModelPreset,
-  getConfiguredLlamaBaseUrl,
+  getConfiguredEngineBaseUrl,
   loadConfig,
 } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -79,7 +79,7 @@ test('live provider retains the large prefix through two approvals and an exempt
     `active preset ${preset.id} has no configured model`,
   );
   const baseUrl = requireConfiguredString(
-    getConfiguredLlamaBaseUrl(config),
+    getConfiguredEngineBaseUrl(config),
     `active preset ${preset.id} has no configured base URL`,
   );
   const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(

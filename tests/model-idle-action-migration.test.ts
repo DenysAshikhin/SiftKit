@@ -431,20 +431,8 @@ test('IdleAction schema rejects ram and other invalid values', () => {
   assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, IdleAction: 'hibernate' }).success, false);
 });
 
-test('llama rejects freeze while EXL3 accepts all documented IdleAction values', () => {
+test('EXL3 accepts all documented IdleAction values', () => {
   const base = getDefaultConfigObject();
-  const llamaFreeze = {
-    ...base,
-    Server: {
-      ...base.Server,
-      ModelPresets: {
-        ...base.Server.ModelPresets,
-        Presets: base.Server.ModelPresets.Presets.map((preset) => ({ ...preset, IdleAction: 'freeze' })),
-      },
-    },
-  };
-  assert.throws(() => normalizeConfigObject(llamaFreeze), /llama.*IdleAction=freeze/u);
-
   for (const IdleAction of ['none', 'freeze', 'unload'] as const) {
     const exl3 = {
       ...base,

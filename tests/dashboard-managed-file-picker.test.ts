@@ -6,34 +6,34 @@ import {
   pickManagedFilePath,
 } from '../src/status-server/file-picker.js';
 
-test('getManagedFilePickerDialogOptions configures executable picker filters', () => {
+test('getManagedFilePickerDialogOptions opens a directory picker for the model preset path', () => {
   const options = getManagedFilePickerDialogOptions(
-    'managed-llama-executable',
-    'C:\\llama\\llama-server.exe',
+    'model-preset-path',
+    'D:\\models\\current',
   );
 
-  assert.equal(options.title, 'Select llama.cpp executable');
-  assert.equal(options.filter, 'llama-server.exe|llama-server.exe|All files (*.*)|*.*');
-  assert.equal(options.initialPath, 'C:\\llama\\llama-server.exe');
+  assert.equal(options.title, 'Select EXL3 model directory');
+  assert.equal(options.filter, null);
+  assert.equal(options.initialPath, 'D:\\models\\current');
 });
 
-test('pickManagedFilePath returns selected model path from the dialog runner', async () => {
+test('pickManagedFilePath returns the selected model directory from the dialog runner', async () => {
   let receivedInitialPath: string | null = null;
   const result = await pickManagedFilePath(
-    'managed-llama-model',
-    'D:\\models\\current.gguf',
+    'model-preset-path',
+    'D:\\models\\current',
     async (options) => {
       receivedInitialPath = options.initialPath;
-      assert.equal(options.title, 'Select GGUF model');
-      assert.equal(options.filter, 'GGUF models (*.gguf)|*.gguf|All files (*.*)|*.*');
-      return 'D:\\models\\selected.gguf';
+      assert.equal(options.title, 'Select EXL3 model directory');
+      assert.equal(options.filter, null);
+      return 'D:\\models\\selected';
     },
   );
 
-  assert.equal(receivedInitialPath, 'D:\\models\\current.gguf');
+  assert.equal(receivedInitialPath, 'D:\\models\\current');
   assert.deepEqual(result, {
     cancelled: false,
-    path: 'D:\\models\\selected.gguf',
+    path: 'D:\\models\\selected',
   });
 });
 
@@ -63,7 +63,7 @@ test('pickManagedFilePath returns the selected autoload file path', async () => 
 
 test('pickManagedFilePath reports cancelled selections', async () => {
   const result = await pickManagedFilePath(
-    'managed-llama-executable',
+    'model-preset-path',
     null,
     async () => null,
   );

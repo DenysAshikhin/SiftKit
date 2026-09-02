@@ -1,8 +1,8 @@
 import {
   getActiveInferenceBackend,
   getActiveModelPreset,
-  getConfiguredLlamaBaseUrl,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  getConfiguredEngineBaseUrl,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   type SiftConfig,
 } from '../config/index.js';
 import { resolveSpentThinkingTokens } from '../lib/token-estimate.js';
@@ -149,7 +149,7 @@ export class LlamaCppClient {
     content: string,
     options: { requestTimeoutSeconds?: number; retryMaxWaitMs?: number } = {},
   ): Promise<{ tokenCount: number; raw: JsonObject }> {
-    const baseUrl = getConfiguredLlamaBaseUrl(config);
+    const baseUrl = getConfiguredEngineBaseUrl(config);
     const isExl3 = getActiveInferenceBackend(config) === 'exl3';
     const response = await retryProviderRequest(async () => {
       const nextResponse = await this.client.requestJsonFull({
@@ -176,7 +176,7 @@ export class LlamaCppClient {
   }
 
   async listModels(config: SiftConfig): Promise<string[]> {
-    const baseUrl = getConfiguredLlamaBaseUrl(config);
+    const baseUrl = getConfiguredEngineBaseUrl(config);
     return this.listModelsAtBaseUrl(baseUrl, 5000);
   }
 
@@ -227,7 +227,7 @@ export class LlamaCppClient {
   }
 
   async chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
-    const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(options.config);
+    const baseUrl = options.baseUrl || getConfiguredEngineBaseUrl(options.config);
     const backend = getActiveInferenceBackend(options.config);
     if (backend !== 'exl3') {
       return this.chatAtBaseUrl(baseUrl, options);
@@ -271,7 +271,7 @@ export class LlamaCppClient {
     const activePreset = getActiveModelPreset(options.config);
     const budgetMessage = options.reasoningBudgetMessage
       || activePreset.ReasoningBudgetMessage
-      || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+      || SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE;
     const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
     const spentThinkingTokens = resolveSpentThinkingTokens(
       options.config,

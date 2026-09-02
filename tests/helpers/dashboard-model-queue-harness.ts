@@ -144,7 +144,7 @@ export class DashboardModelQueueHarness {
         response.end('{"object":"list","data":[{"id":"model-a"}]}');
         return;
       }
-      if (request.method === 'POST' && request.url === '/tokenize') {
+      if (request.method === 'POST' && request.url === '/v1/token/encode') {
         response.setHeader('content-type', 'application/json');
         response.end('{"count":10}');
         return;
@@ -266,12 +266,12 @@ export class DashboardModelQueueHarness {
       };
     } else {
       config.Server.ModelPresets = {
-        ActivePresetId: 'llama-main',
+        ActivePresetId: 'external-main',
         Presets: [{
           ...basePreset,
-          id: 'llama-main',
-          label: 'llama.cpp main',
-          Backend: 'llama',
+          id: 'external-main',
+          label: 'External engine main',
+          Backend: 'exl3',
           BaseUrl: fakeBaseUrl,
           ExternalServerEnabled: true,
           Model: 'model-a',

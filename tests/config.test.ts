@@ -12,12 +12,12 @@ import {
   saveConfig,
   getConfigPath,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
   initializeRuntime,
   getStatusServerUnavailableMessage,
   getConfiguredModel,
-  getConfiguredLlamaBaseUrl,
+  getConfiguredEngineBaseUrl,
   getConfiguredPromptPrefix,
   getDerivedMaxInputCharacters,
   getDefaultNumCtx,
@@ -37,7 +37,7 @@ import {
 } from '../src/config/index.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/index.js';
-import type { ModelRuntimePreset, RuntimeLlamaCppConfig } from '../src/config/types.js';
+import type { ModelRuntimePreset } from '../src/config/types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -49,16 +49,13 @@ function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {
   return { ...getDefaultConfigObject(), ...overrides };
 }
 
-function makePresetConfig(
-  presetOverrides: Partial<ModelRuntimePreset>,
-  runtimeOverrides: RuntimeLlamaCppConfig = {},
-): SiftConfig {
+function makePresetConfig(presetOverrides: Partial<ModelRuntimePreset>): SiftConfig {
   const base = getDefaultConfigObject();
   const preset = base.Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   return {
     ...base,
-    Runtime: { LlamaCpp: runtimeOverrides },
+    Runtime: { Engine: {} },
     Server: {
       ...base.Server,
       ModelPresets: {
@@ -217,30 +214,23 @@ test('getConfiguredModel returns the active preset model', () => {
   );
 });
 
-test('getConfiguredLlamaBaseUrl throws when BaseUrl is missing', () => {
+test('getConfiguredEngineBaseUrl throws when BaseUrl is missing', () => {
   assert.throws(
-    () => getConfiguredLlamaBaseUrl(makePresetConfig({ BaseUrl: null })),
-    /missing LlamaCpp\.BaseUrl/u,
+    () => getConfiguredEngineBaseUrl(makePresetConfig({ BaseUrl: null })),
+    /missing Engine.BaseUrl/u,
   );
 });
 
-test('getConfiguredLlamaBaseUrl returns Runtime.LlamaCpp.BaseUrl', () => {
+test('getConfiguredEngineBaseUrl returns the active preset BaseUrl', () => {
   assert.equal(
-    getConfiguredLlamaBaseUrl(makePresetConfig({}, { BaseUrl: 'http://test:8080' })),
+    getConfiguredEngineBaseUrl(makePresetConfig({ BaseUrl: 'http://test:8080' })),
     'http://test:8080',
   );
 });
 
-test('getConfiguredLlamaNumCtx falls back to the active preset', () => {
+test('getConfiguredEngineNumCtx returns the active preset NumCtx', () => {
   const config = makePresetConfig({ NumCtx: 75_008 });
-  assert.equal(getConfiguredLlamaNumCtx(config), 75_008);
-});
-
-test('getConfiguredLlamaNumCtx returns Runtime.LlamaCpp.NumCtx', () => {
-  assert.equal(
-    getConfiguredLlamaNumCtx(makePresetConfig({}, { NumCtx: 65000 })),
-    65000,
-  );
+  assert.equal(getConfiguredEngineNumCtx(config), 75_008);
 });
 
 test('getConfiguredPromptPrefix returns undefined for empty prefix', () => {
@@ -748,19 +738,16 @@ test('saveConfig preserves managed llama external server settings on the active 
   });
 });
 
-test('saveConfig persists managed llama ExecutablePath and ModelPath that the dashboard sends', async () => {
+test('saveConfig persists the preset ModelPath that the dashboard sends', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
-    const dashboardExecutablePath = 'C:\\\\Users\\\\test\\\\llamacpp\\\\llama-server.exe';
-    const dashboardModelPath = 'D:\\\\models\\\\some-model.gguf';
+    const dashboardModelPath = 'D:\\\\models\\\\some-model';
     const preset = config.Server.ModelPresets.Presets[0];
-    preset.ExecutablePath = dashboardExecutablePath;
     preset.ModelPath = dashboardModelPath;
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
     assert.equal(loaded.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
   });
 });
@@ -781,7 +768,7 @@ test('configured inference endpoint and model follow the active EXL3 preset', ()
     Model: 'selected-exl3',
   });
 
-  assert.equal(getConfiguredLlamaBaseUrl(config), 'http://127.0.0.1:18098');
+  assert.equal(getConfiguredEngineBaseUrl(config), 'http://127.0.0.1:18098');
   assert.equal(getConfiguredModel(config), 'selected-exl3');
 });
 

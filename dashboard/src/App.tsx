@@ -148,20 +148,6 @@ export function App() {
           </section>
         )}
 
-        {settings.restartFailureModal && (
-          <section className="settings-live-modal-backdrop" role="presentation">
-            <div className="settings-live-modal" role="dialog" aria-modal="true" aria-labelledby="settings-restart-failure-title">
-              <h2 id="settings-restart-failure-title">{settings.restartFailureModal.title}</h2>
-              <p>{settings.restartFailureModal.message}</p>
-              <div className="settings-live-modal-actions">
-                <button type="button" onClick={settings.closeRestartFailureModal} disabled={settings.confirm.actionBusy}>
-                  Close
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
-
         {runs.runDelete.showModal && <RunDeleteModal runDelete={runs.runDelete} />}
 
         <div className="view on">

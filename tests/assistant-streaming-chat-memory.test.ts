@@ -5,7 +5,8 @@ import path from 'node:path';
 import type { ChatTurnInput } from '../src/assistant/ingestion/conversation-ingestor.js';
 import type { RetrieveResult } from '../src/assistant/retrieval/memory-retriever.js';
 import { getConfigPath } from '../src/config/index.js';
-import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { getAddressInfo, requestJson, requestSse } from './helpers/dashboard-http.js';
 import {
@@ -60,7 +61,7 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
+  const config = getDefaultServerConfig();
   writeConfig(getConfigPath(), config);
   const assistant = new RecordingAssistant();
   const server = startStatusServer({ disableManagedEngineStartup: true, assistant });

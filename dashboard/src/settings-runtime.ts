@@ -16,22 +16,18 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   if (!activePreset) {
     return config;
   }
-  config.Runtime.LlamaCpp.BaseUrl = activePreset.BaseUrl;
-  config.Runtime.LlamaCpp.ModelPath = activePreset.ModelPath;
-  config.Runtime.LlamaCpp.NumCtx = activePreset.NumCtx;
-  config.Runtime.LlamaCpp.GpuLayers = activePreset.GpuLayers;
-  config.Runtime.LlamaCpp.Threads = activePreset.Threads;
-  config.Runtime.LlamaCpp.NcpuMoe = activePreset.NcpuMoe;
-  config.Runtime.LlamaCpp.FlashAttention = activePreset.FlashAttention;
-  config.Runtime.LlamaCpp.ParallelSlots = activePreset.ParallelSlots;
-  config.Runtime.LlamaCpp.MaxTokens = activePreset.MaxTokens;
-  config.Runtime.LlamaCpp.Temperature = activePreset.Temperature;
-  config.Runtime.LlamaCpp.TopP = activePreset.TopP;
-  config.Runtime.LlamaCpp.TopK = activePreset.TopK;
-  config.Runtime.LlamaCpp.MinP = activePreset.MinP;
-  config.Runtime.LlamaCpp.PresencePenalty = activePreset.PresencePenalty;
-  config.Runtime.LlamaCpp.RepetitionPenalty = activePreset.RepetitionPenalty;
-  config.Runtime.LlamaCpp.Reasoning = activePreset.Reasoning;
+  config.Runtime.Engine.BaseUrl = activePreset.BaseUrl;
+  config.Runtime.Engine.ModelPath = activePreset.ModelPath;
+  config.Runtime.Engine.NumCtx = activePreset.NumCtx;
+  config.Runtime.Engine.ParallelSlots = activePreset.ParallelSlots;
+  config.Runtime.Engine.MaxTokens = activePreset.MaxTokens;
+  config.Runtime.Engine.Temperature = activePreset.Temperature;
+  config.Runtime.Engine.TopP = activePreset.TopP;
+  config.Runtime.Engine.TopK = activePreset.TopK;
+  config.Runtime.Engine.MinP = activePreset.MinP;
+  config.Runtime.Engine.PresencePenalty = activePreset.PresencePenalty;
+  config.Runtime.Engine.RepetitionPenalty = activePreset.RepetitionPenalty;
+  config.Runtime.Engine.Reasoning = activePreset.Reasoning;
 
   const runtimeModelId = String(
     activePreset.Model || deriveRuntimeModelId(activePreset.ModelPath),

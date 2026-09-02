@@ -37,20 +37,10 @@ test('getLlamaCppProviderStatus returns reachable status', async () => {
 
 test('getLlamaCppProviderStatus returns unreachable when server is down', async () => {
   const config = {
-    Backend: 'llama' as const,
-    Runtime: {
-      LlamaCpp: {
-        BaseUrl: DEAD_BASE_URL,
-        NumCtx: 10000,
-      },
-    },
-    LlamaCpp: {
-      BaseUrl: DEAD_BASE_URL,
-    },
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const, IdleAction: 'unload' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
@@ -77,7 +67,7 @@ test('countLlamaCppTokens returns count from server', async () => {
 test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout: 1500 }, async () => {
   let requestCount = 0;
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       requestCount += 1;
       req.resume();
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -96,20 +86,10 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = getAddressInfo(server);
   const config = {
-    Backend: 'llama' as const,
-    Runtime: {
-      LlamaCpp: {
-        BaseUrl: `http://127.0.0.1:${address.port}`,
-        NumCtx: 10000,
-      },
-    },
-    LlamaCpp: {
-      BaseUrl: `http://127.0.0.1:${address.port}`,
-    },
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const, IdleAction: 'unload' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },

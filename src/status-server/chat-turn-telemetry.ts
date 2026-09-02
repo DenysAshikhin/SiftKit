@@ -1,7 +1,7 @@
 import {
   getActiveModelPreset,
-  getConfiguredLlamaBaseUrl,
-  SIFT_DEFAULT_LLAMA_BASE_URL,
+  getConfiguredEngineBaseUrl,
+  SIFT_DEFAULT_ENGINE_BASE_URL,
   type SiftConfig,
 } from '../config/index.js';
 import type { MockPlannerResponse } from '../planner-protocol/mock-response.js';
@@ -18,8 +18,8 @@ export function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlanne
 
 /** The default llama base URL means no local tokenizer to reach, so counting falls back. */
 export function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
-  const baseUrl = getConfiguredLlamaBaseUrl(config);
-  return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
+  const baseUrl = getConfiguredEngineBaseUrl(config);
+  return baseUrl === SIFT_DEFAULT_ENGINE_BASE_URL ? undefined : config;
 }
 
 export type ChatInputTokenCount = {

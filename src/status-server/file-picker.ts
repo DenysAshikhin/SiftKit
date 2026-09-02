@@ -4,7 +4,8 @@ import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 
 export type ManagedFilePickerDialogOptions = {
   title: string;
-  filter: string;
+  /** OpenFileDialog filter; null opens a directory picker instead. */
+  filter: string | null;
   initialPath: string | null;
 };
 export type ManagedFilePickerResult = {
@@ -45,14 +46,32 @@ function buildInitialFileNameExpression(initialPath: string | null): string {
     : '$null';
 }
 
-function buildWindowsOpenFileDialogScript(options: ManagedFilePickerDialogOptions): string {
+function buildWindowsFolderDialogScript(options: ManagedFilePickerDialogOptions): string {
+  const initialDirectory = buildInitialDirectoryExpression(options.initialPath);
+  return [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+    `$dialog.Description = ${toPowerShellSingleQuotedString(options.title)}`,
+    '$dialog.ShowNewFolderButton = $false',
+    `$initialDirectory = ${initialDirectory}`,
+    'if ($initialDirectory -and (Test-Path -LiteralPath $initialDirectory)) {',
+    '  $dialog.SelectedPath = $initialDirectory',
+    '}',
+    '$result = $dialog.ShowDialog()',
+    'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
+    '  [Console]::Out.Write($dialog.SelectedPath)',
+    '}',
+  ].join('\n');
+}
+
+function buildWindowsOpenFileDialogScript(options: ManagedFilePickerDialogOptions, filter: string): string {
   const initialDirectory = buildInitialDirectoryExpression(options.initialPath);
   const initialFileName = buildInitialFileNameExpression(options.initialPath);
   return [
     'Add-Type -AssemblyName System.Windows.Forms',
     '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
     `$dialog.Title = ${toPowerShellSingleQuotedString(options.title)}`,
-    `$dialog.Filter = ${toPowerShellSingleQuotedString(options.filter)}`,
+    `$dialog.Filter = ${toPowerShellSingleQuotedString(filter)}`,
     '$dialog.CheckFileExists = $true',
     '$dialog.Multiselect = $false',
     `$initialDirectory = ${initialDirectory}`,
@@ -74,7 +93,9 @@ async function openWindowsFileDialog(options: ManagedFilePickerDialogOptions): P
   if (process.platform !== 'win32') {
     throw new Error('Native file picking is only supported on Windows.');
   }
-  const script = buildWindowsOpenFileDialogScript(options);
+  const script = options.filter === null
+    ? buildWindowsFolderDialogScript(options)
+    : buildWindowsOpenFileDialogScript(options, options.filter);
   return await new Promise<string | null>((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -104,17 +125,10 @@ export function getManagedFilePickerDialogOptions(
   target: ManagedFilePickerTarget,
   initialPath: string | null,
 ): ManagedFilePickerDialogOptions {
-  if (target === 'managed-llama-executable') {
+  if (target === 'model-preset-path') {
     return {
-      title: 'Select llama.cpp executable',
-      filter: 'llama-server.exe|llama-server.exe|All files (*.*)|*.*',
-      initialPath,
-    };
-  }
-  if (target === 'managed-llama-model') {
-    return {
-      title: 'Select GGUF model',
-      filter: 'GGUF models (*.gguf)|*.gguf|All files (*.*)|*.*',
+      title: 'Select EXL3 model directory',
+      filter: null,
       initialPath,
     };
   }

@@ -29,7 +29,7 @@ function flushQueueInternals(queue: InferenceRunFlushQueue): FlushQueueInternals
 
 test('inference run flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     const database = getRuntimeDatabase();
     database.pragma('busy_timeout = 1');
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'queued\n' });
@@ -41,8 +41,8 @@ test('inference run flush queue coalesces duplicate run flushes and drains async
 
     try {
       try {
-        assert.equal(queue.enqueue(run.id, 'llama'), true);
-        assert.equal(queue.enqueue(run.id, 'llama'), false);
+        assert.equal(queue.enqueue(run.id, 'exl3'), true);
+        assert.equal(queue.enqueue(run.id, 'exl3'), false);
         assert.equal(queue.getSnapshot().pendingCount, 1);
         await queue.drainNow();
         assert.equal(queue.getSnapshot().pendingCount, 1);
@@ -96,14 +96,14 @@ test('inference run flush queue logs each run under its own backend scope', asyn
 
 test('inference run flush queue records another flush requested while the same run is active', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     const queue = new InferenceRunFlushQueue();
     const internals = flushQueueInternals(queue);
     internals.runningRunId = run.id;
     internals.draining = true;
 
     try {
-      assert.equal(queue.enqueue(run.id, 'llama'), true);
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
       assert.equal(queue.getSnapshot().pendingCount, 1);
       assert.equal(queue.getSnapshot().scheduled, false);
     } finally {
@@ -127,13 +127,13 @@ test('inference run flush queue idle wait fails with state diagnostics at its ce
 
 test('inference run flush queue waits for model-request idle delay before draining', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'idle-gated\n' });
     const queue = new InferenceRunFlushQueue({ idleDelayMs: 80 });
 
     try {
       queue.markModelRequestFinished(Date.now());
-      assert.equal(queue.enqueue(run.id, 'llama'), true);
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
       await new Promise<void>((resolve) => setTimeout(resolve, 30));
       assert.equal(queue.getSnapshot().completedCount, 0);
 
@@ -147,13 +147,13 @@ test('inference run flush queue waits for model-request idle delay before draini
 
 test('inference run flush queue pauses while a model request is active and drains after idle', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
     const queue = new InferenceRunFlushQueue({ idleDelayMs: 50 });
 
     try {
       queue.setModelRequestState({ active: true, queueLength: 0 });
-      assert.equal(queue.enqueue(run.id, 'llama'), true);
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
       await new Promise<void>((resolve) => setTimeout(resolve, 80));
       assert.equal(queue.getSnapshot().completedCount, 0);
 
@@ -168,7 +168,7 @@ test('inference run flush queue pauses while a model request is active and drain
 
 test('inference run flush queue does not log repeated active-request drain waits', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
     const queue = new InferenceRunFlushQueue({ idleDelayMs: 20 });
 
@@ -176,7 +176,7 @@ test('inference run flush queue does not log repeated active-request drain waits
     try {
       try {
         queue.setModelRequestState({ active: true, queueLength: 0 });
-        assert.equal(queue.enqueue(run.id, 'llama'), true);
+        assert.equal(queue.enqueue(run.id, 'exl3'), true);
         await new Promise<void>((resolve) => setTimeout(resolve, 70));
       } finally {
         await queue.close();
@@ -198,11 +198,11 @@ test('inference run flush queue does not log repeated active-request drain waits
 // lost and better-sqlite3 can take the process down with it. close() must let it land first.
 test('closing the queue completes an in-flight flush instead of terminating it', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'in-flight\n' });
     const queue = new InferenceRunFlushQueue();
 
-    assert.equal(queue.enqueue(run.id, 'llama'), true);
+    assert.equal(queue.enqueue(run.id, 'exl3'), true);
     // drainNow marks the run running before it awaits the worker, so close() sees it in flight.
     const draining = queue.drainNow();
     await queue.close();
@@ -216,16 +216,16 @@ test('closing the queue completes an in-flight flush instead of terminating it',
 // The worker closes its connection after every message, so the second flush has to reopen it.
 test('the flush worker serves consecutive runs after closing its database each time', async () => {
   await withTestEnvAndServer(async () => {
-    const first = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const second = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const first = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    const second = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: first.id, streamKind: 'launcher_stdout', chunkText: 'first\n' });
     bufferInferenceRunLogChunk({ runId: second.id, streamKind: 'launcher_stdout', chunkText: 'second\n' });
     const queue = new InferenceRunFlushQueue();
 
     try {
-      assert.equal(queue.enqueue(first.id, 'llama'), true);
+      assert.equal(queue.enqueue(first.id, 'exl3'), true);
       await queue.waitForIdle();
-      assert.equal(queue.enqueue(second.id, 'llama'), true);
+      assert.equal(queue.enqueue(second.id, 'exl3'), true);
       await queue.waitForIdle();
     } finally {
       await queue.close();
@@ -239,9 +239,9 @@ test('the flush worker serves consecutive runs after closing its database each t
 
 test('closing the queue reports an in-flight flush that outlives the wait budget', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 40 });
-    assert.equal(queue.enqueue(run.id, 'llama'), true);
+    assert.equal(queue.enqueue(run.id, 'exl3'), true);
     await queue.waitForIdle();
 
     const internals = flushQueueInternals(queue);
@@ -265,13 +265,13 @@ test('closing the queue reports an in-flight flush that outlives the wait budget
 
 test('a closed queue accepts no further work', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'ignored\n' });
     const queue = new InferenceRunFlushQueue();
 
     await queue.close();
 
-    assert.equal(queue.enqueue(run.id, 'llama'), false);
+    assert.equal(queue.enqueue(run.id, 'exl3'), false);
     await queue.drainNow();
     assert.equal(queue.getSnapshot().pendingCount, 0);
     assert.equal(queue.getSnapshot().completedCount, 0);
@@ -285,7 +285,7 @@ test('a run past the pending high-water mark flushes despite an active model req
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 60_000 });
     try {
       const run = createInferenceRun({
-        backend: 'llama',
+        backend: 'exl3',
         purpose: 'high-water-test',
         entrypointPath: null,
         baseUrl: null,
@@ -304,7 +304,7 @@ test('a run past the pending high-water mark flushes despite an active model req
         });
       }
 
-      flushQueue.enqueue(run.id, 'llama');
+      flushQueue.enqueue(run.id, 'exl3');
       await flushQueue.waitForIdle();
 
       const stats = getInferenceRunPendingLogChunkStats(run.id);

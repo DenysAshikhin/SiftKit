@@ -24,7 +24,7 @@ function activateEngine(config: SiftConfig, engine: InferenceBackendId): SiftCon
   return config;
 }
 
-for (const engine of ['exl3', 'llama'] as const) {
+for (const engine of ['exl3'] as const) {
   test(`a server token count is attributed to the active ${engine} engine`, async () => {
     await withTestEnvAndServer(async ({ stub }) => {
       const config = activateEngine(asRuntimeSiftConfig(stub.state.config), engine);

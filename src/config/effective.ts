@@ -3,7 +3,7 @@ import {
 } from '../state/observed-budget.js';
 import { SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN } from './constants.js';
 import {
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getDefaultNumCtx,
   getMissingRuntimeFields,
 } from './getters.js';
@@ -27,7 +27,7 @@ export function getEffectiveInputCharactersPerContextToken(config: SiftConfig): 
 
 export function getEffectiveMaxInputCharacters(config: SiftConfig): number {
   return getDerivedMaxInputCharacters(
-    getConfiguredLlamaNumCtx(config),
+    getConfiguredEngineNumCtx(config),
     getEffectiveInputCharactersPerContextToken(config)
   );
 }
@@ -63,7 +63,7 @@ export async function addEffectiveConfigProperties(
   const effectiveBudget = await resolveInputCharactersPerContextToken();
   const missingRuntimeFields = getMissingRuntimeFields(config);
   const runtimeConfigReady = missingRuntimeFields.length === 0;
-  const numCtx = runtimeConfigReady ? getConfiguredLlamaNumCtx(config) : null;
+  const numCtx = runtimeConfigReady ? getConfiguredEngineNumCtx(config) : null;
   const maxInputCharacters = numCtx === null
     ? null
     : getDerivedMaxInputCharacters(numCtx, effectiveBudget.value);

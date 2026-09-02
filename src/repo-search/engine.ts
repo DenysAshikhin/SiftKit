@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyHostLlamaRuntimeSettings,
+  applyHostEngineRuntimeSettings,
   applyModelOverrideToConfig,
-  getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   loadConfig,
   type SiftConfig,
@@ -173,7 +173,7 @@ export async function runRepoSearch(options: {
   // In pass-through mode the prompt-budget math must use the host SiftKit's
   // real context window, not this client's (possibly stale) local NumCtx.
   const config = applyModelOverrideToConfig(
-    await applyHostLlamaRuntimeSettings(options.config || await loadConfig({ ensure: true })),
+    await applyHostEngineRuntimeSettings(options.config || await loadConfig({ ensure: true })),
     options.model,
   );
   configSpan?.end();
@@ -181,7 +181,7 @@ export async function runRepoSearch(options: {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
   }
   const model = getConfiguredModel(config);
-  const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(config);
+  const baseUrl = options.baseUrl || getConfiguredEngineBaseUrl(config);
 
   options.logger?.write({ kind: 'run_start', repoRoot, requestedModel: options.model || null, configuredModel: model, baseUrl });
 
@@ -209,7 +209,7 @@ export async function runRepoSearch(options: {
       model,
       baseUrl,
       config,
-      totalContextTokens: getConfiguredLlamaNumCtx(config),
+      totalContextTokens: getConfiguredEngineNumCtx(config),
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       maxTurns: runtimeProfile.resolveMaxTurns(options.maxTurns, DEFAULT_MAX_TURNS),
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,

@@ -68,7 +68,7 @@ test('only the autoload row whose picker is open shows the opening label', () =>
 });
 
 test('a model preset picker in flight leaves autoload rows idle', () => {
-  const markup = renderAutoloadPreset({ kind: 'model-preset', field: 'ModelPath' });
+  const markup = renderAutoloadPreset({ kind: 'model-preset' });
 
   assert.doesNotMatch(markup, /Opening…/u);
   assert.equal(markup.match(/Browse…/gu)?.length, AUTOLOAD_FILES.length);

@@ -85,11 +85,6 @@ export class Exl3PresetAdapter {
 
   buildLaunchEnvironment(preset: ModelRuntimePreset): Exl3LaunchEnvironment {
     const request = this.buildLoadRequest(preset);
-    if (preset.SpeculativeEnabled && preset.SpeculativeType !== 'draft-mtp') {
-      throw new Error(
-        `preset=${preset.id} backend=exl3 SpeculativeType=${preset.SpeculativeType} must be draft-mtp`,
-      );
-    }
     const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft : null;
     return Exl3LaunchEnvironmentSchema.parse({
       TABBY_MODEL_MODEL_DIR: win32.resolve(this.modelRoot),
@@ -134,11 +129,6 @@ export class Exl3PresetAdapter {
 
   private getCacheModes(preset: ModelRuntimePreset): Exl3CacheModes {
     const cacheModes = getExl3CacheModes(preset.KvCacheQuantization);
-    if (cacheModes === null) {
-      throw new Error(
-        `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} is not supported`,
-      );
-    }
     if (preset.SpeculativeEnabled && cacheModes.draft === null) {
       throw new Error(
         `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} has no EXL3 draft cache mode`,

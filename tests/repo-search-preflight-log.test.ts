@@ -77,7 +77,7 @@ test('retries print the line even when tokenization was fast, and carry no alert
     maxTurns: 45,
     promptTokenCount: 120,
     tokenizeElapsedMs: 4,
-    tokenCountSource: 'llama',
+    tokenCountSource: 'exl3',
     tokenizeRetryCount: 2,
     tokenizeStatus: 'completed',
     elapsedMs: 900,

@@ -123,11 +123,11 @@ test('rejects a config payload that normalization refuses', async () => {
   try {
     const response = await requestJson(`${server.baseUrl}/config`, {
       method: 'PUT',
-      body: JSON.stringify({ Server: { LlamaCpp: {} } }),
+      body: JSON.stringify({ Server: { Exl3: {} } }),
     });
 
     assert.equal(response.statusCode, 400);
-    assert.match(String(response.body.error), /Server\.LlamaCpp/u);
+    assert.match(String(response.body.error), /Server.Exl3/u);
   } finally {
     await server.close();
   }

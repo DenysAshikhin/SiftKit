@@ -98,22 +98,7 @@ export function getDefaultConfig(): SiftConfig {
     ExpandReads: true,
     Inference: getTestInferenceConfig(),
     Runtime: {
-      LlamaCpp: {
-        BaseUrl: 'http://127.0.0.1:8080',
-        NumCtx: 128000,
-        ModelPath: null,
-        Temperature: 0.2,
-        TopP: 0.95,
-        TopK: 20,
-        MinP: 0.0,
-        PresencePenalty: 0.0,
-        RepetitionPenalty: 1.0,
-        MaxTokens: 4096,
-        Threads: -1,
-        FlashAttention: true,
-        ParallelSlots: 1,
-        Reasoning: 'off',
-      },
+      Engine: {},
     },
     Server: {
       ModelPresets: {
@@ -121,10 +106,17 @@ export function getDefaultConfig(): SiftConfig {
         Presets: normalizeModelRuntimePresetArray([{
           id: 'default',
           label: 'Default',
-          Backend: 'llama',
+          Backend: 'exl3',
           Model: 'qwen3.5-9b-instruct-q4_k_m',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
+          Temperature: 0.2,
+          TopP: 0.95,
+          TopK: 20,
+          MinP: 0.0,
+          PresencePenalty: 0.0,
+          RepetitionPenalty: 1.0,
+          Reasoning: 'off',
           IdleAction: 'unload',
         }], {}),
       },
@@ -211,8 +203,7 @@ export function getChatRequestText(request: ChatRequest | null | undefined): str
   }).join('\n');
 }
 
-export function setManagedLlamaBaseUrl(config: SiftConfig, baseUrl: string): void {
-  config.Runtime.LlamaCpp.BaseUrl = baseUrl;
+export function setPresetBaseUrl(config: SiftConfig, baseUrl: string): void {
   for (const preset of config.Server.ModelPresets.Presets) {
     preset.BaseUrl = baseUrl;
   }

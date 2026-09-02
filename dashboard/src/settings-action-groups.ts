@@ -11,16 +11,13 @@ import type {
   ThresholdIntegerField,
   WebSearchIntegerField,
 } from './settings-draft-editor.js';
-import type { ModelPresetPathField } from './settings-flow.js';
 import type {
   AssistantConfig,
-  DashboardManagedLlamaSpeculativeType,
   DashboardPresetKind,
   DashboardPresetOperationMode,
   DashboardPresetSurface,
   DashboardPresetToolName,
-  InferenceBackendId,
-  ManagedLlamaKvCacheQuantization,
+  ModelKvCacheQuantization,
   ModelIdleAction,
   ReasoningEffort,
   WebSearchProviderId,
@@ -85,15 +82,13 @@ export type ModelPresetSettingsActions = {
   setInteger(field: ModelIntegerField, value: number): void;
   setFloat(field: ModelFloatField, value: number): void;
   setBoolean(field: ModelBooleanField, value: boolean): void;
-  setBackend(value: InferenceBackendId): void;
   setIdleAction(value: ModelIdleAction): void;
-  setKvCacheQuantization(value: ManagedLlamaKvCacheQuantization): void;
+  setKvCacheQuantization(value: ModelKvCacheQuantization): void;
   setReasoning(value: 'on' | 'off'): void;
   setReasoningEffort(value: ReasoningEffort): void;
   setReasoningContent(value: boolean): void;
-  setSpeculativeType(value: DashboardManagedLlamaSpeculativeType): void;
   addPreset(): void;
   deletePreset(presetId: string): void;
-  pickPath(target: ModelPresetPathField): Promise<void>;
+  pickModelPath(): Promise<void>;
   testBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
 };

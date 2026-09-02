@@ -24,13 +24,12 @@ function render(preset: DashboardModelRuntimePreset, runtimeStatus: InferenceRun
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, props));
 }
 
-test('renders a toolbar with preset selector, active pill, add/delete and a backend segmented control', () => {
+test('renders a toolbar with preset selector, active pill and add/delete but no backend control', () => {
   const markup = render(MANAGED_PRESET);
   assert.match(markup, /class="mp-toolbar"/);
   assert.match(markup, /class="mp-select"/);
   assert.match(markup, /class="active-pill"/);
-  assert.match(markup, /class="segc"/);
-  assert.match(markup, /llama\.cpp/);
+  assert.doesNotMatch(markup, /class="segc"/);
   assert.match(markup, />Add</);
   assert.match(markup, />Delete</);
 });
@@ -43,24 +42,19 @@ test('renders six collapsible groups with Identity open by default and a live su
   assert.match(markup, /class="gsum"/);
 });
 
-test('llama backend shows llama-only fields without the exl3 marker', () => {
+test('the preset editor flags mp-body as exl3 and asks for the EXL3 model directory', () => {
   const markup = render(MANAGED_PRESET);
-  assert.match(markup, /Model path \(\.gguf\)/);
-  assert.match(markup, /GpuLayers/);
-  assert.doesNotMatch(markup, /id="mp-body" class="exl3"/);
-});
-
-test('exl3 backend flags mp-body and switches the model field to the EXL3 directory', () => {
-  const markup = render({ ...MANAGED_PRESET, Backend: 'exl3', SpeculativeType: 'draft-mtp' });
   assert.match(markup, /id="mp-body" class="exl3"/);
   assert.match(markup, /Model directory \(EXL3\)/);
+  assert.doesNotMatch(markup, /GpuLayers|Executable path|Bind host/);
 });
 
 test('speculative sub-fields are gated by the enable toggle', () => {
-  assert.doesNotMatch(render(MANAGED_PRESET), /Speculative type/);
-  const on = render({ ...MANAGED_PRESET, SpeculativeEnabled: true, SpeculativeType: 'ngram-map-k' });
-  assert.match(on, /Speculative type/);
-  assert.match(on, /SpeculativeNgramSizeN/);
+  assert.doesNotMatch(render(MANAGED_PRESET), /SpeculativeDraftMax/);
+  const on = render({ ...MANAGED_PRESET, SpeculativeEnabled: true });
+  assert.match(on, /SpeculativeDraftMax/);
+  assert.match(on, /SpeculativeDynamic/);
+  assert.doesNotMatch(on, /Speculative type/);
 });
 
 test('selected preset editor does not render active runtime lifecycle controls', () => {

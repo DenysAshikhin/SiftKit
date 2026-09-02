@@ -110,7 +110,7 @@ test('sends full history to the approval endpoint and prints deny', async () => 
     assert.equal(code, 0);
     assert.equal(stderr.read(), '');
     const output = parseJsonText(stdout.read(), AutoApprovalProbeCliOutputSchema);
-    assert.equal(output.backend, 'llama');
+    assert.equal(output.backend, 'exl3');
     assert.equal(output.model, 'mock-model');
     assert.equal(output.verdict, 'deny');
     assert.equal(output.reason, 'Targets files outside the repository.');

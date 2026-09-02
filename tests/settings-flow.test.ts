@@ -36,20 +36,19 @@ test('restart is offered for managed backends and withheld for external servers'
   const preset = getDefaultModelPreset();
 
   assert.equal(isBackendRestartSupported(null), false);
-  assert.equal(isBackendRestartSupported({ ...preset, Backend: 'llama', ExternalServerEnabled: false }), true);
+  assert.equal(isBackendRestartSupported({ ...preset, Backend: 'exl3', ExternalServerEnabled: false }), true);
   assert.equal(isBackendRestartSupported({ ...preset, Backend: 'exl3', ExternalServerEnabled: false }), true);
   assert.equal(isBackendRestartSupported({ ...preset, ExternalServerEnabled: true }), false);
 });
 
-test('picker busy checks distinguish model preset fields from autoload rows', () => {
-  assert.equal(isModelPresetPickerBusy(null, 'ModelPath'), false);
-  assert.equal(isModelPresetPickerBusy({ kind: 'model-preset', field: 'ModelPath' }, 'ModelPath'), true);
-  assert.equal(isModelPresetPickerBusy({ kind: 'model-preset', field: 'ExecutablePath' }, 'ModelPath'), false);
-  assert.equal(isModelPresetPickerBusy({ kind: 'preset-autoload', presetId: 'a', index: 0 }, 'ModelPath'), false);
+test('picker busy checks distinguish the model preset picker from autoload rows', () => {
+  assert.equal(isModelPresetPickerBusy(null), false);
+  assert.equal(isModelPresetPickerBusy({ kind: 'model-preset' }), true);
+  assert.equal(isModelPresetPickerBusy({ kind: 'preset-autoload', presetId: 'a', index: 0 }), false);
 
   assert.equal(isPresetAutoloadPickerBusy(null, 'a', 0), false);
   assert.equal(isPresetAutoloadPickerBusy({ kind: 'preset-autoload', presetId: 'a', index: 0 }, 'a', 0), true);
   assert.equal(isPresetAutoloadPickerBusy({ kind: 'preset-autoload', presetId: 'a', index: 1 }, 'a', 0), false);
   assert.equal(isPresetAutoloadPickerBusy({ kind: 'preset-autoload', presetId: 'b', index: 0 }, 'a', 0), false);
-  assert.equal(isPresetAutoloadPickerBusy({ kind: 'model-preset', field: 'ModelPath' }, 'a', 0), false);
+  assert.equal(isPresetAutoloadPickerBusy({ kind: 'model-preset' }, 'a', 0), false);
 });

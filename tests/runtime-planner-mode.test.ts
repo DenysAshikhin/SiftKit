@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -7,7 +8,7 @@ import {
   loadConfig,
   saveConfig,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
   summarizeRequest,
   getChatRequestText,
@@ -847,7 +848,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
-      config.Runtime.LlamaCpp.Reasoning = 'on';
+      getActiveModelPreset(config).Reasoning = 'on';
       if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
         config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
@@ -981,7 +982,7 @@ const PLANNER_NUM_CTX = 190000;
 
 function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
   return {
-    Runtime: { LlamaCpp: { NumCtx: PLANNER_NUM_CTX } },
+
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
@@ -995,7 +996,7 @@ function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
 // the tokenize stubs below stay pinned to the shared reserve instead of a copied number.
 function plannerStopLineTokens(): number {
   const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = PLANNER_NUM_CTX;
+  getActiveModelPreset(config).NumCtx = PLANNER_NUM_CTX;
   return getPlannerPromptBudget(config).plannerStopLineTokens;
 }
 
@@ -1129,7 +1130,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
       assert.equal(result.Summary, 'estimated token guard applied');
       assert.equal(server.state.chatRequests.length, 2);
       assert.equal(
-        server.state.tokenizeRequests.some((request) => /read_lines startLine=/u.test(String(request?.content || ''))),
+        server.state.tokenizeRequests.some((request) => /read_lines startLine=/u.test(String(request?.text || ''))),
         true,
       );
       const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
@@ -1421,7 +1422,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const plannerActivationThreshold = Math.floor(
-        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
+        getConfiguredEngineNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
       );
       const chunkThreshold = getChunkThresholdCharacters(config);
       assert.ok(plannerActivationThreshold < chunkThreshold);
@@ -1517,7 +1518,7 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
   });
 });
 
-test('planner reuses one slot within a request and assigns a new slot to the next request', async () => {
+test('planner requests carry no llama.cpp slot or cache fields', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -1546,21 +1547,12 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
       assert.equal(first.Classification, 'summary');
       assert.equal(second.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 4);
-      assert.equal(server.state.chatRequests[0].id_slot, server.state.chatRequests[1].id_slot);
-      assert.equal(server.state.chatRequests[2].id_slot, server.state.chatRequests[3].id_slot);
-      assert.equal(Number.isInteger(server.state.chatRequests[0].id_slot), true);
-      assert.equal(Number.isInteger(server.state.chatRequests[2].id_slot), true);
+      for (const request of server.state.chatRequests) {
+        assert.equal('id_slot' in request, false);
+        assert.equal('cache_prompt' in request, false);
+      }
     }, {
-      config: {
-        LlamaCpp: {
-          ParallelSlots: 4,
-        },
-        Runtime: {
-          LlamaCpp: {
-            ParallelSlots: 4,
-          },
-        },
-      },
+      config: { Server: { ModelPresets: { Presets: [{ ParallelSlots: 4 }] } } },
       omitUsage: true,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 3) {

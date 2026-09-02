@@ -48,7 +48,6 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
     stream: true,
     chat_template_kwargs: {
       enable_thinking: true,
-      reasoning_content: true,
     },
   };
   const response: NormalizedLlamaCppChatResponse = {
@@ -71,7 +70,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
     stop: CLEAN_STREAM_STOP,
   };
 
-  assert.equal(request.chat_template_kwargs?.reasoning_content, true);
+  assert.equal(request.chat_template_kwargs?.reasoning_content, undefined);
   assert.equal(response.toolCalls[0]?.function.name, 'grep');
 });
 
@@ -205,11 +204,10 @@ function jsonResponse(body: JsonValue, statusCode = 200, rawText = JSON.stringif
 function buildProtocolConfig(preserveThinking = false): SiftConfig {
   const config = getDefaultConfigObject();
   config.Server.ModelPresets.Presets[0].Model = 'local';
-  config.Runtime.LlamaCpp = {
-    ...config.Runtime.LlamaCpp,
+  Object.assign(getActiveModelPreset(config), {
     BaseUrl: 'http://127.0.0.1:8097',
     Reasoning: 'on',
-  };
+  });
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
     throw new Error('default config must include a managed llama preset');
@@ -227,7 +225,7 @@ function buildProtocolConfig(preserveThinking = false): SiftConfig {
 
 const protocolConfig = buildProtocolConfig();
 
-test('llama client builds chat request with nested reasoning_content and tools', async () => {
+test('client builds chat request with thinking kwargs and tools', async () => {
   const http = new CapturingHttpClient();
   const client = new LlamaCppClient(http);
   await client.chat({
@@ -250,7 +248,6 @@ test('llama client builds chat request with nested reasoning_content and tools',
   assert.equal(http.requests[0]?.url, 'http://127.0.0.1:8097/v1/chat/completions');
   assert.deepEqual(body.chat_template_kwargs, {
     enable_thinking: true,
-    reasoning_content: true,
     reasoning_effort: 'xhigh',
   });
   assert.equal(body.parallel_tool_calls, true);
@@ -340,8 +337,8 @@ test('llama client covers streamed request and response normalization branches',
   });
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
-  assert.equal(body.cache_prompt, false);
-  assert.equal(body.id_slot, 2);
+  assert.equal(body.cache_prompt, undefined);
+  assert.equal(body.id_slot, undefined);
   assert.equal(body.temperature, getActiveModelPreset(protocolConfig).Temperature);
   assert.equal(body.tools, undefined);
   assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
@@ -603,7 +600,6 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
 
 test('llama client covers prompt-token cache fallback, empty response normalization, and disabled reasoning kwargs', async () => {
   const noReasoningConfig = buildProtocolConfig();
-  noReasoningConfig.Runtime.LlamaCpp.Reasoning = null;
   noReasoningConfig.Server.ModelPresets.Presets[0].Reasoning = 'off';
   const http = new CapturingHttpClient([], [
     [JSON.stringify({
@@ -668,7 +664,6 @@ test('chat requests send the active preset reasoning effort', async () => {
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
   assert.deepEqual(body.chat_template_kwargs, {
     enable_thinking: true,
-    reasoning_content: true,
     reasoning_effort: 'low',
   });
 });

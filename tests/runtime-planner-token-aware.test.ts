@@ -7,7 +7,7 @@ import {
   path,
   loadConfig,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
   summarizeRequest,
   buildSummaryPrompt,
@@ -19,7 +19,7 @@ import {
   LIVE_LLAMA_BASE_URL,
   LIVE_CONFIG_SERVICE_URL,
   getDefaultConfig,
-  setManagedLlamaBaseUrl,
+  setPresetBaseUrl,
   requestJson,
   withTempEnv,
   withStubServer,
@@ -49,7 +49,7 @@ const PROMPT_COMPOSITION = {
 // tokenize stubs below stay pinned to the shared reserve instead of a copied number.
 function plannerPromptLimitForNumCtx(numCtx: number): number {
   const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = numCtx;
+  getActiveModelPreset(config).NumCtx = numCtx;
   return getPlannerPromptBudget(config).plannerStopLineTokens;
 }
 
@@ -62,7 +62,18 @@ function requireConfigServiceUrl(): string {
 }
 
 interface LiveConfigResponse {
-  Runtime?: { LlamaCpp?: { BaseUrl?: string | null; NumCtx?: number | null } };
+  Server?: {
+    ModelPresets?: {
+      ActivePresetId?: string | null;
+      Presets?: Array<{ id?: string; BaseUrl?: string | null; NumCtx?: number | null }>;
+    };
+  };
+}
+
+function readLiveActivePreset(liveConfig: LiveConfigResponse | null): { BaseUrl?: string | null; NumCtx?: number | null } {
+  const modelPresets = liveConfig?.Server?.ModelPresets;
+  const presets = modelPresets?.Presets ?? [];
+  return presets.find((preset) => preset.id === modelPresets?.ActivePresetId) ?? presets[0] ?? {};
 }
 
 test('oversized llama.cpp summaries stay on planner status path without leaf chunk markers', async () => {
@@ -112,13 +123,12 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = getDefaultConfig();
-      setManagedLlamaBaseUrl(config, requireConfigServiceUrl().replace(/\/config$/u, ''));
-      config.Runtime.LlamaCpp = {
-        ...(config.Runtime.LlamaCpp || {}),
+      setPresetBaseUrl(config, requireConfigServiceUrl().replace(/\/config$/u, ''));
+      Object.assign(getActiveModelPreset(config), {
         BaseUrl: requireConfigServiceUrl().replace(/\/config$/u, ''),
         NumCtx: 20_000,
         Reasoning: 'off',
-      };
+      });
       const inputText = 'A'.repeat(5_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
@@ -157,13 +167,12 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
     await withStubServer(async (server) => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
-      setManagedLlamaBaseUrl(config, baseUrl);
-      config.Runtime.LlamaCpp = {
-        ...(config.Runtime.LlamaCpp || {}),
+      setPresetBaseUrl(config, baseUrl);
+      Object.assign(getActiveModelPreset(config), {
         BaseUrl: baseUrl,
         NumCtx: 20_000,
         Reasoning: 'off',
-      };
+      });
       const inputText = 'A'.repeat(5_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunkThreshold = 1_000;
@@ -191,7 +200,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
       });
 
       assert.ok(chunks);
-      assert.equal(server.state.tokenizeRequests[0].content, initialPrompt);
+      assert.equal(server.state.tokenizeRequests[0].text, initialPrompt);
       assert.ok(chunks[0].length > chunkThreshold);
     }, {
       tokenizeCharsPerToken: 10,
@@ -227,13 +236,12 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
-      setManagedLlamaBaseUrl(config, baseUrl);
-      config.Runtime.LlamaCpp = {
-        ...(config.Runtime.LlamaCpp || {}),
+      setPresetBaseUrl(config, baseUrl);
+      Object.assign(getActiveModelPreset(config), {
         BaseUrl: baseUrl,
         NumCtx: 12_000,
         Reasoning: 'off',
-      };
+      });
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunkThreshold = 1_000;
@@ -299,13 +307,12 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
-      setManagedLlamaBaseUrl(config, baseUrl);
-      config.Runtime.LlamaCpp = {
-        ...(config.Runtime.LlamaCpp || {}),
+      setPresetBaseUrl(config, baseUrl);
+      Object.assign(getActiveModelPreset(config), {
         BaseUrl: baseUrl,
         NumCtx: 12_000,
         Reasoning: 'off',
-      };
+      });
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
@@ -382,12 +389,11 @@ test('token-aware llama.cpp chunk planning leaves the shared response reserve wh
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
-      setManagedLlamaBaseUrl(config, baseUrl);
-      config.Runtime.LlamaCpp = {
-        ...(config.Runtime.LlamaCpp || {}),
+      setPresetBaseUrl(config, baseUrl);
+      Object.assign(getActiveModelPreset(config), {
         BaseUrl: baseUrl,
         NumCtx: 17_000,
-      };
+      });
       getActiveModelPreset(config).Reasoning = 'on';
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
@@ -516,14 +522,10 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
       liveConfig = null;
     }
     const config = getDefaultConfig();
-    const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
-    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getActiveModelPreset(config).NumCtx;
-    setManagedLlamaBaseUrl(config, liveBaseUrl);
-    config.Runtime.LlamaCpp = {
-      ...(config.Runtime.LlamaCpp || {}),
-      BaseUrl: liveBaseUrl,
-      NumCtx: liveNumCtx,
-    };
+    const livePreset = readLiveActivePreset(liveConfig);
+    const liveBaseUrl = livePreset.BaseUrl || LIVE_LLAMA_BASE_URL;
+    const liveNumCtx = Number(livePreset.NumCtx) || getActiveModelPreset(config).NumCtx;
+    setPresetBaseUrl(config, liveBaseUrl);
     getActiveModelPreset(config).NumCtx = liveNumCtx;
     await runFixtureCheck(config);
     return;
@@ -543,7 +545,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
 
 test('getPlannerPromptBudget subtracts the shared response reserve from a 190k context', () => {
   const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = 190000;
+  getActiveModelPreset(config).NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'off';
 
   const budget = getPlannerPromptBudget(config);
@@ -556,7 +558,7 @@ test('getPlannerPromptBudget subtracts the shared response reserve from a 190k c
 
 test('the planner budget no longer varies with Reasoning: thinking draws from the same reserve', () => {
   const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = 190000;
+  getActiveModelPreset(config).NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'on';
 
   const budget = getPlannerPromptBudget(config);
@@ -569,7 +571,7 @@ test('the planner budget no longer varies with Reasoning: thinking draws from th
 
 test('a lower preset MaxTokens shrinks the planner reserve and frees prompt tokens', () => {
   const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = 190000;
+  getActiveModelPreset(config).NumCtx = 190000;
   getActiveModelPreset(config).MaxTokens = 6000;
 
   assert.deepEqual(getPlannerPromptBudget(config), {
@@ -584,7 +586,7 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const plannerThreshold = Math.floor(
-        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
+        getConfiguredEngineNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
       );
 
       const nonPlannerInput = 'A'.repeat(Math.max(plannerThreshold, 1));

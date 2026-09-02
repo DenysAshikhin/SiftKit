@@ -179,7 +179,6 @@ test('an image request sends multimodal user content and stays tool-free', async
 
 test('an image request against a preset that refuses images never reaches the wire', async () => {
   for (const config of [
-    presetConfig({ Backend: 'llama', VisionEnabled: true, VisionImageRetention: 1 }),
     presetConfig({ Backend: 'exl3', VisionEnabled: false, VisionImageRetention: 1 }),
     presetConfig({ Backend: 'exl3', VisionEnabled: true, VisionImageRetention: 0 }),
   ]) {
@@ -200,7 +199,7 @@ test('an image request against a preset that refuses images never reaches the wi
 });
 
 test('image admission follows the applied preset, not the config the client was built with', async () => {
-  const textOnly = presetConfig({ Backend: 'llama', VisionEnabled: false });
+  const textOnly = presetConfig({ Backend: 'exl3', VisionEnabled: false });
   const applied = new AppliedModelPresetState(getActiveModelPreset(textOnly));
   const backend = new RecordingBackend('{"statements":[]}');
   const client = new LlamaCppAssistantInference(textOnly, applied, backend);

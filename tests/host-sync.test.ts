@@ -5,12 +5,12 @@ import { getAddressInfo } from './helpers/dashboard-http.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 import {
-  applyHostLlamaRuntimeSettings,
+  applyHostEngineRuntimeSettings,
   getActiveModelPreset,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   getConfiguredReasoning,
-  resetHostLlamaSettingsCacheForTests,
+  resetHostEngineSettingsCacheForTests,
   type ModelRuntimePreset,
   type SiftConfig,
 } from '../src/config/index.js';
@@ -25,11 +25,9 @@ function makeClientConfig(options: {
   localNumCtx: number;
   presetFields?: Partial<ModelRuntimePreset>;
 }): SiftConfig {
-  const llama = { BaseUrl: options.baseUrl, NumCtx: options.localNumCtx, Reasoning: 'on' } as const;
   return mockConfig({
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    Runtime: { LlamaCpp: { ...llama } },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Server: {
       ModelPresets: {
@@ -41,6 +39,8 @@ function makeClientConfig(options: {
             Model: 'mock-model',
             ExternalServerEnabled: options.externalServer,
             BaseUrl: options.baseUrl,
+            NumCtx: options.localNumCtx,
+            Reasoning: 'on',
             IdleAction: 'unload',
             ...options.presetFields,
           },
@@ -84,22 +84,22 @@ async function startHostConfigServer(
   };
 }
 
-test('applyHostLlamaRuntimeSettings leaves the config untouched when this SiftKit owns llama.cpp', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings leaves the config untouched when this SiftKit owns the engine', async () => {
+  resetHostEngineSettingsCacheForTests();
   const config = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
     localNumCtx: 150_000,
   });
 
-  const resolved = await applyHostLlamaRuntimeSettings(config);
+  const resolved = await applyHostEngineRuntimeSettings(config);
 
   assert.equal(resolved, config);
-  assert.equal(getConfiguredLlamaNumCtx(resolved), 150_000);
+  assert.equal(getConfiguredEngineNumCtx(resolved), 150_000);
 });
 
-test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/Model in pass-through mode', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/Model in pass-through mode', async () => {
+  resetHostEngineSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
@@ -108,7 +108,7 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
   const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
   if (!hostPreset) throw new Error('Host model preset is missing');
   hostPreset.Model = 'host-loaded-model.gguf';
-  hostConfig.Runtime.LlamaCpp.Reasoning = 'off';
+  getActiveModelPreset(hostConfig).Reasoning = 'off';
   const host = await startHostConfigServer(hostConfig);
   try {
     const config = makeClientConfig({
@@ -117,13 +117,13 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
       localNumCtx: 150_000,
     });
 
-    const resolved = await applyHostLlamaRuntimeSettings(config);
+    const resolved = await applyHostEngineRuntimeSettings(config);
 
     // The client's stale local NumCtx (150k) is replaced by the host's real 75008.
-    assert.equal(getConfiguredLlamaNumCtx(resolved), 75_008);
+    assert.equal(getConfiguredEngineNumCtx(resolved), 75_008);
     // The client's stale local model ('mock-model') is replaced by the host's.
     assert.equal(getConfiguredModel(resolved), 'host-loaded-model.gguf');
-    // The host config is read without booting the host's managed llama.
+    // The host config is read without booting the host's managed engine.
     assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
 
     // Budget math now matches the server that actually serves the request: the shared
@@ -137,8 +137,8 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
   }
 });
 
-test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto the local active preset', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings overlays the host preset request fields onto the local active preset', async () => {
+  resetHostEngineSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
@@ -181,7 +181,7 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
       },
     });
 
-    const preset = getActiveModelPreset(await applyHostLlamaRuntimeSettings(config));
+    const preset = getActiveModelPreset(await applyHostEngineRuntimeSettings(config));
 
     assert.equal(preset.Temperature, 0.33);
     assert.equal(preset.TopP, 0.77);
@@ -204,14 +204,14 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
   }
 });
 
-test('applyHostLlamaRuntimeSettings makes host NumCtx/Reasoning visible to the exl3 getters', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings makes host NumCtx/Reasoning visible to the exl3 getters', async () => {
+  resetHostEngineSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
     localNumCtx: 65_536,
   });
-  hostConfig.Runtime.LlamaCpp.Reasoning = 'on';
+  getActiveModelPreset(hostConfig).Reasoning = 'on';
   const host = await startHostConfigServer(hostConfig);
   try {
     const config = makeClientConfig({
@@ -221,18 +221,18 @@ test('applyHostLlamaRuntimeSettings makes host NumCtx/Reasoning visible to the e
       presetFields: { Backend: 'exl3', NumCtx: 8192, Reasoning: 'off' },
     });
 
-    const resolved = await applyHostLlamaRuntimeSettings(config);
+    const resolved = await applyHostEngineRuntimeSettings(config);
 
-    // The exl3 getters read the preset, never Runtime.LlamaCpp.
-    assert.equal(getConfiguredLlamaNumCtx(resolved), 65_536);
+    // The getters read the preset, so the host values must land there.
+    assert.equal(getConfiguredEngineNumCtx(resolved), 65_536);
     assert.equal(getConfiguredReasoning(resolved), 'on');
   } finally {
     await host.close();
   }
 });
 
-test('applyHostLlamaRuntimeSettings caches host settings and re-fetches after the TTL elapses', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings caches host settings and re-fetches after the TTL elapses', async () => {
+  resetHostEngineSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
@@ -247,12 +247,12 @@ test('applyHostLlamaRuntimeSettings caches host settings and re-fetches after th
       localNumCtx: 150_000,
     });
 
-    await applyHostLlamaRuntimeSettings(config);
-    await applyHostLlamaRuntimeSettings(config);
+    await applyHostEngineRuntimeSettings(config);
+    await applyHostEngineRuntimeSettings(config);
     assert.equal(countConfigRequests(host.requestUrls), 1);
 
     mock.timers.tick(61_000);
-    await applyHostLlamaRuntimeSettings(config);
+    await applyHostEngineRuntimeSettings(config);
     assert.equal(countConfigRequests(host.requestUrls), 2);
   } finally {
     mock.timers.reset();
@@ -260,8 +260,8 @@ test('applyHostLlamaRuntimeSettings caches host settings and re-fetches after th
   }
 });
 
-test('applyHostLlamaRuntimeSettings falls back to the local config when the host is not a SiftKit', async () => {
-  resetHostLlamaSettingsCacheForTests();
+test('applyHostEngineRuntimeSettings falls back to the local config when the host is not a SiftKit', async () => {
+  resetHostEngineSettingsCacheForTests();
   const host = await startHostConfigServer({}, { status: 404 });
   try {
     const config = makeClientConfig({
@@ -270,9 +270,9 @@ test('applyHostLlamaRuntimeSettings falls back to the local config when the host
       localNumCtx: 150_000,
     });
 
-    const resolved = await applyHostLlamaRuntimeSettings(config);
+    const resolved = await applyHostEngineRuntimeSettings(config);
 
-    assert.equal(getConfiguredLlamaNumCtx(resolved), 150_000);
+    assert.equal(getConfiguredEngineNumCtx(resolved), 150_000);
     // With no host config to read, the local model is left untouched.
     assert.equal(getConfiguredModel(resolved), 'mock-model');
   } finally {

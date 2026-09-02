@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
@@ -195,8 +196,7 @@ test('loadConfig keeps bootstrap effective budgets until exact observations exis
       const config = await loadConfig({ ensure: true });
       assert.ok(config.Effective);
 
-      assert.equal(config.Runtime.LlamaCpp.NumCtx, 128000);
-      assert.equal(config.Runtime.LlamaCpp.Threads, -1);
+      assert.equal(getActiveModelPreset(config).NumCtx, 128000);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
       assert.equal(config.Effective.MaxInputCharacters, 320000);
@@ -303,18 +303,18 @@ test('loadConfig ignores aggregate prompt character and token totals for chars-p
   });
 });
 
-test('saveConfig preserves explicit llama.cpp thread settings through the external server', async () => {
+test('saveConfig preserves explicit preset launch settings through the external server', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       assert.ok(config.Effective);
-      config.Runtime.LlamaCpp.Threads = 8;
+      getActiveModelPreset(config).ParallelSlots = 4;
 
       const saved = await saveConfig(config);
       const persisted = await requestJson<SiftConfig>(server.configUrl);
 
-      assert.equal(saved.Runtime.LlamaCpp.Threads, 8);
-      assert.equal(persisted.Runtime.LlamaCpp.Threads, 8);
+      assert.equal(getActiveModelPreset(saved).ParallelSlots, 4);
+      assert.equal(getActiveModelPreset(persisted).ParallelSlots, 4);
     });
   });
 });
@@ -347,7 +347,7 @@ test('real status server launches the managed engine with the active preset laun
   });
 });
 
-test('real status server defaults new config to no managed ExecutablePath', async () => {
+test('real status server defaults new config to no preset ModelPath', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -355,7 +355,7 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson<SiftConfig>(configUrl);
 
-      assert.equal(loadedConfig.Server.ModelPresets.Presets[0].ExecutablePath, null);
+      assert.equal(loadedConfig.Server.ModelPresets.Presets[0].ModelPath, null);
     }, {
       statusPath,
       configPath,
@@ -364,31 +364,26 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
   });
 });
 
-test('real status server PUT /config persists managed ExecutablePath/ModelPath as the dashboard sends them', async () => {
+test('real status server PUT /config persists the preset ModelPath as the dashboard sends it', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const dashboardExecutablePath = path.join(tempRoot, 'dashboard-exe.ps1');
-    const dashboardModelPath = path.join(tempRoot, 'dashboard-model.gguf');
-    fs.writeFileSync(dashboardExecutablePath, '# placeholder', 'utf8');
-    fs.writeFileSync(dashboardModelPath, 'fake model', 'utf8');
+    const dashboardModelPath = path.join(tempRoot, 'dashboard-model');
+    fs.mkdirSync(dashboardModelPath, { recursive: true });
 
     await withRealStatusServer(async ({ configUrl }) => {
       const initial = await requestJson(configUrl);
       const dashboardPayload = JSON.parse(JSON.stringify(initial));
-      dashboardPayload.Server.ModelPresets.Presets[0].ExecutablePath = dashboardExecutablePath;
       dashboardPayload.Server.ModelPresets.Presets[0].ModelPath = dashboardModelPath;
 
       const putResponse = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify(dashboardPayload),
       });
-      assert.equal(putResponse.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
       assert.equal(putResponse.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
 
       const reloaded = await requestJson<SiftConfig>(configUrl);
       assert.ok(Array.isArray(reloaded.Server.ModelPresets.Presets));
-      assert.equal(reloaded.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
       assert.equal(reloaded.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
 
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
@@ -398,7 +393,6 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
           .parse(database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get());
         const presets = JSON.parse(row.server_llama_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
-        assert.equal(presets[0].ExecutablePath, dashboardExecutablePath);
         assert.equal(presets[0].ModelPath, dashboardModelPath);
       } finally {
         database.close();

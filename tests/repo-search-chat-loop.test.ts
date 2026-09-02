@@ -19,7 +19,7 @@ const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
 const REPO_SEARCH_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
+  Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
 });
 
 class NonLiveTextProgressWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
@@ -175,7 +175,7 @@ test('tool token totals sum command output tokens', async () => {
 test('chat streams native content as raw progress and safe narration before the final answer', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ count: 10 }));
       return;
@@ -202,7 +202,7 @@ test('chat streams native content as raw progress and safe narration before the 
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
         baseUrl: baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -237,7 +237,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
   const events: RepoSearchProgressEvent[] = [];
   let requestCount = 0;
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ count: 10 }));
       return;
@@ -285,7 +285,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
         baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -313,7 +313,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
   const streamRequests: boolean[] = [];
   let requestCount = 0;
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ count: 10 }));
       return;
@@ -353,7 +353,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
       {
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
         baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -488,8 +488,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
-        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on', IdleAction: 'unload' }] } },
+        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload' }] } },
       }),
       mockResponses: [{ content: "hi" }],
       mockCommandResults: {},

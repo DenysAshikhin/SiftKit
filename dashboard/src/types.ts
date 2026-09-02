@@ -1,10 +1,9 @@
 export * from '@siftkit/contracts';
 import type {
-  RuntimeLlamaCppConfig,
+  RuntimeEngineConfig,
   ModelRuntimePreset,
   OperationModeAllowedTools,
   SiftPreset,
-  ManagedLlamaSpeculativeType,
   PresetKind,
   PresetOperationMode,
   PresetSurface,
@@ -18,11 +17,10 @@ export const ChatMessageSchema = LiveChatMessageSchema;
 export type ChatMessage = LiveChatMessage;
 
 // Dashboard-local aliases over the shared contract types (no contract-name equivalent).
-export type DashboardLlamaCppConfig = RuntimeLlamaCppConfig;
+export type DashboardRuntimeEngineConfig = RuntimeEngineConfig;
 export type DashboardModelRuntimePreset = ModelRuntimePreset;
 export type DashboardOperationModeAllowedTools = OperationModeAllowedTools;
 export type DashboardPreset = SiftPreset;
-export type DashboardManagedLlamaSpeculativeType = ManagedLlamaSpeculativeType;
 export type DashboardPresetKind = PresetKind;
 export type DashboardPresetExecutionFamily = PresetKind;
 export type DashboardPresetOperationMode = PresetOperationMode;

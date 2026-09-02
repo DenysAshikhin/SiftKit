@@ -14,9 +14,8 @@ import { asObject } from './helpers/dashboard-http.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import type { SiftConfig } from '../src/config/types.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
@@ -56,7 +55,7 @@ function startFakeStreamServer(options: FakeStreamOptions = {}): Promise<FakeStr
       req.on('end', () => {
         // Token-count probes (loop preflight) get a plain JSON answer and stay
         // out of the chat body index the assertions rely on.
-        if (req.url === '/v1/token/encode' || req.url === '/tokenize') {
+        if (req.url === '/v1/token/encode') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ length: 32 }));
           return;
@@ -109,13 +108,11 @@ function startFakeStreamServer(options: FakeStreamOptions = {}): Promise<FakeStr
 }
 
 function budgetedConfig(
-  backend: 'exl3' | 'llama',
   opts: { baseUrl?: string; stockBudgetMessage?: boolean; reasoningBudget?: number } = {},
 ): SiftConfig {
   const preset = mockModelPreset({
     id: 'budget-test',
     label: 'budget test',
-    Backend: backend,
     Reasoning: 'on',
     ReasoningBudget: opts.reasoningBudget ?? 8,
     // stockBudgetMessage keeps the normalized default so tests can exercise the
@@ -151,7 +148,7 @@ async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise
 test('exl3 streaming enforces ReasoningBudget with a response_prefix continuation', async () => {
   const fake = await startFakeStreamServer();
   try {
-    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig());
 
     assert.equal(fake.requestCount(), 2);
     assert.ok(!('response_prefix' in fake.bodyAt(0)));
@@ -178,7 +175,7 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
   const fake = await startFakeStreamServer();
   try {
     const response = await new LlamaCppClient().chat({
-      config: budgetedConfig('exl3'),
+      config: budgetedConfig(),
       baseUrl: fake.baseUrl,
       model: 'mock',
       messages: [{ role: 'user', content: 'hi' }],
@@ -223,7 +220,7 @@ function requestCompactionSummary(
 test('a compaction continuation never drops below its summary output floor', async () => {
   const fake = await startFakeStreamServer();
   try {
-    const config = budgetedConfig('exl3', {
+    const config = budgetedConfig({
       baseUrl: fake.baseUrl,
       reasoningBudget: 100_000,
     });
@@ -254,7 +251,7 @@ test('measured headroom above the floor goes to the continuation', async () => {
     reportedReasoningTokens: 'cumulative',
   });
   try {
-    const config = budgetedConfig('exl3', { baseUrl: fake.baseUrl, reasoningBudget: 100_000 });
+    const config = budgetedConfig({ baseUrl: fake.baseUrl, reasoningBudget: 100_000 });
     await requestCompactionSummary(fake, config, 64);
 
     assert.equal(fake.requestCount(), 2);
@@ -268,7 +265,7 @@ test('a continuation with no floor gets the remainder, not a second full budget'
   // Regression guard: an unset floor used to re-grant the whole maxTokens.
   const fake = await startFakeStreamServer();
   try {
-    await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+    await runStreamingPlanner(fake.baseUrl, budgetedConfig());
 
     assert.equal(fake.requestCount(), 2);
     assert.equal(fake.bodyAt(0).max_tokens, 64);
@@ -284,7 +281,7 @@ test('planner reasoningBudgetMessage overrides the preset message in the continu
   const fake = await startFakeStreamServer();
   try {
     const response = await requestRepoSearchPlannerProtocolAction({
-      config: budgetedConfig('exl3'),
+      config: budgetedConfig(),
       baseUrl: fake.baseUrl,
       model: 'mock',
       messages: [{ role: 'user', content: 'hi' }],
@@ -321,7 +318,7 @@ async function runBudgetedTaskLoop(
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
-      config: budgetedConfig('exl3', { baseUrl, stockBudgetMessage: opts.stockBudgetMessage }),
+      config: budgetedConfig({ baseUrl, stockBudgetMessage: opts.stockBudgetMessage }),
       runtimeProfile: new RepoSearchRuntimeProfile(loopKind),
       model: 'mock',
       baseUrl,
@@ -377,52 +374,6 @@ test('chat loop continuations keep the preset budget message', async () => {
   }
 });
 
-test('planner loop on llama backend warns that the planner budget message cannot apply', async () => {
-  const runWithLogger = async (loopKind: 'repo-search' | 'chat'): Promise<Record<string, JsonSerializable>[]> => {
-    const events: Record<string, JsonSerializable>[] = [];
-    await runTaskLoop(
-      { id: loopKind, question: 'hi' },
-      {
-        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
-        repoRoot: os.tmpdir(),
-        systemContext: createEmptyPresetSystemContext(),
-        config: budgetedConfig('llama'),
-        runtimeProfile: new RepoSearchRuntimeProfile(loopKind),
-        model: 'mock',
-        baseUrl: DEAD_BASE_URL,
-        maxTurns: 2,
-        maxInvalidResponses: 2,
-        minToolCallsBeforeFinish: 0,
-        ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
-        mockResponses: [{ content: "done" }],
-        mockCommandResults: {},
-        logger: { path: 'memory', write: (event) => { events.push(event); } },
-      },
-    );
-    return events;
-  };
-
-  const plannerEvents = await runWithLogger('repo-search');
-  assert.ok(plannerEvents.some((event) => event.kind === 'planner_budget_backend_gap'));
-
-  const chatEvents = await runWithLogger('chat');
-  assert.ok(!chatEvents.some((event) => event.kind === 'planner_budget_backend_gap'));
-});
-
-test('llama backend streaming never enforces the budget client-side', async () => {
-  const fake = await startFakeStreamServer();
-  try {
-    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('llama'));
-
-    assert.equal(fake.requestCount(), 1);
-    assert.ok(!('response_prefix' in fake.bodyAt(0)));
-    assert.match(response.text, /"action"\s*:\s*"finish"/u);
-    assert.equal(response.thinkingBudgetExhausted, undefined);
-  } finally {
-    await fake.close();
-  }
-});
-
 test('the gate fires on a positive reported thinking count, not the character estimate', async () => {
   // 40-char deltas estimate at 16 tokens each, so the estimate would blow a
   // budget of 8 on the first delta. Reported counts climb 1 per delta, so the
@@ -433,7 +384,7 @@ test('the gate fires on a positive reported thinking count, not the character es
     reportedReasoningTokens: 'cumulative',
   });
   try {
-    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig());
 
     assert.equal(fake.requestCount(), 2);
     assert.equal(response.thinkingBudgetExhausted, true);
@@ -452,7 +403,7 @@ test('reported zeros fall back to the character estimate and still trip the gate
     reportedReasoningTokens: 'zero',
   });
   try {
-    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig('exl3'));
+    const response = await runStreamingPlanner(fake.baseUrl, budgetedConfig());
 
     assert.equal(fake.requestCount(), 2);
     assert.equal(response.thinkingBudgetExhausted, true);

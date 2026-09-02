@@ -112,80 +112,42 @@ test('settings draft editor applies all model value categories and coupled trans
   const presetId = MANAGED_PRESET.id;
 
   editor.apply({ type: 'set-model-string', presetId, field: 'label', value: 'Fast model' });
-  editor.apply({ type: 'set-model-string', presetId, field: 'BindHost', value: '0.0.0.0' });
-  editor.apply({ type: 'set-model-nullable-string', presetId, field: 'ExecutablePath', value: 'llama-server.exe' });
   editor.apply({ type: 'set-model-nullable-string', presetId, field: 'BaseUrl', value: null });
-  editor.apply({ type: 'set-model-nullable-string', presetId, field: 'ModelPath', value: 'models/fast.gguf' });
-  editor.apply({ type: 'set-model-nullable-string', presetId, field: 'Model', value: 'fast.gguf' });
-  editor.apply({ type: 'set-model-path', presetId, value: 'models/derived.gguf' });
+  editor.apply({ type: 'set-model-nullable-string', presetId, field: 'ModelPath', value: 'models/fast' });
+  editor.apply({ type: 'set-model-nullable-string', presetId, field: 'Model', value: 'fast' });
+  editor.apply({ type: 'set-model-path', presetId, value: 'models/derived' });
   editor.apply({ type: 'set-model-nullable-string', presetId, field: 'ReasoningBudgetMessage', value: null });
   editor.apply({ type: 'set-model-integer', presetId, field: 'NumCtx', value: 8192 });
   editor.apply({ type: 'set-model-integer', presetId, field: 'TopK', value: 17 });
   editor.apply({ type: 'set-model-float', presetId, field: 'Temperature', value: 0.2 });
   editor.apply({ type: 'set-model-float', presetId, field: 'RepetitionPenalty', value: 1.2 });
   editor.apply({ type: 'set-model-boolean', presetId, field: 'ExternalServerEnabled', value: true });
-  editor.apply({ type: 'set-model-boolean', presetId, field: 'VerboseLogging', value: true });
+  editor.apply({ type: 'set-model-boolean', presetId, field: 'SpeculativeDynamic', value: false });
   editor.apply({ type: 'set-model-kv-cache-quantization', presetId, value: 'q8_0' });
-  editor.apply({ type: 'set-model-speculative-type', presetId, value: 'ngram-mod' });
   editor.apply({ type: 'set-model-reasoning', presetId, value: 'on' });
   editor.apply({ type: 'set-model-reasoning-content', presetId, value: true });
   editor.apply({ type: 'set-model-boolean', presetId, field: 'PreserveThinking', value: true });
   editor.apply({ type: 'set-model-reasoning-content', presetId, value: false });
-  editor.apply({ type: 'set-model-backend', presetId, value: 'exl3' });
 
   const preset = editor.getConfig().Server.ModelPresets.Presets[0];
   assert.equal(preset?.label, 'Fast model');
-  assert.equal(preset?.BindHost, '0.0.0.0');
-  assert.equal(preset?.ExecutablePath, 'llama-server.exe');
   assert.equal(preset?.BaseUrl, null);
-  assert.equal(preset?.ModelPath, 'models/derived.gguf');
-  assert.equal(preset?.Model, 'derived.gguf');
+  assert.equal(preset?.ModelPath, 'models/derived');
+  assert.equal(preset?.Model, 'derived');
   assert.equal(preset?.ReasoningBudgetMessage, null);
   assert.equal(preset?.NumCtx, 8192);
   assert.equal(preset?.TopK, 17);
   assert.equal(preset?.Temperature, 0.2);
   assert.equal(preset?.RepetitionPenalty, 1.2);
   assert.equal(preset?.ExternalServerEnabled, true);
-  assert.equal(preset?.VerboseLogging, true);
+  assert.equal(preset?.SpeculativeDynamic, false);
   assert.equal(preset?.KvCacheQuantization, 'q8_0');
   assert.equal(preset?.Reasoning, 'on');
   assert.equal(preset?.ReasoningContent, false);
   assert.equal(preset?.PreserveThinking, false);
   assert.equal(preset?.MaintainPerStepThinking, true);
   assert.equal(preset?.Backend, 'exl3');
-  assert.equal(preset?.SpeculativeType, 'draft-mtp');
-  assert.equal(preset?.SpeculativeMtpEnabled, false);
-  assert.equal(editor.getConfig().Runtime.LlamaCpp.NumCtx, 8192);
-});
-
-test('switching a frozen EXL3 draft to llama resets idle action and remains saveable', () => {
-  const config = {
-    ...DASHBOARD_CONFIG,
-    Server: {
-      ...DASHBOARD_CONFIG.Server,
-      ModelPresets: {
-        ActivePresetId: MANAGED_PRESET.id,
-        Presets: [{ ...MANAGED_PRESET, Backend: 'exl3' as const, IdleAction: 'freeze' as const }],
-      },
-    },
-  };
-  const editor = new DashboardSettingsDraftEditor(config);
-
-  editor.apply({ type: 'set-model-backend', presetId: MANAGED_PRESET.id, value: 'llama' });
-
-  const preset = editor.getConfig().Server.ModelPresets.Presets[0];
-  assert.equal(preset?.Backend, 'llama');
-  assert.equal(preset?.IdleAction, 'unload');
-});
-
-test('switching to EXL3 preserves a non-freeze idle action', () => {
-  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
-
-  editor.apply({ type: 'set-model-backend', presetId: MANAGED_PRESET.id, value: 'exl3' });
-
-  const preset = editor.getConfig().Server.ModelPresets.Presets[0];
-  assert.equal(preset?.Backend, 'exl3');
-  assert.equal(preset?.IdleAction, 'unload');
+  assert.equal(editor.getConfig().Runtime.Engine.NumCtx, 8192);
 });
 
 test('settings draft editor adds, selects, and deletes regular and model presets', () => {

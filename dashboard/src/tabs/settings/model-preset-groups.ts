@@ -14,20 +14,13 @@ function seconds(ms: number): string {
 }
 
 export function summarizeIdentity(preset: DashboardModelRuntimePreset): string {
-  const model = preset.Backend === 'exl3'
-    ? (preset.ModelPath || preset.Model)
-    : preset.Model;
+  const model = preset.ModelPath || preset.Model;
   const location = preset.ExternalServerEnabled ? 'external' : 'managed';
-  return `${model} · ${location} · ${preset.BindHost}:${preset.Port}`;
+  return `${model} · ${location} · ${preset.BaseUrl}`;
 }
 
 export function summarizeMemory(preset: DashboardModelRuntimePreset): string {
-  const ctx = `ctx ${formatCompactTokenCount(preset.NumCtx)}`;
-  const kv = `KV ${preset.KvCacheQuantization}`;
-  if (preset.Backend === 'exl3') {
-    return `${ctx} · chunk ${preset.UBatchSize} · ${kv}`;
-  }
-  return `${ctx} · GPU ${preset.GpuLayers} · batch ${preset.BatchSize}/${preset.UBatchSize} · ${kv}`;
+  return `ctx ${formatCompactTokenCount(preset.NumCtx)} · chunk ${preset.UBatchSize} · KV ${preset.KvCacheQuantization}`;
 }
 
 export function summarizeSampling(preset: DashboardModelRuntimePreset): string {
@@ -44,11 +37,8 @@ export function summarizeSpeculative(preset: DashboardModelRuntimePreset): strin
   if (!preset.SpeculativeEnabled) {
     return 'off';
   }
-  const type = preset.SpeculativeType;
-  const detail = type.startsWith('ngram-')
-    ? `N${preset.SpeculativeNgramSizeN} M${preset.SpeculativeNgramSizeM}`
-    : `${preset.SpeculativeDraftMin}–${preset.SpeculativeDraftMax}`;
-  return `on · ${type} · ${detail}`;
+  const window = preset.SpeculativeDynamic ? `dynamic ≤${preset.SpeculativeDraftMax}` : `${preset.SpeculativeDraftMax}`;
+  return `on · draft-mtp · ${window}`;
 }
 
 export function summarizeLifecycle(preset: DashboardModelRuntimePreset): string {

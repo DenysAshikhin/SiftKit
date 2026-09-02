@@ -1,21 +1,17 @@
 import { initializeRuntime } from './paths.js';
 import {
-  CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelPresetFieldSchema,
-  ReasoningEffortSchema, SiftPresetCollectionSchema, type ModelIdleAction, type ReasoningEffort,
+  CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
+  ModelPresetFieldSchema, ReasoningEffortSchema, SiftPresetCollectionSchema,
+  type ModelIdleAction, type ReasoningEffort,
 } from '@siftkit/contracts';
 import {
-  SIFT_DEFAULT_LLAMA_BATCH_SIZE,
-  SIFT_DEFAULT_LLAMA_BIND_HOST,
   SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,
-  SIFT_DEFAULT_LLAMA_CACHE_RAM,
-  SIFT_DEFAULT_LLAMA_GPU_LAYERS,
-  SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
-  SIFT_DEFAULT_LLAMA_MODEL,
-  SIFT_DEFAULT_LLAMA_PORT,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
-  SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
-  SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
+  SIFT_DEFAULT_ENGINE_CACHE_RAM,
+  SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
+  SIFT_DEFAULT_ENGINE_SLEEP_IDLE_SECONDS,
+  SIFT_DEFAULT_ENGINE_UBATCH_SIZE,
   SIFT_DEFAULT_VISION_IMAGE_RETENTION,
   SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
 } from './constants.js';
@@ -30,13 +26,12 @@ import { InferenceBackendIdSchema } from './types.js';
 import type {
   Exl3EngineConfig,
   AssistantConfig,
-  ManagedLlamaKvCacheQuantization,
-  ManagedLlamaSettings,
-  ManagedLlamaSpeculativeType,
+  ModelKvCacheQuantization,
+  ModelPresetSettings,
   ModelRuntimePreset,
   NormalizationInfo,
   InferenceBackendId,
-  RuntimeLlamaCppConfig,
+  RuntimeEngineConfig,
   SiftConfig,
   WebSearchConfig,
   WebSearchProviderId,
@@ -47,10 +42,8 @@ import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
-const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+const MAX_ENGINE_STARTUP_TIMEOUT_MS = 600_000;
 const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
-
-export type ManagedLlamaConfig = ManagedLlamaSettings & { Model?: string | null };
 
 function getRecord(value: JsonValue): MutableJsonObject {
   const record = JsonRecordReader.asObject(value);
@@ -212,8 +205,18 @@ function getDefaultModelPreset(): ModelRuntimePreset {
 }
 
 function normalizeInferenceBackend(value: JsonValue): InferenceBackendId {
-  const parsed = InferenceBackendIdSchema.safeParse(getNullableTrimmedString(value));
-  return parsed.success ? parsed.data : 'llama';
+  const backend = getNullableTrimmedString(value);
+  if (backend === null) {
+    return 'exl3';
+  }
+  const parsed = InferenceBackendIdSchema.safeParse(backend);
+  if (!parsed.success) {
+    throw new Error(
+      `Unsupported model preset Backend '${backend}'; only ${InferenceBackendIdSchema.options.join(', ')} is supported. `
+      + 'Delete the preset from the stored configuration.',
+    );
+  }
+  return parsed.data;
 }
 
 function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
@@ -265,7 +268,7 @@ function getBooleanWithDefault(value: JsonValue, fallback: JsonValue): boolean {
 }
 
 export function getManagedStartupTimeoutMs(value: JsonValue, fallback: number): number {
-  return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
+  return Math.min(getFinitePositiveInteger(value, fallback), MAX_ENGINE_STARTUP_TIMEOUT_MS);
 }
 
 function getFiniteInteger(value: JsonValue, fallback: number): number {
@@ -273,15 +276,12 @@ function getFiniteInteger(value: JsonValue, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function getSpeculativeInteger(value: JsonValue, fallback: number, requirePositive: boolean): number {
+function getSpeculativeInteger(value: JsonValue, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) {
     return fallback;
   }
-  if (parsed === -1) {
-    return -1;
-  }
-  return !requirePositive || parsed > 0 ? parsed : fallback;
+  return parsed === -1 || parsed > 0 ? parsed : fallback;
 }
 
 function getVisionImageRetention(value: JsonValue): number {
@@ -366,52 +366,23 @@ export function normalizeWebSearchConfig(value: JsonValue): WebSearchConfig {
   };
 }
 
-function getManagedSpeculativeType(value: JsonValue, fallback: ManagedLlamaSpeculativeType): ManagedLlamaSpeculativeType {
-  switch (String(value || '')) {
-    case 'draft-simple':
-      return 'draft-simple';
-    case 'draft-eagle3':
-      return 'draft-eagle3';
-    case 'draft-mtp':
-      return 'draft-mtp';
-    case 'ngram-simple':
-      return 'ngram-simple';
-    case 'ngram-map-k':
-      return 'ngram-map-k';
-    case 'ngram-map-k4v':
-      return 'ngram-map-k4v';
-    case 'ngram-mod':
-      return 'ngram-mod';
-    case 'ngram-cache':
-      return 'ngram-cache';
-    default:
-      return fallback;
-  }
-}
-
 function getReasoningEffort(value: JsonValue, fallback: ReasoningEffort): ReasoningEffort {
   const parsed = ReasoningEffortSchema.safeParse(getNullableTrimmedString(value));
   return parsed.success ? parsed.data : fallback;
 }
 
-function getManagedKvCacheQuantization(value: JsonValue, fallback: ManagedLlamaKvCacheQuantization): ManagedLlamaKvCacheQuantization {
+function getModelKvCacheQuantization(value: JsonValue, fallback: ModelKvCacheQuantization): ModelKvCacheQuantization {
   const normalized = getNullableTrimmedString(value);
-  if (
-    normalized === 'f32'
-    || normalized === 'f16'
-    || normalized === 'bf16'
-    || normalized === 'q8_0'
-    || normalized === 'q4_0'
-    || normalized === 'q4_1'
-    || normalized === 'iq4_nl'
-    || normalized === 'q5_0'
-    || normalized === 'q5_1'
-    || normalized === 'q8_0/q4_0'
-    || normalized === 'q8_0/q5_0'
-  ) {
-    return normalized;
+  if (normalized === null) {
+    return fallback;
   }
-  return fallback;
+  const parsed = ModelKvCacheQuantizationSchema.safeParse(normalized);
+  if (!parsed.success) {
+    throw new Error(
+      `Unsupported KvCacheQuantization '${normalized}'; expected one of ${ModelKvCacheQuantizationSchema.options.join(', ')}.`,
+    );
+  }
+  return parsed.data;
 }
 
 export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonValue {
@@ -459,19 +430,12 @@ export function normalizeModelRuntimePresetRecord(
       );
     }
   }
-  const backend = normalizeInferenceBackend(record.Backend);
-  const settings = resolveManagedLlamaSettings(record);
-  if (backend === 'llama' && settings.IdleAction === 'freeze') {
-    throw new Error(
-      `Preset '${getNullableTrimmedString(record.id) || fallbackId}' with backend llama cannot use IdleAction=freeze.`,
-    );
-  }
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,
-    Backend: backend,
-    Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || SIFT_DEFAULT_LLAMA_MODEL,
-    ...settings,
+    Backend: normalizeInferenceBackend(record.Backend),
+    Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath),
+    ...resolveModelPresetSettings(record),
   };
 }
 
@@ -504,35 +468,26 @@ function resolveOperationModeAllowedTools(value: JsonValue): OperationModeAllowe
   return normalizeOperationModeAllowedTools(value);
 }
 
-function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConfig {
+function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettings {
   const defaults = getDefaultModelPreset();
   const reasoning = getNullableTrimmedString(input.Reasoning);
   const reasoningEnabled = reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && input.ReasoningContent === true;
   return {
     ExternalServerEnabled: input.ExternalServerEnabled === true,
-    ExecutablePath: getNullableTrimmedString(input.ExecutablePath)
-      || getNullableTrimmedString(defaults.ExecutablePath),
     BaseUrl: getNullableTrimmedString(input.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
-    BindHost: getNullableTrimmedString(input.BindHost) || String(defaults.BindHost || SIFT_DEFAULT_LLAMA_BIND_HOST),
-    Port: getFinitePositiveInteger(input.Port, Number(defaults.Port ?? SIFT_DEFAULT_LLAMA_PORT)),
     ModelPath: getNullableTrimmedString(input.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
     NumCtx: getFinitePositiveInteger(input.NumCtx, Number(defaults.NumCtx ?? 150_000)),
-    GpuLayers: getFiniteInteger(input.GpuLayers, Number(defaults.GpuLayers ?? SIFT_DEFAULT_LLAMA_GPU_LAYERS)),
-    Threads: getFiniteInteger(input.Threads, Number(defaults.Threads ?? -1)),
-    NcpuMoe: getFiniteInteger(input.NcpuMoe, Number(defaults.NcpuMoe ?? 0)),
-    FlashAttention: getBooleanWithDefault(input.FlashAttention, defaults.FlashAttention),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
-    BatchSize: getFinitePositiveInteger(input.BatchSize, Number(defaults.BatchSize ?? SIFT_DEFAULT_LLAMA_BATCH_SIZE)),
-    UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_LLAMA_UBATCH_SIZE)),
-    CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_LLAMA_CACHE_RAM)),
+    UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_ENGINE_UBATCH_SIZE)),
+    CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_ENGINE_CACHE_RAM)),
     CacheRecurrentRam: getFiniteNonNegativeInteger(
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
     ),
-    KvCacheQuantization: getManagedKvCacheQuantization(
+    KvCacheQuantization: getModelKvCacheQuantization(
       input.KvCacheQuantization,
-      defaults.KvCacheQuantization ?? SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
+      defaults.KvCacheQuantization ?? SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,
     ),
     MaxTokens: getFinitePositiveInteger(input.MaxTokens, Number(defaults.MaxTokens ?? 15_000)),
     Temperature: getFiniteNumber(input.Temperature, Number(defaults.Temperature ?? 0.7)),
@@ -551,27 +506,17 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     PreserveThinking: reasoningContentEnabled && input.PreserveThinking === true,
     MaintainPerStepThinking: reasoningEnabled && input.MaintainPerStepThinking !== false,
     SpeculativeEnabled: input.SpeculativeEnabled === true,
-    SpeculativeType: getManagedSpeculativeType(input.SpeculativeType, defaults.SpeculativeType || 'ngram-map-k'),
-    SpeculativeMtpEnabled: input.SpeculativeMtpEnabled === true,
-    SpeculativeNgramSizeN: getSpeculativeInteger(input.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8), true),
-    SpeculativeNgramSizeM: getSpeculativeInteger(input.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16), true),
-    SpeculativeNgramMinHits: getSpeculativeInteger(input.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2), true),
-    SpeculativeNgramModNMatch: getSpeculativeInteger(input.SpeculativeNgramModNMatch, Number(defaults.SpeculativeNgramModNMatch ?? 24), true),
-    SpeculativeNgramModNMin: getSpeculativeInteger(input.SpeculativeNgramModNMin, Number(defaults.SpeculativeNgramModNMin ?? 4), true),
-    SpeculativeNgramModNMax: getSpeculativeInteger(input.SpeculativeNgramModNMax, Number(defaults.SpeculativeNgramModNMax ?? 16), true),
-    SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
-    SpeculativeDraftMin: getSpeculativeInteger(input.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
+    SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
     SpeculativeDynamic: getBooleanWithDefault(input.SpeculativeDynamic, defaults.SpeculativeDynamic),
-    ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_LLAMA_REASONING_BUDGET)),
+    ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_ENGINE_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)
-      || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+      || SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: getManagedStartupTimeoutMs(input.StartupTimeoutMs, Number(defaults.StartupTimeoutMs ?? 600_000)),
     HealthcheckTimeoutMs: getFinitePositiveInteger(input.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs ?? 2_000)),
     HealthcheckIntervalMs: getFinitePositiveInteger(input.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs ?? 1_000)),
-    SleepIdleSeconds: getFinitePositiveInteger(input.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
+    SleepIdleSeconds: getFinitePositiveInteger(input.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? SIFT_DEFAULT_ENGINE_SLEEP_IDLE_SECONDS)),
     IdleAction: getModelIdleAction(input.IdleAction),
-    VerboseLogging: Boolean(input.VerboseLogging),
     VisionEnabled: getBooleanWithDefault(input.VisionEnabled, defaults.VisionEnabled),
     VisionOffload: getBooleanWithDefault(input.VisionOffload, defaults.VisionOffload),
     VisionImageRetention: getVisionImageRetention(input.VisionImageRetention),
@@ -601,9 +546,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
     throw new Error('Unsupported configuration field Runtime.Model; use the active model preset Model field.');
   }
   const inputServer = getRecord(inputRecord.Server);
-  if ('LlamaCpp' in inputServer) {
-    throw new Error('Unsupported configuration field Server.LlamaCpp; use Server.ModelPresets.');
-  }
   if ('Exl3' in inputServer) {
     throw new Error('Unsupported configuration field Server.Exl3; use Server.Engines.Exl3.');
   }
@@ -613,11 +555,10 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   delete merged.Paths;
   delete merged.Ollama;
   delete merged.Model;
-  delete merged.LlamaCpp;
 
   const runtime = getRecord(merged.Runtime);
   delete runtime.PromptPrefix;
-  runtime.LlamaCpp = getRecord(runtime.LlamaCpp);
+  runtime.Engine = getRecord(runtime.Engine);
   merged.Runtime = runtime;
 
   if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
@@ -662,51 +603,8 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
   return { config: normalizeConfigObject(JsonValueSchema.parse(config)), info: { changed: false } };
 }
 
-export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime.LlamaCpp;
-}
-
-export function getManagedLlamaConfig(config: SiftConfig): ManagedLlamaConfig {
-  const normalized = normalizeConfigObject(JsonValueSchema.parse(config));
-  const modelPresets = normalized.Server.ModelPresets;
-  const preset = modelPresets.Presets.find((entry) => entry.id === modelPresets.ActivePresetId)
-    ?? modelPresets.Presets[0];
-  if (!preset) throw new Error('Model preset list is empty.');
-  if (preset.Backend !== 'llama') {
-    throw new Error(
-      `getManagedLlamaConfig requires an active llama-backed preset, but preset '${preset.id}' is '${preset.Backend}'.`,
-    );
-  }
-  return {
-    Model: getNullableTrimmedString(preset.Model),
-    ...resolveManagedLlamaSettings(getRecord(preset)),
-  };
-}
-
-export function getLlamaBaseUrl(config: SiftConfig): string | null {
-  return getManagedLlamaConfig(config).BaseUrl;
-}
-
-export function getManagedLlamaInternalBaseUrl(config: SiftConfig): string | null {
-  const managed = getManagedLlamaConfig(config);
-  if (managed.ExternalServerEnabled) {
-    return managed.BaseUrl;
-  }
-  const baseUrl = managed.BaseUrl;
-  if (baseUrl) {
-    try {
-      const hostname = new URL(baseUrl).hostname.toLowerCase();
-      if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') {
-        return baseUrl;
-      }
-    } catch {
-      // Fall through to the loopback-by-port path below.
-    }
-  }
-  if (!managed.Port || managed.Port <= 0) {
-    return baseUrl;
-  }
-  return `http://127.0.0.1:${managed.Port}`;
+export function getRuntimeEngine(config: SiftConfig): RuntimeEngineConfig {
+  return config.Runtime.Engine;
 }
 
 export function updateRuntimePaths(config: SiftConfig): SiftConfig {

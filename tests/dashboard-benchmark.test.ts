@@ -65,7 +65,7 @@ test('dashboard benchmark runner derives attempt metrics from dashboard run reco
     finishedAtUtc: '2026-05-13T00:00:10.000Z',
     title: 'Benchmark run',
     model: 'model',
-    backend: 'llama',
+    backend: 'exl3',
     inputTokens: 100,
     outputTokens: 80,
     thinkingTokens: 20,

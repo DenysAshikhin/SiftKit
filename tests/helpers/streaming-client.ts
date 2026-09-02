@@ -19,7 +19,6 @@ export function buildStreamingTestConfig(): SiftConfig {
   preset.BaseUrl = STREAM_TEST_BASE_URL;
   preset.Reasoning = 'off';
   config.Server.ModelPresets.ActivePresetId = 'p1';
-  config.Runtime.LlamaCpp = { ...config.Runtime.LlamaCpp, BaseUrl: STREAM_TEST_BASE_URL };
   return config;
 }
 

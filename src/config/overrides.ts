@@ -1,19 +1,5 @@
 import { getActiveModelPreset } from './getters.js';
-import type { ModelRuntimePreset, RuntimeLlamaCppConfig, SiftConfig } from './types.js';
-
-/**
- * `Runtime.LlamaCpp` records what the serving process was actually launched with and
- * therefore outranks the persisted preset in `getConfiguredLlamaNumCtx`/`getConfiguredReasoning`.
- * An overlay of those two fields has to travel into that record as well or the getters
- * would keep answering with the superseded launch values. `BaseUrl` deliberately does not
- * travel: the live endpoint stays the one that is actually listening.
- */
-function buildLaunchRecordOverlay(fields: Partial<ModelRuntimePreset>): RuntimeLlamaCppConfig {
-  return {
-    ...(fields.NumCtx === undefined ? {} : { NumCtx: fields.NumCtx }),
-    ...(fields.Reasoning === undefined ? {} : { Reasoning: fields.Reasoning }),
-  };
-}
+import type { ModelRuntimePreset, SiftConfig } from './types.js';
 
 /**
  * Rewrites the active preset — the one `getActiveModelPreset` resolves — with the
@@ -24,10 +10,6 @@ export function overlayActivePreset(config: SiftConfig, fields: Partial<ModelRun
   const activePresetId = getActiveModelPreset(config).id;
   return {
     ...config,
-    Runtime: {
-      ...config.Runtime,
-      LlamaCpp: { ...config.Runtime.LlamaCpp, ...buildLaunchRecordOverlay(fields) },
-    },
     Server: {
       ...config.Server,
       ModelPresets: {

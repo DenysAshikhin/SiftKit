@@ -16,15 +16,13 @@ import {
 import type {
   AssistantConfig,
   DashboardConfig,
-  DashboardManagedLlamaSpeculativeType,
   DashboardModelRuntimePreset,
   DashboardPreset,
   DashboardPresetKind,
   DashboardPresetOperationMode,
   DashboardPresetSurface,
   DashboardPresetToolName,
-  InferenceBackendId,
-  ManagedLlamaKvCacheQuantization,
+  ModelKvCacheQuantization,
   ModelIdleAction,
   ReasoningEffort,
   WebSearchProviderId,
@@ -39,29 +37,17 @@ export type WebSearchIntegerField = 'ResultCount' | 'TimeoutMs' | 'FetchMaxPages
 export type PresetStringField = 'label' | 'description' | 'promptPrefix';
 export type PresetBooleanField =
   | 'includeAgentsMd' | 'includeRepoFileListing' | 'repoRootRequired' | 'assistantMemory';
-export type ModelStringField = 'label' | 'BindHost';
-export type ModelNullableStringField = 'Model' | 'ExecutablePath' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
+export type ModelStringField = 'label';
+export type ModelNullableStringField = 'Model' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
 export type ModelIntegerField =
-  | 'Port'
   | 'NumCtx'
-  | 'GpuLayers'
-  | 'Threads'
-  | 'NcpuMoe'
   | 'ParallelSlots'
-  | 'BatchSize'
   | 'UBatchSize'
   | 'CacheRam'
   | 'CacheRecurrentRam'
   | 'MaxTokens'
   | 'TopK'
-  | 'SpeculativeNgramSizeN'
-  | 'SpeculativeNgramSizeM'
-  | 'SpeculativeNgramMinHits'
-  | 'SpeculativeNgramModNMatch'
-  | 'SpeculativeNgramModNMin'
-  | 'SpeculativeNgramModNMax'
   | 'SpeculativeDraftMax'
-  | 'SpeculativeDraftMin'
   | 'ReasoningBudget'
   | 'StartupTimeoutMs'
   | 'HealthcheckTimeoutMs'
@@ -77,13 +63,10 @@ export type ModelFloatField =
   | 'RepetitionPenalty';
 export type ModelBooleanField =
   | 'ExternalServerEnabled'
-  | 'FlashAttention'
   | 'PreserveThinking'
   | 'MaintainPerStepThinking'
   | 'SpeculativeEnabled'
-  | 'SpeculativeMtpEnabled'
   | 'SpeculativeDynamic'
-  | 'VerboseLogging'
   | 'VisionEnabled'
   | 'VisionOffload';
 
@@ -126,13 +109,11 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-model-integer'; presetId: string; field: ModelIntegerField; value: number }
   | { type: 'set-model-float'; presetId: string; field: ModelFloatField; value: number }
   | { type: 'set-model-boolean'; presetId: string; field: ModelBooleanField; value: boolean }
-  | { type: 'set-model-backend'; presetId: string; value: InferenceBackendId }
   | { type: 'set-model-idle-action'; presetId: string; value: ModelIdleAction }
-  | { type: 'set-model-kv-cache-quantization'; presetId: string; value: ManagedLlamaKvCacheQuantization }
+  | { type: 'set-model-kv-cache-quantization'; presetId: string; value: ModelKvCacheQuantization }
   | { type: 'set-model-reasoning'; presetId: string; value: 'on' | 'off' }
   | { type: 'set-model-reasoning-effort'; presetId: string; value: ReasoningEffort }
   | { type: 'set-model-reasoning-content'; presetId: string; value: boolean }
-  | { type: 'set-model-speculative-type'; presetId: string; value: DashboardManagedLlamaSpeculativeType }
   | { type: 'add-model-preset' }
   | { type: 'delete-model-preset'; presetId: string };
 
@@ -266,9 +247,6 @@ export class DashboardSettingsDraftEditor {
         }
         return;
       }
-      case 'set-model-backend':
-        this.setModelBackend(action.presetId, action.value);
-        return;
       case 'set-model-idle-action':
         this.requireModelPreset(action.presetId).IdleAction = action.value;
         return;
@@ -283,9 +261,6 @@ export class DashboardSettingsDraftEditor {
         return;
       case 'set-model-reasoning-content':
         this.setModelReasoningContent(action.presetId, action.value);
-        return;
-      case 'set-model-speculative-type':
-        this.requireModelPreset(action.presetId).SpeculativeType = action.value;
         return;
       case 'add-model-preset':
         addModelPreset(this.config);
@@ -360,18 +335,6 @@ export class DashboardSettingsDraftEditor {
       throw new Error(`Preset ${presetId} is not deletable.`);
     }
     this.config.Presets = this.config.Presets.filter((entry) => entry.id !== presetId);
-  }
-
-  private setModelBackend(presetId: string, backend: InferenceBackendId): void {
-    const preset = this.requireModelPreset(presetId);
-    preset.Backend = backend;
-    if (backend === 'llama' && preset.IdleAction === 'freeze') {
-      preset.IdleAction = 'unload';
-    }
-    if (backend === 'exl3') {
-      preset.SpeculativeType = 'draft-mtp';
-      preset.SpeculativeMtpEnabled = false;
-    }
   }
 
   private setModelReasoning(presetId: string, reasoning: 'on' | 'off'): void {

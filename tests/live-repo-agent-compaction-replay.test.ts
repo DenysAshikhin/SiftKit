@@ -3,13 +3,13 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  applyHostLlamaRuntimeSettings,
+  applyHostEngineRuntimeSettings,
   getActiveModelPreset,
-  getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
   getConfiguredModel,
   loadConfig,
-  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
 } from '../src/config/index.js';
 import { JsonObjectSchema, type JsonSerializable } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -193,12 +193,12 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     : 'set SIFTKIT_TEST_LIVE_REPO_AGENT_COMPACTION_REPLAY=1 after receiving explicit approval',
 }, async () => {
   const source = loadReplaySource();
-  const config = await applyHostLlamaRuntimeSettings(await loadConfig({ ensure: true }));
-  const totalContextTokens = getConfiguredLlamaNumCtx(config);
+  const config = await applyHostEngineRuntimeSettings(await loadConfig({ ensure: true }));
+  const totalContextTokens = getConfiguredEngineNumCtx(config);
   assert.equal(totalContextTokens, SOURCE_TOTAL_CONTEXT_TOKENS);
 
   const model = getConfiguredModel(config);
-  const baseUrl = getConfiguredLlamaBaseUrl(config);
+  const baseUrl = getConfiguredEngineBaseUrl(config);
   assert.equal(model, source.configuredModel, 'configured model no longer matches the captured run');
   assert.equal(baseUrl, source.baseUrl, 'configured base URL no longer matches the captured run');
   const thinking = resolvePlannerThinkingFlags(config);
@@ -337,7 +337,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   process.stdout.write(`Saved compaction summary: ${savedArtifact.uri}\n`);
 
   const presetBudgetMessageCustomized = Boolean(activePreset.ReasoningBudgetMessage)
-    && activePreset.ReasoningBudgetMessage !== SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+    && activePreset.ReasoningBudgetMessage !== SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE;
   const reasoningBudgetMessage = presetBudgetMessageCustomized
     ? null
     : PLANNER_REASONING_BUDGET_MESSAGE;

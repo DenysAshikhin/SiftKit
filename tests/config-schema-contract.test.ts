@@ -27,12 +27,35 @@ test('status-server config-store exposes the shared typed config contract', () =
 
 test('configuration owns backend selection only through the active model preset', () => {
   const config = getDefaultConfig();
-  assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
+  assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'exl3');
   assert.equal('SelectedBackend' in config.Inference, false);
-  assert.equal('LlamaCpp' in config.Server, false);
   assert.equal('Exl3' in config.Server, false);
   assert.equal('Model' in config.Runtime, false);
+  assert.deepEqual(Object.keys(config.Runtime), ['Engine']);
   assert.equal(config.Server.Engines.Exl3.ModelRoot, 'D:\\personal\\models\\elx3');
+});
+
+test('config and contracts carry no llama.cpp vocabulary', () => {
+  const sources = [
+    'packages/contracts/src/config.ts',
+    'packages/contracts/src/system.ts',
+    'packages/contracts/src/index.ts',
+    'src/config/constants.ts',
+    'src/config/defaults.ts',
+    'src/config/getters.ts',
+    'src/config/host-sync.ts',
+    'src/config/normalization.ts',
+    'src/config/overrides.ts',
+    'src/config/types.ts',
+    'src/config/index.ts',
+    'src/status-server/config-store.ts',
+    'src/status-server/runtime-launch-snapshot.ts',
+  ];
+  for (const source of sources) {
+    assert.doesNotMatch(fs.readFileSync(source, 'utf8'), /LlamaCpp|ManagedLlama|SIFT_DEFAULT_LLAMA|gguf/u, source);
+  }
+  assert.equal(fs.existsSync('packages/contracts/src/managed-llama-failure.ts'), false);
+  assert.equal(fs.existsSync('src/inference-presets/request-compatibility.ts'), false);
 });
 
 test('config-store does not define untyped config defaults or Dict signatures', () => {
@@ -67,7 +90,7 @@ test('typed default config is live and imported by the status server', () => {
 test('dashboard does not mirror the config schema', () => {
   const source = fs.readFileSync('dashboard/src/types.ts', 'utf8');
 
-  assert.doesNotMatch(source, /Server:\s*\{[\s\S]*LlamaCpp:\s*\{/u);
+  assert.doesNotMatch(source, /Server:\s*\{[\s\S]*ModelPresets:\s*\{/u);
   assert.doesNotMatch(source, /WebSearch:\s*\{/u);
   assert.match(source, /export \* from ['"]@siftkit\/contracts['"]/u);
 });
@@ -93,7 +116,7 @@ test('status-server config consumers keep SiftConfig at config boundaries', () =
         /buildContextUsage\(config: Dict/u,
         /buildContextUsage\(config: SiftConfig[\s\S]*\): Dict/u,
         /resolveActiveChatModel\(config: Dict/u,
-        /getActiveServerLlamaPreset\(config: Dict/u,
+        /getActiveModelPreset\(config: Dict/u,
         /shouldReplayReasoningContent\(config: Dict/u,
         /shouldPreserveThinking\(config: Dict/u,
         /buildChatHistoryMessages\(\s*config: Dict/u,
@@ -121,7 +144,7 @@ test('status-server config consumers keep SiftConfig at config boundaries', () =
       patterns: [
         /type ChatRouteConfig = SiftConfig &/u,
         /readConfig\(configPath\) as ChatRouteConfig/u,
-        /applyHostLlamaRuntimeSettings\(localConfig\) as ChatRouteConfig/u,
+        /applyHostEngineRuntimeSettings\(localConfig\) as ChatRouteConfig/u,
         /getEffectivePresetAllowedTools\(config: Dict/u,
         /withPromptContext\(config: Dict/u,
         /buildChatSessionResponse\(config: Dict/u,
@@ -164,11 +187,9 @@ test('dashboard has a single source file for dashboard types', () => {
   assert.equal(fs.existsSync('dashboard/src/types.d.ts'), false);
 });
 
-test('typed config constants do not retain dead machine-local llama paths', () => {
+test('typed config constants do not retain dead machine-local model paths', () => {
   const source = fs.readFileSync('src/config/constants.ts', 'utf8');
 
-  assert.doesNotMatch(source, /SIFT_DEFAULT_LLAMA_MODEL_PATH/u);
-  assert.doesNotMatch(source, /SIFT_DEFAULT_LLAMA_EXECUTABLE_PATH/u);
+  assert.doesNotMatch(source, /SIFT_DEFAULT_ENGINE_MODEL_PATH/u);
   assert.doesNotMatch(source, /D:\\\\personal\\\\models/u);
-  assert.doesNotMatch(source, /llamacpp\\\\llama-server\.exe/u);
 });

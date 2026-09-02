@@ -34,7 +34,7 @@ import {
   type ChatRequest,
   type AssistantResponder,
   AssistantMessageFixtureSchema,
-  setManagedLlamaBaseUrl,
+  setPresetBaseUrl,
   mergeConfig,
   extractPromptSection,
   buildOversizedTransitionsInput,
@@ -63,7 +63,7 @@ import {
   saveConfig,
   getConfigPath,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
+  getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
   initializeRuntime,
   getStatusServerUnavailableMessage,
@@ -139,7 +139,7 @@ function applyManagedScriptConfig(
   overrides: Partial<ModelRuntimePreset> = {},
 ): void {
   const defaultPreset = config.Server.ModelPresets.Presets[0];
-  setManagedLlamaBaseUrl(config, managed.baseUrl);
+  setPresetBaseUrl(config, managed.baseUrl);
   config.Server = {
     ModelPresets: {
       ActivePresetId: 'default',
@@ -151,7 +151,6 @@ function applyManagedScriptConfig(
         Model: managed.modelId,
         BaseUrl: managed.baseUrl,
         ModelPath: managed.modelPath,
-        ExecutablePath: null,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 2000,
         HealthcheckIntervalMs: 25,
@@ -528,12 +527,32 @@ async function waitForTextMatch(getText: () => string, pattern: RegExp, timeoutM
   }
 }
 
+// `mergeConfig` replaces arrays, so a partial preset in `options.config` would otherwise reach
+// normalization half-filled; each entry is merged over the default preset instead.
+function withStubPresetDefaults(partial: JsonValue): JsonValue {
+  if (!isJsonObject(partial) || !isJsonObject(partial.Server) || !isJsonObject(partial.Server.ModelPresets)) return partial;
+  const modelPresets = partial.Server.ModelPresets;
+  if (!Array.isArray(modelPresets.Presets)) return partial;
+  const basePreset = getDefaultConfig().Server.ModelPresets.Presets[0];
+  if (!basePreset) throw new Error('Default config has no model preset.');
+  return {
+    ...partial,
+    Server: {
+      ...partial.Server,
+      ModelPresets: {
+        ...modelPresets,
+        Presets: modelPresets.Presets.map((entry) => mergeConfig(toJsonValue(basePreset), entry)),
+      },
+    },
+  };
+}
+
 async function startStubStatusServer(options: StubServerOptions = {}): Promise<StubServer> {
   const state: StubServerState = {
     // Normalized like the real config store: a merged-in preset literal carries only the
     // fields the caller named, and serving that half-filled preset would hand the code
     // under test a config the product could never produce.
-    config: normalizeConfigObject(mergeConfig(toJsonValue(getDefaultConfig()), options.config || {})),
+    config: normalizeConfigObject(mergeConfig(toJsonValue(getDefaultConfig()), withStubPresetDefaults(options.config || {}))),
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
@@ -679,10 +698,10 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
-      const content = String(parsed?.content || '');
+      const content = String(parsed?.text || '');
       state.tokenizeRequests.push(parsed);
       if (typeof options.tokenizeTokenCount === 'function') {
         const tokenCount = options.tokenizeTokenCount(content, parsed);
@@ -963,7 +982,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   const stubBaseUrl = `http://127.0.0.1:${port}`;
-  state.config.Runtime.LlamaCpp.BaseUrl = stubBaseUrl;
   if (state.config.Server.ModelPresets.Presets.length === 0) {
     const defaultPreset = getDefaultConfig().Server.ModelPresets.Presets[0];
     state.config.Server.ModelPresets.Presets.push({ ...defaultPreset, id: 'default', label: 'Default' });
@@ -1529,7 +1547,7 @@ export {
   // Re-exports from dist modules (used by test files)
   assert, fs, http, path, spawn, spawnSync, Database,
   loadConfig, saveConfig, getConfigPath,
-  getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
+  getChunkThresholdCharacters, getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
   summarizeRequest, buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
@@ -1546,7 +1564,7 @@ export {
   TEST_USE_EXISTING_SERVER, EXISTING_SERVER_STATUS_URL, EXISTING_SERVER_CONFIG_URL,
   RUN_LIVE_LLAMA_TOKENIZE_TESTS, LIVE_LLAMA_BASE_URL, LIVE_CONFIG_SERVICE_URL,
   FAST_LEASE_WAIT_MS,
-  deriveServiceUrl, getDefaultConfig, clone, getChatRequestText, setManagedLlamaBaseUrl,
+  deriveServiceUrl, getDefaultConfig, clone, getChatRequestText, setPresetBaseUrl,
   mergeConfig, extractPromptSection, buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput, getRuntimeRootFromStatusPath,
   getPlannerLogsPath, getFailedLogsPath, getRequestLogsPath,

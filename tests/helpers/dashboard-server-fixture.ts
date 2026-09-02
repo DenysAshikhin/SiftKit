@@ -1,7 +1,8 @@
 import path from 'node:path';
 
 import { startStatusServer } from '../../src/status-server/index.js';
-import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
+import { writeConfig } from '../../src/status-server/config-store.js';
+import { getDefaultServerConfig } from './mock-config.js';
 import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
 import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
@@ -50,7 +51,7 @@ export class DashboardTestServer {
   private static seedExternalBackendConfig(backend: DashboardTestBackend): void {
     // Config and the launch snapshot both live in the runtime database.
     const databasePath = getRuntimeDatabasePath();
-    const config = getDefaultConfig();
+    const config = getDefaultServerConfig();
     const modelPresets = config.Server.ModelPresets;
     const activePreset = modelPresets.Presets.find((preset) => preset.id === modelPresets.ActivePresetId)
       ?? modelPresets.Presets[0];
@@ -59,16 +60,7 @@ export class DashboardTestServer {
     activePreset.BaseUrl = backend.baseUrl;
     modelPresets.ActivePresetId = activePreset.id;
     writeConfig(databasePath, config);
-    // Runtime.LlamaCpp wins over the preset in getConfiguredLlamaBaseUrl, so the
-    // launch snapshot is what actually routes inference at request time.
-    writeRuntimeLaunchSnapshot(databasePath, {
-      Model: backend.model,
-      LlamaCpp: {
-        BaseUrl: backend.baseUrl,
-        NumCtx: activePreset.NumCtx,
-        Reasoning: activePreset.Reasoning,
-      },
-    });
+    writeRuntimeLaunchSnapshot(databasePath, { Model: backend.model, Engine: {} });
   }
 
   static async start(
@@ -85,6 +77,7 @@ export class DashboardTestServer {
     try {
       // The coordinator resolves its preset during startup, so config must land first.
       if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
+      else writeConfig(getRuntimeDatabasePath(), getDefaultServerConfig());
       server = startStatusServer({ disableManagedEngineStartup: options.managedEngineStartup !== true });
       await server.startupPromise;
       const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;

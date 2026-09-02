@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
+import { SIFT_DEFAULT_ENGINE_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // The guard's only job is to fail loudly, so its own failure mode is silence: if the
@@ -43,7 +43,7 @@ function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
     ...process.env,
     NODE_OPTIONS: `--import ${guardUrl}`,
     SIFTKIT_GUARD_STATUS_PORT: String(options.statusPort ?? SIFT_DEFAULT_STATUS_PORT),
-    SIFTKIT_GUARD_LLAMA_PORT: String(SIFT_DEFAULT_LLAMA_PORT),
+    SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
   };
   if (options.omitStatusPort) {
     delete childEnv.SIFTKIT_GUARD_STATUS_PORT;
@@ -117,11 +117,11 @@ test('guard fails a process that contacts the default status port despite a swal
 });
 
 test('guard fails a process that contacts the default llama port', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT, 'http'), { preloadGuard: true });
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_ENGINE_PORT, 'http'), { preloadGuard: true });
 
   assertChildFinished(result);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, new RegExp(`live SiftKit llama.cpp server on port ${SIFT_DEFAULT_LLAMA_PORT}`, 'u'));
+  assert.match(result.stderr, new RegExp(`live SiftKit llama.cpp server on port ${SIFT_DEFAULT_ENGINE_PORT}`, 'u'));
 });
 
 test('guard throws at the call site so a caller that does not swallow sees the reason', () => {
@@ -231,13 +231,13 @@ test('the suite guards the default status port for every child it spawns', () =>
 });
 
 test('the suite guards the default llama port for every child it spawns', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT, 'http'));
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_ENGINE_PORT, 'http'));
 
   assertChildFinished(result);
   assert.equal(
     result.status,
     1,
-    `A child of the suite reached port ${SIFT_DEFAULT_LLAMA_PORT}; check the --import and SIFTKIT_GUARD_LLAMA_PORT wiring in src/test-runner/run-tests.ts.`,
+    `A child of the suite reached port ${SIFT_DEFAULT_ENGINE_PORT}; check the --import and SIFTKIT_GUARD_ENGINE_PORT wiring in src/test-runner/run-tests.ts.`,
   );
   assert.match(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });

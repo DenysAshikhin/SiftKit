@@ -1,19 +1,12 @@
 import type { InferenceChatRequest, InferenceRequestInput } from './inference-backend.js';
-import { getInferenceRequestCompatibility } from '../inference-presets/request-compatibility.js';
+import { INFERENCE_REQUEST_COMPATIBILITY } from '../inference-presets/preset-compatibility.js';
 
 export class InferenceRequestBuilder {
   build(input: InferenceRequestInput): InferenceChatRequest {
-    const compatibility = getInferenceRequestCompatibility(input.backend);
+    const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
     return {
       ...this.buildCommonRequest(input),
       [compatibility.repetitionPenaltyKey]: input.defaults.repetitionPenalty,
-      ...(input.backend === 'llama'
-        ? {
-            cache_prompt: input.llama.cachePrompt,
-            ...(Number.isInteger(input.llama.slotId) ? { id_slot: input.llama.slotId } : {}),
-            timings_per_token: true,
-          }
-        : {}),
       ...(input.thinking.enabled === undefined
         ? {}
         : {

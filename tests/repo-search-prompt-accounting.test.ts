@@ -51,10 +51,10 @@ async function runOneTurnAgainstServer(options: { plannerTools?: readonly LlamaC
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
-      if (req.method === 'POST' && req.url === '/tokenize') {
+      if (req.method === 'POST' && req.url === '/v1/token/encode') {
         const parsed = asObject(parseJsonValueText(body || '{}'));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.content || '').length / 4)) }));
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.text || '').length / 4)) }));
         return;
       }
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -90,7 +90,7 @@ async function runOneTurnAgainstServer(options: { plannerTools?: readonly LlamaC
         baseUrl,
         runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
         systemContext: createEmptyPresetSystemContext(),
-        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32_000 } } }),
+        config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32_000 }] } } }),
         maxTurns: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {},
