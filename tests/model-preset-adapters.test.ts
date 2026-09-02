@@ -66,8 +66,6 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
-    EXL3_LOAD_ARENA: '0',
-    EXL3_QC_ATTN: '0',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -106,8 +104,6 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
-    EXL3_LOAD_ARENA: '0',
-    EXL3_QC_ATTN: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
