@@ -23,13 +23,14 @@
 - Preserve unrelated working-tree changes and review the dirty-file list again immediately before implementation.
 - Do not use worktrees. Do not commit unless the user explicitly requests commits.
 - Run high-volume validation through `siftkit summary` as required by repository policy.
+- `npm run build:test` runs `tsc` over every file under `tests/` (`tsconfig.test-build.json`). A task that removes an export or a class field must migrate every source and test reference in that same task, or the build stays red for every later task.
 
 ---
 
 ## File Structure
 
 - Modify `src/lib/response-reserve.ts`: own the complete context-budget resolver.
-- Modify `src/lib/dynamic-output-cap.ts`: consume the complete resolver.
+- Modify `src/lib/dynamic-output-cap.ts`, `src/summary/chunking.ts`, `src/status-server/chat.ts`: consume the complete resolver (all current importers of the removed function move in Task 1).
 - Modify `src/repo-search/engine/turn-budget.ts`: expose `maxPromptTokens`; remove compaction prompt carve-outs.
 - Modify `src/repo-search/prompt-budget.ts`: separate token measurement from policy and accept the resolved prompt limit.
 - Modify `src/repo-search/engine/prompt-preparer.ts`: pass the one shared prompt limit into preflight.
@@ -37,7 +38,8 @@
 - Modify `src/repo-search/engine/terminal-synthesizer.ts`: use shared measurement and dynamic output capping without inventing prompt reserves.
 - Modify `src/repo-search/engine/tool-action-processor.ts`: reject zero-capacity actions before approval/execution.
 - Modify `src/repo-search/engine/tool-result-budgeter.ts`: fail loudly if the pre-execution invariant is violated.
-- Modify `src/summary/chunking.ts`, `src/status-server/chat.ts`, and `src/line-read-guidance.ts`: migrate shared-budget consumers.
+- Modify `src/line-read-guidance.ts`: only if removed field names require it.
+- Verify `src/providers/llama-cpp.ts`: already reaches the reserve only through `getDynamicMaxOutputTokens`; no edit expected.
 - Modify focused tests listed per task. Do not create compatibility aliases for removed exports.
 
 ---
@@ -47,14 +49,16 @@
 **Files:**
 - Modify: `src/lib/response-reserve.ts`
 - Modify: `src/lib/dynamic-output-cap.ts`
+- Modify: `src/summary/chunking.ts` (importer of the removed function)
+- Modify: `src/status-server/chat.ts` (importer of the removed function)
+- Modify: `src/repo-search/engine/turn-budget.ts` (call site only; the class is rewritten in Task 2)
 - Modify: `tests/response-reserve.test.ts`
-- Modify: `tests/dynamic-output-cap.test.ts`
-- Modify: `tests/engine-token-usage.test.ts`
+- Verify: `tests/dynamic-output-cap.test.ts`, `tests/engine-token-usage.test.ts` (import only `RESPONSE_RESERVE_TOKENS` / `getDynamicMaxOutputTokens`; no edit expected)
 
 **Interfaces:**
 - Produces: `ContextTokenBudget` and `resolveContextTokenBudget(options)`.
-- Removes: `computeResponseReserveTokens(options)`.
-- Preserves: `RESPONSE_RESERVE_TOKENS`, `RESPONSE_RESERVE_MAX_CONTEXT_RATIO`, `getPresetMaxTokens`, `clampToPresetMaxTokens`, and `getDynamicMaxOutputTokens`.
+- Removes: `computeResponseReserveTokens(options)`. Current importers: `dynamic-output-cap.ts`, `turn-budget.ts`, `summary/chunking.ts`, `status-server/chat.ts`, `tests/response-reserve.test.ts`. All five migrate in this task.
+- Preserves: `RESPONSE_RESERVE_TOKENS`, `RESPONSE_RESERVE_MAX_CONTEXT_RATIO`, `getPresetMaxTokens`, `clampToPresetMaxTokens`, `getDynamicMaxOutputTokens`, and the `PlannerPromptBudget` shape in `src/summary/types.ts`.
 
 - [ ] **Step 1: Replace reserve-only unit expectations with a complete-budget RED test**
 
@@ -133,7 +137,26 @@ const remainingContextTokens = Math.max(budget.totalContextTokens - options.prom
 return Math.max(1, Math.min(budget.responseReserveTokens, remainingContextTokens));
 ```
 
-Update `tests/dynamic-output-cap.test.ts` and `tests/engine-token-usage.test.ts` imports without weakening existing reserve, remaining-context, preset-clamp, and one-token-floor assertions.
+`tests/dynamic-output-cap.test.ts` and `tests/engine-token-usage.test.ts` need no import changes; keep their reserve, remaining-context, preset-clamp, and one-token-floor assertions unchanged.
+
+- [ ] **Step 4b: Migrate the remaining importers so the build stays green**
+
+`src/summary/chunking.ts` — `getPlannerPromptBudget` resolves the complete budget:
+
+```ts
+const budget = resolveContextTokenBudget({ totalContextTokens: getConfiguredLlamaNumCtx(config), config });
+return {
+  numCtxTokens: budget.totalContextTokens,
+  responseReserveTokens: budget.responseReserveTokens,
+  plannerStopLineTokens: budget.maxPromptTokens,
+};
+```
+
+The reserve-characters helper below it (`getChunkThresholdCharacters` subtraction, currently `chunking.ts:238-242`) selects `resolveContextTokenBudget({ ... }).responseReserveTokens`. Keep the public `PlannerPromptBudget` shape; do not add aliases.
+
+`src/status-server/chat.ts` (manual condense, currently `chat.ts:852-859`) — resolve the complete budget once and pass `budget.responseReserveTokens` to `TranscriptCompactor`.
+
+`src/repo-search/engine/turn-budget.ts` — swap the constructor call site to `resolveContextTokenBudget({ ... }).responseReserveTokens` only; leave the rest of the class for Task 2.
 
 - [ ] **Step 5: Run focused tests and verify GREEN**
 
@@ -144,9 +167,11 @@ npm run build:test
 if ($?) { npm test -- tests/response-reserve.test.ts }
 if ($?) { npm test -- tests/dynamic-output-cap.test.ts }
 if ($?) { npm test -- tests/engine-token-usage.test.ts }
+if ($?) { npm test -- tests/host-sync.test.ts }
+if ($?) { npm test -- tests/runtime-planner-token-aware.test.ts }
 ```
 
-Expected: all focused tests pass.
+Expected: all focused tests pass with no changes to `host-sync` or `runtime-planner-token-aware` assertions (their `plannerStopLineTokens` expectations are already `NumCtx - reserve`).
 
 ---
 
@@ -154,14 +179,16 @@ Expected: all focused tests pass.
 
 **Files:**
 - Modify: `src/repo-search/engine/turn-budget.ts`
-- Modify: `src/line-read-guidance.ts`
+- Verify: `src/line-read-guidance.ts` (uses only `TurnBudget.perToolCapTokens`; no edit expected)
 - Modify: `tests/engine-turn-budget.test.ts`
-- Modify: `tests/line-read-guidance.test.ts`
+- Modify: `tests/engine-transcript-compactor.test.ts` (the `usablePromptTokens` worst-case loop, currently line ~378)
+- Modify: `tests/mock-repo-search-loop.test.ts` (the `usablePromptTokens` scenario, currently line ~1021)
+- Verify: `tests/line-read-guidance.test.ts` (compares against `TurnBudget.perToolCapTokens(0, 1)`; no edit expected)
 
 **Interfaces:**
 - Consumes: `resolveContextTokenBudget` from Task 1.
 - Produces: `TurnBudget.maxPromptTokens`, `perToolCapTokens`, and `remainingToolAllowance` based on the same value.
-- Removes: `COMPACTION_PROMPT_HEADROOM_TOKENS`, `TurnBudget.compactionReserveTokens`, and `TurnBudget.usablePromptTokens`.
+- Removes: `COMPACTION_PROMPT_HEADROOM_TOKENS`, `TurnBudget.compactionReserveTokens`, and `TurnBudget.usablePromptTokens`. Current references outside `turn-budget.ts`: `tests/engine-turn-budget.test.ts`, `tests/engine-transcript-compactor.test.ts:381`, `tests/mock-repo-search-loop.test.ts:1027`. All migrate in this task.
 
 - [ ] **Step 1: Rewrite TurnBudget tests to express the single-limit invariant**
 
@@ -181,9 +208,23 @@ test('TurnBudget adds no compaction-specific prompt reservation', () => {
 });
 ```
 
-Update all later expected tool caps to use `budget.maxPromptTokens`. For a 100,000-token context with the default 15,000 reserve, the floor-share expectation becomes `Math.floor(85_000 * MIN_TURN_TOOL_RESULT_RATIO)`.
+Update all later expected tool caps to use `budget.maxPromptTokens`. For a 100,000-token context with the default 15,000 reserve, the floor-share expectation becomes `Math.floor(85_000 * MIN_TURN_TOOL_RESULT_RATIO)` (6,375, replacing 5,550). The `remainingToolAllowance` and invalid-constructor tests switch from `usablePromptTokens` to `maxPromptTokens` (`-10` context resolves to `totalContextTokens: 1`, `responseReserveTokens: 1`, `maxPromptTokens: 0`).
 
 Delete tests that assert the removed 5k/6k reserve arithmetic. Retain tests for small contexts, preset-bound reserves, batch division, progress growth, one-token per-tool floors, remaining allowance, and invalid constructor inputs.
+
+In `tests/engine-transcript-compactor.test.ts`, replace the `for (const totalContextTokens of [150_000, 32_000, 9_000])` worst-case loop (it computes `usablePromptTokens + responseReserveTokens`) with dynamic-fit cases:
+
+```ts
+assert.equal(outcome.summaryGenerationTokenBudget <= budget.responseReserveTokens, true);
+assert.equal(
+  outcome.summaryGenerationTokenBudget,
+  outcome.summaryReasoningTokenBudget + outcome.summaryOutputTokenBudget,
+);
+```
+
+Add one near-full physical-context case (transcript sized so `totalContextTokens - promptTokenCount` lands between `COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS` and the reserve) proving the generation budget is clamped below the reserve ceiling but still compacts. The existing explicit-overflow case below the minimum stays. These assertions hold against the current compactor, so they are GREEN once `TurnBudget` compiles; Task 3 only changes how the compactor measures its prompt.
+
+In `tests/mock-repo-search-loop.test.ts` (`runTaskLoop fits tool output that exceeds remaining token allowance`), replace `budget.usablePromptTokens` with `budget.maxPromptTokens` and rewrite the comment: 50,500 total minus the 15,000 reserve leaves 35,500 prompt tokens. The scenario is relative to the cap, so its assertions are unchanged.
 
 - [ ] **Step 2: Run TurnBudget tests and verify RED**
 
@@ -195,7 +236,7 @@ if ($?) { npm test -- tests/engine-turn-budget.test.ts }
 if ($?) { npm test -- tests/line-read-guidance.test.ts }
 ```
 
-Expected: failures because `maxPromptTokens` is absent and removed exports still exist.
+Expected: `build:test` fails because `maxPromptTokens` is absent on `TurnBudget` while the rewritten tests read it.
 
 - [ ] **Step 3: Replace TurnBudget’s derived fields**
 
@@ -220,11 +261,13 @@ export class TurnBudget {
   }
 ```
 
-Change `perToolCapTokens` and `remainingToolAllowance` to use `this.maxPromptTokens`. Delete `COMPACTION_PROMPT_HEADROOM_TOKENS` and every comment describing a second prompt reserve. Keep `splitCompactionGenerationTokens`, `COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS`, and `COMPACTION_PROMPT_HEADROOM_TOKENS`’s removal distinct: the split remains; the headroom constant does not.
+Change `perToolCapTokens` and `remainingToolAllowance` to use `this.maxPromptTokens`. Delete `COMPACTION_PROMPT_HEADROOM_TOKENS`. Keep `splitCompactionGenerationTokens` and `COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS`.
+
+Rewrite the two comments that describe a prompt-side reserve: the `splitCompactionGenerationTokens` doc comment (“it sizes the prompt-side compaction reserve”) now states that the output share is a floor internal to the response reserve; the `MIN_TURN_TOOL_RESULT_RATIO` comment refers to `maxPromptTokens`, not “usable prompt tokens”.
 
 - [ ] **Step 4: Keep line-read guidance derived from TurnBudget**
 
-Update `src/line-read-guidance.ts` only as required by removed field/import names. `getRepoSearchPromptBaselinePerToolAllowanceTokens` must continue to call `TurnBudget.perToolCapTokens(0, 1)` rather than reproduce the ratio arithmetic.
+`src/line-read-guidance.ts` reads only `TurnBudget.perToolCapTokens(0, 1)` and needs no edit. Confirm it still calls that method rather than reproducing the ratio arithmetic.
 
 - [ ] **Step 5: Run focused tests and verify GREEN**
 
@@ -234,6 +277,8 @@ Run:
 npm run build:test
 if ($?) { npm test -- tests/engine-turn-budget.test.ts }
 if ($?) { npm test -- tests/line-read-guidance.test.ts }
+if ($?) { npm test -- tests/engine-transcript-compactor.test.ts }
+if ($?) { npm test -- tests/mock-repo-search-loop.test.ts }
 ```
 
 Expected: all focused tests pass and the 155k/15k/140k arithmetic is explicit.
@@ -247,11 +292,12 @@ Expected: all focused tests pass and the 155k/15k/140k arithmetic is explicit.
 - Modify: `src/repo-search/engine/prompt-preparer.ts`
 - Modify: `src/repo-search/engine/transcript-compactor.ts`
 - Modify: `src/repo-search/engine/terminal-synthesizer.ts`
-- Modify: `tests/incremental-token-counter.test.ts`
-- Modify: `tests/engine-prompt-preparer.test.ts`
-- Modify: `tests/engine-transcript-compactor.test.ts`
-- Modify: `tests/repo-search-request-normalizers.test.ts`
-- Modify: any additional test identified by the required final zero-reference search that still calls the old preflight signature
+- Modify: `tests/incremental-token-counter.test.ts` (direct preflight calls at lines ~156-265)
+- Modify: `tests/token-count-source.test.ts` (direct preflight calls at lines ~36, ~62, ~86)
+- Modify: `tests/mock-repo-search-loop.test.ts` (direct preflight calls at lines ~788-830)
+- Modify: `tests/live-repo-agent-compaction-replay.test.ts` (direct preflight call at line ~236; live-gated but compiled by `build:test`)
+- Verify: `tests/engine-prompt-preparer.test.ts` (drives preflight through `PromptPreparer`; passes `budget.responseReserveTokens` only to `TranscriptCompactor`, which is unchanged)
+- Verify: `tests/engine-transcript-compactor.test.ts` (already migrated in Task 2; rerun)
 
 **Interfaces:**
 - Consumes: `TurnBudget.maxPromptTokens` and `responseReserveTokens`.
@@ -260,7 +306,7 @@ Expected: all focused tests pass and the 155k/15k/140k arithmetic is explicit.
 
 - [ ] **Step 1: Add RED tests for direct prompt-limit policy**
 
-Update preflight tests so the policy call passes `maxPromptTokens` directly:
+Every direct `preflightPlannerPromptBudget` call in the four listed test files currently passes `totalContextTokens` and `responseReserveTokens`. Rewrite each to pass the difference as `maxPromptTokens` (for example the mock-loop case with 7,000/4,000 becomes `maxPromptTokens: 3_000` and keeps its `maxPromptBudget === 3_000` assertion):
 
 ```ts
 const result = await preflightPlannerPromptBudget({
@@ -280,11 +326,9 @@ Run:
 
 ```powershell
 npm run build:test
-if ($?) { npm test -- tests/incremental-token-counter.test.ts }
-if ($?) { npm test -- tests/engine-prompt-preparer.test.ts }
 ```
 
-Expected: compile failures because preflight still expects total context and response reserve separately.
+Expected: `build:test` fails because preflight still expects total context and response reserve separately.
 
 - [ ] **Step 3: Separate prompt measurement from budget comparison**
 
@@ -320,6 +364,8 @@ return {
 };
 ```
 
+`preflightPlannerPromptBudget` passes `exactRecountThresholdTokens: options.maxPromptTokens - EXACT_RECOUNT_MARGIN_TOKENS` into the measurement. Callers without a `promptTokenCounter` (compactor, terminal synthesis) omit the threshold; the one-shot counter is never approximate, so no recount is reachable there.
+
 No caller may reconstruct `totalContextTokens - responseReserveTokens` inside this module.
 
 - [ ] **Step 4: Migrate PromptPreparer to `budget.maxPromptTokens`**
@@ -347,33 +393,20 @@ and the existing clamps to physical remainder. Remove the comment claiming that 
 
 For terminal synthesis, count the actual prompt and call `getDynamicMaxOutputTokens`; do not add another prompt threshold or reserve.
 
-- [ ] **Step 6: Replace compaction-reserve tests with dynamic-fit tests**
-
-In `tests/engine-transcript-compactor.test.ts`, delete the worst-case transcript formula based on `usablePromptTokens + responseReserveTokens`. Add cases proving:
-
-```ts
-assert.equal(outcome.summaryGenerationTokenBudget <= responseReserveTokens, true);
-assert.equal(
-  outcome.summaryGenerationTokenBudget,
-  outcome.summaryReasoningTokenBudget + outcome.summaryOutputTokenBudget,
-);
-```
-
-Add one near-full physical-context case where the generated budget is clamped below the 15k ceiling but remains above `COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS`, and retain the existing explicit overflow case below that minimum.
-
-- [ ] **Step 7: Run focused tests and verify GREEN**
+- [ ] **Step 6: Run focused tests and verify GREEN**
 
 Run:
 
 ```powershell
 npm run build:test
 if ($?) { npm test -- tests/incremental-token-counter.test.ts }
+if ($?) { npm test -- tests/token-count-source.test.ts }
 if ($?) { npm test -- tests/engine-prompt-preparer.test.ts }
 if ($?) { npm test -- tests/engine-transcript-compactor.test.ts }
-if ($?) { npm test -- tests/repo-search-request-normalizers.test.ts }
+if ($?) { npm test -- tests/mock-repo-search-loop.test.ts }
 ```
 
-Expected: all focused tests pass; ordinary planner preflight has one policy threshold and compaction uses measured physical remainder.
+Expected: all focused tests pass; ordinary planner preflight has one policy threshold and compaction uses measured physical remainder. The compactor dynamic-fit tests added in Task 2 stay green.
 
 ---
 
@@ -416,8 +449,10 @@ assert.equal(commands[0]?.safe, false);
 assert.equal(commands[0]?.exitCode, null);
 assert.match(commands[0]?.reason ?? '', /context budget exhausted/u);
 assert.match(commands[0]?.output ?? '', /tool was not executed/u);
-assert.match(JSON.stringify(transcript.getMessages()), /reissue the action after compaction/u);
+assert.match(JSON.stringify(transcript.getMessages()), /Reissue the action after compaction/u);
 ```
+
+`makeProcessor` builds a 20,000-token `TurnBudget`, so `budget.maxPromptTokens` is 10,000 and the allowance at that prompt count is zero. Pass `['run']` as the allowed tools, a counting `approvalGate`, and a `mockCommandResults` entry for the command; all three are existing `makeProcessor` parameters.
 
 Add a three-action batch test at zero capacity and assert three aligned rejected command entries and zero starts/executions.
 
@@ -453,7 +488,7 @@ The method calls the existing cap/allowance methods exactly once and returns `ex
 
 - [ ] **Step 4: Move capacity resolution before approval and execution**
 
-In `ToolActionProcessor.processToolAction`, resolve capacity after validation, forced-finish screening, and duplicate/safety-independent screening, but before the approval gate. When exhausted, call the existing rejected-command path with:
+In `ToolActionProcessor.processToolAction`, resolve capacity after validation and forced-finish screening, and before `beginRun`, duplicate screening, and the approval gate. `RunFullOutputGate.beginRun` records state for full-output validation commands, so it must not observe a request that never executes; `DuplicateTracker.classify` has no side effects, but it depends on the `beginRun` decision, so it moves after the capacity check as well. When exhausted, call the existing rejected-command path with:
 
 ```text
 context budget exhausted: prompt_tokens=<value> max_prompt_tokens=<value> remaining_tool_tokens=0; tool was not executed. Reissue the action after compaction.
@@ -499,23 +534,19 @@ Expected: all tests pass; zero-capacity tools are represented as non-executed bu
 
 ---
 
-### Task 5: Migrate every shared-budget consumer
+### Task 5: Audit shared-budget consumers
+
+The source migrations formerly in this task moved into Task 1 (they are importers of the removed function and had to move with it). This task is the zero-reference gate plus the consumer regression run.
 
 **Files:**
-- Modify: `src/summary/chunking.ts`
-- Modify: `src/status-server/chat.ts`
-- Modify: `src/providers/llama-cpp.ts`
-- Modify: any remaining current source importing `computeResponseReserveTokens`
-- Modify: `tests/host-sync.test.ts`
-- Modify: `tests/runtime-planner-token-aware.test.ts`
-- Modify: `tests/runtime-planner-mode.test.ts`
-- Modify: any focused consumer test found by the required zero-reference search
+- Verify: `src/providers/llama-cpp.ts` (reaches the reserve only through `getDynamicMaxOutputTokens` at line ~402; no local reserve arithmetic)
+- Verify: `tests/host-sync.test.ts`, `tests/runtime-planner-token-aware.test.ts`, `tests/runtime-planner-mode.test.ts` (assert `plannerStopLineTokens === NumCtx - reserve`; unchanged behavior)
 
 **Interfaces:**
-- Consumes: `resolveContextTokenBudget` from Task 1.
-- Produces: no new interface; completes the replacement migration.
+- Consumes: `resolveContextTokenBudget` from Task 1 and `TurnBudget` from Task 2.
+- Produces: no new interface; proves the replacement migration is complete.
 
-- [ ] **Step 1: Run a source-and-test reference audit before edits**
+- [ ] **Step 1: Confirm every obsolete reference is gone**
 
 Run:
 
@@ -523,34 +554,13 @@ Run:
 rg -n "computeResponseReserveTokens|COMPACTION_PROMPT_HEADROOM_TOKENS|compactionReserveTokens|usablePromptTokens" src tests packages dashboard
 ```
 
-Expected before migration: every remaining consumer is listed. Save no temporary output file.
+Expected: zero matches. Any hit is a missed migration from Task 1 or Task 2 and is fixed here before continuing. Historical files under `docs/superpowers/plans` and `docs/superpowers/handoffs` are excluded intentionally. Save no temporary output file.
 
-- [ ] **Step 2: Migrate idle-summary prompt budgeting**
+- [ ] **Step 2: Confirm the provider adds no reserve arithmetic**
 
-In `src/summary/chunking.ts`, replace reserve-only resolution with:
+Read `src/providers/llama-cpp.ts` around the `getDynamicMaxOutputTokens` call. Expected: no local `RESPONSE_RESERVE_TOKENS` or `resolveContextTokenBudget` use. If any exists, remove it so the cap comes only through `getDynamicMaxOutputTokens`.
 
-```ts
-const budget = resolveContextTokenBudget({ totalContextTokens: numCtxTokens, config });
-return {
-  numCtxTokens: budget.totalContextTokens,
-  responseReserveTokens: budget.responseReserveTokens,
-  plannerStopLineTokens: budget.maxPromptTokens,
-};
-```
-
-Keep the public `PlannerPromptBudget` shape unless a direct rename is already required by current code; do not add aliases. Update host-sync and runtime-planner tests to preserve their existing behavioral assertions.
-
-- [ ] **Step 3: Migrate manual chat condense and provider defaults**
-
-In `src/status-server/chat.ts`, resolve the complete budget once for manual condense and pass `budget.responseReserveTokens` to `TranscriptCompactor`.
-
-In `src/providers/llama-cpp.ts`, ensure default dynamic output capping reaches `resolveContextTokenBudget` only through `getDynamicMaxOutputTokens`; do not duplicate reserve arithmetic locally.
-
-- [ ] **Step 4: Remove every obsolete current-code reference**
-
-Run the same `rg` command. Expected: zero matches in `src`, `tests`, `packages`, and `dashboard` for all four removed names. Historical files under `docs/superpowers/plans` and `docs/superpowers/handoffs` are excluded intentionally.
-
-- [ ] **Step 5: Run focused consumer tests**
+- [ ] **Step 3: Run focused consumer tests**
 
 Run:
 
@@ -563,7 +573,7 @@ if ($?) { npm test -- tests/line-read-guidance.test.ts }
 if ($?) { npm test -- tests/dynamic-output-cap.test.ts }
 ```
 
-Expected: all focused tests pass.
+Expected: all focused tests pass with no assertion changes.
 
 ---
 
@@ -580,22 +590,24 @@ Expected: all focused tests pass.
 
 - [ ] **Step 1: Add an arithmetic regression matching the observed run**
 
-Create a mock repo-agent case with a 155,000-token context, 15,000-token preset maximum, and a prompt count between 129,000 and 140,000. Have the model issue one mocked tool action and assert:
+Create a mock repo-agent case with a 155,000-token context, 15,000-token preset maximum, and a prompt count between 129,000 and 140,000 (mock mode estimates at `getTokenEstimateCharactersPerToken` characters per token; size the question the same way the existing `runTaskLoop fits tool output that exceeds remaining token allowance` case does). Have the model issue one mocked tool action with a short stdout and assert:
 
 ```ts
-assert.equal(result.scorecard.tasks[0]?.commands[0]?.safe, true);
-assert.notEqual(result.scorecard.tasks[0]?.commands[0]?.output, '1 lines truncated due to per-tool context limit.');
+const command = result.scorecard.tasks[0]?.commands[0];
+assert.equal(command?.safe, true);
+assert.match(command?.output ?? '', /<the mocked stdout>/u);
+assert.doesNotMatch(command?.output ?? '', /truncated due to per-tool context limit/u);
 ```
 
-The assertion must prove that the old 129k boundary no longer exists, not merely that compaction eventually occurs.
+The assertion must prove that the old 129k boundary no longer exists (the result is inserted intact, not collapsed to the truncation marker), not merely that compaction eventually occurs.
 
 - [ ] **Step 2: Add compacting-loop recovery coverage**
 
-Construct a repo-agent mock sequence where the first tool action arrives with `promptTokenCount === maxPromptTokens`, is budget-rejected without execution, the next turn compacts, and the model reissues the action. Assert:
+Zero allowance with a healthy preflight occurs at exactly `promptTokenCount === maxPromptTokens` or, more robustly, inside a batch once earlier results consume the remainder. Construct a repo-agent mock sequence whose first turn issues a two-action batch with the prompt a few hundred tokens under `maxPromptTokens`: the first action's mocked output is larger than the remaining allowance (it is fitted to the remainder), so the second action resolves zero capacity and is budget-rejected without execution. The next turn overflows, compacts, and the model reissues the second action. Assert:
 
-- The first action has `exitCode: null` and “tool was not executed”.
+- The blocked action has `exitCode: null` and “tool was not executed”, and no `turn_command_start` event names its command.
 - Exactly one `turn_preflight_compaction_applied` event occurs.
-- The reissued action executes exactly once.
+- The reissued action executes exactly once (one `turn_command_start` for its command).
 - The final reason is `finish`.
 - No command from the blocked attempt produced a side effect.
 
@@ -603,7 +615,7 @@ Add the same behavioral assertion for chat only if the shared TaskLoop test does
 
 - [ ] **Step 3: Add repo-search force-answer coverage**
 
-Create the same zero-capacity action under task kind `plan`/loop kind `repo-search`. Assert that the tool does not execute and the task exits through `context_overflow`/terminal synthesis according to the existing force-answer policy, with no compaction event.
+Create the same zero-capacity batch under task kind `repo-search` (loop kind `repo-search`, `contextOverflowPolicy: 'force_answer'`). Assert that the blocked tool does not execute (no `turn_command_start` for it), the next turn logs `turn_context_overflow_forced_answer`, `result.reason === 'context_overflow'`, and no `turn_preflight_compaction_applied` event occurs.
 
 - [ ] **Step 4: Run loop-level tests and verify GREEN**
 
@@ -636,10 +648,10 @@ Expected: all loop-level regressions pass.
 Search current docs outside historical plans/handoffs:
 
 ```powershell
-rg -n "compaction reserve|usablePromptTokens|compactionReserveTokens|COMPACTION_PROMPT_HEADROOM_TOKENS|response reserve" README.md docs --glob "!docs/superpowers/plans/**" --glob "!docs/superpowers/handoffs/**"
+rg -n "compaction reserve|usablePromptTokens|compactionReserveTokens|COMPACTION_PROMPT_HEADROOM_TOKENS|response reserve" README.md docs --glob "!docs/superpowers/plans/**" --glob "!docs/superpowers/handoffs/**" --glob "!docs/superpowers/specs/**"
 ```
 
-Update only active documentation. State the invariant exactly as:
+Earlier dated specs (`2026-08-20-llm-compaction-design.md`, `2026-08-28-compaction-continuation-budget-design.md`) describe the superseded design and are historical records like plans and handoffs; they are not rewritten. At the time of writing this search returns no active documentation, so this step is a gate: if it finds any, update only active documentation and state the invariant exactly as:
 
 ```text
 maxPromptTokens = totalContextTokens - responseReserveTokens
@@ -663,6 +675,8 @@ if ($?) { npm test -- tests/engine-turn-budget.test.ts }
 if ($?) { npm test -- tests/engine-tool-result-budgeter.test.ts }
 if ($?) { npm test -- tests/engine-tool-action-processor.test.ts }
 if ($?) { npm test -- tests/engine-prompt-preparer.test.ts }
+if ($?) { npm test -- tests/incremental-token-counter.test.ts }
+if ($?) { npm test -- tests/token-count-source.test.ts }
 if ($?) { npm test -- tests/engine-transcript-compactor.test.ts }
 if ($?) { npm test -- tests/mock-repo-search-loop.test.ts }
 if ($?) { npm test -- tests/repo-search-loop.core.test.ts }
@@ -736,6 +750,8 @@ Report result, changed files, focused and broad validation, and any unverified l
 
 - Spec coverage: every approved invariant and acceptance criterion maps to Tasks 1–7.
 - Replacement completeness: obsolete APIs and fields have explicit zero-reference gates; no compatibility layer is planned.
+- Build-scope ordering: `build:test` type-checks all tests together, so each removal (Task 1 function, Task 2 fields, Task 3 preflight signature) migrates every source and test reference in the same task; the tree is green at the end of every task.
+- Known pre-existing risk (not introduced here): a transcript that reaches preflight at `maxPromptTokens`, then gains a full 15k response plus a tool result, can present the compactor with a summary request near `totalContextTokens`, which fails explicitly with `planner_compaction_prompt_overflow`. The removed compaction reserve never bounded the response share, so the worst case is unchanged; the spec keeps the explicit failure.
 - Type consistency: `ContextTokenBudget`, `resolveContextTokenBudget`, `TurnBudget.maxPromptTokens`, and `ToolResultCapacity` have one definition each and are consumed by later tasks under the same names.
 - TDD: each behavioral change begins with a failing focused test and ends with focused verification.
 - Safety: zero-capacity actions are blocked before approval and execution; the plan does not broaden mutation authority.
