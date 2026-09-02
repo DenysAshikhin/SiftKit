@@ -22,15 +22,30 @@ export function getPresetMaxTokens(config: SiftConfig): number {
   return preset.MaxTokens;
 }
 
-export function computeResponseReserveTokens(options: {
+/**
+ * The one context budget every context-aware operation derives from. The response
+ * reserve is the only reservation: the prompt limit is what the window leaves after it.
+ */
+export type ContextTokenBudget = {
+  totalContextTokens: number;
+  responseReserveTokens: number;
+  maxPromptTokens: number;
+};
+
+export function resolveContextTokenBudget(options: {
   totalContextTokens: number;
   config: SiftConfig | null | undefined;
-}): number {
+}): ContextTokenBudget {
   const totalContextTokens = Math.max(1, Math.floor(Number(options.totalContextTokens) || 0));
   const presetMaxTokens = options.config ? getPresetMaxTokens(options.config) : RESPONSE_RESERVE_TOKENS;
-  return Math.max(1, Math.min(
+  const responseReserveTokens = Math.max(1, Math.min(
     RESPONSE_RESERVE_TOKENS,
     presetMaxTokens,
     Math.floor(totalContextTokens * RESPONSE_RESERVE_MAX_CONTEXT_RATIO),
   ));
+  return {
+    totalContextTokens,
+    responseReserveTokens,
+    maxPromptTokens: Math.max(totalContextTokens - responseReserveTokens, 0),
+  };
 }

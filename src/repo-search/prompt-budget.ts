@@ -63,7 +63,7 @@ export async function countTokensWithFallback(config: SiftConfig | undefined, te
 /**
  * A delta-derived transcript count within this many tokens of the prompt
  * budget triggers one exact full recount before the overflow decision.
- * Delta counting drifts â‰¤ ~2 tokens per seam; this margin bounds a whole
+ * Delta counting drifts ≤ ~2 tokens per seam; this margin bounds a whole
  * run's drift with room to spare.
  */
 export const EXACT_RECOUNT_MARGIN_TOKENS = 2048;
@@ -83,7 +83,7 @@ const oneShotTokenCounter: PromptTokenCounter = {
 };
 
 // ---------------------------------------------------------------------------
-// Prompt budget preflight
+// Prompt token measurement
 // ---------------------------------------------------------------------------
 
 export type PreflightResult = {
@@ -104,16 +104,24 @@ export type PreflightResult = {
   tokenizeErrorMessage: string | null;
 };
 
-export async function preflightPlannerPromptBudget(options: {
+/** What a rendered prompt measures, before any budget policy is applied to it. */
+export type PromptTokenMeasurement = Omit<
+  PreflightResult,
+  'ok' | 'maxPromptBudget' | 'overflowTokens'
+>;
+
+/**
+ * Counts the tokens a rendered wire prompt occupies. Callers that fit generation into
+ * the physical remainder of the window (compaction, terminal synthesis) need only this;
+ * they decide nothing about prompt policy.
+ */
+export async function countPlannerPromptTokens(options: {
   config?: SiftConfig;
   prompt: WirePrompt;
-  totalContextTokens: number;
-  responseReserveTokens: number;
   promptTokenCounter?: PromptTokenCounter;
-}): Promise<PreflightResult> {
-  const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
-  const responseReserveTokens = Math.max(0, Number(options.responseReserveTokens || 0));
-
+  /** A delta-derived count at or above this triggers one exact recount; absent means never. */
+  exactRecountThresholdTokens?: number;
+}): Promise<PromptTokenMeasurement> {
   const promptText = options.prompt.text;
 
   // Image tokens cannot be derived from a data URI without decoding the image, and the
@@ -121,31 +129,24 @@ export async function preflightPlannerPromptBudget(options: {
   const imageTokenCount = options.prompt.imageCount * SIFT_IMAGE_TOKEN_ESTIMATE;
 
   const promptCounter = options.promptTokenCounter ?? oneShotTokenCounter;
-  const maxPromptBudget = Math.max(totalContextTokens - responseReserveTokens, 0);
-
   let tokenCount = await promptCounter.count(options.config, promptText);
 
   // A delta-derived count is approximate; when it lands near the budget the
   // overflow/compaction decision needs an exact number.
   const provisionalPromptTokenCount = tokenCount.tokenCount + imageTokenCount;
   if (
-    tokenCount.approximate
+    options.exactRecountThresholdTokens !== undefined
+    && tokenCount.approximate
     && tokenCount.source !== 'estimate'
-    && provisionalPromptTokenCount >= maxPromptBudget - EXACT_RECOUNT_MARGIN_TOKENS
+    && provisionalPromptTokenCount >= options.exactRecountThresholdTokens
   ) {
     tokenCount = await promptCounter.count(options.config, promptText, { forceExact: true });
   }
 
-  const promptTokenCount = tokenCount.tokenCount + imageTokenCount;
-  const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
   const llamaTokenCount = tokenCount.llamaTokenCount;
-
   return {
-    ok: overflowTokens === 0,
-    promptTokenCount,
+    promptTokenCount: tokenCount.tokenCount + imageTokenCount,
     promptChars: promptText.length,
-    maxPromptBudget,
-    overflowTokens,
     tokenCountSource: tokenCount.source,
     tokenizationAttempted: llamaTokenCount !== null,
     tokenizeElapsedMs: llamaTokenCount?.elapsedMs ?? null,
@@ -154,5 +155,35 @@ export async function preflightPlannerPromptBudget(options: {
     tokenizeRetryMaxWaitMs: llamaTokenCount?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
     tokenizeStatus: llamaTokenCount?.status ?? null,
     tokenizeErrorMessage: llamaTokenCount?.errorMessage ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Prompt budget preflight
+// ---------------------------------------------------------------------------
+
+/**
+ * Measures the prompt and compares it against the one shared prompt limit. The limit
+ * is resolved by the caller (TurnBudget); nothing here derives it from context or reserve.
+ */
+export async function preflightPlannerPromptBudget(options: {
+  config?: SiftConfig;
+  prompt: WirePrompt;
+  maxPromptTokens: number;
+  promptTokenCounter?: PromptTokenCounter;
+}): Promise<PreflightResult> {
+  const { maxPromptTokens } = options;
+  const measurement = await countPlannerPromptTokens({
+    config: options.config,
+    prompt: options.prompt,
+    promptTokenCounter: options.promptTokenCounter,
+    exactRecountThresholdTokens: maxPromptTokens - EXACT_RECOUNT_MARGIN_TOKENS,
+  });
+  const overflowTokens = Math.max(measurement.promptTokenCount - maxPromptTokens, 0);
+  return {
+    ...measurement,
+    ok: overflowTokens === 0,
+    maxPromptBudget: maxPromptTokens,
+    overflowTokens,
   };
 }

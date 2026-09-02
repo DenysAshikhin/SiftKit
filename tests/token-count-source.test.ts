@@ -40,8 +40,7 @@ for (const engine of ['exl3', 'llama'] as const) {
           tools: [],
           includeReasoningContent: false,
         }),
-        totalContextTokens: 128_000,
-        responseReserveTokens: 4_000,
+        maxPromptTokens: 124_000,
       });
       assert.equal(preflight.promptTokenCount, STUB_TOKEN_COUNT);
       assert.equal(preflight.tokenCountSource, engine);
@@ -66,8 +65,7 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
         tools: [],
         includeReasoningContent: false,
       }),
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   });
@@ -90,8 +88,7 @@ test('a tokenizer that refuses the wire prompt falls back to the estimate source
         tools: [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }],
         includeReasoningContent: false,
       }),
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   }, {

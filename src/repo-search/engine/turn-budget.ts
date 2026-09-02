@@ -1,8 +1,8 @@
 import type { SiftConfig } from '../../config/index.js';
-import { computeResponseReserveTokens } from '../../lib/response-reserve.js';
+import { resolveContextTokenBudget } from '../../lib/response-reserve.js';
 
-// Floor on the share of usable prompt tokens one turn's tool results may consume
-// in total. The share grows as a run progresses (later calls are better targeted
+// Floor on the share of maxPromptTokens one turn's tool results may consume in
+// total. The share grows as a run progresses (later calls are better targeted
 // and worth more context), and a batch splits whatever share the turn gets — it is
 // never granted per call.
 export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
@@ -23,15 +23,11 @@ export const FAILED_COMMAND_TAIL_CAP_TOKENS = 1_024;
 // run fails loudly instead of emitting a stub that silently loses the conversation.
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
-// Room for the summarization instruction and the (tool-free) provider overhead of the
-// summarization request, on top of the summary's own output.
-export const COMPACTION_PROMPT_HEADROOM_TOKENS = 6_000;
-
 /**
  * Splits a compaction generation ceiling into a thinking cap and an output share.
- * The output share is a floor, not a cap: it sizes the prompt-side compaction
- * reserve and guarantees the continuation a minimum, while unspent thinking flows
- * back to the summary.
+ * The output share is a floor internal to the response reserve, not a cap: it
+ * guarantees the continuation a minimum, while unspent thinking flows back to the
+ * summary. It reserves nothing on the prompt side.
  */
 export function splitCompactionGenerationTokens(totalTokens: number): {
   totalTokens: number;
@@ -47,38 +43,61 @@ export function splitCompactionGenerationTokens(totalTokens: number): {
   };
 }
 
+/**
+ * What a tool result may occupy, resolved before the tool runs. `exhausted` means the
+ * result could not be represented in the transcript at all, so the tool must not execute.
+ */
+export type ToolResultCapacity =
+  | AvailableToolResultCapacity
+  | { kind: 'exhausted' };
+
+export type AvailableToolResultCapacity = {
+  kind: 'available';
+  perToolCapTokens: number;
+  remainingTokenAllowance: number;
+};
+
 export class TurnBudget {
   readonly totalContextTokens: number;
   readonly responseReserveTokens: number;
-  readonly compactionReserveTokens: number;
-  readonly usablePromptTokens: number;
+  readonly maxPromptTokens: number;
   private readonly maxTurns: number;
 
   constructor(options: { totalContextTokens: number; maxTurns: number; config: SiftConfig | null | undefined }) {
-    this.totalContextTokens = Math.max(1, Math.floor(Number(options.totalContextTokens) || 0));
-    this.maxTurns = Math.max(1, options.maxTurns);
-    this.responseReserveTokens = computeResponseReserveTokens({
-      totalContextTokens: this.totalContextTokens,
+    const context = resolveContextTokenBudget({
+      totalContextTokens: options.totalContextTokens,
       config: options.config,
     });
-    const promptTokensBeforeCompactionReserve = Math.max(this.totalContextTokens - this.responseReserveTokens, 0);
-    const summaryOutputTokens = splitCompactionGenerationTokens(this.responseReserveTokens).outputTokens;
-    // Never more than half the prompt budget: on a tiny context window the summary
-    // reserve would otherwise leave no room for any tool result at all.
-    this.compactionReserveTokens = Math.min(
-      summaryOutputTokens + COMPACTION_PROMPT_HEADROOM_TOKENS,
-      Math.floor(promptTokensBeforeCompactionReserve / 2),
-    );
-    this.usablePromptTokens = Math.max(promptTokensBeforeCompactionReserve - this.compactionReserveTokens, 0);
+    this.totalContextTokens = context.totalContextTokens;
+    this.responseReserveTokens = context.responseReserveTokens;
+    this.maxPromptTokens = context.maxPromptTokens;
+    this.maxTurns = Math.max(1, options.maxTurns);
   }
 
   perToolCapTokens(completedCommandCount: number, batchCommandCount: number): number {
     const turnShareRatio = Math.max(MIN_TURN_TOOL_RESULT_RATIO, completedCommandCount / this.maxTurns);
     const calls = Math.max(1, Math.floor(batchCommandCount));
-    return Math.max(1, Math.floor((this.usablePromptTokens * turnShareRatio) / calls));
+    return Math.max(1, Math.floor((this.maxPromptTokens * turnShareRatio) / calls));
   }
 
   remainingToolAllowance(promptTokenCount: number, acceptedToolPromptTokensThisTurn: number): number {
-    return Math.max(this.usablePromptTokens - promptTokenCount - acceptedToolPromptTokensThisTurn, 0);
+    return Math.max(this.maxPromptTokens - promptTokenCount - acceptedToolPromptTokensThisTurn, 0);
+  }
+
+  resolveToolResultCapacity(options: {
+    promptTokenCount: number;
+    acceptedToolPromptTokensThisTurn: number;
+    completedCommandCount: number;
+    batchCommandCount: number;
+  }): ToolResultCapacity {
+    const perToolCapTokens = this.perToolCapTokens(options.completedCommandCount, options.batchCommandCount);
+    const remainingTokenAllowance = this.remainingToolAllowance(
+      options.promptTokenCount,
+      options.acceptedToolPromptTokensThisTurn,
+    );
+    if (remainingTokenAllowance === 0) {
+      return { kind: 'exhausted' };
+    }
+    return { kind: 'available', perToolCapTokens, remainingTokenAllowance };
   }
 }
