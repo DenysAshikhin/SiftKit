@@ -106,10 +106,21 @@ type ParsedReplayCommand = {
 /**
  * Persisted tool commands replay as the tool call that produced them. Native tools persist the
  * synthetic `<tool> key=<json>` form built by buildRepoToolRequestedCommand. Kept in step with
- * EXPOSED_REPO_TOOL_NAMES in repo-search/planner-protocol.ts —
+ * INTERACTIVE_REPO_TOOL_NAMES in planner-protocol/repo-search.ts —
  * importing it here would close an import cycle.
  */
-const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch']);
+const REPLAY_NATIVE_TOOL_NAMES = new Set<string>([
+  'read',
+  'grep',
+  'find',
+  'ls',
+  'git',
+  'web_search',
+  'web_fetch',
+  'write',
+  'edit',
+  'run',
+]);
 const REPLAY_ARGUMENT_PATTERN = /([A-Za-z][A-Za-z0-9_]*)=("(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/gu;
 
 export class LlamaCppToolCallParser {

@@ -34,6 +34,21 @@ export function getDefaultWebPresetId(config: DashboardConfig | null): string | 
   return webPresets[0]?.id ?? null;
 }
 
+function equalOrderedValues(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function hasSamePresetExecutionContext(current: DashboardPreset, next: DashboardPreset): boolean {
+  return current.presetKind === next.presetKind
+    && current.operationMode === next.operationMode
+    && current.promptPrefix === next.promptPrefix
+    && equalOrderedValues(current.allowedTools, next.allowedTools)
+    && current.includeAgentsMd === next.includeAgentsMd
+    && current.includeRepoFileListing === next.includeRepoFileListing
+    && current.assistantMemory === next.assistantMemory
+    && equalOrderedValues(current.autoloadFiles, next.autoloadFiles);
+}
+
 export function createPresetIdFromLabel(label: string): string {
   const normalized = normalizePresetId(label);
   return normalized || 'custom-preset';

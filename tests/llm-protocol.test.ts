@@ -97,11 +97,14 @@ test('tool-call parser normalizes message, choice, and legacy function calls', (
   assert.equal(calls[0]?.function.arguments, '{"pattern":"AgentLoop"}');
 });
 
-test('replay tool-call helper emits real web tool protocol names and rejects unknown commands', () => {
+test('replay tool-call helper emits real tool protocol names and rejects unknown commands', () => {
   const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search query="local llama"' });
   const fetchCall = buildReplayToolCall({ id: 'call_fetch', command: 'web_fetch url="https://example.test/page"' });
   const grepCall = buildReplayToolCall({ id: 'call_grep', command: 'grep pattern="name" path="package.json" limit=20' });
   const gitCall = buildReplayToolCall({ id: 'call_git', command: 'git operation="status"' });
+  const writeCall = buildReplayToolCall({ id: 'call_write', command: 'write path="note.txt" bytes=8 sha="abcd1234"' });
+  const editCall = buildReplayToolCall({ id: 'call_edit', command: 'edit path="note.txt" edits=2 sha="efgh5678"' });
+  const runCall = buildReplayToolCall({ id: 'call_run', command: 'run command="npm test" outputMode="full" timeoutMs=30000' });
 
   assert.equal(searchCall.function.name, 'web_search');
   assert.equal(searchCall.function.arguments, '{"query":"local llama"}');
@@ -111,6 +114,12 @@ test('replay tool-call helper emits real web tool protocol names and rejects unk
   assert.equal(grepCall.function.arguments, '{"pattern":"name","path":"package.json","limit":20}');
   assert.equal(gitCall.function.name, 'git');
   assert.equal(gitCall.function.arguments, '{"operation":"status"}');
+  assert.equal(writeCall.function.name, 'write');
+  assert.equal(writeCall.function.arguments, '{"path":"note.txt","bytes":8,"sha":"abcd1234"}');
+  assert.equal(editCall.function.name, 'edit');
+  assert.equal(editCall.function.arguments, '{"path":"note.txt","edits":2,"sha":"efgh5678"}');
+  assert.equal(runCall.function.name, 'run');
+  assert.equal(runCall.function.arguments, '{"command":"npm test","outputMode":"full","timeoutMs":30000}');
   assert.throws(
     () => buildReplayToolCall({ id: 'call_unknown', command: 'not-a-tool: x' }),
     /Cannot replay unknown persisted tool command/u,

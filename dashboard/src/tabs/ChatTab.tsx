@@ -1,16 +1,15 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { sumImageTokens } from '@siftkit/contracts';
 
 import {
   formatCompactTokenCount,
   formatDate,
+  formatLiveMessageTokenLabel,
   formatMessageTokenLabel,
   formatNumber,
   formatTokenLabel,
-  getMessageKnownTokenCount,
-  getMessageTokenCount,
+  getTurnTokenDisplay,
 } from '../lib/format';
 import {
   buildLiveMessageScrollSignature,
@@ -32,6 +31,7 @@ import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
+import { hasSamePresetExecutionContext } from '../dashboard-presets';
 import type {
   ChatSession,
   ContextUsage,
@@ -51,32 +51,6 @@ function getGroundingStatusLabel(status: ChatMessage['groundingStatus']): string
     return GROUNDING_STATUS_LABELS[status];
   }
   return null;
-}
-
-type TurnTokenDisplay = {
-  tokenCount: number | null;
-  exact: boolean;
-};
-
-function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
-  let total = 0;
-  let knownTotal = 0;
-  let hasUnavailableComponent = false;
-  for (const message of messages) {
-    const imageTokens = sumImageTokens(message.imageMeta);
-    const tokenCount = getMessageTokenCount(message);
-    if (tokenCount === null) {
-      hasUnavailableComponent = true;
-      knownTotal += getMessageKnownTokenCount(message) + imageTokens;
-    } else {
-      total += tokenCount + imageTokens;
-      knownTotal += tokenCount + imageTokens;
-    }
-  }
-  if (!hasUnavailableComponent) {
-    return { tokenCount: total, exact: true };
-  }
-  return knownTotal > 0 ? { tokenCount: knownTotal, exact: false } : { tokenCount: null, exact: false };
 }
 
 export type ChatSessionIndicatorView = {
@@ -243,7 +217,17 @@ export function ChatTab({
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
-  const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
+  const {
+    chatLogRef,
+    onChatLogScroll,
+    jumpToBottom,
+    showJumpToBottom,
+  } = useChatScroll(
+    selectedSessionId,
+    visibleMessageIds,
+    liveMessageScrollSignature,
+    selectedRuntime?.pendingApproval?.approvalId ?? null,
+  );
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
   const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
@@ -299,6 +283,21 @@ export function ChatTab({
     void onSendMessage();
   }
 
+  function changePreset(presetId: string): void {
+    const nextPreset = webPresets.find((preset) => preset.id === presetId) ?? null;
+    if (
+      selectedChatPreset
+      && nextPreset
+      && !hasSamePresetExecutionContext(selectedChatPreset, nextPreset)
+      && !window.confirm(
+        `Switching from “${selectedChatPreset.label}” to “${nextPreset.label}” keeps the conversation history, but invalidates the current model context/prompt cache. Continue?`,
+      )
+    ) {
+      return;
+    }
+    void onUpdateSessionPreset(presetId);
+  }
+
   const usedRatio = contextUsage && contextUsage.contextWindowTokens > 0
     ? Math.max(0, Math.min(1, contextUsage.totalUsedTokens / contextUsage.contextWindowTokens))
     : 0;
@@ -338,7 +337,7 @@ export function ChatTab({
               <span>Preset</span>
               <select
                 value={selectedChatPreset?.id || ''}
-                onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
+                onChange={(event) => changePreset(event.target.value)}
                 disabled={selectedSessionBusy || webPresets.length === 0}
               >
                 {webPresets.length === 0 ? <option value="">No presets</option> : null}
@@ -369,7 +368,8 @@ export function ChatTab({
               </button>
             </div>
 
-            <div className="msgs" ref={chatLogRef}>
+            <div className="message-pane">
+              <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll}>
               {compactedMessages.length > 0 ? (
                 <CompactedHistoryPanel
                   compactedMessages={compactedMessages}
@@ -458,6 +458,12 @@ export function ChatTab({
                   </div>
                   <div className="recent-activity-list" />
                 </section>
+              ) : null}
+              </div>
+              {showJumpToBottom ? (
+                <button type="button" className="jump-to-bottom" onClick={jumpToBottom}>
+                  Jump to bottom
+                </button>
               ) : null}
             </div>
 
@@ -704,7 +710,9 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
       <span>{messageLabel} · {isPending ? 'sending…' : isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
         {isPending ? <span className="sp" /> : null}
-        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">{formatMessageTokenLabel(message)}</span>
+        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">
+          {isLive ? formatLiveMessageTokenLabel(message) : formatMessageTokenLabel(message)}
+        </span>
         {!isLive ? (
           <button
             type="button"
@@ -821,18 +829,14 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const aggregateTokens = getTurnTokenDisplay(turn.messages);
+  const aggregateTokens = getTurnTokenDisplay(turn);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
-  const tokenLabel = aggregateTokens.tokenCount === null
-    ? 'tokens unavailable'
-    : aggregateTokens.exact
-      ? formatTokenLabel(aggregateTokens.tokenCount, 'context tokens')
-      : `${formatNumber(aggregateTokens.tokenCount)} known tokens`;
-  const tokenTitle = aggregateTokens.tokenCount === null
-    ? 'tokens unavailable'
-    : aggregateTokens.exact
-      ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
-      : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
+  const tokenLabel = aggregateTokens.exact
+    ? formatTokenLabel(aggregateTokens.tokenCount, 'context tokens')
+    : `~${formatNumber(aggregateTokens.tokenCount)} context tokens`;
+  const tokenTitle = turn.isLive
+    ? 'Provisional unique token total across the bubbles currently streaming in this turn.'
+    : 'Unique run tokens: aggregate model generation plus tool output and retained images; internal bubbles are not added twice.';
   const toolMessages = turn.messages.filter((message): message is ChatToolCallMessage => message.kind === 'assistant_tool_call');
   const latestTool = toolMessages[toolMessages.length - 1] ?? null;
   const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallMaxTurns}` : null;

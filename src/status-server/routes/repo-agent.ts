@@ -80,6 +80,9 @@ export type StartRepoAgentRunInput = {
   promptPrefix?: string;
   /** Chat-launched runs pass the session's replayed conversation; standalone callers omit it. */
   history?: RepoSearchExecutionRequest['history'];
+  config?: RepoSearchExecutionRequest['config'];
+  modelPresetId?: RepoSearchExecutionRequest['modelPresetId'];
+  modelPreset?: RepoSearchExecutionRequest['modelPreset'];
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
@@ -97,7 +100,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
     images: input.images ?? [],
   };
-  const config = readConfig(ctx.configPath);
+  const config = input.config ?? readConfig(ctx.configPath);
   const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
   upsertRepoSearchAdmission(admission);
   const runId = randomUUID();
@@ -127,6 +130,8 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       repoRoot: admission.repoRoot,
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       config,
+      modelPresetId: input.modelPresetId,
+      modelPreset: input.modelPreset,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       model: input.model ?? undefined,
       maxTurns: input.maxTurns,

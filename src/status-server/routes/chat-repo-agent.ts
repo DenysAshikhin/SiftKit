@@ -115,6 +115,9 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       images: request.value.images,
       maxTurns: request.value.maxTurns,
       history: buildChatHistoryMessages(effectiveConfig, activeSession),
+      config: effectiveConfig,
+      modelPresetId: activeSession.modelPresetId,
+      modelPreset: activeSession.modelPreset,
       mockResponses: request.value.mockResponses,
       mockCommandResults: normalizeRepoSearchMockCommandResults(request.value.mockCommandResults),
     });

@@ -5,6 +5,7 @@ import {
   getDefaultWebPresetId,
   getPresetById,
   getPresetFamily,
+  hasSamePresetExecutionContext,
 } from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
@@ -144,4 +145,26 @@ test('getPresetFamily returns null for an unknown session preset', () => {
 
 test('getDefaultWebPresetId returns null when no web preset exists', () => {
   assert.equal(getDefaultWebPresetId(createConfig([])), null);
+});
+
+test('preset execution context ignores metadata but detects request-shaping changes', () => {
+  const current = createPreset('chat-a');
+  const equivalent = {
+    ...current,
+    id: 'chat-b',
+    label: 'Renamed chat',
+    description: 'Different presentation metadata.',
+  };
+
+  assert.equal(hasSamePresetExecutionContext(current, equivalent), true);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, presetKind: 'repo-agent' }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, operationMode: 'full' }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, promptPrefix: 'New instructions' }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, allowedTools: ['grep'] }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, includeAgentsMd: false }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, includeRepoFileListing: false }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, autoloadFiles: ['AGENTS.md'] }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, assistantMemory: true }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, repoRootRequired: true }), true);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, maxTurns: 3 }), true);
 });

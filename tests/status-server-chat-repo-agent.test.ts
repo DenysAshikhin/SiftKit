@@ -13,8 +13,9 @@ import { applyChatStreamTextDelta } from '@siftkit/contracts';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
+import { getActiveModelPreset, readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { requestSse as requestOperationSse } from './helpers/sse-http.js';
@@ -284,6 +285,78 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   const standaloneRequest = engineService.requests.find((request) => request.prompt === 'standalone run');
   assert.ok(standaloneRequest);
   assert.equal('history' in standaloneRequest, false);
+});
+
+test('a repo-agent follow-up receives the preceding repo-agent turn as replayable history', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-follow-up-', t, { engineService });
+  const sessionId = await createSession(harness, 'Follow-up context');
+  const endpoint = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`;
+  const configPath = getRuntimeDatabasePath();
+  const config = readConfig(configPath);
+  const originalModelPreset = getActiveModelPreset(config);
+  const replacementModelPreset = {
+    ...originalModelPreset,
+    id: 'replacement-model-preset',
+    label: 'Replacement model preset',
+    NumCtx: originalModelPreset.NumCtx + 1_024,
+  };
+  config.Server.ModelPresets = {
+    Presets: [...config.Server.ModelPresets.Presets, replacementModelPreset],
+    ActivePresetId: replacementModelPreset.id,
+  };
+  writeConfig(configPath, config);
+
+  const firstStream = startApprovalRun(harness, sessionId, 'history-tool.txt');
+  await waitForApproval(harness, sessionId);
+  const decision = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/decide`,
+    { method: 'POST', body: JSON.stringify({ decision: 'approve' }) },
+  );
+  assert.equal(decision.statusCode, 200);
+  const first = await firstStream;
+  assert.equal(first.statusCode, 200);
+  const firstDone = readDoneResponse(first);
+  assert.equal(firstDone.session.modelPresetId, originalModelPreset.id);
+
+  const second = await requestSse(endpoint, {
+    method: 'POST',
+    body: JSON.stringify({
+      content: 'follow up using that result',
+      repoRoot: process.cwd(),
+      approval: 'off',
+      operationId: OPERATION_B,
+      maxTurns: 2,
+      mockResponses: repoAgentFinishResponses('second repo-agent result'),
+      mockCommandResults: {},
+    }),
+  });
+  assert.equal(second.statusCode, 200);
+
+  const followUp = engineService.requests.find((request) => request.prompt === 'follow up using that result');
+  assert.ok(followUp);
+  assert.equal(followUp.presetId, 'repo-agent');
+  assert.deepEqual(followUp.history?.map((message) => message.role), [
+    'user',
+    'assistant',
+    'tool',
+    'user',
+    'assistant',
+  ]);
+  const approvalHistory = followUp.history?.[3];
+  assert.equal(typeof approvalHistory?.content, 'string');
+  if (typeof approvalHistory?.content === 'string') {
+    assert.match(approvalHistory.content, /^\[repo-agent approval\] approve write:/u);
+  }
+  assert.equal(followUp.modelPresetId, firstDone.session.modelPresetId);
+  assert.deepEqual(followUp.modelPreset, originalModelPreset);
+  assert.ok(followUp.config);
+  const requestModelPreset = getActiveModelPreset(followUp.config);
+  const { id: requestPresetId, ...requestModelFields } = requestModelPreset;
+  const { id: sessionPresetId, ...sessionModelFields } = originalModelPreset;
+  assert.equal(requestPresetId, replacementModelPreset.id);
+  assert.equal(sessionPresetId, firstDone.session.modelPresetId);
+  assert.deepEqual(requestModelFields, sessionModelFields);
 });
 
 test('chat repo-agent decide rejects a run that is generating instead of parked', async (t) => {

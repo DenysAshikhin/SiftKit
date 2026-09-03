@@ -1,8 +1,96 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getSessionTelemetryStats } from '../src/lib/format';
-import type { ChatSession } from '../src/types';
+import {
+  formatLiveMessageTokenLabel,
+  getLiveMessageTokenDisplay,
+  getSessionTelemetryStats,
+  getTurnTokenDisplay,
+} from '../src/lib/format';
+import type { ChatTurn } from '../src/lib/chatTurns';
+import type { ChatMessage, ChatSession } from '../src/types';
+
+function tokenMessage(overrides: Partial<ChatMessage>): ChatMessage {
+  return {
+    id: 'message',
+    role: 'assistant',
+    kind: 'assistant_answer',
+    content: '',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
+    createdAtUtc: '2026-04-16T12:00:00.000Z',
+    sourceRunId: null,
+    ...overrides,
+  };
+}
+
+test('live bubble token labels expose provisional text, tool, image, and empty counts', () => {
+  const user = tokenMessage({ role: 'user', kind: 'user_text', content: '12345678' });
+  const thinking = tokenMessage({
+    kind: 'assistant_thinking', content: '12345678', thinkingTokens: 2, thinkingTokensEstimated: true,
+  });
+  const tool = tokenMessage({
+    kind: 'assistant_tool_call',
+    content: 'run tool',
+    toolCallCommand: 'run tool',
+    outputTokensEstimate: 5,
+    outputTokensEstimated: false,
+  });
+  const image = tokenMessage({
+    role: 'user',
+    kind: 'user_text',
+    images: ['data:image/png;base64,AA=='],
+    imageMeta: [{
+      width: 32, height: 32, originalWidth: 32, originalHeight: 32, mime: 'image/png',
+      byteLength: 20, tokenEstimate: 1_024, resized: false, caption: null,
+    }],
+  });
+
+  assert.deepEqual(getLiveMessageTokenDisplay(user), { tokenCount: 2, exact: false, imageTokens: 0 });
+  assert.equal(formatLiveMessageTokenLabel(user), '~2 tokens');
+  assert.equal(formatLiveMessageTokenLabel(thinking), '~2 tokens');
+  assert.equal(formatLiveMessageTokenLabel(tool), '~7 tokens');
+  assert.equal(formatLiveMessageTokenLabel(image), '1,024 image tokens');
+  assert.equal(formatLiveMessageTokenLabel(tokenMessage({})), '0 tokens');
+});
+
+test('settled outer turn tokens use aggregate answer telemetry without re-adding inner generation', () => {
+  const messages = [
+    tokenMessage({ id: 'thinking', kind: 'assistant_thinking', content: 'thinking', thinkingTokens: 10 }),
+    tokenMessage({ id: 'narration', kind: 'assistant_narration', content: 'narration', outputTokensEstimate: 5 }),
+    tokenMessage({
+      id: 'tool', kind: 'assistant_tool_call', content: 'run tool', toolCallCommand: 'run tool',
+      outputTokensEstimate: 20, associatedToolTokens: 20,
+    }),
+    tokenMessage({
+      id: 'answer', content: 'answer', inputTokensEstimate: 99, outputTokensEstimate: 40, thinkingTokens: 10,
+      associatedToolTokens: 20,
+    }),
+  ];
+  const turn = {
+    key: 'run:one', isLive: false, messages, steps: messages.slice(0, 3), liveThinking: [],
+    recentActivities: [], showRecentActivity: false, main: messages[3] ?? null,
+  } satisfies ChatTurn;
+
+  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 70, exact: true });
+});
+
+test('live outer turn tokens sum each provisional bubble once', () => {
+  const messages = [
+    tokenMessage({ id: 'thinking', kind: 'assistant_thinking', content: 'thinking', thinkingTokens: 10, thinkingTokensEstimated: true }),
+    tokenMessage({ id: 'answer', content: 'answer text', outputTokensEstimate: 3, outputTokensEstimated: true }),
+  ];
+  const turn = {
+    key: 'live', isLive: true, messages, steps: [], liveThinking: [messages[0]],
+    recentActivities: [], showRecentActivity: false, main: messages[1] ?? null,
+  } satisfies ChatTurn;
+
+  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 13, exact: false });
+});
 
 test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acceptance and throughput stats', () => {
   const session = {
