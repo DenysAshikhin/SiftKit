@@ -132,7 +132,8 @@
 
 .msg.pending { opacity: 0.72; }
 .msg.pending .who { color: var(--dim); }
-.image-zoom { border: none; background: none; padding: 0; cursor: zoom-in; display: block; line-height: 0; }
+.image-zoom { border: none; background: none; padding: 0; cursor: zoom-in; display: block; line-height: 0; max-width: 100%; }
+.image-zoom img { max-width: 100%; height: auto; }
 .image-lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(4, 8, 12, 0.88); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .image-lightbox img { max-width: 90vw; max-height: 90vh; object-fit: contain; cursor: default; }
 .image-lightbox-close { position: absolute; top: 14px; right: 18px; font-size: 1.4rem; line-height: 1; color: var(--ink); background: none; border: none; cursor: pointer; }
