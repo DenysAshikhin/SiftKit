@@ -59,7 +59,7 @@ test('a candidate is stored pending and is unique per fingerprint and observatio
     assert.equal(graph.candidates.listPending(ownerId).length, 1);
     const noted = graph.candidates.setUserNotes(candidate?.id ?? '', 'Verify the Windows version.');
     assert.equal(noted.user_notes, 'Verify the Windows version.');
-    graph.candidates.needsConfirmation(noted.id, 'ambiguous_scope');
+    graph.candidates.needsConfirmation(noted.id, { kind: 'topic', topic: 'health' });
     assert.deepEqual(
       graph.candidates.listValidationQueue(ownerId).map((row) => row.id),
       [noted.id],
@@ -98,7 +98,7 @@ test('countValidationQueue matches listValidationQueue length', () => {
     assert.ok(pending);
     const needsConfirmation = propose('USES', 'Bash');
     assert.ok(needsConfirmation);
-    graph.candidates.needsConfirmation(needsConfirmation.id, 'ambiguous_scope');
+    graph.candidates.needsConfirmation(needsConfirmation.id, { kind: 'topic', topic: 'health' });
     const accepted = propose('DRIVES', 'Golf');
     assert.ok(accepted);
     graph.candidates.reject(accepted.id, 'unknown_predicate');

@@ -12,11 +12,11 @@
 
 | Task | State |
 |---|---|
-| 1 — merge outcome reports moved and retired counts | not started |
-| 2 — claim response carries the merge's counts | not started |
-| 3 — one scheduler for the projection recompile | not started |
-| 4 — a claim schedules the recompile | not started |
-| 5 — an identity answer schedules the recompile | not started |
+| 1 — merge outcome reports moved and retired counts | done |
+| 2 — claim response carries the merge's counts | done |
+| 3 — one scheduler for the projection recompile | done |
+| 4 — a claim schedules the recompile | done |
+| 5 — an identity answer schedules the recompile | done |
 
 ## Findings this plan fixes
 

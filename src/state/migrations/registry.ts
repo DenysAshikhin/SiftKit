@@ -775,4 +775,27 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 61,
+    up: (database) => {
+      if (!tableExists(database, 'candidate_assertions')) {
+        throw new Error('Migration v61 requires candidate_assertions.');
+      }
+      if (!tableHasColumn(database, 'candidate_assertions', 'hold_json')) {
+        database.exec('ALTER TABLE candidate_assertions ADD COLUMN hold_json TEXT;');
+      }
+      // Holds used to be encoded in `rejection_reason`: a topic name, or
+      // `possible_owner_alias:<name>` (21 characters before the name).
+      database.exec(`
+        UPDATE candidate_assertions
+        SET hold_json = CASE
+          WHEN rejection_reason LIKE 'possible_owner_alias:%'
+            THEN json_object('kind', 'possible_owner_alias', 'name', substr(rejection_reason, 22))
+          ELSE json_object('kind', 'topic', 'topic', rejection_reason)
+        END,
+        rejection_reason = NULL
+        WHERE status = 'needs_confirmation' AND rejection_reason IS NOT NULL AND hold_json IS NULL;
+      `);
+    },
+  },
 ];

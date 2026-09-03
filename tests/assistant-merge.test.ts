@@ -376,3 +376,80 @@ test('an assistant-proposed merge into the owner is still refused', () => {
     assert.equal(outcome.kind === 'blocked' && outcome.code, 'owner_identity_collapse');
   });
 });
+
+/**
+ * `claimNodeAsOwner` shows these counts to the owner. Counting the source's live assertions
+ * before the merge overstated them: a duplicate of a fact the target already holds is retired
+ * as the weaker half of a collision, not moved.
+ */
+test('a merge reports moved and retired assertions separately', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const target = makeSoftware(h, context, 'software:vscode', 'Visual Studio Code');
+    const source = makeSoftware(h, context, null, 'VSCode');
+    makeUses(h, context, target, 'Visual Studio Code');
+    const collidingId = makeUses(h, context, source, 'VSCode');
+    const colleague = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null, displayName: 'Alice',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const movedId = h.assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: colleague.id, predicate: 'USES',
+      object: { kind: 'node', nodeId: source }, scopeNodeId: null,
+      status: 'active', basis: 'passive_observation', confidence: 0.5, sensitivity: 'personal',
+      validFromUtc: null, validToUtc: null, observedAtUtc: '2026-08-05T09:00:00.000Z',
+      supersedesAssertionId: null, pinned: false, attributes: {},
+      searchText: { subject: 'Alice', predicate: 'uses', object: 'VSCode', scope: '' },
+    }).id;
+
+    const outcome = h.merges.merge({
+      ownerId: context.ownerId, sourceNodeId: source, targetNodeId: target,
+      actorType: 'user', basis: 'user confirmed', reason: 'merge',
+    });
+
+    assert.equal(outcome.kind, 'merged');
+    if (outcome.kind !== 'merged') return;
+    assert.equal(outcome.movedAssertionCount, 1);
+    assert.equal(outcome.retiredAssertionCount, 1);
+    assert.equal(h.assertions.requireAssertion(movedId).object_node_id, target);
+    assert.equal(h.assertions.requireAssertion(collidingId).status, 'superseded');
+  });
+});
+
+/** A merge only ever consolidates *into* the owner. Merging the owner away would leave
+ * `ownerPersonId` pointing at a merged node, whatever actor asked. */
+test('even the owner cannot merge the owner node into another person', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const other = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null, displayName: 'demyx',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+
+    const outcome = h.merges.merge({
+      ownerId: context.ownerId, sourceNodeId: h.personId, targetNodeId: other.id,
+      actorType: 'user', basis: 'wrong direction', reason: 'merge',
+    });
+
+    assert.equal(outcome.kind === 'blocked' && outcome.code, 'owner_identity_collapse');
+    assert.equal(h.nodes.requireNode(h.personId).status, 'active');
+  });
+});
+
+test('the mutation log records who asked for the merge', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const target = makeSoftware(h, context, 'software:vscode', 'Visual Studio Code');
+    const source = makeSoftware(h, context, null, 'VSCode');
+
+    const outcome = h.merges.merge({
+      ownerId: context.ownerId, sourceNodeId: source, targetNodeId: target,
+      actorType: 'assistant_proposal', basis: 'alias match', reason: 'merge',
+    });
+
+    assert.equal(outcome.kind, 'merged');
+    const entry = h.audit.listMutations(context.ownerId, 'graph_nodes', source)
+      .find((row) => row.operation === 'merge_node');
+    assert.equal(entry?.actor_type, 'assistant_proposal');
+  });
+});

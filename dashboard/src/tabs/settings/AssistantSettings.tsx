@@ -414,16 +414,23 @@ export function AssistantSettings(props: AssistantSettingsProps) {
   }
 
   /**
-   * Answers the identity hold. Either answer settles the name for good — yes writes it as one of
-   * your own aliases, no gives it its own person — so the card leaves the queue on success.
+   * Answers the identity hold. Only a promotion removes the card: a rejection or a second hold
+   * leaves the candidate in the queue, so the list is reloaded and the reason shown.
    */
   async function resolveIdentity(
     candidate: AssistantValidationCandidateDto, isOwner: boolean,
   ): Promise<void> {
     if (token === null) return;
     try {
-      await resolveAssistantCandidateIdentity(token, candidate.id, isOwner);
-      setValidation((items) => items.filter((item) => item.id !== candidate.id));
+      const result = await resolveAssistantCandidateIdentity(token, candidate.id, isOwner);
+      if (result.outcome === 'promoted') {
+        setValidation((items) => items.filter((item) => item.id !== candidate.id));
+        return;
+      }
+      setValidation(await getAssistantValidation(token));
+      setError(result.outcome === 'rejected'
+        ? `“${candidate.proposedStatement}” could not be written and stays in the queue.`
+        : `“${candidate.proposedStatement}” raised another question and stays in the queue.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -508,11 +515,10 @@ export function AssistantSettings(props: AssistantSettingsProps) {
               </div>
               <p>{candidate.rationale}</p>
               <p className="hint">Proof: {candidate.evidenceId ?? 'No evidence reference'} · {candidate.sensitivity}</p>
-              {candidate.confirmationReason === 'possible_owner_alias'
-                && candidate.identityName !== null ? (
+              {candidate.hold?.kind === 'possible_owner_alias' ? (
                   <div className="assistant-identity-question">
                     <p>
-                      “{candidate.identityName}” is close to one of your own names. Is that you?
+                      “{candidate.hold.name}” is close to one of your own names. Is that you?
                       Nothing is written until you answer.
                     </p>
                     <div className="assistant-card-actions">

@@ -7,6 +7,9 @@ import {
   AssistantConfigPatchRequestSchema,
   AssistantDestructiveRequestSchema,
   AssistantErrorResponseSchema,
+  AssistantGraphCleanupPreviewSchema,
+  AssistantGraphCleanupRequestSchema,
+  AssistantGraphCleanupResultSchema,
   AssistantEvidenceDtoSchema,
   AssistantMutationRequestSchema,
   AssistantMutationResponseSchema,
@@ -18,8 +21,11 @@ import {
   AssistantQuestionDtoSchema,
   AssistantStatusResponseSchema,
   AssistantResolveIdentityRequestSchema,
+  AssistantResolveIdentityResponseSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantValidationNotesRequestSchema,
+  PENDING_CAPTURE_LIST_STATES,
+  PENDING_CAPTURE_STATES,
 } from '@siftkit/contracts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
@@ -72,17 +78,28 @@ test('assistant public contracts round-trip representative valid DTOs', () => {
       id: 'cand_1', status: 'needs_confirmation', proposedStatement: 'Uses PowerShell',
       rationale: 'Observed directly', confidence: 0.8, sensitivity: 'personal',
       evidenceId: 'ev_1', userNotes: '', createdAtUtc: '2026-08-10T00:00:00.000Z',
-      confirmationReason: 'possible_owner_alias', identityName: 'denyz',
+      hold: { kind: 'possible_owner_alias', name: 'denyz' },
     }],
     [AssistantResolveIdentityRequestSchema, { isOwner: true }],
+    [AssistantResolveIdentityResponseSchema, { ok: true, graphVersion: 3, outcome: 'rejected' }],
     [AssistantClaimOwnerResponseSchema, {
       ok: true, graphVersion: 4, mergeId: 'merge_1', ownerNodeId: 'node_1',
-      movedAssertionCount: 3, movedAliases: ['demyus'],
+      movedAssertionCount: 3, retiredAssertionCount: 2, movedAliases: ['demyus'],
     }],
     [AssistantValidationNotesRequestSchema, { notes: 'Check version.' }],
     [AssistantDestructiveRequestSchema, { mode: 'confirm', previewToken: 'signed' }],
     [AssistantMutationRequestSchema, { reason: 'User correction' }],
     [AssistantMutationResponseSchema, { ok: true, graphVersion: 3 }],
+    [AssistantGraphCleanupPreviewSchema, {
+      previewToken: 'signed', graphVersion: 4, orphanNodeIds: ['node_9'],
+      resumableCaptureIds: [], discardableCaptureIds: ['ev_2'],
+      reclassifiableEvidenceCount: 3, reclassifiableAssertionCount: 1,
+    }],
+    [AssistantGraphCleanupRequestSchema, { previewToken: 'signed', reclassifyScreenshots: true }],
+    [AssistantGraphCleanupResultSchema, {
+      ok: true, graphVersion: 5, nodesDeleted: 1, capturesRequeued: 0, capturesDiscarded: 1,
+      evidenceReclassified: 3, assertionsReclassified: 1,
+    }],
     [AssistantErrorResponseSchema, { error: { code: 'not_found', message: 'Missing' } }],
   ] as const;
   for (const [schema, value] of examples) {
@@ -101,4 +118,17 @@ test('assistant public contracts reject malformed and unknown fields', () => {
     id: 'ev_1', decryptedContent: 'must never be present by default',
   }).success, false);
   assert.equal(AssistantValidationNotesRequestSchema.safeParse({ notes: 4 }).success, false);
+});
+
+test('node detail rejects a status the graph cannot hold', () => {
+  const parsed = AssistantNodeDetailSchema.safeParse({
+    id: 'node_1', type: 'person', displayName: 'User', sensitivity: 'personal',
+    canonicalKey: null, description: null, properties: {}, aliases: [],
+    isOwner: false, status: 'bogus',
+  });
+  assert.equal(parsed.success, false);
+});
+
+test('the pending view lists exactly the drain states plus the in-flight one', () => {
+  assert.deepEqual([...PENDING_CAPTURE_LIST_STATES], [...PENDING_CAPTURE_STATES, 'processing']);
 });

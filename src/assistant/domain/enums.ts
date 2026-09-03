@@ -60,9 +60,7 @@ export function isExplicitBasis(basis: AssertionBasis): boolean {
   return EXPLICIT_BASES.some((explicit) => explicit === basis);
 }
 
-export const NODE_STATUSES = ['active', 'merged', 'archived', 'deleted'] as const;
-export const NodeStatusSchema = z.enum(NODE_STATUSES);
-export type NodeStatus = z.infer<typeof NodeStatusSchema>;
+export { NODE_STATUSES, NodeStatusSchema, type NodeStatus } from '@siftkit/contracts';
 
 export const ALIAS_TYPES = [
   'name', 'handle', 'model', 'path', 'identifier', 'user_supplied',

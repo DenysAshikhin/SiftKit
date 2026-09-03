@@ -17,6 +17,13 @@ export class IdentityStore {
     return OwnerRowSchema.parse(row);
   }
 
+  /** Records the configured display name so a later rename knows which alias it seeded. */
+  setOwnerDisplayName(displayName: string, nowUtc: string): void {
+    this.database
+      .prepare('UPDATE assistant_owners SET display_name = ?, updated_at_utc = ? WHERE id = ?')
+      .run(displayName, nowUtc, LOCAL_OWNER_ID);
+  }
+
   getLocalDeviceId(): string {
     const row = this.database
       .prepare('SELECT value FROM runtime_metadata WHERE key = ?')

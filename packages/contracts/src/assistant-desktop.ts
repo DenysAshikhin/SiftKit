@@ -155,8 +155,11 @@ export const DesktopStateDtoSchema = z.object({
 }).strict();
 export type DesktopStateDto = z.infer<typeof DesktopStateDtoSchema>;
 
-/** Queue states the dashboard pending view lists; the DTO state enum derives from this. */
-export const PENDING_CAPTURE_LIST_STATES = ['queued', 'awaiting_image_capability', 'processing'] as const;
+/** Queue states still owed an extraction; the drain enqueues exactly these. */
+export const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
+
+/** The pending view adds `processing`: a worker holds it, but the owner is still waiting. */
+export const PENDING_CAPTURE_LIST_STATES = [...PENDING_CAPTURE_STATES, 'processing'] as const;
 
 /** A capture still owed an extraction, listed for the dashboard pending view. */
 export const PendingCaptureDtoSchema = z.object({

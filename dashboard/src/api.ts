@@ -14,7 +14,9 @@ import {
   AssistantMemoryHistoryEntryDtoSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantMutationResponseSchema,
+  AssistantResolveIdentityResponseSchema,
   type AssistantMemoryHistoryEntryDto,
+  type AssistantResolveIdentityResponse,
   type AssistantValidationCandidateDto,
   type DashboardConfig,
   type DashboardHealth,
@@ -116,15 +118,15 @@ export async function saveAssistantValidationNotes(
   );
 }
 
-/** Answers an open "is this name you?" hold on a candidate. */
+/** Answers an open "is this name you?" hold on a candidate and reports what it did. */
 export async function resolveAssistantCandidateIdentity(
   token: string,
   candidateId: string,
   isOwner: boolean,
-): Promise<void> {
-  await fetchJson(
+): Promise<AssistantResolveIdentityResponse> {
+  return fetchJson(
     `/assistant/validation/${encodeURIComponent(candidateId)}/resolve-identity`,
-    AssistantMutationResponseSchema,
+    AssistantResolveIdentityResponseSchema,
     { method: 'POST', headers: assistantHeaders(token), body: JSON.stringify({ isOwner }) },
   );
 }

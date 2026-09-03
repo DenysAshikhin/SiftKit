@@ -1,56 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 
 import type { EnvironmentStateDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
 import type {
   AssistantInferenceClient, AssistantInferenceResult,
 } from '../src/assistant/inference/client.js';
-import { FixedClock } from '../src/assistant/clock.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { buildAssistantService } from './helpers/assistant-fixture.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-
-interface BuildServiceOptions {
-  readonly enabled?: boolean;
-  readonly inference?: AssistantInferenceClient;
-  readonly privateMode?: boolean;
-  readonly ownerDisplayName?: string;
-}
-
-function buildService(options: BuildServiceOptions = {}): AssistantService {
-  const runtimeRoot = createManagedTempDir('siftkit-assistant-service-');
-  const config = {
-    ...DEFAULT_ASSISTANT_CONFIG,
-    Enabled: options.enabled ?? true,
-    Owner: {
-      ...DEFAULT_ASSISTANT_CONFIG.Owner,
-      DisplayName: options.ownerDisplayName ?? DEFAULT_ASSISTANT_CONFIG.Owner.DisplayName,
-    },
-    PrivateMode: {
-      ...DEFAULT_ASSISTANT_CONFIG.PrivateMode,
-      Active: options.privateMode ?? false,
-    },
-  };
-  return AssistantService.create({
-    database: getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')),
-    runtimeRoot,
-    clock: new FixedClock('2026-08-05T09:00:00.000Z'),
-    ids: new SequentialIdGenerator(),
-    configWriter: new MemoryAssistantConfigWriter(config),
-    inference: options.inference ?? new FakeAssistantInference([]),
-    tokens: new EstimateTokenCounter(4),
-    idleGate: ALWAYS_IDLE,
-    residencyGate: ALWAYS_RESIDENT,
-    config,
-  });
-}
 
 /** Blocks every model call until the test releases it, so a drain can be caught in flight. */
 class GateInference implements AssistantInferenceClient {
@@ -72,7 +30,7 @@ class GateInference implements AssistantInferenceClient {
 test('maintenance waits for the drain already in flight before it mutates anything', async () => {
   try {
     const inference = new GateInference();
-    const service = buildService({ inference });
+    const service = buildAssistantService({ inference });
     service.ingestChatTurn({
       ownerId: service.ownerId, sessionId: 'chat_maintenance',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
@@ -98,7 +56,7 @@ test('maintenance waits for the drain already in flight before it mutates anythi
 
 test('concurrent maintenance operations run one at a time', async () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     const order: string[] = [];
     const first = service.runMaintenance(async () => {
       order.push('first-start');
@@ -115,7 +73,7 @@ test('concurrent maintenance operations run one at a time', async () => {
 
 test('the service creates the owner person node exactly once', () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     const first = service.ownerPersonNodeId;
     if (first === null) throw new Error('Enabled service did not create its owner node.');
     assert.ok(first.length > 0);
@@ -130,7 +88,7 @@ test('the service creates the owner person node exactly once', () => {
 
 test('a disabled service is inert until a validated config refresh enables it', async () => {
   try {
-    const service = buildService({ enabled: false });
+    const service = buildAssistantService({ enabled: false });
     assert.equal(service.enabled, false);
     assert.equal(service.ownerPersonNodeId, null);
     assert.equal(service.graph.nodes.listNodesByType(service.ownerId, 'person').length, 0);
@@ -168,7 +126,7 @@ test('a disabled service is inert until a validated config refresh enables it', 
 
 test('a chat turn is ingested without any model call', () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     service.ingestChatTurn({
       ownerId: service.ownerId, sessionId: 'chat_1',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
@@ -184,7 +142,7 @@ test('a chat turn is ingested without any model call', () => {
 
 test('an unavailable image runtime is not logged when no capture is waiting', async () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
 
     await service.drainJobs();
 
@@ -196,7 +154,7 @@ test('an unavailable image runtime is not logged when no capture is waiting', as
 
 test('retrieval on an empty graph returns an empty block', async () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     const result = await service.retrieveMemoryContext('what shell do I use?');
     assert.equal(result.renderedBlock, '');
   } finally {
@@ -206,7 +164,7 @@ test('retrieval on an empty graph returns an empty block', async () => {
 
 test('an ingestion failure never throws at the caller', () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     assert.doesNotThrow(() => {
       service.ingestChatTurn({
         ownerId: service.ownerId, sessionId: 'chat_1',
@@ -222,7 +180,7 @@ test('an ingestion failure never throws at the caller', () => {
 
 test('the environment heartbeat closes a foreground session that simply stopped reporting', () => {
   try {
-    const service = buildService();
+    const service = buildAssistantService();
     const foreground = {
       processName: 'Code.exe',
       executablePath: 'C:/Program Files/Microsoft VS Code/Code.exe',
@@ -266,7 +224,7 @@ test('the environment heartbeat closes a foreground session that simply stopped 
 test('a residency change preempts the drain and waits for it to finish', async () => {
   try {
     const inference = new GateInference();
-    const service = buildService({ inference });
+    const service = buildAssistantService({ inference });
     service.ingestChatTurn({
       ownerId: service.ownerId, sessionId: 'chat_residency',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
@@ -293,7 +251,7 @@ test('a residency change preempts the drain and waits for it to finish', async (
 test('a residency change blocks a second drain while the first drain is unwinding', async () => {
   try {
     const inference = new GateInference();
-    const service = buildService({ inference });
+    const service = buildAssistantService({ inference });
     for (const index of [1, 2]) {
       service.ingestChatTurn({
         ownerId: service.ownerId, sessionId: `chat_residency_${index}`,
@@ -322,7 +280,7 @@ test('a residency change blocks a second drain while the first drain is unwindin
 test('concurrent drain ticks do not start overlapping model calls', async () => {
   try {
     const inference = new GateInference();
-    const service = buildService({ inference });
+    const service = buildAssistantService({ inference });
     for (const index of [1, 2]) {
       service.ingestChatTurn({
         ownerId: service.ownerId, sessionId: `chat_tick_${index}`,
@@ -350,7 +308,7 @@ test('concurrent drain ticks do not start overlapping model calls', async () => 
 test('private mode does not block queued background work', async () => {
   try {
     const inference = new FakeAssistantInference(['{"statements":[]}']);
-    const service = buildService({ inference, privateMode: true });
+    const service = buildAssistantService({ inference, privateMode: true });
     service.ingestChatTurn({
       ownerId: service.ownerId, sessionId: 'chat_private',
       capturedAtUtc: '2026-08-05T09:00:00.000Z',
@@ -368,7 +326,7 @@ test('private mode does not block queued background work', async () => {
 
 test("the owner's configured display name becomes an alias of the owner node", () => {
   try {
-    const service = buildService({ ownerDisplayName: 'Denys' });
+    const service = buildAssistantService({ ownerDisplayName: 'Denys' });
     const ownerNodeId = service.ownerPersonNodeId;
     if (ownerNodeId === null) throw new Error('Enabled service did not create its owner node.');
 
@@ -383,7 +341,7 @@ test("the owner's configured display name becomes an alias of the owner node", (
 
 test('an owner node created before the display name was set picks the alias up on refresh', () => {
   try {
-    const service = buildService({ ownerDisplayName: '' });
+    const service = buildAssistantService({ ownerDisplayName: '' });
     const ownerNodeId = service.ownerPersonNodeId;
     if (ownerNodeId === null) throw new Error('Enabled service did not create its owner node.');
     assert.ok(
@@ -402,6 +360,33 @@ test('an owner node created before the display name was set picks the alias up o
       service.graph.nodes.listAliases(ownerNodeId)
         .some((row) => row.normalized_alias === 'denys'),
     );
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('renaming the owner retires the previous configured alias but keeps learned ones', () => {
+  try {
+    const service = buildAssistantService({ ownerDisplayName: 'Denys' });
+    const ownerNodeId = service.ownerPersonNodeId;
+    if (ownerNodeId === null) throw new Error('Enabled service did not create its owner node.');
+    service.graph.nodes.addAlias({
+      ownerId: service.ownerId, nodeId: ownerNodeId, alias: 'derys',
+      aliasType: 'name', sourceEvidenceId: null,
+    });
+
+    service.refreshConfig({
+      ...DEFAULT_ASSISTANT_CONFIG,
+      Enabled: true,
+      Owner: { ...DEFAULT_ASSISTANT_CONFIG.Owner, DisplayName: 'Dennis' },
+    });
+
+    const aliases = service.graph.nodes.listAliases(ownerNodeId).map((row) => row.normalized_alias);
+    assert.ok(aliases.includes('dennis'));
+    assert.ok(!aliases.includes('denys'), `stale configured alias survived: ${aliases.join(', ')}`);
+    assert.ok(aliases.includes('derys'), 'a name learned from data is not a config alias');
+    assert.ok(aliases.includes('the user'));
+    assert.equal(service.graph.identity.getOwner().display_name, 'Dennis');
   } finally {
     closeRuntimeDatabase();
   }

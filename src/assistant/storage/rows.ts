@@ -231,6 +231,7 @@ export const CandidateRowSchema = z.object({
   rationale: z.string(),
   status: CandidateStatusSchema,
   rejection_reason: z.string().nullable(),
+  hold_json: z.string().nullable(),
   user_notes: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),

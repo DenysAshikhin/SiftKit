@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GraphCleanupService } from '../src/assistant/control/graph-cleanup-service.js';
+import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.js';
 import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
+import { ImageExtractor } from '../src/assistant/images/image-extractor.js';
+import { UnavailableImageCapabilityProvider } from '../src/assistant/images/image-capability.js';
+import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
+import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
 
@@ -11,15 +16,21 @@ const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 );
-const BLOB_DELETED_ERROR = 'Evidence blob blob_1 has been deleted.';
 
 function buildCleanup(context: AssistantTestContext): {
   cleanup: GraphCleanupService; queue: CaptureQueueStore;
 } {
   const queue = new CaptureQueueStore(context.database, context.clock);
+  const extractor = new ImageExtractor({
+    graph: context.graph, queue,
+    runner: new StructuredOutputRunner(new FakeAssistantInference([])),
+    capability: new UnavailableImageCapabilityProvider(),
+  });
   return {
     cleanup: new GraphCleanupService({
-      graph: context.graph, database: context.database, queue, projectionPriority: 400,
+      graph: context.graph, database: context.database, queue, extractor,
+      previews: new DeletionPreviewService(context.graph, context.database),
+      projectionPriority: 400,
     }),
     queue,
   };
@@ -32,17 +43,6 @@ function screenshotEvidence(context: AssistantTestContext, sourceEventId: string
     sourceTimezone: null, sensitivity: 'sensitive', retentionUntilUtc: null, metadata: {},
     mimeType: 'image/png', bytes: PNG_BYTES,
   }).id;
-}
-
-/** Burns a job's whole attempt budget, the only way a row reaches `dead_letter`. */
-function deadLetter(context: AssistantTestContext, jobId: string, errorMessage: string): void {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    context.graph.jobs.claimNext({
-      ownerId: context.ownerId, leaseOwner: 'test', leaseSeconds: 60, modelWorkAllowed: true,
-    });
-    context.graph.jobs.fail(jobId, errorMessage);
-    context.clock.advanceSeconds(120);
-  }
 }
 
 function strandCapture(
@@ -64,7 +64,10 @@ test('an orphaned person node is removed', () => {
     });
 
     assert.deepEqual(cleanup.preview(context.ownerId).orphanNodeIds, [orphan.id]);
-    assert.equal(cleanup.run(context.ownerId, { reclassifyScreenshots: false }).nodesDeleted, 1);
+    assert.equal(cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    ).nodesDeleted, 1);
     assert.equal(context.graph.nodes.requireNode(orphan.id).status, 'deleted');
   });
 });
@@ -90,7 +93,10 @@ test('a person node with a live assertion is kept', () => {
     });
 
     assert.deepEqual(cleanup.preview(context.ownerId).orphanNodeIds, []);
-    assert.equal(cleanup.run(context.ownerId, { reclassifyScreenshots: false }).nodesDeleted, 0);
+    assert.equal(cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    ).nodesDeleted, 0);
     assert.equal(context.graph.nodes.requireNode(person.id).status, 'active');
   });
 });
@@ -103,46 +109,12 @@ test('the owner person node is never treated as an orphan', () => {
       displayName: 'the user', description: null, sensitivity: 'personal', properties: {},
     });
 
-    cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
 
     assert.equal(context.graph.nodes.requireNode(owner.id).status, 'active');
-  });
-});
-
-test('a dead-lettered deleted-blob job is cleared', () => {
-  withAssistantContext((context) => {
-    const { cleanup } = buildCleanup(context);
-    const evidenceId = screenshotEvidence(context, 'cap_dead');
-    const job = context.graph.jobs.enqueue({
-      ownerId: context.ownerId, jobType: 'image_extraction', payload: { evidenceId },
-      idempotencyKey: `image_extraction:${evidenceId}`,
-    }, 350);
-    if (job === null) throw new Error('job was deduplicated unexpectedly');
-    deadLetter(context, job.id, BLOB_DELETED_ERROR);
-    assert.equal(context.graph.jobs.requireJob(job.id).status, 'dead_letter');
-
-    assert.deepEqual(cleanup.preview(context.ownerId).deletedBlobJobIds, [job.id]);
-    assert.equal(cleanup.run(context.ownerId, { reclassifyScreenshots: false }).jobsCleared, 1);
-    assert.equal(context.graph.jobs.getJob(job.id), null);
-  });
-});
-
-test('a dead-lettered job that failed for another reason is left alone', () => {
-  withAssistantContext((context) => {
-    const { cleanup } = buildCleanup(context);
-    const evidenceId = screenshotEvidence(context, 'cap_other');
-    const job = context.graph.jobs.enqueue({
-      ownerId: context.ownerId, jobType: 'image_extraction', payload: { evidenceId },
-      idempotencyKey: `image_extraction:${evidenceId}`,
-    }, 350);
-    if (job === null) throw new Error('job was deduplicated unexpectedly');
-    deadLetter(context, job.id, 'the inference backend refused the request');
-    assert.equal(context.graph.jobs.requireJob(job.id).status, 'dead_letter');
-
-    assert.deepEqual(cleanup.preview(context.ownerId).deletedBlobJobIds, []);
-    cleanup.run(context.ownerId, { reclassifyScreenshots: false });
-
-    assert.equal(context.graph.jobs.requireJob(job.id).status, 'dead_letter');
   });
 });
 
@@ -153,7 +125,10 @@ test('a stranded processing capture with an intact blob is reset to queued', () 
     strandCapture(context, queue, evidenceId, 'a'.repeat(64));
 
     assert.deepEqual(cleanup.preview(context.ownerId).resumableCaptureIds, [evidenceId]);
-    const result = cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    const result = cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
 
     assert.equal(result.capturesRequeued, 1);
     assert.equal(result.capturesDiscarded, 0);
@@ -169,11 +144,18 @@ test('a stranded capture whose blob is gone is discarded, not queued', () => {
     context.graph.evidence.expireEvidence(evidenceId);
 
     assert.deepEqual(cleanup.preview(context.ownerId).discardableCaptureIds, [evidenceId]);
-    const result = cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    const result = cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
 
     assert.equal(result.capturesDiscarded, 1);
     assert.equal(result.capturesRequeued, 0);
     assert.equal(queue.require(evidenceId).state, 'processed');
+    const audited = context.graph.audit.listAuditEvents(context.ownerId, 50)
+      .filter((event) => event.event_type === 'extraction_rejected');
+    assert.equal(audited.length, 1);
+    assert.equal(audited[0]?.details_json.includes('blob_deleted'), true);
   });
 });
 
@@ -187,11 +169,17 @@ test('running the cleanup twice changes nothing the second time', () => {
     const evidenceId = screenshotEvidence(context, 'cap_twice');
     strandCapture(context, queue, evidenceId, 'c'.repeat(64));
 
-    cleanup.run(context.ownerId, { reclassifyScreenshots: true });
-    const second = cleanup.run(context.ownerId, { reclassifyScreenshots: true });
+    cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: true },
+    );
+    const second = cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: true },
+    );
 
     assert.deepEqual(second, {
-      nodesDeleted: 0, jobsCleared: 0, capturesRequeued: 0, capturesDiscarded: 0,
+      nodesDeleted: 0, capturesRequeued: 0, capturesDiscarded: 0,
       evidenceReclassified: 0, assertionsReclassified: 0,
     });
   });
@@ -220,14 +208,20 @@ test('reclassification is previewed but only runs when it is explicitly requeste
     context.graph.assertions.linkEvidence(assertion.id, evidenceId, 'supports', 0.7);
 
     const preview = cleanup.preview(context.ownerId);
-    assert.deepEqual(preview.reclassifiableEvidenceIds, [evidenceId]);
-    assert.deepEqual(preview.reclassifiableAssertionIds, [assertion.id]);
+    assert.equal(preview.reclassifiableEvidenceCount, 1);
+    assert.equal(preview.reclassifiableAssertionCount, 1);
 
-    const withheld = cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    const withheld = cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
     assert.equal(withheld.evidenceReclassified, 0);
     assert.equal(context.graph.evidence.requireEvidence(evidenceId).sensitivity, 'sensitive');
 
-    const applied = cleanup.run(context.ownerId, { reclassifyScreenshots: true });
+    const applied = cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: true },
+    );
     assert.equal(applied.evidenceReclassified, 1);
     assert.equal(applied.assertionsReclassified, 1);
     assert.equal(context.graph.evidence.requireEvidence(evidenceId).sensitivity, 'personal');
@@ -243,19 +237,107 @@ test('a cleanup that changed something queues a projection recompile', () => {
       description: null, sensitivity: 'personal', properties: {},
     });
 
-    cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
     assert.equal(
       context.graph.jobs.listByStatus(context.ownerId, 'queued')
         .filter((job) => job.job_type === 'projection_maintenance').length,
       1,
     );
 
-    cleanup.run(context.ownerId, { reclassifyScreenshots: false });
+    cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
     assert.equal(
       context.graph.jobs.listByStatus(context.ownerId, 'queued')
         .filter((job) => job.job_type === 'projection_maintenance').length,
       1,
       'a no-op cleanup queues nothing further',
+    );
+  });
+});
+
+test('a person node the owner named by hand is kept even without facts', () => {
+  withAssistantContext((context) => {
+    const { cleanup } = buildCleanup(context);
+    const named = context.graph.nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null, displayName: 'denyz',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    context.graph.nodes.addAlias({
+      ownerId: context.ownerId, nodeId: named.id, alias: 'denyz',
+      aliasType: 'user_supplied', sourceEvidenceId: null,
+    });
+
+    assert.deepEqual(cleanup.preview(context.ownerId).orphanNodeIds, []);
+    cleanup.run(
+      context.ownerId, cleanup.preview(context.ownerId).previewToken,
+      { reclassifyScreenshots: false },
+    );
+
+    assert.equal(context.graph.nodes.requireNode(named.id).status, 'active');
+  });
+});
+
+test('the cleanup records every change it makes', () => {
+  withAssistantContext((context) => {
+    const { cleanup } = buildCleanup(context);
+    const { graph, ownerId } = context;
+    const orphan = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: null, displayName: 'Windows',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const evidenceId = screenshotEvidence(context, 'cap_audit');
+    const owner = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: OWNER_PERSON_CANONICAL_KEY, displayName: 'the user',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const software = graph.nodes.createNode({
+      ownerId, type: 'software', canonicalKey: null, displayName: 'PowerShell',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const assertion = graph.assertions.createAssertion({
+      ownerId, subjectNodeId: owner.id, predicate: 'USES',
+      object: { kind: 'node', nodeId: software.id }, scopeNodeId: null, status: 'active',
+      basis: 'passive_observation', confidence: 0.7, sensitivity: 'sensitive',
+      validFromUtc: null, validToUtc: null, observedAtUtc: CAPTURED_AT,
+      supersedesAssertionId: null, pinned: false, attributes: {},
+      searchText: { subject: 'the user', predicate: 'USES', object: 'PowerShell', scope: '' },
+    });
+    graph.assertions.linkEvidence(assertion.id, evidenceId, 'supports', 0.7);
+    const versionBefore = graph.graphVersion;
+
+    cleanup.run(ownerId, cleanup.preview(ownerId).previewToken, { reclassifyScreenshots: true });
+
+    const nodeLog = graph.audit.listMutations(ownerId, 'graph_nodes', orphan.id)
+      .find((row) => row.operation === 'update_node');
+    assert.equal(nodeLog?.after_json?.includes('"deleted"'), true);
+    const assertionLog = graph.audit.listMutations(ownerId, 'graph_assertions', assertion.id)
+      .find((row) => row.operation === 'update_assertion');
+    assert.equal(assertionLog?.before_json?.includes('"sensitive"'), true);
+    assert.equal(assertionLog?.after_json?.includes('"personal"'), true);
+    const evidenceEvents = graph.audit.listAuditEvents(ownerId, 50)
+      .filter((event) => event.event_type === 'evidence_reclassified');
+    assert.equal(evidenceEvents.length, 1);
+    assert.ok(graph.graphVersion > versionBefore);
+  });
+});
+
+test('a cleanup with a stale preview token is refused', () => {
+  withAssistantContext((context) => {
+    const { cleanup } = buildCleanup(context);
+    const token = cleanup.preview(context.ownerId).previewToken;
+    context.graph.nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null, displayName: 'Discord',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+
+    assert.throws(
+      () => cleanup.run(context.ownerId, token, { reclassifyScreenshots: false }),
+      /stale/u,
     );
   });
 });

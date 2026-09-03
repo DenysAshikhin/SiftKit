@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS candidate_assertions (
     status TEXT NOT NULL CHECK (
         status IN ('pending', 'accepted', 'rejected', 'needs_confirmation', 'superseded')),
     rejection_reason TEXT,
+    hold_json TEXT,
     user_notes TEXT NOT NULL DEFAULT '',
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL

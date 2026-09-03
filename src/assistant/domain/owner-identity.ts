@@ -18,36 +18,44 @@ export const NEAR_OWNER_ALIAS_MAX_DISTANCE = 2;
 export const NEAR_OWNER_ALIAS_MIN_LENGTH = 4;
 
 /**
- * Levenshtein distance, stopping once it provably exceeds `max`. Two rolling rows rather than a
- * full matrix: these are display names, but the bound keeps a pathological one cheap.
+ * Levenshtein distance, stopping once it provably exceeds `max`. Two rolling rows; each cell is
+ * derived from the values carried through the loop, so no cell is ever read by index.
  */
 export function editDistanceWithin(left: string, right: string, max: number): boolean {
   if (Math.abs(left.length - right.length) > max) return false;
-  let previous = Array.from({ length: right.length + 1 }, (_unused, index) => index);
-  for (let row = 1; row <= left.length; row += 1) {
-    const current = [row];
-    let best = row;
-    for (let column = 1; column <= right.length; column += 1) {
-      const substitution = (previous[column - 1] ?? 0)
-        + (left[row - 1] === right[column - 1] ? 0 : 1);
-      const distance = Math.min(substitution, (previous[column] ?? 0) + 1, (current[column - 1] ?? 0) + 1);
+  const rightChars = Array.from(right);
+  let previous = Array.from({ length: rightChars.length + 1 }, (_unused, index) => index);
+  let lastCell = rightChars.length;
+  for (const [rowIndex, leftChar] of Array.from(left).entries()) {
+    const current = [rowIndex + 1];
+    let diagonal = rowIndex;
+    let insertion = rowIndex + 1;
+    let best = insertion;
+    for (const [columnIndex, above] of previous.slice(1).entries()) {
+      const substitution = diagonal + (leftChar === rightChars[columnIndex] ? 0 : 1);
+      const distance = Math.min(substitution, above + 1, insertion + 1);
       current.push(distance);
+      diagonal = above;
+      insertion = distance;
       best = Math.min(best, distance);
     }
     if (best > max) return false;
     previous = current;
+    lastCell = insertion;
   }
-  return (previous[right.length] ?? max + 1) <= max;
+  return lastCell <= max;
 }
 
 /**
  * Whether `name` looks like a corrupted spelling of one of the owner's names. Callers must first
  * establish that `name` matches no existing alias exactly: a name the graph already knows is
- * answered, not a question.
+ * answered, not a question. Pronoun aliases are resolution shortcuts, not names, so they are
+ * never a similarity target.
  */
 export function isNearOwnerAlias(name: string, ownerAliases: readonly string[]): boolean {
   if (name.length < NEAR_OWNER_ALIAS_MIN_LENGTH) return false;
   return ownerAliases.some((alias) => alias.length >= NEAR_OWNER_ALIAS_MIN_LENGTH
     && alias !== name
+    && !OWNER_PRONOUN_ALIASES.some((pronoun) => pronoun === alias)
     && editDistanceWithin(name, alias, NEAR_OWNER_ALIAS_MAX_DISTANCE));
 }

@@ -32,7 +32,7 @@ test('a capture stranded in processing with no live job is recovered', () => {
     enqueueCapture(queue, ownerId, evidence.id, 'a'.repeat(64));
     queue.setState(evidence.id, 'processing');
 
-    const recovered = queue.recoverStrandedProcessing(ownerId);
+    const recovered = queue.recoverStrandedProcessing(ownerId, graph.jobs.listLiveImageExtractionEvidenceIds(ownerId));
 
     assert.equal(recovered, 1);
     assert.equal(queue.require(evidence.id).state, 'queued');
@@ -56,7 +56,7 @@ test('a capture processing under a live job is left alone', () => {
       idempotencyKey: `image_extraction:${evidence.id}`,
     }, 350);
 
-    const recovered = queue.recoverStrandedProcessing(ownerId);
+    const recovered = queue.recoverStrandedProcessing(ownerId, graph.jobs.listLiveImageExtractionEvidenceIds(ownerId));
 
     assert.equal(recovered, 0);
     assert.equal(queue.require(evidence.id).state, 'processing');
@@ -75,7 +75,7 @@ test('a recovered capture takes one extraction job, not two', () => {
     });
     enqueueCapture(queue, ownerId, evidence.id, 'c'.repeat(64));
     queue.setState(evidence.id, 'processing');
-    queue.recoverStrandedProcessing(ownerId);
+    queue.recoverStrandedProcessing(ownerId, graph.jobs.listLiveImageExtractionEvidenceIds(ownerId));
 
     const key = `image_extraction:${evidence.id}`;
     graph.jobs.enqueue({
@@ -90,5 +90,17 @@ test('a recovered capture takes one extraction job, not two', () => {
     const queued = graph.jobs.listByStatus(ownerId, 'queued')
       .filter((job) => job.job_type === 'image_extraction');
     assert.equal(queued.length, 1);
+  });
+});
+
+/** A malformed live payload used to make `NOT IN` compare against NULL and silently recover
+ * nothing. Parsing with the schema fails loudly instead. */
+test('a live job with an unreadable payload fails loudly instead of disabling recovery', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    graph.jobs.enqueue({
+      ownerId, jobType: 'image_extraction', payload: {}, idempotencyKey: 'image_extraction:broken',
+    }, 350);
+
+    assert.throws(() => graph.jobs.listLiveImageExtractionEvidenceIds(ownerId));
   });
 });

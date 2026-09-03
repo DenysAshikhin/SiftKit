@@ -40,11 +40,11 @@ export const validationNotesEndpoint = assistantRoute(async ({ service, req, res
   } else sendJson(res, 200, success(service));
 });
 
-/** Answers an open "is this name you?" hold. Writes an owner alias, or the separate person. */
+/** Answers an open "is this name you?" hold and reports what the re-promotion did. */
 export const resolveIdentityEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, AssistantResolveIdentityRequestSchema);
-  service.validation.resolveIdentity(id(match), request.isOwner);
-  sendJson(res, 200, success(service));
+  const outcome = service.validation.resolveIdentity(id(match), request.isOwner);
+  sendJson(res, 200, { ...success(service), outcome: outcome.kind });
 });
 
 export const deleteValidationEndpoint = assistantRoute(({ service, res, match }) => {

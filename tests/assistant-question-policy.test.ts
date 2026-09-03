@@ -192,7 +192,7 @@ test('candidate source derives only confirmation, conflict, and unplanned-goal g
       rationale: 'Uncertain statement.',
     });
     if (proposed === null) throw new Error('Expected candidate proposal.');
-    graph.candidates.needsConfirmation(proposed.id, 'confidence');
+    graph.candidates.needsConfirmation(proposed.id, { kind: 'topic', topic: 'health' });
     const assertion = graph.assertionService.assert({
       ownerId, actorType: 'user', actorRef: null, subjectNodeId: person.id,
       predicate: 'HAS_ROLE',

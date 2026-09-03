@@ -3,7 +3,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
-import type { JobStatus } from '../domain/enums.js';
+import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.js';
 import type { IdGenerator } from '../ids.js';
 import {
   AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
@@ -181,20 +181,6 @@ export class JobStore {
     return result.changes;
   }
 
-  /**
-   * Deletes named terminal jobs. Live jobs are never removed, so a caller working from a stale
-   * list cannot cancel work that has since been re-queued.
-   */
-  deleteTerminal(jobIds: readonly string[]): number {
-    if (jobIds.length === 0) return 0;
-    const placeholders = jobIds.map(() => '?').join(', ');
-    return this.database.prepare(`
-      DELETE FROM assistant_jobs
-      WHERE id IN (${placeholders})
-        AND status IN ('completed', 'failed', 'cancelled', 'dead_letter')
-    `).run(...jobIds).changes;
-  }
-
   getJob(jobId: string): JobRow | null {
     const row = this.database.prepare('SELECT * FROM assistant_jobs WHERE id = ?').get(jobId);
     return row === undefined || row === null ? null : JobRowSchema.parse(row);
@@ -213,6 +199,13 @@ export class JobStore {
       SELECT * FROM assistant_jobs WHERE owner_id = ? AND status = ?
       ORDER BY priority DESC, created_at_utc ASC, id ASC
     `).all(ownerId, status));
+  }
+
+  /** Evidence ids with an extraction still queued, running, or paused. Payloads are parsed. */
+  listLiveImageExtractionEvidenceIds(ownerId: string): string[] {
+    return LIVE_JOB_STATUSES.flatMap((status) => this.listByStatus(ownerId, status))
+      .filter((job) => job.job_type === 'image_extraction')
+      .map((job) => this.readImageExtractionPayload(job).evidenceId);
   }
 
   countByStatus(ownerId: string, status: JobStatus): number {

@@ -4,6 +4,8 @@ import type {
   AssistantBackgroundWorkDecisionDto,
   AssistantClaimOwnerResponse,
   AssistantFactoryResetPreview,
+  AssistantGraphCleanupPreview,
+  AssistantGraphCleanupResult,
   AssistantQuestionDto,
   AssistantRestorePreviewResponse,
   AssistantRestoreResult,
@@ -16,10 +18,9 @@ import type {
   MobileEnvelope,
   SuppressionAuditDto,
 } from '@siftkit/contracts';
-import { PENDING_CAPTURE_LIST_STATES } from '@siftkit/contracts';
+import { PENDING_CAPTURE_LIST_STATES, PENDING_CAPTURE_STATES } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
-import { LIVE_ASSERTION_STATUSES } from './storage/assertion-store.js';
 import type { Clock } from './clock.js';
 import { AssistantConflictError, AssistantNotFoundError } from './errors.js';
 import { ImportedKeyProvider } from './crypto/imported-key-provider.js';
@@ -73,13 +74,14 @@ import { ExportService } from './control/export-service.js';
 import { FactoryResetService } from './control/factory-reset-service.js';
 import {
   GraphCleanupService,
-  type GraphCleanupOptions, type GraphCleanupPlan, type GraphCleanupResult,
+  type GraphCleanupOptions,
 } from './control/graph-cleanup-service.js';
 import { MemoryQueryService } from './control/memory-query-service.js';
 import { MemoryMutationService } from './control/memory-mutation-service.js';
 import { PolicyControlService } from './control/policy-control-service.js';
 import { RestoreService } from './control/restore-service.js';
 import { ValidationQueueService } from './control/validation-queue-service.js';
+import { normalizeAliasText } from './domain/keys.js';
 import { OWNER_PRONOUN_ALIASES } from './domain/owner-identity.js';
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
 
@@ -155,9 +157,6 @@ const JOB_RETENTION_DAYS = 7;
 
 /** Drains slower than this are logged so event-loop pressure is visible before it hurts chat. */
 const SLOW_DRAIN_THRESHOLD_MS = 250;
-
-/** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
-const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
 
 /** Caps each state's rows in the dashboard pending-captures listing. */
 const PENDING_CAPTURE_LIST_LIMIT = 200;
@@ -250,12 +249,6 @@ export class AssistantService implements AssistantRuntime {
       queue: this.captureQueue,
       observation: options.config.Observation,
     });
-    this.graphCleanup = new GraphCleanupService({
-      graph: this.graph,
-      database: options.database,
-      queue: this.captureQueue,
-      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
-    });
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
     const structuredOutput = new StructuredOutputRunner(options.inference);
@@ -288,7 +281,12 @@ export class AssistantService implements AssistantRuntime {
     );
     this.memoryQueries = new MemoryQueryService(this.graph);
     this.policyControl = new PolicyControlService(this.graph, this.graph.ownerId);
-    this.validation = new ValidationQueueService(this.graph, this.graph.ownerId, promoter);
+    this.validation = new ValidationQueueService({
+      graph: this.graph,
+      ownerId: this.graph.ownerId,
+      promoter,
+      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
+    });
     this.exports = new ExportService(this.graph, options.database, this.graph.ownerId);
     this.backups = new BackupService({
       graph: this.graph,
@@ -336,6 +334,12 @@ export class AssistantService implements AssistantRuntime {
       background: options.config.Background,
       power: this.environment.power,
     });
+    const images = new ImageExtractor({
+      graph: this.graph,
+      queue: this.captureQueue,
+      runner: structuredOutput,
+      capability: this.imageCapability,
+    });
     this.runner = new AssistantJobRunner({
       graph: this.graph,
       extractor,
@@ -344,12 +348,7 @@ export class AssistantService implements AssistantRuntime {
       projections,
       questions: this.questionScheduler,
       questionAnswers: new QuestionAnswerIngestor(extractor, promoter),
-      images: new ImageExtractor({
-        graph: this.graph,
-        queue: this.captureQueue,
-        runner: structuredOutput,
-        capability: this.imageCapability,
-      }),
+      images,
       retention: this.captureRetention,
       idleGate: options.idleGate,
       residencyGate: options.residencyGate,
@@ -357,6 +356,14 @@ export class AssistantService implements AssistantRuntime {
       jobPriorities: options.config.Background.JobPriorities,
       leaseOwner: `status-server:${process.pid}`,
       leaseSeconds: JOB_LEASE_SECONDS,
+    });
+    this.graphCleanup = new GraphCleanupService({
+      graph: this.graph,
+      database: options.database,
+      queue: this.captureQueue,
+      extractor: images,
+      previews: deletionPreviews,
+      projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
     });
     this.maxJobsPerDrain = options.config.Background.MaxJobsPerIdleSession;
   }
@@ -548,6 +555,9 @@ export class AssistantService implements AssistantRuntime {
     this.memoryMutations.refreshProjectionPriority(
       config.Background.JobPriorities.ProjectionMaintenance,
     );
+    this.validation.refreshProjectionPriority(
+      config.Background.JobPriorities.ProjectionMaintenance,
+    );
     this.questionFeedback.refreshAnswerIngestionPriority(
       config.Background.JobPriorities.QuestionAnswerIngestion,
     );
@@ -704,20 +714,8 @@ export class AssistantService implements AssistantRuntime {
     if (node.id === ownerNodeId) {
       throw new AssistantConflictError('That node is already the owner.');
     }
-    if (node.type !== 'person') {
-      throw new AssistantConflictError(
-        `Only a person node can name the owner; ${nodeId} is a ${node.type}.`,
-      );
-    }
-    if (node.status !== 'active') {
-      throw new AssistantConflictError(`Node ${nodeId} is ${node.status}, not active.`);
-    }
-
-    const movedAliases = this.graph.nodes.listAliases(nodeId).map((row) => row.alias);
-    const movedAssertionCount = this.graph.assertions
-      .listBySubject(this.ownerId, nodeId, LIVE_ASSERTION_STATUSES).length;
-
     return this.runMaintenance(async () => {
+      const movedAliases = this.graph.nodes.listAliases(nodeId).map((row) => row.alias);
       const outcome = this.graph.merges.merge({
         ownerId: this.ownerId,
         sourceNodeId: nodeId,
@@ -729,26 +727,35 @@ export class AssistantService implements AssistantRuntime {
       if (outcome.kind === 'blocked') {
         throw new AssistantConflictError(outcome.message);
       }
+      this.graph.enqueueProjectionMaintenance(
+        this.ownerId, this.currentConfig.Background.JobPriorities.ProjectionMaintenance,
+      );
       return {
         ok: true,
         graphVersion: this.graph.graphVersion,
         mergeId: outcome.mergeId,
         ownerNodeId,
-        movedAssertionCount,
+        movedAssertionCount: outcome.movedAssertionCount,
+        retiredAssertionCount: outcome.retiredAssertionCount,
         movedAliases,
       } as const;
     });
   }
 
-  /** What the one-shot repair would touch. Reports the opt-in reclassification without doing it. */
-  previewGraphCleanup(): GraphCleanupPlan {
+  /** What the one-shot repair would touch, with a token that expires when that changes. */
+  previewGraphCleanup(): AssistantGraphCleanupPreview {
     return this.graphCleanup.preview(this.ownerId);
   }
 
-  /** Removes the state the pipeline defects produced. Idempotent; safe to run twice. */
-  async cleanUpGraph(options: GraphCleanupOptions): Promise<GraphCleanupResult> {
+  /** Removes the state the pipeline defects produced. Idempotent; refuses a stale preview. */
+  async cleanUpGraph(
+    previewToken: string, options: GraphCleanupOptions,
+  ): Promise<AssistantGraphCleanupResult> {
     const ownerId = this.ownerId;
-    return this.runMaintenance(async () => this.graphCleanup.run(ownerId, options));
+    const result = await this.runMaintenance(
+      async () => this.graphCleanup.run(ownerId, previewToken, options),
+    );
+    return { ok: true, graphVersion: this.graph.graphVersion, ...result };
   }
 
   previewRestore(uploadPath: string): Promise<AssistantRestorePreviewResponse> {
@@ -816,7 +823,9 @@ export class AssistantService implements AssistantRuntime {
     // A worker that died mid-extraction leaves its capture in `processing`, which no pending
     // state covers. Recover those before enqueueing so they rejoin the queue instead of sitting
     // unreachable until they expire.
-    this.captureQueue.recoverStrandedProcessing(this.ownerId);
+    this.captureQueue.recoverStrandedProcessing(
+      this.ownerId, this.graph.jobs.listLiveImageExtractionEvidenceIds(this.ownerId),
+    );
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
     const elapsedMs = Date.now() - startedAtMs;
@@ -892,20 +901,28 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * Reconciled on every bootstrap and config refresh, not just at creation: the owner's real name
-   * is what an extractor reads off a screenshot, and without it here that name becomes a rival
-   * `person` node whose facts no projection ever sees. `addAlias` is idempotent by normalized
-   * text, so re-seeding an unchanged name is a no-op.
+   * Reconciled on every bootstrap and config refresh. The owner row's `display_name` is the last
+   * configured name; when config moves on, the alias that name seeded is retired. Aliases of
+   * other types with the same text were learned from data and stay.
    */
   private seedOwnerAliases(nodeId: string): void {
+    const ownerId = this.graph.ownerId;
     const configured = this.currentConfig.Owner.DisplayName.trim();
+    const previous = this.graph.identity.getOwner().display_name.trim();
+    if (previous !== configured) {
+      const previousIsPronoun = OWNER_PRONOUN_ALIASES
+        .some((pronoun) => pronoun === normalizeAliasText(previous));
+      if (previous !== '' && !previousIsPronoun) {
+        this.graph.nodes.removeAlias(nodeId, previous, 'user_supplied');
+      }
+      this.graph.identity.setOwnerDisplayName(configured, this.graph.nowUtc());
+    }
     const aliases = configured === ''
       ? [...OWNER_PRONOUN_ALIASES]
       : [...OWNER_PRONOUN_ALIASES, configured];
     for (const alias of aliases) {
       this.graph.nodes.addAlias({
-        ownerId: this.graph.ownerId, nodeId, alias,
-        aliasType: 'user_supplied', sourceEvidenceId: null,
+        ownerId, nodeId, alias, aliasType: 'user_supplied', sourceEvidenceId: null,
       });
     }
   }

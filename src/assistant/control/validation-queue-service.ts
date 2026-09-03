@@ -1,27 +1,35 @@
 import type { AssistantValidationCandidateDto } from '@siftkit/contracts';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { normalizeLiteralValue } from '../domain/keys.js';
-import {
-  OWNER_ALIAS_CONFIRMATION_REASON, type CandidatePromoter, type PromotionOutcome,
-} from '../ingestion/candidate-promoter.js';
+import type { CandidatePromoter, PromotionOutcome } from '../ingestion/candidate-promoter.js';
 import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
-import type { CandidateRow } from '../storage/rows.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 
-/** The name an open identity question is about, or `null` when it is not that kind of hold. */
-function identityNameOf(row: CandidateRow): string | null {
-  const reason = row.rejection_reason;
-  if (reason === null || !reason.startsWith(`${OWNER_ALIAS_CONFIRMATION_REASON}:`)) return null;
-  return reason.slice(OWNER_ALIAS_CONFIRMATION_REASON.length + 1);
+interface ValidationQueueServiceOptions {
+  readonly graph: AssistantGraph;
+  readonly ownerId: string;
+  readonly promoter: CandidatePromoter;
+  readonly projectionPriority: number;
 }
 
 /** The validation queue a user reviews before a candidate becomes an assertion. */
 export class ValidationQueueService {
-  constructor(
-    private readonly graph: AssistantGraph,
-    private readonly ownerId: string,
-    private readonly promoter: CandidatePromoter,
-  ) {}
+  private readonly graph: AssistantGraph;
+  private readonly ownerId: string;
+  private readonly promoter: CandidatePromoter;
+  private projectionPriority: number;
+
+  constructor(options: ValidationQueueServiceOptions) {
+    this.graph = options.graph;
+    this.ownerId = options.ownerId;
+    this.promoter = options.promoter;
+    this.projectionPriority = options.projectionPriority;
+  }
+
+  refreshProjectionPriority(priority: number): void {
+    if (!Number.isInteger(priority)) throw new Error('Projection priority must be an integer.');
+    this.projectionPriority = priority;
+  }
 
   list(): AssistantValidationCandidateDto[] {
     return this.graph.candidates.listValidationQueue(this.ownerId).map((row) => {
@@ -32,7 +40,6 @@ export class ValidationQueueService {
       const evidenceId = row.observation_id === null
         ? null
         : this.graph.observations.requireObservation(row.observation_id).evidence_id;
-      const identityName = identityNameOf(row);
       return {
         id: row.id,
         status: row.status === 'needs_confirmation' ? 'needs_confirmation' : 'pending',
@@ -43,10 +50,7 @@ export class ValidationQueueService {
         evidenceId,
         userNotes: row.user_notes,
         createdAtUtc: row.created_at_utc,
-        confirmationReason: identityName === null
-          ? row.rejection_reason
-          : OWNER_ALIAS_CONFIRMATION_REASON,
-        identityName,
+        hold: this.graph.candidates.readHold(row),
       };
     });
   }
@@ -62,36 +66,67 @@ export class ValidationQueueService {
     if (candidate === null || candidate.owner_id !== this.ownerId) {
       throw new AssistantNotFoundError(`Unknown candidate: ${candidateId}`);
     }
-    const identityName = identityNameOf(candidate);
-    if (identityName === null) {
+    const hold = this.graph.candidates.readHold(candidate);
+    if (hold === null || hold.kind !== 'possible_owner_alias') {
       throw new AssistantConflictError(
         `Candidate ${candidateId} is not held on an identity question.`,
       );
     }
+    const identityName = hold.name;
 
     // Either answer has to leave an alias behind before the re-promotion runs. That alias is what
     // settles the name: the promoter only asks about a name nothing in the graph resolves, so
     // writing one here both routes this candidate and retires the question for good.
-    if (isOwner) {
-      const owner = this.graph.nodes.findByCanonicalKey(
-        this.ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
-      );
-      if (owner === null) {
-        throw new AssistantNotFoundError('The assistant has no owner person node.');
+    const transaction = this.graph.transactions.begin();
+    try {
+      if (isOwner) {
+        const owner = this.graph.nodes.findByCanonicalKey(
+          this.ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
+        );
+        if (owner === null) {
+          throw new AssistantNotFoundError('The assistant has no owner person node.');
+        }
+        this.graph.nodes.addAlias({
+          ownerId: this.ownerId, nodeId: owner.id, alias: identityName,
+          aliasType: 'user_supplied', sourceEvidenceId: null,
+        });
+      } else {
+        this.recordSeparatePerson(identityName);
       }
-      this.graph.nodes.addAlias({
-        ownerId: this.ownerId, nodeId: owner.id, alias: identityName,
-        aliasType: 'user_supplied', sourceEvidenceId: null,
-      });
-    } else {
-      this.graph.resolver.resolve({
-        ownerId: this.ownerId, nodeType: 'person', displayName: identityName,
-        canonicalKey: null, contextNodeIds: [], createIfMissing: true,
-      });
-    }
 
-    this.graph.candidates.returnToPending(candidateId);
-    return this.promoter.promote({ ownerId: this.ownerId, candidateId });
+      this.graph.candidates.returnToPending(candidateId);
+      const outcome = this.promoter.promote({ ownerId: this.ownerId, candidateId });
+      // The runner recompiles after every extraction it promotes; a user's answer promotes too.
+      if (outcome.kind === 'promoted') {
+        this.graph.enqueueProjectionMaintenance(this.ownerId, this.projectionPriority);
+      }
+      transaction.commit();
+      return outcome;
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
+  }
+
+  /**
+   * The owner said this name is someone else. The node carries a `user_supplied` alias so the
+   * answer survives even if no fact ever lands on it: the orphan cleanup keeps user-named nodes.
+   */
+  private recordSeparatePerson(name: string): void {
+    const node = this.graph.nodes.createNode({
+      ownerId: this.ownerId, type: 'person', canonicalKey: null, displayName: name,
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    this.graph.nodes.addAlias({
+      ownerId: this.ownerId, nodeId: node.id, alias: name,
+      aliasType: 'user_supplied', sourceEvidenceId: null,
+    });
+    this.graph.audit.recordMutation({
+      ownerId: this.ownerId, actorType: 'user', actorRef: this.ownerId,
+      operation: 'create_node', targetType: 'graph_nodes', targetId: node.id,
+      before: null, after: { type: 'person', displayName: name },
+      reason: 'the owner said this name is not them',
+    });
+    this.graph.audit.incrementGraphVersion();
   }
 
   setNotes(candidateId: string, notes: string): boolean {

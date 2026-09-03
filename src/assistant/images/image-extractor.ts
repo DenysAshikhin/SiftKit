@@ -79,15 +79,7 @@ export class ImageExtractor {
     // gone. That is terminal, not a failure: retrying cannot bring a deleted blob back, and
     // letting the read throw burned the job's whole retry budget before dead-lettering it.
     if (!this.graph.evidence.hasReadableBlob(evidence)) {
-      this.graph.audit.recordAuditEvent({
-        ownerId,
-        eventType: 'extraction_rejected',
-        targetType: 'evidence',
-        targetId: evidenceId,
-        summary: 'Screenshot pixels were deleted before extraction ran.',
-        details: { code: 'blob_deleted' },
-      });
-      this.queue.markProcessed(evidenceId);
+      this.discardDeletedBlob(ownerId, evidenceId);
       return { kind: 'rejected' };
     }
     const imageDataUrl = this.readImageDataUrl(evidence);
@@ -160,6 +152,22 @@ export class ImageExtractor {
 
     this.queue.markProcessed(evidenceId);
     return { kind: 'processed', observationIds, candidateIds };
+  }
+
+  /**
+   * Retires a capture whose pixels retention already removed. Terminal, not a failure: the blob
+   * cannot come back, so the capture is marked processed and the cause is audited.
+   */
+  discardDeletedBlob(ownerId: string, evidenceId: string): void {
+    this.graph.audit.recordAuditEvent({
+      ownerId,
+      eventType: 'extraction_rejected',
+      targetType: 'evidence',
+      targetId: evidenceId,
+      summary: 'Screenshot pixels were deleted before extraction ran.',
+      details: { code: 'blob_deleted' },
+    });
+    this.queue.markProcessed(evidenceId);
   }
 
   private readImageDataUrl(evidence: EvidenceRow): string {

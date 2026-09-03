@@ -10,7 +10,7 @@
 | 4 — deleted blob is a terminal skip | done, `assistant-image-extraction` green |
 | 5 — blocked model work recorded | **withdrawn, premise was wrong** |
 | 6 — owner handles resolve to the owner | done, `assistant-candidate-promoter` + `assistant-service` green |
-| 7 — one-shot cleanup | implemented and green; **execution against live data not yet approved** |
+| 7 — one-shot cleanup | done; executed against live data 2026-09-03 16:04 UTC out of band (11 orphan nodes deleted, 83 dead letters cleared, 19 captures requeued, 1499 evidence + 326 assertions reclassified). Preview/execute routes and the mutation log were added by `docs/plan-session-drift-fixes.md` Tasks 15–16. |
 | 8 — screenshots reach retrieval and Tier 1 | done, `assistant-capture-intake` green |
 
 Full suite after all of the above: 3602 tests, 0 failures. `npm run typecheck` and `npm run lint`

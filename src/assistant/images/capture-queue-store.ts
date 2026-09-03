@@ -18,13 +18,9 @@ const RETIRABLE_CAPTURE_STATES = [
   'queued', 'awaiting_image_capability', 'processed',
 ] as const satisfies readonly CaptureQueueState[];
 
-/** `processing` with no live extraction job: the worker that held it is gone. Binds `owner_id`. */
+/** `processing` with no live extraction job: the worker that held it is gone. Binds a JSON array. */
 const STRANDED_PROCESSING_PREDICATE = `
-  state = 'processing' AND evidence_id NOT IN (
-    SELECT json_extract(payload_json, '$.evidenceId') FROM assistant_jobs
-    WHERE owner_id = ? AND job_type = 'image_extraction'
-      AND status IN ('queued', 'running', 'paused')
-  )
+  state = 'processing' AND evidence_id NOT IN (SELECT value FROM json_each(?))
 `;
 
 const LIVE_STATE_PLACEHOLDERS = LIVE_CAPTURE_STATES.map(() => '?').join(', ');
@@ -99,20 +95,20 @@ export class CaptureQueueStore {
    * has lost its worker to a crash, restart, or preemption. `PENDING_CAPTURE_STATES` does not
    * include `processing`, so without this the row would sit there unreachable until it expired.
    */
-  recoverStrandedProcessing(ownerId: string): number {
+  recoverStrandedProcessing(ownerId: string, liveEvidenceIds: readonly string[]): number {
     return this.database.prepare(`
       UPDATE assistant_capture_queue SET state = 'queued', updated_at_utc = ?
       WHERE owner_id = ? AND ${STRANDED_PROCESSING_PREDICATE}
-    `).run(this.clock.nowUtc(), ownerId, ownerId).changes;
+    `).run(this.clock.nowUtc(), ownerId, JSON.stringify(liveEvidenceIds)).changes;
   }
 
   /** The same rows `recoverStrandedProcessing` would reset, for a caller that must inspect first. */
-  listStrandedProcessing(ownerId: string): CaptureQueueRow[] {
+  listStrandedProcessing(ownerId: string, liveEvidenceIds: readonly string[]): CaptureQueueRow[] {
     return z.array(CaptureQueueRowSchema).parse(this.database.prepare(`
       SELECT * FROM assistant_capture_queue
       WHERE owner_id = ? AND ${STRANDED_PROCESSING_PREDICATE}
       ORDER BY enqueued_at_utc ASC, evidence_id ASC
-    `).all(ownerId, ownerId));
+    `).all(ownerId, JSON.stringify(liveEvidenceIds)));
   }
 
   /** One query regardless of how many states the caller aggregates over. */

@@ -199,11 +199,8 @@ export class EvidenceStore {
     return fs.readFileSync(this.resolveBlobPath(blob.storage_uri));
   }
 
-  /**
-   * Rewrites one record's classification. Only the cleanup routine uses it, to repair rows that
-   * were classified under a rule the pipeline no longer applies.
-   */
-  reclassify(evidenceId: string, sensitivity: Sensitivity): EvidenceRow {
+  /** Rewrites one record's classification. The audited cleanup path is its only caller. */
+  setSensitivity(evidenceId: string, sensitivity: Sensitivity): EvidenceRow {
     this.database
       .prepare('UPDATE evidence_records SET sensitivity = ? WHERE id = ?')
       .run(sensitivity, evidenceId);

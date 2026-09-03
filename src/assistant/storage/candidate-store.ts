@@ -10,6 +10,7 @@ import {
 import type { RelationType } from '../domain/relation-types.js';
 import { AssistantConflictError } from '../errors.js';
 import type { IdGenerator } from '../ids.js';
+import { CandidateHoldSchema, type CandidateHold } from '../ingestion/candidate-hold.js';
 import { CandidateRowSchema, type CandidateRow } from './rows.js';
 
 export interface ProposeCandidateInput {
@@ -130,8 +131,18 @@ export class CandidateStore {
     return this.setStatus(candidateId, 'rejected', rejectionReason);
   }
 
-  needsConfirmation(candidateId: string, reason: string): CandidateRow {
-    return this.setStatus(candidateId, 'needs_confirmation', reason);
+  needsConfirmation(candidateId: string, hold: CandidateHold): CandidateRow {
+    this.database.prepare(`
+      UPDATE candidate_assertions
+      SET status = 'needs_confirmation', hold_json = ?, rejection_reason = NULL, updated_at_utc = ?
+      WHERE id = ?
+    `).run(JSON.stringify(hold), this.clock.nowUtc(), candidateId);
+    return this.requireCandidate(candidateId);
+  }
+
+  /** The question a held candidate is waiting on; `null` for any other status. */
+  readHold(row: CandidateRow): CandidateHold | null {
+    return row.hold_json === null ? null : parseJsonText(row.hold_json, CandidateHoldSchema);
   }
 
   /** Clears a hold so the candidate can be promoted again, and with it the reason it was held. */
@@ -181,7 +192,8 @@ export class CandidateStore {
     rejectionReason: string | null,
   ): CandidateRow {
     this.database.prepare(`
-      UPDATE candidate_assertions SET status = ?, rejection_reason = ?, updated_at_utc = ?
+      UPDATE candidate_assertions
+      SET status = ?, rejection_reason = ?, hold_json = NULL, updated_at_utc = ?
       WHERE id = ?
     `).run(status, rejectionReason, this.clock.nowUtc(), candidateId);
     return this.requireCandidate(candidateId);

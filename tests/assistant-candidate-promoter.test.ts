@@ -7,7 +7,7 @@ import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter
 import { SecretScanner } from '../src/assistant/domain/secrets.js';
 import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
-import { withAssistantContext } from './helpers/assistant-fixture.js';
+import { proposePersonUses, withAssistantContext } from './helpers/assistant-fixture.js';
 
 test('a direct fact becomes a live assertion with its evidence linked', () => {
   withAssistantContext(({ graph, ownerId }) => {
@@ -214,33 +214,6 @@ test('a rejected candidate is still recorded as rejected', () => {
 });
 
 /** Builds a person subject candidate that promotes cleanly, so only the subject node varies. */
-function proposeUsesPowerShell(
-  context: { graph: AssistantGraph; ownerId: string }, subjectName: string, sourceEventId: string,
-): string {
-  const { graph, ownerId } = context;
-  const evidence = graph.evidence.recordTextEvidence({
-    ownerId, deviceId: null, sourceType: 'conversation_message', parentEvidenceId: null,
-    sourceEventId, sourceRef: 'chat_1', sourceTimezone: null,
-    capturedAtUtc: '2026-08-05T09:00:00.000Z', sensitivity: 'personal',
-    retentionUntilUtc: null, metadata: {}, text: `${subjectName} uses PowerShell.`,
-  });
-  const observation = graph.observations.record({
-    ownerId, evidenceId: evidence.id, observationType: 'screenshot_extraction',
-    payload: {}, confidence: 0.9, sensitivity: 'personal',
-    extractorName: 'image_extraction', extractorVersion: '1',
-  });
-  const candidate = graph.candidates.propose({
-    ownerId, observationId: observation.id,
-    subject: { nodeType: 'person', displayName: subjectName },
-    predicate: 'USES',
-    object: { kind: 'unresolved', nodeType: 'software', displayName: 'PowerShell' },
-    scope: null, basis: 'explicit_user_statement', confidence: 0.9, sensitivity: 'personal',
-    validFromUtc: null, validToUtc: null, rationale: `Stated that ${subjectName} uses PowerShell.`,
-  });
-  if (candidate === null) throw new Error('Candidate proposal was deduplicated unexpectedly.');
-  return candidate.id;
-}
-
 /** Creates the owner person node the service normally bootstraps, with one extra alias. */
 function seedOwnerNode(
   context: { graph: AssistantGraph; ownerId: string }, alias: string,
@@ -259,7 +232,10 @@ function seedOwnerNode(
 test('a configured owner alias resolves to the owner node', () => {
   withAssistantContext((context) => {
     const ownerNodeId = seedOwnerNode(context, 'Denys');
-    const candidateId = proposeUsesPowerShell(context, 'Denys', 'chat_1:msg_owner');
+    const candidateId = proposePersonUses(context, {
+      subjectName: 'Denys', objectName: 'PowerShell', sourceEventId: 'chat_1:msg_owner',
+      sourceType: 'conversation_message', basis: 'explicit_user_statement', confidence: 0.9,
+    });
 
     const outcome = new CandidatePromoter(
       context.graph, new CandidateGate(context.graph.policies, new SecretScanner()),
@@ -275,7 +251,10 @@ test('a configured owner alias resolves to the owner node', () => {
 test('an unrelated person name still creates its own node', () => {
   withAssistantContext((context) => {
     const ownerNodeId = seedOwnerNode(context, 'Denys');
-    const candidateId = proposeUsesPowerShell(context, 'Alice', 'chat_1:msg_alice');
+    const candidateId = proposePersonUses(context, {
+      subjectName: 'Alice', objectName: 'PowerShell', sourceEventId: 'chat_1:msg_alice',
+      sourceType: 'conversation_message', basis: 'explicit_user_statement', confidence: 0.9,
+    });
 
     const outcome = new CandidatePromoter(
       context.graph, new CandidateGate(context.graph.policies, new SecretScanner()),
@@ -292,7 +271,10 @@ test('an unrelated person name still creates its own node', () => {
 test('owner alias matching is normalization-insensitive', () => {
   withAssistantContext((context) => {
     const ownerNodeId = seedOwnerNode(context, 'Denys Ashikhin');
-    const candidateId = proposeUsesPowerShell(context, '  DENYS   ashikhin ', 'chat_1:msg_case');
+    const candidateId = proposePersonUses(context, {
+      subjectName: '  DENYS   ashikhin ', objectName: 'PowerShell', sourceEventId: 'chat_1:msg_case',
+      sourceType: 'conversation_message', basis: 'explicit_user_statement', confidence: 0.9,
+    });
 
     const outcome = new CandidatePromoter(
       context.graph, new CandidateGate(context.graph.policies, new SecretScanner()),
@@ -317,7 +299,10 @@ test('an owner alias shared with a rival person node still lands on the owner', 
       ownerId: context.ownerId, nodeId: rival.id, alias: 'Denys',
       aliasType: 'name', sourceEvidenceId: null,
     });
-    const candidateId = proposeUsesPowerShell(context, 'Denys', 'chat_1:msg_rival');
+    const candidateId = proposePersonUses(context, {
+      subjectName: 'Denys', objectName: 'PowerShell', sourceEventId: 'chat_1:msg_rival',
+      sourceType: 'conversation_message', basis: 'explicit_user_statement', confidence: 0.9,
+    });
 
     const outcome = new CandidatePromoter(
       context.graph, new CandidateGate(context.graph.policies, new SecretScanner()),

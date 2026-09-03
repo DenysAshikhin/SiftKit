@@ -171,6 +171,15 @@ export class NodeStore {
     );
   }
 
+  /** Removes one alias of one type; other types with the same text (a learned name) survive. */
+  removeAlias(nodeId: string, alias: string, aliasType: AliasType): number {
+    const changes = this.database.prepare(`
+      DELETE FROM graph_node_aliases WHERE node_id = ? AND normalized_alias = ? AND alias_type = ?
+    `).run(nodeId, normalizeAliasText(alias), aliasType).changes;
+    if (changes > 0) this.refreshFts(nodeId);
+    return changes;
+  }
+
   listAliases(nodeId: string): AliasRow[] {
     return z.array(AliasRowSchema).parse(this.database.prepare(`
       SELECT * FROM graph_node_aliases WHERE node_id = ? ORDER BY created_at_utc ASC, id ASC

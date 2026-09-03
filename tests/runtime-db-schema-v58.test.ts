@@ -20,6 +20,11 @@ function seedV57Database(): string {
   database.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 57);
+    -- Every real database of this vintage carries the assistant tables; v61 refuses to run
+    -- without them.
+    CREATE TABLE candidate_assertions (
+      id TEXT NOT NULL, status TEXT NOT NULL, rejection_reason TEXT
+    );
     CREATE TABLE assistant_activity_events (
       id TEXT PRIMARY KEY,
       owner_id TEXT NOT NULL,

@@ -290,12 +290,9 @@ export class AssistantJobRunner {
   }
 
   private enqueueProjectionMaintenance(ownerId: string): void {
-    this.options.graph.jobs.enqueueSuperseding({
-      ownerId,
-      jobType: 'projection_maintenance',
-      payload: { reason: 'graph_changed' },
-      idempotencyKey: `projection_maintenance:${this.options.graph.graphVersion}`,
-    }, this.priorityFor('projection_maintenance'));
+    this.options.graph.enqueueProjectionMaintenance(
+      ownerId, this.priorityFor('projection_maintenance'),
+    );
   }
 
   private priorityFor(jobType: AssistantJobType): number {

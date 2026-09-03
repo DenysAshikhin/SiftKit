@@ -7,14 +7,13 @@ import type { AssertionWriteOutcome } from '../graph/assertion-service.js';
 import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
 import type { CandidateRow } from '../storage/rows.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import type { AssistantTransactionScope } from '../transactions/assistant-transaction-manager.js';
 import type { CandidateGate } from './candidate-gate.js';
-
-/** Prefix of the `needs_confirmation` reason that marks an unanswered identity question. */
-export const OWNER_ALIAS_CONFIRMATION_REASON = 'possible_owner_alias';
+import type { CandidateHold } from './candidate-hold.js';
 
 export type PromotionOutcome =
   | { readonly kind: 'promoted'; readonly assertionId: string }
-  | { readonly kind: 'needs_confirmation'; readonly reason: string }
+  | { readonly kind: 'needs_confirmation'; readonly hold: CandidateHold }
   | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
 
 export interface PromoteRequest {
@@ -62,8 +61,9 @@ export class CandidatePromoter {
       return { kind: 'rejected', code: gateOutcome.code, message: gateOutcome.message };
     }
     if (gateOutcome.kind === 'needs_confirmation') {
-      this.graph.candidates.needsConfirmation(candidate.id, gateOutcome.topic);
-      return { kind: 'needs_confirmation', reason: gateOutcome.topic };
+      const hold = { kind: 'topic', topic: gateOutcome.topic } as const;
+      this.graph.candidates.needsConfirmation(candidate.id, hold);
+      return { kind: 'needs_confirmation', hold };
     }
 
     // A name one or two characters off the owner's own is almost always OCR misreading a title
@@ -74,10 +74,9 @@ export class CandidatePromoter {
         ? this.findOwnerNameQuestion(request.ownerId, refs.object)
         : null);
     if (nearMiss !== null) {
-      this.graph.candidates.needsConfirmation(
-        candidate.id, `${OWNER_ALIAS_CONFIRMATION_REASON}:${nearMiss}`,
-      );
-      return { kind: 'needs_confirmation', reason: OWNER_ALIAS_CONFIRMATION_REASON };
+      const hold = { kind: 'possible_owner_alias', name: nearMiss } as const;
+      this.graph.candidates.needsConfirmation(candidate.id, hold);
+      return { kind: 'needs_confirmation', hold };
     }
 
     const transaction = this.graph.transactions.begin();
@@ -139,7 +138,7 @@ export class CandidatePromoter {
   private finish(
     candidate: CandidateRow,
     outcome: AssertionWriteOutcome,
-    transaction: { commit(): void; rollback(): void },
+    transaction: AssistantTransactionScope,
   ): PromotionOutcome {
     if (outcome.kind === 'rejected') {
       // Discard the nodes `resolveNode` created for a proposal the validator refused, then record

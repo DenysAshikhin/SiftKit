@@ -452,7 +452,7 @@ test('a screenshot statement containing secret material is still held back', () 
       graph, new CandidateGate(graph.policies, new SecretScanner()),
     ).promote({ ownerId, candidateId: candidate.id });
 
-    assert.equal(promotion.kind, 'needs_confirmation');
+    assert.equal(promotion.kind === 'needs_confirmation' ? promotion.hold.kind : null, 'topic');
     assert.equal(graph.candidates.requireCandidate(candidate.id).status, 'needs_confirmation');
     assert.equal(graph.assertions.list(ownerId, 100, 0).length, 0);
   });

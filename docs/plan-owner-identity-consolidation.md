@@ -7,6 +7,10 @@
 | A — "This is me" on a person node | done: service, route, dashboard control, `assistant-owner-identity` (5) + `assistant-claim-owner` (5) green |
 | B — a near-miss name is a question | done: promoter hold, `resolveIdentity`, route, validation-card answers, `assistant-owner-alias-question` (7) + 2 settings tests green |
 
+Follow-ups from the 2026-09-03 drift review (structured holds, owner-direction guard, pronoun
+aliases, explicit "no" answers, alias reconciliation) are tracked in
+`docs/plan-session-drift-fixes.md`.
+
 Prerequisite defect fixed on the way: the `owner_identity_collapse` guard keyed off `person:self`
 while the runtime writes `person:owner`, so it had never fired in production.
 

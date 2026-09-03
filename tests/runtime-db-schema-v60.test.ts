@@ -47,6 +47,10 @@ test('v60 backfills legitimate null kinds from validated roles', () => {
     INSERT INTO chat_messages (id, role, kind) VALUES
       ('legacy-user', 'user', NULL),
       ('legacy-assistant', 'assistant', NULL);
+    -- Every real v59 database carries the assistant tables; v61 refuses to run without them.
+    CREATE TABLE candidate_assertions (
+      id TEXT NOT NULL, status TEXT NOT NULL, rejection_reason TEXT
+    );
   `);
   database.close();
 
@@ -107,7 +111,6 @@ test('v60 records running tool status and backfills historical tool calls as don
         readonly.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
       );
       assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-      assert.equal(CURRENT_SCHEMA_VERSION, 60);
     } finally {
       readonly.close();
     }
