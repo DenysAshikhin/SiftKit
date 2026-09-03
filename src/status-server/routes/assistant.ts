@@ -45,6 +45,7 @@ import {
   searchEndpoint,
 } from './assistant/graph-routes.js';
 import {
+  claimOwnerEndpoint,
   confirmEndpoint,
   correctEndpoint,
   deleteAssertionEndpoint,
@@ -73,6 +74,7 @@ import {
   listPoliciesEndpoint,
   listValidationEndpoint,
   patchPolicyEndpoint,
+  resolveIdentityEndpoint,
   validationNotesEndpoint,
 } from './assistant/policy-routes.js';
 import { header, sendError } from './assistant/helpers.js';
@@ -95,6 +97,10 @@ const routes = new RouteTable([
   {
     method: 'GET', path: /^\/assistant\/graph\/nodes\/([^/]+)\/neighborhood$/u,
     endpoint: neighborhoodEndpoint,
+  },
+  {
+    method: 'POST', path: /^\/assistant\/graph\/nodes\/([^/]+)\/claim-owner$/u,
+    endpoint: claimOwnerEndpoint,
   },
   { method: 'GET', path: '/assistant/graph/assertions', endpoint: listAssertionsEndpoint },
   {
@@ -194,6 +200,10 @@ const routes = new RouteTable([
   {
     method: 'PATCH', path: /^\/assistant\/validation\/([^/]+)\/notes$/u,
     endpoint: validationNotesEndpoint,
+  },
+  {
+    method: 'POST', path: /^\/assistant\/validation\/([^/]+)\/resolve-identity$/u,
+    endpoint: resolveIdentityEndpoint,
   },
   {
     method: 'DELETE', path: /^\/assistant\/validation\/([^/]+)$/u,

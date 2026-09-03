@@ -134,6 +134,11 @@ export class CandidateStore {
     return this.setStatus(candidateId, 'needs_confirmation', reason);
   }
 
+  /** Clears a hold so the candidate can be promoted again, and with it the reason it was held. */
+  returnToPending(candidateId: string): CandidateRow {
+    return this.setStatus(candidateId, 'pending', null);
+  }
+
   setUserNotes(candidateId: string, notes: string): CandidateRow {
     const candidate = this.requireCandidate(candidateId);
     if (candidate.status !== 'pending' && candidate.status !== 'needs_confirmation') {

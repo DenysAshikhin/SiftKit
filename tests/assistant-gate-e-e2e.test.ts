@@ -172,16 +172,16 @@ test('gate E scenario 5: deleting capture evidence purges the blob and queues th
     const before = context.graph.assertions.requireAssertion(assertionId);
     assert.ok(before.confidence > 0);
 
-    // §10.2: a screenshot-derived belief inherits `sensitive`, so it is graph-only. Its projection
-    // story is that it has none — the deletion below must still be complete without one.
-    assert.equal(before.sensitivity, 'sensitive');
+    // A screenshot-derived belief is `personal`, so it competes for the plaintext projections on
+    // the same terms as any other source. The deletion below therefore has to reach a compiled
+    // document, not just the graph.
+    assert.equal(before.sensitivity, 'personal');
     await service.memoryMutations.rebuildProjections(context.ownerId, PROJECTION_SIGNAL);
-    assert.deepEqual(
+    assert.ok(
       context.graph.projections.listAllRows(context.ownerId).flatMap(
         (row) => context.graph.projections.readIncludedAssertionIds(row),
-      ),
-      [],
-      'sensitive capture content never reaches a plaintext projection',
+      ).includes(assertionId),
+      'capture content reaches a plaintext projection',
     );
 
     const preview = service.memoryMutations.previewDeleteEvidence(context.ownerId, evidence.id);

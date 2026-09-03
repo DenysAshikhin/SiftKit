@@ -17,7 +17,7 @@ export type NodeType = z.infer<typeof NodeTypeSchema>;
  * tests, and a projection policy.
  */
 export const NODE_TYPE_DEFINITIONS = {
-  person: 'A human being, including the assistant owner (canonical key person:self) and third parties.',
+  person: 'A human being, including the assistant owner (canonical key person:owner) and third parties.',
   organization: 'A company, institution, team, or other collective body.',
   place: 'A physical or named location at any granularity, from a city to a room.',
   device: 'A physical computing or peripheral device such as a workstation, phone, or GPU.',

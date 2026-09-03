@@ -9,6 +9,11 @@ import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import type { AssistantConfig } from '../src/config/types.js';
 import { CaptureIntake } from '../src/assistant/observation/capture-intake.js';
 import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
+import { CandidateGate } from '../src/assistant/ingestion/candidate-gate.js';
+import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter.js';
+import { SecretScanner } from '../src/assistant/domain/secrets.js';
+import { AssertionViewBuilder } from '../src/assistant/projections/assertion-view-builder.js';
+import { isProjectableInPlaintext } from '../src/assistant/projections/assertion-view.js';
 import type {
   AssistantImageCapability, AssistantImageCapabilityProvider,
 } from '../src/assistant/images/image-capability.js';
@@ -138,7 +143,7 @@ test('a novel capture becomes encrypted screenshot evidence and an awaiting queu
     if (record === undefined) throw new Error('capture recorded no evidence');
     assert.equal(record.id, outcome.evidenceId);
     assert.equal(record.mime_type, 'image/png');
-    assert.equal(record.sensitivity, 'sensitive');
+    assert.equal(record.sensitivity, 'personal');
     assert.equal(record.captured_at_utc, CAPTURED_AT);
     if (record.blob_id === null) throw new Error('capture evidence has no blob');
     assert.equal(context.graph.evidence.requireBlob(record.blob_id).encrypted, true);
@@ -354,4 +359,101 @@ test('the capture routes require the bearer, fail closed on version, and reject 
     }
     await removeDirectoryWithRetries(tempRoot);
   }
+});
+
+/**
+ * Drives one screenshot statement all the way to an assertion, so the classification the intake
+ * chose is the classification retrieval and the projections actually see.
+ */
+function promoteScreenshotStatement(
+  context: AssistantTestContext, evidenceId: string, objectName: string, rationale: string,
+): string {
+  const { graph, ownerId } = context;
+  const evidence = graph.evidence.requireEvidence(evidenceId);
+  const observation = graph.observations.record({
+    ownerId, evidenceId, observationType: 'screenshot_extraction',
+    payload: {}, confidence: 0.7, sensitivity: evidence.sensitivity,
+    extractorName: 'image_extraction', extractorVersion: '1',
+  });
+  const candidate = graph.candidates.propose({
+    ownerId, observationId: observation.id,
+    subject: { nodeType: 'person', displayName: 'the user' },
+    predicate: 'USES',
+    object: { kind: 'unresolved', nodeType: 'software', displayName: objectName },
+    scope: null, basis: 'passive_observation', confidence: 0.7,
+    sensitivity: evidence.sensitivity, validFromUtc: null, validToUtc: null, rationale,
+  });
+  if (candidate === null) throw new Error('Screenshot statement was deduplicated unexpectedly.');
+  const outcome = new CandidatePromoter(
+    graph, new CandidateGate(graph.policies, new SecretScanner()),
+  ).promote({ ownerId, candidateId: candidate.id });
+  if (outcome.kind !== 'promoted') {
+    throw new Error(`Screenshot statement was not promoted: ${JSON.stringify(outcome)}`);
+  }
+  return outcome.assertionId;
+}
+
+test('screenshot evidence is classified personal', () => {
+  withAssistantContext((context) => {
+    const { intake } = buildIntake(context);
+    const outcome = intake.submit(context.ownerId, captureDto(), ENABLED);
+    assert.equal(outcome.kind, 'accepted');
+    if (outcome.kind !== 'accepted') return;
+
+    assert.equal(
+      context.graph.evidence.requireEvidence(outcome.evidenceId).sensitivity, 'personal',
+    );
+  });
+});
+
+test('a screenshot-derived assertion survives the plaintext projection filter', () => {
+  withAssistantContext((context) => {
+    const { intake } = buildIntake(context, true);
+    const outcome = intake.submit(context.ownerId, captureDto(), ENABLED);
+    assert.equal(outcome.kind, 'accepted');
+    if (outcome.kind !== 'accepted') return;
+
+    const assertionId = promoteScreenshotStatement(
+      context, outcome.evidenceId, 'PowerShell', 'The screenshot shows a PowerShell window.',
+    );
+    const view = new AssertionViewBuilder(context.graph)
+      .build(context.graph.assertions.requireAssertion(assertionId));
+
+    assert.equal(view.sensitivity, 'personal');
+    assert.equal(isProjectableInPlaintext(view), true);
+  });
+});
+
+test('a screenshot statement containing secret material is still held back', () => {
+  withAssistantContext((context) => {
+    const { intake, queue } = buildIntake(context, true);
+    const outcome = intake.submit(context.ownerId, captureDto(), ENABLED);
+    assert.equal(outcome.kind, 'accepted');
+    if (outcome.kind !== 'accepted') return;
+    assert.equal(queue.get(outcome.evidenceId)?.state, 'queued');
+
+    const { graph, ownerId } = context;
+    const observation = graph.observations.record({
+      ownerId, evidenceId: outcome.evidenceId, observationType: 'screenshot_extraction',
+      payload: {}, confidence: 0.7, sensitivity: 'personal',
+      extractorName: 'image_extraction', extractorVersion: '1',
+    });
+    const candidate = graph.candidates.propose({
+      ownerId, observationId: observation.id,
+      subject: { nodeType: 'person', displayName: 'the user' },
+      predicate: 'USES',
+      object: { kind: 'unresolved', nodeType: 'software', displayName: 'Medication Tracker' },
+      scope: null, basis: 'passive_observation', confidence: 0.7, sensitivity: 'personal',
+      validFromUtc: null, validToUtc: null,
+      rationale: 'The screenshot showed a medication tracking app.',
+    });
+    if (candidate === null) throw new Error('Screenshot statement was deduplicated unexpectedly.');
+    const promotion = new CandidatePromoter(
+      graph, new CandidateGate(graph.policies, new SecretScanner()),
+    ).promote({ ownerId, candidateId: candidate.id });
+
+    assert.equal(promotion.kind, 'needs_confirmation');
+    assert.equal(graph.candidates.requireCandidate(candidate.id).status, 'needs_confirmation');
+    assert.equal(graph.assertions.list(ownerId, 100, 0).length, 0);
+  });
 });

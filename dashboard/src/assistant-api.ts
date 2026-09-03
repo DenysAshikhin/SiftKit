@@ -8,6 +8,7 @@ import {
   AssistantEvidenceDtoSchema,
   AssistantFactoryResetPreviewSchema,
   AssistantMutationResponseSchema,
+  AssistantClaimOwnerResponseSchema,
   AssistantNodeDetailSchema,
   AssistantNodeSummarySchema,
   AssistantPolicyDtoSchema,
@@ -28,6 +29,7 @@ import {
   type AssistantRestoreResult,
   type AssistantEvidenceDto,
   type AssistantMutationResponse,
+  type AssistantClaimOwnerResponse,
   type AssistantNodeDetail,
   type AssistantPolicyDto,
   type AssistantQuestionDto,
@@ -42,6 +44,7 @@ import {
   getAssistantMemoryHistory,
   getAssistantValidation,
   removeAssistantValidationCandidate,
+  resolveAssistantCandidateIdentity,
   saveAssistantValidationNotes,
 } from './api.js';
 
@@ -50,6 +53,7 @@ export {
   getAssistantMemoryHistory,
   getAssistantValidation,
   removeAssistantValidationCandidate,
+  resolveAssistantCandidateIdentity,
   saveAssistantValidationNotes,
 };
 
@@ -203,6 +207,18 @@ export function correctAssistantAssertion(token: string, id: string, objectText:
 
 export function pinAssistantAssertion(token: string, id: string, pinned: boolean, reason: string) {
   return mutate(token, `/assistant/graph/assertions/${encodeURIComponent(id)}/pin`, 'POST', { pinned, reason });
+}
+
+/** Tells the assistant a duplicate `person` node names the owner. Merges it into the owner node. */
+export function claimAssistantNodeAsOwner(
+  token: string, id: string, reason: string,
+): Promise<AssistantClaimOwnerResponse> {
+  return request(
+    `/assistant/graph/nodes/${encodeURIComponent(id)}/claim-owner`,
+    token,
+    AssistantClaimOwnerResponseSchema,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  );
 }
 
 export function demoteAssistantAssertion(token: string, id: string, reason: string) {

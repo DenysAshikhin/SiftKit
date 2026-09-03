@@ -1,5 +1,22 @@
 # Implementation plan: assistant pipeline defects
 
+## Status (2026-09-03)
+
+| Task | State |
+|---|---|
+| 1 — rejected candidate leaves no nodes | done, `assistant-candidate-promoter` green |
+| 2 — stranded `processing` capture retried | done, `assistant-capture-recovery` green |
+| 3 — retention skips `processing` | done, `assistant-capture-retention` green |
+| 4 — deleted blob is a terminal skip | done, `assistant-image-extraction` green |
+| 5 — blocked model work recorded | **withdrawn, premise was wrong** |
+| 6 — owner handles resolve to the owner | done, `assistant-candidate-promoter` + `assistant-service` green |
+| 7 — one-shot cleanup | implemented and green; **execution against live data not yet approved** |
+| 8 — screenshots reach retrieval and Tier 1 | done, `assistant-capture-intake` green |
+
+Full suite after all of the above: 3602 tests, 0 failures. `npm run typecheck` and `npm run lint`
+clean.
+
+
 Seven defects found while restoring the screenshot → memory pipeline. Each task is independently
 verifiable. Work them in order: tasks 1–3 touch the same two files and task 3 depends on task 2's
 state constant.
@@ -139,29 +156,24 @@ runtime can no longer analyse is not a failure".
 
 ---
 
-## Task 5 — A blocked model-work decision must be recorded
+## Task 5 — WITHDRAWN: model-work blocks are already recorded
 
-**Defect.** `AssistantJobRunner.drain` records a block for the interactivity gate and the
-background-resource gate, but `modelWorkDecision()` (`src/assistant/jobs/job-runner.ts:84-92`)
-returns `model_not_resident` / a resource reason that is used only to filter which job types are
-claimable (`:142-149`). Nothing calls `recordBlock`, so a drain that does no work because the
-model is not resident leaves **no trace** in
-`assistant.background_work_decisions.v1`. Observed directly: drains ran for minutes, the decision
-history's newest entry stayed minutes old, and nothing indicated why nothing progressed.
+**This task was based on a misreading and must not be implemented.**
 
-**Change.** When model-backed work is blocked *and* no non-model job was claimable in that pass,
-record the block with its reason, using the existing `recordBlock` seam and the decision-history
-cap already in place. Do not record on every loop iteration when work is progressing — the signal
-must stay readable, so record once per drain at most.
+The original claim was that `modelWorkDecision()` blocking on `model_not_resident` never reaches
+`recordBlock`. It does, in both places it can occur:
 
-**Tests** — `tests/assistant-background-work-decisions.test.ts`:
-- `a drain blocked only by model residency records the reason`.
-- `a drain that completes non-model work records no model block`.
-- `the decision history stays capped` (regression on the existing cap).
+- `src/assistant/jobs/job-runner.ts:124-131` — nothing claimable while jobs are queued records the
+  model block, or `no_claimable_job`.
+- `src/assistant/jobs/job-runner.ts:144-148` — a model-backed job blocked at execution time is
+  requeued *and* recorded.
 
-**Acceptance criteria.**
-- The three tests pass.
-- `npm run typecheck` clean.
+What was actually observed live: with `MaxJobsPerIdleSession` temporarily set to 1, the single
+job slot was consumed by `capture_retention` on every drain, so the loop exited normally having
+done real work and correctly recorded no block. The decision history looked stale because nothing
+was blocked, not because a block went unrecorded.
+
+No code change. Left in place so the wrong conclusion is not re-derived from the findings doc.
 
 ---
 
@@ -223,18 +235,44 @@ established pattern — do not add a new ad-hoc script):
 
 ---
 
-## Deferred — needs a product decision, do not implement
+## Task 8 — Screenshot facts must reach retrieval and Tier 1
 
-**Screenshot-derived assertions can never become memory projections.** All 1486 screenshot
-evidence rows are classified `sensitive`; assertions inherit that sensitivity; and
+**Decision (owner, 2026-09-03).** Screenshot-derived facts should be queryable *and* eligible for
+the Tier 1 profile, competing on importance like any other source. Not a blanket exclusion.
+
+**Defect.** `src/assistant/observation/capture-intake.ts:129` hardcodes
+`sensitivity: 'sensitive'` for every screenshot. Assertions inherit it, and
 `isProjectableInPlaintext` (`src/assistant/projections/assertion-view.ts:49-51`) admits only `low`
-and `personal`. So `memory_projections` stays empty for the screenshot path by construction, even
-though 44 assertions now exist and are queryable in the graph.
+and `personal`. Its four consumers — `memory-retriever.ts:92`, `projection-compiler.ts:210`,
+`profile-compiler.ts:35`, `dossier-compiler.ts:36` — therefore drop every screenshot fact, so the
+path produces graph rows nothing consumes.
 
-This reads as deliberate privacy design rather than a bug, and changing it is a privacy decision
-about whether screen contents may be written into plaintext tier documents. **No agent should
-change sensitivity classification or the projection filter without an explicit decision from the
-repository owner.**
+`desktop_activity` and `conversation_message` evidence are both already `personal`; screenshots are
+the outlier.
+
+**Change.** Classify screenshot evidence `personal`, matching the other observation sources. Normal
+ranking (`compareViewsByValue`, `utility_score`, `TIER_TOKEN_LIMIT`) then decides what is important
+enough to reach Tier 1 — do not add a screenshot-specific ranking rule.
+
+**Do not weaken the secret path.** `CandidateGate`'s `needs_confirmation` branch keys off
+`SecretScanner` topics (`candidate-gate.ts:101-105`), not off evidence sensitivity, so it must keep
+working unchanged. Add a test proving that.
+
+**Tests** — `tests/assistant-capture-intake.test.ts`:
+- `screenshot evidence is classified personal`.
+- `a screenshot-derived assertion is retrievable` — build one, assert it survives the retrieval
+  filter.
+- `a screenshot statement containing secret material is still held for confirmation` — the
+  regression guard for the paragraph above.
+
+**Acceptance criteria.**
+- The three tests pass; existing capture-intake tests pass unchanged.
+- `npm run typecheck` clean.
+- After the change, a forced capture produces at least one `memory_projections` row.
+
+**Backfill.** The 44 existing assertions and 1486 existing evidence rows keep their `sensitive`
+classification and stay invisible. Re-classifying them is a data mutation: fold it into Task 7's
+dry-run preview and do not execute it without owner approval.
 
 ---
 

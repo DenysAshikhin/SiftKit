@@ -126,7 +126,11 @@ export class CaptureIntake {
       sourceRef: capture.foreground.applicationId,
       capturedAtUtc: capture.capturedAtUtc,
       sourceTimezone: null,
-      sensitivity: 'sensitive',
+      // Matches `desktop_activity` and `conversation_message`. Classifying screenshots above
+      // `personal` put every derived fact under `isProjectableInPlaintext`'s floor, so retrieval
+      // and the tiers dropped all of them. What a fact is *about* still raises it: the relation
+      // defaults and `SecretScanner` reclassify health, finance, and credential material.
+      sensitivity: 'personal',
       retentionUntilUtc: null,
       metadata: this.captureMetadata(capture),
       mimeType: image.mimeType,

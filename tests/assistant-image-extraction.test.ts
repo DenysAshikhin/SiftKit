@@ -351,3 +351,38 @@ test('a candidate supported only by one screenshot is capped below stable promot
     );
   });
 });
+
+/**
+ * Retention deletes blobs by age with no regard for queued work, so an extraction can find its
+ * pixels already gone. `readBlobBytes` threw, the throw escaped into the drain's catch, and the
+ * job burned three retries against a blob that is never coming back before dead-lettering.
+ * Production accumulated 102 such rows. An item the runtime can no longer analyse is not a
+ * failure.
+ */
+test('a capture whose blob was deleted completes without retrying', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const fixture = buildFixture(context, [extraction('Visual Studio Code')], new StubImageCapability(true));
+    context.graph.evidence.expireEvidence(fixture.evidenceId);
+
+    const outcome = await fixture.extractor.run(context.ownerId, fixture.evidenceId, null);
+
+    assert.equal(outcome.kind, 'rejected');
+    assert.equal(fixture.inference.requests.length, 0);
+    const audited = context.graph.audit.listAuditEvents(context.ownerId, 50)
+      .filter((event) => event.event_type === 'extraction_rejected');
+    assert.equal(audited.length, 1);
+    assert.equal(audited[0]?.details_json.includes('blob_deleted'), true);
+  });
+});
+
+/** It must leave the pending list, or the dashboard shows it as pending forever. */
+test('a capture whose blob was deleted leaves the pending list', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const fixture = buildFixture(context, [extraction('Visual Studio Code')], new StubImageCapability(true));
+    context.graph.evidence.expireEvidence(fixture.evidenceId);
+
+    await fixture.extractor.run(context.ownerId, fixture.evidenceId, null);
+
+    assert.equal(fixture.queue.require(fixture.evidenceId).state, 'processed');
+  });
+});

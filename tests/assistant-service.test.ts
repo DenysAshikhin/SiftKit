@@ -21,6 +21,7 @@ interface BuildServiceOptions {
   readonly enabled?: boolean;
   readonly inference?: AssistantInferenceClient;
   readonly privateMode?: boolean;
+  readonly ownerDisplayName?: string;
 }
 
 function buildService(options: BuildServiceOptions = {}): AssistantService {
@@ -28,6 +29,10 @@ function buildService(options: BuildServiceOptions = {}): AssistantService {
   const config = {
     ...DEFAULT_ASSISTANT_CONFIG,
     Enabled: options.enabled ?? true,
+    Owner: {
+      ...DEFAULT_ASSISTANT_CONFIG.Owner,
+      DisplayName: options.ownerDisplayName ?? DEFAULT_ASSISTANT_CONFIG.Owner.DisplayName,
+    },
     PrivateMode: {
       ...DEFAULT_ASSISTANT_CONFIG.PrivateMode,
       Active: options.privateMode ?? false,
@@ -356,6 +361,47 @@ test('private mode does not block queued background work', async () => {
     await service.drainJobs();
 
     assert.ok(inference.requests.length > 0);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test("the owner's configured display name becomes an alias of the owner node", () => {
+  try {
+    const service = buildService({ ownerDisplayName: 'Denys' });
+    const ownerNodeId = service.ownerPersonNodeId;
+    if (ownerNodeId === null) throw new Error('Enabled service did not create its owner node.');
+
+    const aliases = service.graph.nodes.listAliases(ownerNodeId).map((row) => row.normalized_alias);
+    assert.ok(aliases.includes('denys'), `owner aliases were ${aliases.join(', ')}`);
+    assert.ok(aliases.includes('the user'));
+    assert.ok(aliases.includes('myself'));
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('an owner node created before the display name was set picks the alias up on refresh', () => {
+  try {
+    const service = buildService({ ownerDisplayName: '' });
+    const ownerNodeId = service.ownerPersonNodeId;
+    if (ownerNodeId === null) throw new Error('Enabled service did not create its owner node.');
+    assert.ok(
+      !service.graph.nodes.listAliases(ownerNodeId)
+        .some((row) => row.normalized_alias === 'denys'),
+    );
+
+    service.refreshConfig({
+      ...DEFAULT_ASSISTANT_CONFIG,
+      Enabled: true,
+      Owner: { ...DEFAULT_ASSISTANT_CONFIG.Owner, DisplayName: 'Denys' },
+    });
+
+    assert.equal(service.ownerPersonNodeId, ownerNodeId);
+    assert.ok(
+      service.graph.nodes.listAliases(ownerNodeId)
+        .some((row) => row.normalized_alias === 'denys'),
+    );
   } finally {
     closeRuntimeDatabase();
   }

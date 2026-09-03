@@ -1,6 +1,7 @@
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { AssertionObjectRef, CandidateObjectRef, UnresolvedNodeRef } from '../domain/keys.js';
 import { normalizeAliasText, normalizeLiteralValue } from '../domain/keys.js';
+import { isNearOwnerAlias, OWNER_PRONOUN_ALIASES } from '../domain/owner-identity.js';
 import type { RelationType } from '../domain/relation-types.js';
 import type { AssertionWriteOutcome } from '../graph/assertion-service.js';
 import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
@@ -8,8 +9,8 @@ import type { CandidateRow } from '../storage/rows.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 import type { CandidateGate } from './candidate-gate.js';
 
-/** Ways the extractor may name the owner. Normalized before comparison. */
-const OWNER_ALIASES = ['the user', 'user', 'me', 'i', 'myself'];
+/** Prefix of the `needs_confirmation` reason that marks an unanswered identity question. */
+export const OWNER_ALIAS_CONFIRMATION_REASON = 'possible_owner_alias';
 
 export type PromotionOutcome =
   | { readonly kind: 'promoted'; readonly assertionId: string }
@@ -63,6 +64,20 @@ export class CandidatePromoter {
     if (gateOutcome.kind === 'needs_confirmation') {
       this.graph.candidates.needsConfirmation(candidate.id, gateOutcome.topic);
       return { kind: 'needs_confirmation', reason: gateOutcome.topic };
+    }
+
+    // A name one or two characters off the owner's own is almost always OCR misreading a title
+    // bar — but `Denis` may be a real colleague, and `EntityResolver` never merges on similarity.
+    // Ask instead of guessing, and create nothing until the answer arrives.
+    const nearMiss = this.findOwnerNameQuestion(request.ownerId, refs.subject)
+      ?? (refs.object.kind === 'unresolved'
+        ? this.findOwnerNameQuestion(request.ownerId, refs.object)
+        : null);
+    if (nearMiss !== null) {
+      this.graph.candidates.needsConfirmation(
+        candidate.id, `${OWNER_ALIAS_CONFIRMATION_REASON}:${nearMiss}`,
+      );
+      return { kind: 'needs_confirmation', reason: OWNER_ALIAS_CONFIRMATION_REASON };
     }
 
     const transaction = this.graph.transactions.begin();
@@ -124,11 +139,14 @@ export class CandidatePromoter {
   private finish(
     candidate: CandidateRow,
     outcome: AssertionWriteOutcome,
-    transaction: { commit(): void },
+    transaction: { commit(): void; rollback(): void },
   ): PromotionOutcome {
     if (outcome.kind === 'rejected') {
+      // Discard the nodes `resolveNode` created for a proposal the validator refused, then record
+      // the rejection on its own: the rejection is a durable outcome, the entities it named are
+      // not. Committing both is what leaked a `person` node per rejected screenshot statement.
+      transaction.rollback();
       this.graph.candidates.reject(candidate.id, outcome.code);
-      transaction.commit();
       return { kind: 'rejected', code: outcome.code, message: outcome.message };
     }
     this.graph.candidates.accept(candidate.id);
@@ -136,9 +154,27 @@ export class CandidatePromoter {
     return { kind: 'promoted', assertionId: outcome.assertionId };
   }
 
+  /**
+   * The display name to ask the owner about, or `null` when there is nothing to ask. A name the
+   * graph already resolves is settled — whichever way the owner answered last time, the alias
+   * that answer left behind stops the question recurring.
+   */
+  private findOwnerNameQuestion(ownerId: string, ref: UnresolvedNodeRef): string | null {
+    if (ref.nodeType !== 'person') return null;
+    if (this.graph.nodes.findByAlias(ownerId, ref.displayName, 'person').length > 0) return null;
+    const owner = this.graph.nodes.findByCanonicalKey(
+      ownerId, 'person', OWNER_PERSON_CANONICAL_KEY,
+    );
+    if (owner === null) return null;
+    const aliases = this.graph.nodes.listAliases(owner.id).map((row) => row.normalized_alias);
+    return isNearOwnerAlias(normalizeAliasText(ref.displayName), aliases)
+      ? ref.displayName
+      : null;
+  }
+
   private resolveNode(ownerId: string, ref: UnresolvedNodeRef): string {
     const isOwner = ref.nodeType === 'person'
-      && OWNER_ALIASES.includes(normalizeAliasText(ref.displayName));
+      && OWNER_PRONOUN_ALIASES.some((alias) => alias === normalizeAliasText(ref.displayName));
     const outcome = this.graph.resolver.resolve({
       ownerId,
       nodeType: ref.nodeType,

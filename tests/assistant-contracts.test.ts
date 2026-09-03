@@ -10,12 +10,14 @@ import {
   AssistantEvidenceDtoSchema,
   AssistantMutationRequestSchema,
   AssistantMutationResponseSchema,
+  AssistantClaimOwnerResponseSchema,
   AssistantNodeDetailSchema,
   AssistantNodeSummarySchema,
   AssistantPolicyDtoSchema,
   AssistantProjectionDtoSchema,
   AssistantQuestionDtoSchema,
   AssistantStatusResponseSchema,
+  AssistantResolveIdentityRequestSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantValidationNotesRequestSchema,
 } from '@siftkit/contracts';
@@ -32,6 +34,7 @@ test('assistant public contracts round-trip representative valid DTOs', () => {
     [AssistantNodeDetailSchema, {
       id: 'node_1', type: 'person', displayName: 'User', sensitivity: 'personal',
       canonicalKey: 'person:owner', description: null, properties: {}, aliases: ['the user'],
+      isOwner: true, status: 'active',
     }],
     [AssistantAssertionDtoSchema, {
       id: 'ast_1', subjectNodeId: 'node_1', predicate: 'PREFERS', objectText: 'PowerShell',
@@ -69,6 +72,12 @@ test('assistant public contracts round-trip representative valid DTOs', () => {
       id: 'cand_1', status: 'needs_confirmation', proposedStatement: 'Uses PowerShell',
       rationale: 'Observed directly', confidence: 0.8, sensitivity: 'personal',
       evidenceId: 'ev_1', userNotes: '', createdAtUtc: '2026-08-10T00:00:00.000Z',
+      confirmationReason: 'possible_owner_alias', identityName: 'denyz',
+    }],
+    [AssistantResolveIdentityRequestSchema, { isOwner: true }],
+    [AssistantClaimOwnerResponseSchema, {
+      ok: true, graphVersion: 4, mergeId: 'merge_1', ownerNodeId: 'node_1',
+      movedAssertionCount: 3, movedAliases: ['demyus'],
     }],
     [AssistantValidationNotesRequestSchema, { notes: 'Check version.' }],
     [AssistantDestructiveRequestSchema, { mode: 'confirm', previewToken: 'signed' }],

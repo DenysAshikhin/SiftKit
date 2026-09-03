@@ -243,6 +243,17 @@ export class AssertionStore {
     return this.requireAssertion(assertionId);
   }
 
+  /**
+   * Rewrites one assertion's classification. Only the cleanup routine uses it, to repair rows an
+   * over-classified evidence source dragged above the plaintext projection floor.
+   */
+  setSensitivity(assertionId: string, sensitivity: Sensitivity): AssertionRow {
+    this.database.prepare(
+      'UPDATE graph_assertions SET sensitivity = ?, updated_at_utc = ? WHERE id = ?',
+    ).run(sensitivity, this.clock.nowUtc(), assertionId);
+    return this.requireAssertion(assertionId);
+  }
+
   setConfidence(assertionId: string, confidence: number): AssertionRow {
     this.database
       .prepare('UPDATE graph_assertions SET confidence = ?, updated_at_utc = ? WHERE id = ?')

@@ -22,6 +22,7 @@ import {
   fetchAssistantEvidencePixels,
   getAssistantEvidence,
   getAssistantNeighborhood,
+  claimAssistantNodeAsOwner,
   getAssistantNode,
   getAssistantPolicies,
   getAssistantStatus,
@@ -150,6 +151,17 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
     onDemote: (id, reason) => withToken(async (value) => {
       await demoteAssistantAssertion(value, id, reason);
       await refreshAssertion(value, id);
+    }),
+    onClaimOwner: (id, reason) => withToken(async (value) => {
+      const result = await claimAssistantNodeAsOwner(value, id, reason);
+      // The claimed node is now `merged`, so re-select the owner: leaving the merged node on
+      // screen would show a card whose facts have all moved elsewhere.
+      const [node, neighborhood] = await Promise.all([
+        getAssistantNode(value, result.ownerNodeId),
+        getAssistantNeighborhood(value, result.ownerNodeId),
+      ]);
+      setSelected({ kind: 'node', value: node, neighborhood });
+      if (query.trim()) setResults(await searchAssistantMemory(value, query));
     }),
     onPreviewForget: (id) => withToken(async (value) => {
       setDeletionPreview(await previewForgetAssistantAssertion(value, id));

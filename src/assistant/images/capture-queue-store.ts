@@ -4,12 +4,31 @@ import type { Clock } from '../clock.js';
 import type { CaptureQueueState } from '../domain/enums.js';
 import { CaptureQueueRowSchema, CountRowSchema, type CaptureQueueRow } from '../storage/rows.js';
 
-/** States whose pixels are still on disk; retention and byte accounting see exactly these. */
+/** States whose pixels are still on disk; byte accounting sees exactly these. */
 const LIVE_CAPTURE_STATES = [
   'queued', 'awaiting_image_capability', 'processing', 'processed',
 ] as const satisfies readonly CaptureQueueState[];
 
+/**
+ * The subset retention may retire. `processing` is excluded because a worker is reading those
+ * pixels right now: deleting the blob under it strands the extraction on a permanently missing
+ * blob. They still count against the storage cap — the bytes are on disk either way.
+ */
+const RETIRABLE_CAPTURE_STATES = [
+  'queued', 'awaiting_image_capability', 'processed',
+] as const satisfies readonly CaptureQueueState[];
+
+/** `processing` with no live extraction job: the worker that held it is gone. Binds `owner_id`. */
+const STRANDED_PROCESSING_PREDICATE = `
+  state = 'processing' AND evidence_id NOT IN (
+    SELECT json_extract(payload_json, '$.evidenceId') FROM assistant_jobs
+    WHERE owner_id = ? AND job_type = 'image_extraction'
+      AND status IN ('queued', 'running', 'paused')
+  )
+`;
+
 const LIVE_STATE_PLACEHOLDERS = LIVE_CAPTURE_STATES.map(() => '?').join(', ');
+const RETIRABLE_STATE_PLACEHOLDERS = RETIRABLE_CAPTURE_STATES.map(() => '?').join(', ');
 
 export interface EnqueueCaptureInput {
   readonly ownerId: string;
@@ -75,6 +94,27 @@ export class CaptureQueueStore {
     return this.countInStates(ownerId, [state]);
   }
 
+  /**
+   * A capture is `processing` only while a worker holds it, so one with no live extraction job
+   * has lost its worker to a crash, restart, or preemption. `PENDING_CAPTURE_STATES` does not
+   * include `processing`, so without this the row would sit there unreachable until it expired.
+   */
+  recoverStrandedProcessing(ownerId: string): number {
+    return this.database.prepare(`
+      UPDATE assistant_capture_queue SET state = 'queued', updated_at_utc = ?
+      WHERE owner_id = ? AND ${STRANDED_PROCESSING_PREDICATE}
+    `).run(this.clock.nowUtc(), ownerId, ownerId).changes;
+  }
+
+  /** The same rows `recoverStrandedProcessing` would reset, for a caller that must inspect first. */
+  listStrandedProcessing(ownerId: string): CaptureQueueRow[] {
+    return z.array(CaptureQueueRowSchema).parse(this.database.prepare(`
+      SELECT * FROM assistant_capture_queue
+      WHERE owner_id = ? AND ${STRANDED_PROCESSING_PREDICATE}
+      ORDER BY enqueued_at_utc ASC, evidence_id ASC
+    `).all(ownerId, ownerId));
+  }
+
   /** One query regardless of how many states the caller aggregates over. */
   countInStates(ownerId: string, states: readonly CaptureQueueState[]): number {
     const placeholders = states.map(() => '?').join(', ');
@@ -84,13 +124,13 @@ export class CaptureQueueStore {
     `).get(ownerId, ...states)).count;
   }
 
-  /** Every capture whose pixels are still stored, in the order they arrived. */
+  /** Every capture retention may retire, in the order they arrived. Excludes `processing`. */
   listLiveOldestFirst(ownerId: string): CaptureQueueRow[] {
     return z.array(CaptureQueueRowSchema).parse(this.database.prepare(`
       SELECT * FROM assistant_capture_queue
-      WHERE owner_id = ? AND state IN (${LIVE_STATE_PLACEHOLDERS})
+      WHERE owner_id = ? AND state IN (${RETIRABLE_STATE_PLACEHOLDERS})
       ORDER BY enqueued_at_utc ASC, evidence_id ASC
-    `).all(ownerId, ...LIVE_CAPTURE_STATES));
+    `).all(ownerId, ...RETIRABLE_CAPTURE_STATES));
   }
 
   /** Bytes currently held by live captures, the number the storage cap is enforced against. */

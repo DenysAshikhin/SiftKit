@@ -75,6 +75,21 @@ export class ImageExtractor {
     this.queue.setState(evidenceId, 'processing');
 
     const evidence = this.graph.evidence.requireEvidence(evidenceId);
+    // Retention deletes blobs by age without consulting queued work, so the pixels may already be
+    // gone. That is terminal, not a failure: retrying cannot bring a deleted blob back, and
+    // letting the read throw burned the job's whole retry budget before dead-lettering it.
+    if (!this.graph.evidence.hasReadableBlob(evidence)) {
+      this.graph.audit.recordAuditEvent({
+        ownerId,
+        eventType: 'extraction_rejected',
+        targetType: 'evidence',
+        targetId: evidenceId,
+        summary: 'Screenshot pixels were deleted before extraction ran.',
+        details: { code: 'blob_deleted' },
+      });
+      this.queue.markProcessed(evidenceId);
+      return { kind: 'rejected' };
+    }
     const imageDataUrl = this.readImageDataUrl(evidence);
     if (this.capability.read().instanceId !== admission.instanceId) {
       this.queue.setState(evidenceId, 'awaiting_image_capability');

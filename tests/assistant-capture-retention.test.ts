@@ -343,3 +343,35 @@ test('an intake that pushes stored bytes over the cap enqueues a capacity retent
     closeRuntimeDatabase();
   }
 });
+
+/**
+ * `processing` is in `LIVE_CAPTURE_STATES`, so retention treated a capture an extractor was
+ * actively reading as an ordinary deletion candidate. Retention is enqueued before
+ * `enqueueWaitingCaptures` and outranks it, so it reliably claims first — deleting the blob out
+ * from under the worker, which then burned three retries and dead-lettered.
+ */
+test('retention does not retire a capture that is processing', () => {
+  withAssistantContext((context) => {
+    const { queue, retention } = buildFixture(context, observationConfig({ RawRetentionHours: 1 }));
+    const processing = recordCapture(context, queue, 1, 'processing');
+    const queued = recordCapture(context, queue, 2, 'queued');
+    context.clock.advanceSeconds(2 * 3600);
+
+    const summary = retention.run(context.ownerId, 'schedule');
+
+    assert.equal(queue.require(processing).state, 'processing');
+    assert.equal(queue.require(queued).state, 'expired');
+    assert.equal(summary.expired, 1);
+  });
+});
+
+/** Its pixels are still on disk, so the storage cap must keep counting them. */
+test('byte accounting still counts a processing capture', () => {
+  withAssistantContext((context) => {
+    const { queue } = buildFixture(context, observationConfig());
+    recordCapture(context, queue, 3, 'processing', 60);
+    recordCapture(context, queue, 4, 'queued', 60);
+
+    assert.equal(queue.totalLiveBytes(context.ownerId), 120);
+  });
+});

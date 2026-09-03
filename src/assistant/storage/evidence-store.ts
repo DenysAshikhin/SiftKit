@@ -199,6 +199,23 @@ export class EvidenceStore {
     return fs.readFileSync(this.resolveBlobPath(blob.storage_uri));
   }
 
+  /**
+   * Rewrites one record's classification. Only the cleanup routine uses it, to repair rows that
+   * were classified under a rule the pipeline no longer applies.
+   */
+  reclassify(evidenceId: string, sensitivity: Sensitivity): EvidenceRow {
+    this.database
+      .prepare('UPDATE evidence_records SET sensitivity = ? WHERE id = ?')
+      .run(sensitivity, evidenceId);
+    return this.requireEvidence(evidenceId);
+  }
+
+  /** Whether this evidence still has pixels to read: retention may have deleted them. */
+  hasReadableBlob(evidence: EvidenceRow): boolean {
+    if (evidence.blob_id === null) return false;
+    return this.requireBlob(evidence.blob_id).deleted_at_utc === null;
+  }
+
   readBlobBytes(blobId: string): Buffer {
     const blob = this.requireBlob(blobId);
     if (blob.deleted_at_utc !== null) {

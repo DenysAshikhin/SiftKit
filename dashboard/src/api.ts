@@ -116,6 +116,19 @@ export async function saveAssistantValidationNotes(
   );
 }
 
+/** Answers an open "is this name you?" hold on a candidate. */
+export async function resolveAssistantCandidateIdentity(
+  token: string,
+  candidateId: string,
+  isOwner: boolean,
+): Promise<void> {
+  await fetchJson(
+    `/assistant/validation/${encodeURIComponent(candidateId)}/resolve-identity`,
+    AssistantMutationResponseSchema,
+    { method: 'POST', headers: assistantHeaders(token), body: JSON.stringify({ isOwner }) },
+  );
+}
+
 export async function removeAssistantValidationCandidate(
   token: string,
   candidateId: string,

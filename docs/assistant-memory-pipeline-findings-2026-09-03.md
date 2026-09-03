@@ -90,18 +90,31 @@ It is large because of that inlining. There are only ~10 distinct node-type grou
 
 That was avoided deliberately, because `$ref` is what broke enforcement in Defect A.
 
-**Open question, not yet answered.** Only a *self-recursive* `$ref` was proven fatal. Whether a
-*non-recursive* `$ref` compiles fine was never isolated — the one dereference test (variant "A3")
-used a depth-capped expansion of the still-recursive schema, so it was not a clean control.
+### Measurement, 2026-09-03: the saving is 15-20%, not 85%
 
-This is worth resolving because the schema costs roughly **10–12k prompt tokens on every
-extraction**, paid per capture, against a backlog of ~380 queued captures.
+`z.toJSONSchema(schema, { reused: 'ref' })` measured on the current schemas:
 
-Suggested experiment (~10 minutes): build a hand-written schema with a plain non-recursive
-`$defs`/`$ref` for one node-type group, send it to the live model with a prompt whose natural
-answer would violate it, and check whether the response conforms. If it does, factor the generated
-schema and re-measure size. If it does not, keep the inlining and record the result here so nobody
-re-litigates it.
+| schema | inlined | with `$defs`/`$ref` | saved | `$defs` | self-recursive defs |
+|---|---|---|---|---|---|
+| `image_extraction` | 42,437 B | 35,862 B | 15% | 4 | none |
+| `conversation_extraction` | 53,457 B | 42,750 B | 20% | 7 | none |
+
+The estimated "4–6KB" above was wrong. Zod only factors out a subtree it sees **more than once as
+the same schema instance**; the per-predicate variants each build their own node-type enum, so
+they are structurally identical but not shared, and only four subtrees actually dedupe. Getting to
+4–6KB would need the variants rewritten to share one enum instance per node-type group, which is a
+schema-authoring change, not a serialization flag.
+
+The self-recursion that broke Defect A is **gone**: `selfRecursiveDefs` is empty for both schemas
+now that the wire schema is scalar-bounded. So the `$ref` route is no longer disqualified on the
+grounds that killed it — but at 15–20% it does not pay for the risk of re-testing grammar
+compilation against the live backend.
+
+**Verdict: keep the inlining.** Revisit only if the variants are refactored to share node-type
+enums, at which point re-measure before assuming the saving is large.
+
+Reproduce with `z.toJSONSchema(ImageExtractionSchema, { reused: 'ref' })` against
+`dist/assistant/images/image-extractor.js`.
 
 The **per-predicate union itself is necessary** and should not be reverted for size — it is what
 moved acceptance from 0% to 97%.
@@ -208,9 +221,12 @@ Under `KeyCustody: 'desktop'` the shell also pushes the evidence key into the da
 → `keyboard_idle_below_threshold`. `model_recently_active` against
 `IdleSecondsBeforeProcessing` (180s default) is normal, not a fault.
 
-**A blocked drain can be invisible.** `modelWorkDecision()` blocking on `model_not_resident` does
-not call `recordBlock` (`src/assistant/jobs/job-runner.ts:142-149`), so drains appear to run while
-doing nothing. Tracked as Task 5.
+**~~A blocked drain can be invisible.~~ Withdrawn 2026-09-03 — this claim was wrong.**
+`recordBlock` *is* called for a model block, in both places one can occur:
+`src/assistant/jobs/job-runner.ts:124-131` (nothing claimable while jobs are queued) and
+`:144-148` (a model-backed job blocked at execution time, which is also requeued). The live
+silence had a different cause: `MaxJobsPerIdleSession` was temporarily 1, and `capture_retention`
+consumed the single slot on every drain, so the loop exited normally having done real work.
 
 **Retention.** `RawRetentionHours` (72h default) is compared against `enqueued_at_utc`, so a
 capture dies 72h after it was *taken*, regardless of whether it was ever consumed and regardless of

@@ -90,8 +90,22 @@ export const AssistantNodeDetailSchema = AssistantNodeSummarySchema.extend({
   description: z.string().nullable(),
   properties: JsonObjectSchema,
   aliases: z.array(z.string()),
+  /** Whether this node is the assistant owner, so the control surface need not know the key. */
+  isOwner: z.boolean(),
+  status: z.string(),
 }).strict();
 export type AssistantNodeDetail = z.infer<typeof AssistantNodeDetailSchema>;
+
+/** The owner confirming a duplicate `person` node names them. Merges it into the owner node. */
+export const AssistantClaimOwnerResponseSchema = z.object({
+  ok: z.literal(true),
+  graphVersion: z.number().int().min(0),
+  mergeId: z.string(),
+  ownerNodeId: z.string(),
+  movedAssertionCount: z.number().int().min(0),
+  movedAliases: z.array(z.string()),
+}).strict();
+export type AssistantClaimOwnerResponse = z.infer<typeof AssistantClaimOwnerResponseSchema>;
 
 export const AssistantAssertionDtoSchema = z.object({
   id: z.string(),
@@ -176,8 +190,18 @@ export const AssistantValidationCandidateDtoSchema = z.object({
   evidenceId: z.string().nullable(),
   userNotes: z.string(),
   createdAtUtc: z.string(),
+  /** Why the candidate is held, e.g. a sensitive topic or `possible_owner_alias`. */
+  confirmationReason: z.string().nullable(),
+  /** The name an identity question is about; null unless the reason is `possible_owner_alias`. */
+  identityName: z.string().nullable(),
 }).strict();
 export type AssistantValidationCandidateDto = z.infer<typeof AssistantValidationCandidateDtoSchema>;
+
+export const AssistantResolveIdentityRequestSchema = z.object({
+  isOwner: z.boolean(),
+}).strict();
+export type AssistantResolveIdentityRequest =
+  z.infer<typeof AssistantResolveIdentityRequestSchema>;
 
 export const AssistantValidationNotesRequestSchema = z.object({
   notes: z.string().max(10_000),
