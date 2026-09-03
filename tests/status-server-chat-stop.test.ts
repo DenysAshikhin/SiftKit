@@ -8,20 +8,11 @@ import { asObject, asObjectArray, requestJson, requestSse, type SseResponse } fr
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
+import { StoppedChatEngineService } from './helpers/stopped-chat-engine-service.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
-
-// Task 9 discovery:
-// 1. Each chat engine request already accepts `abortSignal`; the three stream endpoints currently omit it.
-// 2. `acquireModelRequestWithWait` can cancel only from HTTP close/abort, not an arbitrary AbortSignal.
-//    A queued Stop therefore fires when that request acquires the model lock (accepted v1 behavior).
-// 3. `ChatStreamProgressWriter` retains only unsent delta bookkeeping and exposes no assembled answer text.
-//    Abort persistence therefore safely writes the marker without claiming inaccessible partial text.
-// 4. `RepoAgentSession.run()` currently sends every thrown abort through `settleFailure`; the fix must
-//    transition an aborted controller to terminal `aborted` before the generic failure path.
 
 function readDoneAssistantContent(response: SseResponse): string {
   const done = response.events.find((event) => event.event === 'done');
@@ -65,20 +56,9 @@ function readRepoAgentStatus(runId: string): string {
     .readState(runId).status;
 }
 
-class EngineGate {
-  readonly promise: Promise<void>;
-  private releasePromise: (() => void) | null = null;
-
-  constructor() {
-    this.promise = new Promise<void>((resolve) => { this.releasePromise = resolve; });
-  }
-
-  release(): void {
-    const release = this.releasePromise;
-    if (!release) throw new Error('Engine gate is not initialized.');
-    this.releasePromise = null;
-    release();
-  }
+async function remainsPending<T>(completion: Promise<T>): Promise<boolean> {
+  const pending = Symbol('pending');
+  return await Promise.race([completion, Promise.resolve(pending)]) === pending;
 }
 
 test('POST stop rejects malformed ownership before checking active state', async (t) => {
@@ -147,7 +127,18 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
       });
       assert.equal(stopped.statusCode, 200);
       assert.equal(stopped.body.operationKind, streamCase.operationKind);
-      assert.match(readDoneAssistantContent(await streamA), /Stopped by user\./u);
+      const stoppedStream = await streamA;
+      assert.match(readDoneAssistantContent(stoppedStream), /Stopped by user\./u);
+      const stoppedDone = stoppedStream.events.find((event) => event.event === 'done');
+      assert.ok(stoppedDone?.payload, 'Expected a done event for the stopped stream.');
+      const doneMessages = asObjectArray(asObject(asObject(stoppedDone.payload).session).messages);
+      const listed = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions`);
+      const listedSessions = asObjectArray(listed.body.sessions);
+      const stoppedSession = listedSessions.find((session) => session.id === sessionA);
+      assert.ok(stoppedSession, 'Expected the stopped session in the session list.');
+      const persistedMessages = asObjectArray(stoppedSession.messages);
+      assert.deepEqual(persistedMessages.map((message) => message.kind), doneMessages.map((message) => message.kind));
+      assert.deepEqual(persistedMessages.map((message) => message.content), doneMessages.map((message) => message.content));
 
       await harness.waitForActiveRequests('dashboard_chat_stream', 1);
       harness.releaseChatResponse('queue advanced');
@@ -191,20 +182,16 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
 });
 
 test('stopping a generating repo-agent records aborted and clears the chat binding', async (t) => {
-  const harness = await startHarness('siftkit-chat-stop-agent-running-', t);
-  const sessionId = await createSession(harness, 'Generating agent stop');
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  const gate = new EngineGate();
-  StatusEngineService.prototype.executeRepoSearch = async function holdGeneratingAgent(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    if (request.prompt === 'hold generation') await gate.promise;
-    return await originalExecute.call(this, request);
-  };
-  t.after(() => {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
-    try { gate.release(); } catch { /* already released */ }
+  const engineService = new StoppedChatEngineService({
+    prompt: 'hold generation',
+    progressEvents: [
+      { turn: 1, maxTurns: 2, kind: 'thinking', thinkingText: 'agent partial thought' },
+      { turn: 1, maxTurns: 2, kind: 'narration', narrationText: 'Agent inspecting files.' },
+      { turn: 2, maxTurns: 2, kind: 'answer', answerText: 'agent partial result' },
+    ],
   });
+  const harness = await startHarness('siftkit-chat-stop-agent-running-', t, { engineService });
+  const sessionId = await createSession(harness, 'Generating agent stop');
   const stream = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
     method: 'POST', timeoutMs: 20_000,
     body: JSON.stringify({
@@ -214,13 +201,192 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
     }),
   });
   const runId = await waitForRepoAgentStatus(harness, sessionId, 'running');
+  await engineService.waitUntilEntered();
   const stopped = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
     method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
   });
   assert.equal(stopped.statusCode, 200);
-  gate.release();
-  assert.equal(readDoneAssistantContent(await stream), 'Repo-agent run stopped by user.');
+  const stoppedStream = await stream;
+  assert.equal(
+    readDoneAssistantContent(stoppedStream),
+    'agent partial result\n\nRepo-agent run stopped by user.',
+  );
+  const done = stoppedStream.events.find((event) => event.event === 'done');
+  assert.ok(done?.payload, 'Expected a done event for the stopped repo-agent stream.');
+  const messages = asObjectArray(asObject(done.payload.session).messages);
+  assert.deepEqual(messages.slice(-3).map((message) => message.kind), [
+    'assistant_thinking',
+    'assistant_narration',
+    'assistant_answer',
+  ]);
+  assert.deepEqual(messages.slice(-3).map((message) => message.content), [
+    'agent partial thought',
+    'Agent inspecting files.',
+    'agent partial result\n\nRepo-agent run stopped by user.',
+  ]);
   assert.equal(readRepoAgentStatus(runId), 'aborted');
   const active = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`);
   assert.equal(active.statusCode, 404);
+});
+
+test('stopping a message stream persists the complete generated transcript in turn order', async () => {
+  const engineService = new StoppedChatEngineService({
+    prompt: 'capture the stopped transcript',
+    pauseAfterAbort: true,
+    progressEvents: [
+      { turn: 1, maxTurns: 2, kind: 'thinking', thinkingText: 'first thought' },
+      { turn: 1, maxTurns: 2, kind: 'narration', narrationText: 'Inspecting files.' },
+      {
+        turn: 1, maxTurns: 2, kind: 'tool_start', toolCallId: 'stopped-tool-1',
+        activityKind: 'read', activitySubject: { kind: 'file', value: 'index.ts' },
+        command: 'read path="index.ts"', promptTokenCount: 3, thinkingTokenCount: 0, elapsedMs: 1,
+      },
+      {
+        turn: 1, maxTurns: 2, kind: 'tool_start', toolCallId: 'stopped-tool-2',
+        activityKind: 'search', activitySubject: { kind: 'none' },
+        command: 'search query="transcript"', promptTokenCount: 4, thinkingTokenCount: 0, elapsedMs: 2,
+      },
+      {
+        turn: 1, maxTurns: 2, kind: 'tool_result', toolCallId: 'stopped-tool-2',
+        activityKind: 'search', activitySubject: { kind: 'none' },
+        command: 'search query="transcript"', exitCode: 0, outputSnippet: 'match found',
+        outputTokens: 2, outputTokensEstimated: false, promptTokenCount: 4,
+        thinkingTokenCount: 0, elapsedMs: 3,
+      },
+      { turn: 2, maxTurns: 2, kind: 'thinking', thinkingText: 'second thought' },
+      { turn: 2, maxTurns: 2, taskId: 'stopped-task', elapsedMs: 2, kind: 'progress_update', progressText: 'Step 2 of 5' },
+      { turn: 2, maxTurns: 2, kind: 'answer', answerText: 'partial answer text' },
+    ],
+  });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-transcript-', {
+    parallelSlots: 1,
+    engineService,
+  });
+  await harness.start();
+  try {
+    const sessionId = await harness.createChatSession('Transcript', 'model-a');
+    const stream = harness.startChatOperationStream('message', sessionId, 'capture the stopped transcript', OPERATION_A);
+    await engineService.waitUntilEntered();
+    const stopRequest = requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+    });
+    await engineService.waitUntilAborted();
+    const stopWaitedForPersistence = await remainsPending(stopRequest);
+    engineService.releaseAfterAbort();
+    assert.equal(stopWaitedForPersistence, true);
+    const stopped = await stopRequest;
+    assert.equal(stopped.statusCode, 200);
+    const immediate = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
+    assert.equal(immediate.statusCode, 200);
+    const immediateMessages = asObjectArray(asObject(immediate.body.session).messages);
+    assert.equal(immediateMessages.at(-1)?.content, 'partial answer text\n\n*Stopped by user.*');
+    const done = await stream;
+    const doneEvent = done.events.find((event) => event.event === 'done');
+    assert.ok(doneEvent?.payload, 'Expected a done event.');
+    const doneMessages = asObjectArray(asObject(asObject(doneEvent.payload).session).messages);
+    assert.deepEqual(doneMessages.map((message) => message.kind), [
+      'user_text',
+      'assistant_thinking',
+      'assistant_progress',
+      'assistant_tool_call',
+      'assistant_tool_call',
+      'assistant_thinking',
+      'assistant_progress',
+      'assistant_answer',
+    ]);
+    assert.deepEqual(doneMessages.map((message) => message.content), [
+      'capture the stopped transcript',
+      'first thought',
+      'Inspecting files.',
+      'read path="index.ts"',
+      'search query="transcript"',
+      'second thought',
+      'Step 2 of 5',
+      'partial answer text\n\n*Stopped by user.*',
+    ]);
+    const doneTools = doneMessages.filter((message) => message.kind === 'assistant_tool_call');
+    assert.deepEqual(doneTools.map((message) => message.toolCallStatus), ['stopped', 'done']);
+    assert.equal(doneTools[1]?.toolCallOutputSnippet, 'match found');
+
+    const listed = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions`);
+    const listedSessions = asObjectArray(listed.body.sessions);
+    const persisted = listedSessions.find((session) => session.id === sessionId);
+    assert.ok(persisted, 'Expected the stopped session in the session list.');
+    const persistedMessages = asObjectArray(persisted.messages);
+    assert.deepEqual(persistedMessages.map((message) => message.kind), doneMessages.map((message) => message.kind));
+    assert.deepEqual(persistedMessages.map((message) => message.content), doneMessages.map((message) => message.content));
+    const persistedTools = persistedMessages.filter((message) => message.kind === 'assistant_tool_call');
+    assert.deepEqual(persistedTools.map((message) => message.toolCallStatus), ['stopped', 'done']);
+    assert.equal(persistedTools[1]?.toolCallOutputSnippet, 'match found');
+  } finally {
+    await harness.close();
+  }
+});
+
+test('Stop reports persistence failure instead of claiming success', async () => {
+  const engineService = new StoppedChatEngineService({
+    prompt: 'fail stopped persistence',
+    progressEvents: [
+      { turn: 1, maxTurns: 1, kind: 'answer', answerText: 'partial' },
+    ],
+    pauseAfterAbort: true,
+  });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-persistence-failure-', {
+    parallelSlots: 1,
+    engineService,
+  });
+  await harness.start();
+  try {
+    const sessionId = await harness.createChatSession('Persistence failure', 'model-a');
+    const stream = harness.startChatOperationStream('message', sessionId, 'fail stopped persistence', OPERATION_A);
+    await engineService.waitUntilEntered();
+    const stopRequest = requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+    });
+    await engineService.waitUntilAborted();
+    getRuntimeDatabase(path.join(process.cwd(), '.siftkit', 'runtime.sqlite')).exec('DROP TABLE chat_messages;');
+    engineService.releaseAfterAbort();
+    const stopped = await stopRequest;
+    assert.equal(stopped.statusCode, 500);
+    await stream;
+  } finally {
+    engineService.releaseAfterAbort();
+    await harness.close();
+  }
+});
+
+test('stopping a message stream with no generated segments persists only the marker', async () => {
+  const engineService = new StoppedChatEngineService({
+    prompt: 'stop before anything streams',
+    progressEvents: [
+      { turn: 1, maxTurns: 1, kind: 'thinking', thinkingText: '' },
+      { turn: 1, maxTurns: 1, kind: 'narration', narrationText: '' },
+      { turn: 1, maxTurns: 1, kind: 'answer', answerText: '' },
+    ],
+  });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-empty-partial-', {
+    parallelSlots: 1,
+    engineService,
+  });
+  await harness.start();
+  try {
+    const sessionId = await harness.createChatSession('Empty partial', 'model-a');
+    const stream = harness.startChatOperationStream('message', sessionId, 'stop before anything streams', OPERATION_A);
+    await engineService.waitUntilEntered();
+    const stopped = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+    });
+    assert.equal(stopped.statusCode, 200);
+    const done = await stream;
+    const doneEvent = done.events.find((event) => event.event === 'done');
+    assert.ok(doneEvent?.payload, 'Expected a done event.');
+    const doneMessages = asObjectArray(asObject(asObject(doneEvent.payload).session).messages);
+    assert.deepEqual(doneMessages.map((message) => message.kind), ['user_text', 'assistant_answer']);
+    assert.deepEqual(doneMessages.map((message) => message.content), [
+      'stop before anything streams',
+      '*Stopped by user.*',
+    ]);
+  } finally {
+    await harness.close();
+  }
 });

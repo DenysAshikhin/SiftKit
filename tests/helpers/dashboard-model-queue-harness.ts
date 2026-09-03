@@ -8,6 +8,7 @@ import { getActiveModelPreset } from '../../src/config/getters.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import { z } from '../../src/lib/zod.js';
 import { startStatusServer } from '../../src/status-server/index.js';
+import type { StatusEngineService } from '../../src/status-server/engine-service.js';
 import { readConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { getConfigPath } from '../../src/status-server/paths.js';
 import { FakeTabbyModelState } from './tabby-fake.js';
@@ -65,6 +66,7 @@ export interface DashboardModelQueueHarnessOptions {
    * test's intended capacity is always visible at its call site rather than implied by the backend.
    */
   parallelSlots: number;
+  engineService?: StatusEngineService;
 }
 
 export class DashboardModelQueueHarness {
@@ -74,6 +76,7 @@ export class DashboardModelQueueHarness {
   private readonly envBackup: Record<string, string | undefined>;
   private readonly exl3ActivePreset: boolean;
   private readonly parallelSlots: number;
+  private readonly engineService: StatusEngineService | undefined;
   private readonly fakeTabbyModel = new FakeTabbyModelState();
   private fakeTabbyServer: http.Server | null = null;
   private readonly pendingChatRequests = new Map<string, PendingChatRequest>();
@@ -88,6 +91,7 @@ export class DashboardModelQueueHarness {
   constructor(tempDirectoryPrefix: string, options: DashboardModelQueueHarnessOptions) {
     this.exl3ActivePreset = options.exl3ActivePreset ?? false;
     this.parallelSlots = options.parallelSlots;
+    this.engineService = options.engineService;
     this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -101,7 +105,10 @@ export class DashboardModelQueueHarness {
     }
     try {
       await this.startFakeTabby();
-      const server = startStatusServer({ disableManagedLlamaStartup: !this.exl3ActivePreset });
+      const server = startStatusServer({
+        disableManagedLlamaStartup: !this.exl3ActivePreset,
+        engineService: this.engineService,
+      });
       this.server = server;
       await server.startupPromise;
       const address = getAddressInfo(server);

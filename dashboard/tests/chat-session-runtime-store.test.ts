@@ -141,7 +141,7 @@ test('answer deltas assemble on the live answer message', () => {
   let store = new ChatSessionRuntimeStore();
   store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Answer' } });
   store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 6, text: ' body' } });
-  const answer = store.get('s1').liveMessages.find((message) => message.id === 'live-answer');
+  const answer = store.get('s1').liveMessages.find((message) => message.id === 'live-answer-4');
   assert.equal(answer?.content, 'Answer body');
 });
 
@@ -155,7 +155,7 @@ test('narration deltas assemble in one turn-scoped live message', () => {
     kind: message.kind,
     content: message.content,
   })), [{
-    id: 'assistant-narration-turn-4',
+    id: 'live-narration-4',
     kind: 'assistant_narration',
     content: 'Reading files',
   }]);
@@ -168,12 +168,12 @@ test('tool start demotes narration and answer promotes the same message identity
       kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 0,
     }});
-  const demoted = store.get('s1').liveMessages.find((message) => message.id === 'assistant-narration-turn-2');
+  const demoted = store.get('s1').liveMessages.find((message) => message.id === 'live-narration-2');
   assert.equal(demoted?.kind, 'assistant_progress');
 
   const promoted = store
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Authoritative answer' } })
-    .get('s1').liveMessages.find((message) => message.id === 'assistant-narration-turn-2');
+    .get('s1').liveMessages.find((message) => message.id === 'live-narration-2');
   assert.equal(promoted?.kind, 'assistant_answer');
   assert.equal(promoted?.content, 'Authoritative answer');
 });
@@ -245,7 +245,7 @@ test('applyAnswer handles empty answer text', () => {
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, '');
-  assert.equal(runtime.liveMessages[0]?.outputTokensEstimate, 1);
+  assert.equal(runtime.liveMessages[0]?.outputTokensEstimate, 0);
 });
 
 test('applyWarning appends a warning string', () => {
@@ -450,7 +450,7 @@ test('submit keeps the live user bubble first when the answer starts streaming',
 
   assert.deepEqual(
     next.get('s1').liveMessages.map((message) => message.id),
-    ['live-user', 'live-answer'],
+    ['live-user', 'live-answer-1'],
   );
 });
 
@@ -619,7 +619,7 @@ test('a Stop control error preserves the live local operation and pending approv
   assert.deepEqual(runtime.activity, {
     kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
   });
-  assert.equal(runtime.liveMessages.find((message) => message.id === 'live-answer')?.content, 'partial');
+  assert.equal(runtime.liveMessages.find((message) => message.id === 'live-answer-1')?.content, 'partial');
   assert.equal(runtime.submittedInput?.content, 'keep me');
   assert.deepEqual(runtime.pendingApproval, approval);
   assert.equal(runtime.error, 'Stop request failed');

@@ -156,6 +156,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         decisions: binding.decisions,
         result,
         turns,
+        stoppedMessages: progressWriter.getStoppedMessages('Repo-agent run stopped by user.'),
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(activeSession),
       });
       progressWriter.flushPending();
@@ -163,6 +164,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     } catch (error) {
       progressWriter.flushPending();
       sse.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      throw error;
     } finally {
       detach();
       ctx.chatRepoAgentRuns.delete(request.sessionId);

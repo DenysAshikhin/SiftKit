@@ -283,6 +283,9 @@ export class RepoAgentSession implements ApprovalGateObserver {
       }
     }
     if (event.kind === 'answer') {
+      if (this.subscriber?.wantsLiveText) {
+        this.subscriber.writeProgress(event);
+      }
       return;
     }
     if (isLiveTextProgressEvent(event)) {

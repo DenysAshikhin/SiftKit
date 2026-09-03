@@ -4,11 +4,14 @@ import {
   ImageMetadataSchema,
   ModelRuntimePresetSchema,
   ChatRepoAgentApprovalMessageSchema,
-  PersistedChatMessageSchema,
+  ChatTranscriptMessageKindSchema,
+  ChatTranscriptRoleSchema,
+  PersistedChatTranscriptMessageSchema,
+  ToolCallStatusSchema,
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
 } from '@siftkit/contracts';
-import type { ImageMetadata, PersistedChatMessage } from '@siftkit/contracts';
+import type { ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -22,9 +25,9 @@ import { parseJsonValueText } from '../lib/json.js';
 import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
-export type ChatMessageRole = PersistedChatMessage['role'];
-export type ChatMessageKind = PersistedChatMessage['kind'];
-export type ChatGroundingStatus = NonNullable<PersistedChatMessage['groundingStatus']>;
+export type ChatMessageRole = PersistedChatTranscriptMessage['role'];
+export type ChatMessageKind = PersistedChatTranscriptMessage['kind'];
+export type ChatGroundingStatus = NonNullable<PersistedChatTranscriptMessage['groundingStatus']>;
 
 export class ChatMessageImageNotFoundError extends Error {
   constructor() {
@@ -33,7 +36,7 @@ export class ChatMessageImageNotFoundError extends Error {
   }
 }
 
-export type ChatMessage = PersistedChatMessage;
+export type ChatMessage = PersistedChatTranscriptMessage;
 
 export type ChatSession = {
   id: string;
@@ -71,7 +74,7 @@ const SessionRowSchema = z.object({
 const MessageRowSchema = z.object({
   id: z.string(),
   role: z.string(),
-  kind: z.string().nullable(),
+  kind: z.string(),
   content: z.string(),
   input_tokens_estimate: z.number(),
   output_tokens_estimate: z.number(),
@@ -105,6 +108,7 @@ const MessageRowSchema = z.object({
   tool_call_prompt_token_count: z.number().nullable(),
   tool_call_output_snippet: z.string().nullable(),
   tool_call_output: z.string().nullable(),
+  tool_call_status: z.string().nullable(),
   approval_decision: z.string().nullable(),
   approval_tool_name: z.string().nullable(),
   approval_command: z.string().nullable(),
@@ -183,25 +187,6 @@ function parseModelPresetSnapshot(sessionId: string, modelPresetId: string, raw:
   return normalizeModelRuntimePresetRecord(parseJsonValueText(raw), modelPresetId, modelPresetId);
 }
 
-function normalizeRole(value: string | null | undefined): ChatMessageRole {
-  return value === 'user' ? 'user' : 'assistant';
-}
-
-function normalizeMessageKind(value: string | null | undefined, roleValue: string | null | undefined): ChatMessageKind {
-  if (
-    value === 'user_text'
-    || value === 'assistant_answer'
-    || value === 'assistant_thinking'
-    || value === 'assistant_tool_call'
-    || value === 'tool_image'
-    || value === 'compaction_summary'
-    || value === 'repo_agent_approval'
-  ) {
-    return value;
-  }
-  return roleValue === 'user' ? 'user_text' : 'assistant_answer';
-}
-
 function normalizeGroundingStatus(value: string | null | undefined): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
     return value;
@@ -210,10 +195,10 @@ function normalizeGroundingStatus(value: string | null | undefined): ChatGroundi
 }
 
 function mapMessageRow(row: MessageRow): ChatMessage {
-  const kind = normalizeMessageKind(row.kind, row.role);
-  return PersistedChatMessageSchema.parse({
+  const kind = ChatTranscriptMessageKindSchema.parse(row.kind);
+  return PersistedChatTranscriptMessageSchema.parse({
     id: row.id,
-    role: normalizeRole(row.role),
+    role: ChatTranscriptRoleSchema.parse(row.role),
     kind,
     content: row.content,
     inputTokensEstimate: row.input_tokens_estimate,
@@ -258,7 +243,9 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     toolCallPromptTokenCount: row.tool_call_prompt_token_count,
     toolCallOutputSnippet: row.tool_call_output_snippet,
     toolCallOutput: row.tool_call_output,
-    toolCallStatus: kind === 'assistant_tool_call' ? 'done' : undefined,
+    toolCallStatus: kind === 'assistant_tool_call'
+      ? ToolCallStatusSchema.parse(row.tool_call_status)
+      : undefined,
     approvalDecision: kind === 'repo_agent_approval'
       ? ChatRepoAgentApprovalMessageSchema.shape.approvalDecision.parse(row.approval_decision)
       : undefined,
@@ -374,6 +361,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       tool_call_prompt_token_count,
       tool_call_output_snippet,
       tool_call_output,
+      tool_call_status,
       approval_decision,
       approval_tool_name,
       approval_command,
@@ -597,7 +585,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   const modelPresetJson = JSON.stringify(ModelRuntimePresetSchema.parse(session.modelPreset));
   const mode = normalizeMode(session.mode);
   const presetId = requirePresetId(session.presetId);
-  const messages = z.array(PersistedChatMessageSchema).parse(session.messages ?? []);
+  const messages = z.array(PersistedChatTranscriptMessageSchema).parse(session.messages ?? []);
 
   const database = getSessionDatabase(runtimeRoot);
   database.transaction(() => {
@@ -682,6 +670,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         tool_call_prompt_token_count,
         tool_call_output_snippet,
         tool_call_output,
+        tool_call_status,
         approval_decision,
         approval_tool_name,
         approval_command,
@@ -699,13 +688,13 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
       const message = messages[index];
-      const messageKind = normalizeMessageKind(message.kind, message.role);
+      const messageKind = ChatTranscriptMessageKindSchema.parse(message.kind);
       const activitySubject = messageKind === 'assistant_tool_call'
         ? ToolActivitySubjectSchema.parse(message.toolCallActivitySubject)
         : null;
@@ -713,7 +702,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       insertMessage.run(
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
-        normalizeRole(message.role),
+        ChatTranscriptRoleSchema.parse(message.role),
         messageKind,
         typeof message.content === 'string' ? message.content : '',
         toNullableNonNegativeInteger(message.inputTokensEstimate) ?? estimateTokenCount(message.content),
@@ -752,6 +741,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
         typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
         typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,
+        message.kind === 'assistant_tool_call' ? message.toolCallStatus : null,
         approvalMessage?.approvalDecision ?? null,
         approvalMessage?.approvalToolName ?? null,
         approvalMessage?.approvalCommand ?? null,

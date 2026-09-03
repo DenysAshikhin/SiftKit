@@ -30,7 +30,7 @@ import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
-import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
+import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import type {
   ChatSession,
@@ -693,7 +693,7 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
 }) {
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const messageLabel = messageKind === 'assistant_thinking'
     ? 'assistant thinking'
     : messageKind === 'assistant_tool_call'
@@ -733,7 +733,7 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   isDirectChatMode: boolean;
 }) {
   const content = useSmoothedText(message.content, isLive);
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const groundingStatusLabel = messageKind === 'assistant_answer'
     ? getGroundingStatusLabel(message.groundingStatus)
     : null;
@@ -802,7 +802,7 @@ function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   extraClass?: string | undefined;
 }) {
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const tone = message.role === 'user' ? 'user' : 'ai';
   return (
     <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}${isPending ? ' pending' : ''}`}>

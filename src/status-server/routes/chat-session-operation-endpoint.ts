@@ -174,6 +174,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       rejectBusyChatSession(ctx, res, sessionId, this.operationKind, acquisition.active);
       return;
     }
+    const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
     try {
       await this.run(ctx, req, res, {
         sessionId,
@@ -181,12 +182,16 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         session,
         parsedBody,
         value,
-        lease: acquisition?.kind === 'acquired' ? acquisition.lease : null,
+        lease,
       });
-    } finally {
-      if (acquisition?.kind === 'acquired') {
-        ctx.chatSessionOperations.release(acquisition.lease);
+      if (lease && !ctx.chatSessionOperations.finish(lease, { kind: 'completed' })) {
+        throw new Error(`Failed to finish chat session operation ${lease.sessionId}.`);
       }
+    } catch (error) {
+      if (lease) {
+        ctx.chatSessionOperations.finish(lease, { kind: 'failed', error: toError(error).message });
+      }
+      throw error;
     }
   }
 }

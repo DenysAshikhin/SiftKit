@@ -117,8 +117,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
           .prepare('SELECT version AS value FROM runtime_schema WHERE id = 1')
           .get(),
       ).value;
-      assert.equal(version, 59);
-      assert.equal(CURRENT_SCHEMA_VERSION, 59);
+      assert.equal(version, CURRENT_SCHEMA_VERSION);
 
       const presetJson = StringValueRowSchema.parse(
         migrated

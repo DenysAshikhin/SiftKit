@@ -30,7 +30,7 @@ const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
-export const CURRENT_SCHEMA_VERSION = 59;
+export const CURRENT_SCHEMA_VERSION = 60;
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
@@ -186,7 +186,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
       id TEXT NOT NULL,
       role TEXT NOT NULL,
-      kind TEXT,
+      kind TEXT NOT NULL,
       content TEXT NOT NULL,
       input_tokens_estimate INTEGER NOT NULL,
       output_tokens_estimate INTEGER NOT NULL,
@@ -220,6 +220,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       tool_call_prompt_token_count INTEGER,
       tool_call_output_snippet TEXT,
       tool_call_output TEXT,
+      tool_call_status TEXT CHECK (tool_call_status IN ('running', 'done', 'stopped')),
       approval_decision TEXT,
       approval_tool_name TEXT,
       approval_command TEXT,

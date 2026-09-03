@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
-import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import { ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
@@ -28,7 +28,7 @@ import { buildPresetRequestDefaults } from '../inference-presets/preset-compatib
 import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 import {
   type ChatSession,
-  type ChatMessage as PersistedChatMessage,
+  type ChatMessage as PersistedChatTranscriptMessage,
   estimateTokenCount,
   getChatSessionPath,
   readChatSessionFromPath,
@@ -58,7 +58,7 @@ function nonNegativeNumber(value: number | null | undefined): number | null {
   return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
 }
 
-function getMessageContextTokenEstimate(message: PersistedChatMessage): number {
+function getMessageContextTokenEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
   }
@@ -67,14 +67,14 @@ function getMessageContextTokenEstimate(message: PersistedChatMessage): number {
     + sumImageTokens(message.imageMeta);
 }
 
-function getMessageThinkingTokenEstimate(message: PersistedChatMessage): number {
+function getMessageThinkingTokenEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
   }
   return estimateTokenCount(trimText(message.thinkingContent));
 }
 
-function formatChatMessageForPrompt(message: PersistedChatMessage): string {
+function formatChatMessageForPrompt(message: PersistedChatTranscriptMessage): string {
   if (message.kind === 'assistant_tool_call') {
     const command = trimText(message.toolCallCommand) || trimText(message.content);
     return command || trimText(message.content);
@@ -96,7 +96,7 @@ function appendRemovedImageNotice(content: string, removedImageCount: number): s
   return content ? `${content}\n${notice}` : notice;
 }
 
-function getMessageToolTokenEstimate(message: PersistedChatMessage): number {
+function getMessageToolTokenEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
@@ -110,7 +110,7 @@ function getMessageToolTokenEstimate(message: PersistedChatMessage): number {
   return output ? estimateTokenCount(output) : 0;
 }
 
-function getMessageToolTokenFallbackEstimate(message: PersistedChatMessage): number {
+function getMessageToolTokenFallbackEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
@@ -129,9 +129,12 @@ type ContextUsageTokenTotals = {
 };
 
 export function selectReplayableChatMessages(
-  messages: readonly PersistedChatMessage[],
-): PersistedChatMessage[] {
-  return messages.filter((message) => message.compressedIntoSummary !== true);
+  messages: readonly PersistedChatTranscriptMessage[],
+): ReplayableChatMessage[] {
+  return messages.filter((message): message is ReplayableChatMessage => (
+    message.compressedIntoSummary !== true
+    && isReplayableChatMessage(message)
+  ));
 }
 
 export type { ContextUsage } from '@siftkit/contracts';
@@ -220,13 +223,13 @@ class ContextUsageBuilder {
     const messages = selectReplayableChatMessages(
       Array.isArray(this.session.messages) ? this.session.messages : [],
     );
-    const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
-    const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);
-    const toolUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenEstimate(message), 0);
-    const imageUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + sumImageTokens(message.imageMeta), 0);
+    const messageTokens = messages.reduce((sum, message) => sum + getMessageContextTokenEstimate(message), 0);
+    const thinkingUsedTokens = messages.reduce((sum, message) => sum + getMessageThinkingTokenEstimate(message), 0);
+    const toolUsedTokens = messages.reduce((sum, message) => sum + getMessageToolTokenEstimate(message), 0);
+    const imageUsedTokens = messages.reduce((sum, message) => sum + sumImageTokens(message.imageMeta), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
-    const estimatedToolTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenFallbackEstimate(message), 0);
+    const estimatedToolTokens = messages.reduce((sum, message) => sum + getMessageToolTokenFallbackEstimate(message), 0);
     return {
       contextWindowTokens,
       chatUsedTokens,
@@ -382,7 +385,7 @@ function buildReplayToolCallId(messageId: string): string {
   return `chat_tool_${safe}`;
 }
 
-function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatMessage, reasoningContent: string): void {
+function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatTranscriptMessage, reasoningContent: string): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
   const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
   if (!command && !output) {
@@ -403,7 +406,7 @@ function appendReplayToolMessages(history: PlannerChatMessage[], message: Persis
 }
 
 export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebToolCall[] {
-  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const messages = selectReplayableChatMessages(Array.isArray(session.messages) ? session.messages : []);
   const retained: RetainedWebToolCall[] = [];
   for (const message of messages) {
     if (message.kind !== 'assistant_tool_call') {
@@ -515,7 +518,7 @@ type AppendChatOptions = {
  * per-turn compaction and the manual condense — go through here so the rows they leave
  * behind stay indistinguishable to replay and to the transcript UI.
  */
-export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: string): PersistedChatMessage {
+export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: string): PersistedChatTranscriptMessage {
   return {
     id: randomUUID(),
     role: 'assistant',
@@ -533,13 +536,80 @@ export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: str
   };
 }
 
+export function buildChatUserMessage(
+  content: string,
+  images: string[],
+  imageMeta: ImageMetadata[],
+  createdAtUtc: string,
+): PersistedChatTranscriptMessage {
+  return PersistedChatTranscriptMessageSchema.parse({
+    id: randomUUID(),
+    role: 'user',
+    kind: 'user_text',
+    content,
+    inputTokensEstimate: estimateTokenCount(content),
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    inputTokensEstimated: true,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
+    createdAtUtc,
+    sourceRunId: null,
+    images,
+    imageMeta,
+  });
+}
+
+export type BuildChatStoppedTurnInput = {
+  content: string;
+  images: string[];
+  imageMeta: ImageMetadata[];
+  transcriptMessages: PersistedChatTranscriptMessage[];
+  approvalMessages: PersistedChatTranscriptMessage[];
+};
+
+export function buildChatSessionWithStoppedTurn(
+  session: ChatSession,
+  input: BuildChatStoppedTurnInput,
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
+  const now = new Date().toISOString();
+  const transcriptMessages = PersistedChatTranscriptMessageSchema.array().parse(input.transcriptMessages);
+  if (transcriptMessages.some((message) => message.role !== 'assistant')) {
+    throw new Error('Stopped chat transcript may contain only assistant messages.');
+  }
+  if (transcriptMessages.filter((message) => message.kind === 'assistant_answer').length > 1) {
+    throw new Error('Stopped chat transcript contains multiple answer rows.');
+  }
+  const approvalMessages = ChatRepoAgentApprovalMessageSchema.array().parse(input.approvalMessages);
+  return {
+    ...session,
+    updatedAtUtc: now,
+    messages: [
+      ...(session.messages ?? []),
+      buildChatUserMessage(input.content, input.images, input.imageMeta, now),
+      ...approvalMessages,
+      ...transcriptMessages,
+    ],
+  };
+}
+
+export function appendChatStoppedTurn(
+  runtimeRoot: string,
+  session: ChatSession,
+  input: BuildChatStoppedTurnInput,
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
+  const updated = buildChatSessionWithStoppedTurn(session, input);
+  saveChatSession(runtimeRoot, updated);
+  return updated;
+}
+
 export function buildChatSessionWithAppendedTurn(
   session: ChatSession,
   content: string,
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
   options: AppendChatOptions = { turns: [] }
-): ChatSession & { messages: PersistedChatMessage[] } {
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
   const now = new Date().toISOString();
   const compactionSummary = typeof options.compactionSummary === 'string' ? options.compactionSummary.trim() : '';
   // The run compacted against the replayed history, so the boundary is exactly
@@ -579,20 +649,9 @@ export function buildChatSessionWithAppendedTurn(
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
-    id: randomUUID(),
-    role: 'user',
-    kind: 'user_text',
-    content,
+    ...buildChatUserMessage(content, options.images ?? [], options.imageMeta ?? [], now),
     inputTokensEstimate: userTokens,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
     inputTokensEstimated,
-    outputTokensEstimated: false,
-    thinkingTokensEstimated: false,
-    createdAtUtc: now,
-    sourceRunId: null,
-    images: options.images ?? [],
-    imageMeta: options.imageMeta ?? [],
   });
   const turns = Array.isArray(options.turns) ? options.turns : [];
   let associatedToolTokens = 0;
@@ -721,7 +780,7 @@ export function buildChatSessionWithAppendedTurn(
   });
   const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
     .prunePersistedMessages(messages);
-  const updated: ChatSession & { messages: PersistedChatMessage[] } = {
+  const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = {
     ...session,
     updatedAtUtc: now,
     messages: retainedMessages,
@@ -736,7 +795,7 @@ export function appendChatMessagesWithUsage(
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
   options: AppendChatOptions = { turns: [] },
-): ChatSession & { messages: PersistedChatMessage[] } {
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
   const updated = buildChatSessionWithAppendedTurn(
     session,
     content,
@@ -763,6 +822,34 @@ export function buildRepoAgentResultMarkdown(result: RepoAgentRunResult): string
   }
 }
 
+function buildRepoAgentApprovalMessages(
+  decisions: ChatRepoAgentDecisionRecord[],
+  runId: string,
+): PersistedChatTranscriptMessage[] {
+  return decisions.map((decision) => {
+    const reason = decision.decision.decision === 'deny' ? ` — ${decision.decision.reason}` : '';
+    const content = `${decision.decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
+    return ChatRepoAgentApprovalMessageSchema.parse({
+      id: randomUUID(),
+      role: 'user',
+      kind: 'repo_agent_approval',
+      content,
+      inputTokensEstimate: estimateTokenCount(content),
+      outputTokensEstimate: 0,
+      thinkingTokens: 0,
+      inputTokensEstimated: true,
+      outputTokensEstimated: false,
+      thinkingTokensEstimated: false,
+      createdAtUtc: decision.decidedAtUtc,
+      sourceRunId: runId,
+      approvalDecision: decision.decision.decision,
+      approvalToolName: decision.approval.toolName,
+      approvalCommand: decision.approval.command,
+      approvalReason: decision.decision.decision === 'deny' ? decision.decision.reason : null,
+    });
+  });
+}
+
 export function appendChatRepoAgentMessages(
   runtimeRoot: string,
   sessionId: string,
@@ -772,6 +859,7 @@ export function appendChatRepoAgentMessages(
     decisions: ChatRepoAgentDecisionRecord[];
     result: RepoAgentRunResult;
     turns: PersistTurn[];
+    stoppedMessages: PersistedChatTranscriptMessage[];
     maintainPerStepThinking: boolean;
   },
 ): ChatSession {
@@ -779,6 +867,16 @@ export function appendChatRepoAgentMessages(
   const session = readChatSessionFromPath(sessionPath);
   if (!session) {
     throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
+  }
+  const approvalMessages = buildRepoAgentApprovalMessages(input.decisions, input.result.runId);
+  if (input.result.status === 'aborted') {
+    return appendChatStoppedTurn(runtimeRoot, session, {
+      content: input.content,
+      images: input.images,
+      imageMeta: [],
+      transcriptMessages: input.stoppedMessages,
+      approvalMessages,
+    });
   }
   const persisted = buildChatSessionWithAppendedTurn(
     session,
@@ -791,36 +889,15 @@ export function appendChatRepoAgentMessages(
   if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
     throw new Error(`Repo-agent persistence did not produce an assistant answer: ${sessionId}`);
   }
-  const approvalMessages = input.decisions.map((decision): PersistedChatMessage => {
-    const reason = decision.decision.decision === 'deny' ? ` — ${decision.decision.reason}` : '';
-    const content = `${decision.decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
-    return {
-      id: randomUUID(),
-      role: 'user',
-      kind: 'repo_agent_approval',
-      content,
-      inputTokensEstimate: estimateTokenCount(content),
-      outputTokensEstimate: 0,
-      thinkingTokens: 0,
-      inputTokensEstimated: true,
-      outputTokensEstimated: false,
-      thinkingTokensEstimated: false,
-      createdAtUtc: decision.decidedAtUtc,
-      sourceRunId: input.result.runId,
-      approvalDecision: decision.decision.decision,
-      approvalToolName: decision.approval.toolName,
-      approvalCommand: decision.approval.command,
-      approvalReason: decision.decision.decision === 'deny' ? decision.decision.reason : null,
-    };
-  });
-  saveChatSession(runtimeRoot, {
+  const withApprovals = {
     ...persisted,
     messages: [
       ...persisted.messages.slice(0, -1),
       ...approvalMessages,
       assistantMessage,
     ],
-  });
+  };
+  saveChatSession(runtimeRoot, withApprovals);
   const authoritative = readChatSessionFromPath(sessionPath);
   if (!authoritative) {
     throw new Error(`Chat session disappeared after repo-agent persistence: ${sessionId}`);
@@ -839,7 +916,7 @@ export async function condenseChatSession(
   session: ChatSession,
   mockResponses: MockPlannerResponseInput[] | undefined,
   logger: JsonLogger | null,
-): Promise<ChatSession & { messages: PersistedChatMessage[] }> {
+): Promise<ChatSession & { messages: PersistedChatTranscriptMessage[] }> {
   const effectiveConfig = resolveChatSessionConfig(config, session);
   const history = buildChatHistoryMessages(effectiveConfig, session);
   const slotId = allocateLlamaCppSlotId(effectiveConfig);
@@ -878,10 +955,10 @@ export async function condenseChatSession(
   });
 
   const now = new Date().toISOString();
-  const messages: PersistedChatMessage[] = (Array.isArray(session.messages) ? session.messages : [])
-    .map((message: PersistedChatMessage) => ({ ...message, compressedIntoSummary: true }));
+  const messages: PersistedChatTranscriptMessage[] = (Array.isArray(session.messages) ? session.messages : [])
+    .map((message: PersistedChatTranscriptMessage) => ({ ...message, compressedIntoSummary: true }));
   messages.push(buildCompactionSummaryRow(outcome.summaryText, now));
-  const updated: ChatSession & { messages: PersistedChatMessage[] } = { ...session, updatedAtUtc: now, messages };
+  const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = { ...session, updatedAtUtc: now, messages };
   saveChatSession(runtimeRoot, updated);
   writePromptCacheEpochReset(logger, {
     taskId: session.id,

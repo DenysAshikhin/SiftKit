@@ -242,7 +242,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
 
   // Build the shared mutable context.
-  const engineService = new StatusEngineService();
+  const engineService = options.engineService ?? new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
   const ctx: ServerContext = {
     configPath,

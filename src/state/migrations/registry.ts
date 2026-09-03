@@ -736,4 +736,43 @@ export const MIGRATIONS: readonly Migration[] = [
       migrateActiveStateRemoveMaxTokens(database);
     },
   },
+  {
+    version: 60,
+    up: (database) => {
+      if (!tableHasColumn(database, 'chat_messages', 'kind')) {
+        throw new Error('Migration v60 requires chat_messages.kind.');
+      }
+      const invalidNullKindRoles = z.array(z.object({ role: z.string().nullable() })).parse(
+        database.prepare(`
+          SELECT DISTINCT role
+          FROM chat_messages
+          WHERE kind IS NULL
+            AND (role IS NULL OR role NOT IN ('user', 'assistant'))
+        `).all(),
+      );
+      if (invalidNullKindRoles.length > 0) {
+        throw new Error(`Migration v60 cannot backfill null chat message kinds for role ${invalidNullKindRoles[0]?.role}.`);
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'tool_call_status')) {
+        database.exec(`
+          ALTER TABLE chat_messages
+            ADD COLUMN tool_call_status TEXT
+            CHECK (tool_call_status IN ('running', 'done', 'stopped'));
+        `);
+      }
+      database.exec(`
+        UPDATE chat_messages
+        SET kind = CASE role
+          WHEN 'user' THEN 'user_text'
+          WHEN 'assistant' THEN 'assistant_answer'
+        END
+        WHERE kind IS NULL;
+
+        UPDATE chat_messages
+        SET tool_call_status = 'done'
+        WHERE kind = 'assistant_tool_call'
+          AND tool_call_status IS NULL;
+      `);
+    },
+  },
 ];

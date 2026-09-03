@@ -25,12 +25,12 @@ test('one session rejects a second lease while another session remains available
   assert.equal(registry.acquire('session-b', 'repo-search', OPERATION_B, 1_200).kind, 'acquired');
 });
 
-test('a stale lease cannot release a newer operation', () => {
+test('a stale lease cannot finish a newer operation', () => {
   const registry = new ChatSessionOperationRegistry();
   const first = requireAcquired(registry.acquire('session-a', 'message', OPERATION_A, 1_000));
-  assert.equal(registry.release(first), true);
+  assert.equal(registry.finish(first, { kind: 'completed' }), true);
   const second = requireAcquired(registry.acquire('session-a', 'plan', OPERATION_B, 2_000));
-  assert.equal(registry.release(first), false);
+  assert.equal(registry.finish(first, { kind: 'completed' }), false);
   assert.equal(registry.getActiveOperation('session-a')?.token, second.token);
 });
 
@@ -61,14 +61,41 @@ test('all operation kinds retain conflict metadata', () => {
   assert.equal(registry.getActiveCount(), operationKinds.length);
 });
 
-test('exact-token release updates active count and missing sessions stay absent', () => {
+test('exact-token completion updates active count and missing sessions stay absent', () => {
   const registry = new ChatSessionOperationRegistry();
   const lease = requireAcquired(registry.acquire('session-a', 'repo-search', OPERATION_A, 1_000));
   assert.equal(registry.getActiveCount(), 1);
-  assert.equal(registry.release(lease), true);
+  assert.equal(registry.finish(lease, { kind: 'completed' }), true);
   assert.equal(registry.getActiveCount(), 0);
   assert.equal(registry.getActiveOperation('missing'), null);
-  assert.equal(registry.release(lease), false);
+  assert.equal(registry.finish(lease, { kind: 'completed' }), false);
+});
+
+async function remainsPending<T>(completion: Promise<T>): Promise<boolean> {
+  const pending = Symbol('pending');
+  return await Promise.race([completion, Promise.resolve(pending)]) === pending;
+}
+
+test('completion remains pending until finish and settles exactly once', async () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'message', OPERATION_A, 1_000));
+  const waiting = registry.waitForCompletion(lease);
+  assert.equal(await remainsPending(waiting), true);
+  assert.equal(registry.finish(lease, { kind: 'completed' }), true);
+  assert.deepEqual(await waiting, { kind: 'completed' });
+  assert.equal(registry.finish(lease, { kind: 'failed', error: 'late' }), false);
+});
+
+test('completion rejects foreign leases and preserves failure details', async () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'message', OPERATION_A, 1_000));
+  await assert.rejects(
+    registry.waitForCompletion({ ...lease, token: 'foreign' }),
+    /active chat operation/u,
+  );
+  const waiting = registry.waitForCompletion(lease);
+  assert.equal(registry.finish(lease, { kind: 'failed', error: 'persistence failed' }), true);
+  assert.deepEqual(await waiting, { kind: 'failed', error: 'persistence failed' });
 });
 
 test('leases retain the client operation id used for Stop ownership', () => {

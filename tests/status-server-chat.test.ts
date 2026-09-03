@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   appendChatMessagesWithUsage,
   appendChatRepoAgentMessages,
+  buildChatSessionWithStoppedTurn,
   buildChatHistoryMessages,
   buildChatSystemContent,
   buildContextUsage,
@@ -31,13 +32,58 @@ import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
-import { ImageMetadataSchema } from '@siftkit/contracts';
+import {
+  ChatTranscriptMessageKindSchema,
+  ChatTranscriptRoleSchema,
+  ImageMetadataSchema,
+  PersistedChatTranscriptMessageSchema,
+} from '@siftkit/contracts';
 
 // Brand a deliberately-partial session fixture as ChatSession at one boundary;
 // tests exercise only the fields they set.
 const ChatSessionSchema = z.custom<ChatSession>((value) => typeof value === 'object' && value !== null);
+const PartialChatMessageSchema = z.looseObject({
+  id: z.string(),
+  role: ChatTranscriptRoleSchema,
+  kind: ChatTranscriptMessageKindSchema,
+  content: z.string().default(''),
+  toolCallOutput: z.string().optional(),
+  toolCallOutputSnippet: z.string().optional(),
+});
+const PartialChatSessionSchema = z.looseObject({
+  messages: z.array(PartialChatMessageSchema).optional(),
+});
+
 function mockChatSession(session: object): ChatSession {
-  return ChatSessionSchema.parse({ modelPresetId: 'default', ...session });
+  const parsed = PartialChatSessionSchema.parse(session);
+  const messages = parsed.messages?.map((message) => {
+    const { id, role, kind, content, ...fields } = message;
+    const toolOutput = kind === 'assistant_tool_call'
+      ? message.toolCallOutput ?? message.toolCallOutputSnippet ?? ''
+      : '';
+    return PersistedChatTranscriptMessageSchema.parse({
+      inputTokensEstimate: 0,
+      outputTokensEstimate: estimateTokenCount(toolOutput),
+      thinkingTokens: 0,
+      createdAtUtc: '2026-01-01T00:00:00.000Z',
+      sourceRunId: null,
+      ...(kind === 'assistant_tool_call' ? {
+        toolCallCommand: content || 'command',
+        toolCallActivityKind: 'command',
+        toolCallActivitySubject: { kind: 'none' },
+        toolCallTurn: 1,
+        toolCallMaxTurns: 45,
+        toolCallExitCode: 0,
+        toolCallStatus: 'done',
+      } : {}),
+      ...fields,
+      id,
+      role,
+      kind,
+      content,
+    });
+  });
+  return ChatSessionSchema.parse({ modelPresetId: 'default', ...parsed, messages });
 }
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
@@ -358,6 +404,7 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
       decidedAtUtc: '2026-04-17T00:01:00.000Z',
     }],
     result: { status: 'completed', runId, output: 'wrote the cipher note' },
+    stoppedMessages: [],
     turns: [
       { thinkingText: 'think one', toolMessages: [{
         id: 'tool-a', content: 'write path="cipher-note.txt"', toolCallCommand: 'write path="cipher-note.txt"',
@@ -398,6 +445,7 @@ test('appendChatRepoAgentMessages prunes older thinking when maintainPerStepThin
     images: [],
     decisions: [],
     result: { status: 'completed', runId, output: 'done' },
+    stoppedMessages: [],
     turns: [
       { thinkingText: 'think one', toolMessages: [] },
       { thinkingText: 'think two', toolMessages: [] },
@@ -421,6 +469,76 @@ function repoAgentPersistedMessages(session: ChatSession): ChatMessage[] {
   assert.ok(Array.isArray(session.messages), 'expected the persisted session to carry its message rows');
   return session.messages;
 }
+
+test('buildChatSessionWithStoppedTurn appends one ordered terminal turn directly', () => {
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const transcriptMessages = [
+    PersistedChatTranscriptMessageSchema.parse({
+      id: 'thinking', role: 'assistant', kind: 'assistant_thinking', content: 'partial thought',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 3,
+      createdAtUtc, sourceRunId: 'run-1',
+    }),
+    PersistedChatTranscriptMessageSchema.parse({
+      id: 'tool', role: 'assistant', kind: 'assistant_tool_call', content: 'read path="src/a.ts"',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+      createdAtUtc, sourceRunId: 'run-1',
+      toolCallCommand: 'read path="src/a.ts"',
+      toolCallActivityKind: 'read',
+      toolCallActivitySubject: { kind: 'file', value: 'src/a.ts' },
+      toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: null,
+      toolCallStatus: 'stopped',
+    }),
+    PersistedChatTranscriptMessageSchema.parse({
+      id: 'answer', role: 'assistant', kind: 'assistant_answer', content: '*Stopped by user.*',
+      inputTokensEstimate: 0, outputTokensEstimate: 5, thinkingTokens: 0,
+      createdAtUtc, sourceRunId: 'run-1',
+    }),
+  ];
+
+  const updated = buildChatSessionWithStoppedTurn(createSession(), {
+    content: 'inspect it',
+    images: [],
+    imageMeta: [],
+    transcriptMessages,
+    approvalMessages: [],
+  });
+
+  assert.deepEqual(updated.messages.slice(-4).map((message) => message.kind), [
+    'user_text', 'assistant_thinking', 'assistant_tool_call', 'assistant_answer',
+  ]);
+});
+
+test('aborted repo-agent persistence orders approval before the stopped assistant transcript', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-repo-agent-stopped-order-');
+  const session = createSession();
+  saveChatSession(runtimeRoot, session);
+  const runId = '6f1c8f2e-0000-4000-8000-000000000001';
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const updated = appendChatRepoAgentMessages(runtimeRoot, session.id, {
+    content: 'stop the agent',
+    images: [],
+    decisions: [{
+      decision: { decision: 'approve' },
+      approval: {
+        approvalId: '9a0d2c4b-0000-4000-8000-000000000001',
+        toolName: 'write', command: 'write path="a.ts"', reviewPayload: null,
+      },
+      decidedAtUtc: createdAtUtc,
+    }],
+    result: { status: 'aborted', runId },
+    turns: [],
+    stoppedMessages: [PersistedChatTranscriptMessageSchema.parse({
+      id: 'answer', role: 'assistant', kind: 'assistant_answer', content: 'partial\n\nRepo-agent run stopped by user.',
+      inputTokensEstimate: 0, outputTokensEstimate: 10, thinkingTokens: 0,
+      createdAtUtc, sourceRunId: runId,
+    })],
+    maintainPerStepThinking: true,
+  });
+
+  assert.deepEqual(repoAgentPersistedMessages(updated).slice(-3).map((message) => message.kind), [
+    'user_text', 'repo_agent_approval', 'assistant_answer',
+  ]);
+});
 
 test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estimated', () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-estimated-tool-');
@@ -778,6 +896,47 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
     },
     { role: 'assistant', content: 'It says iron bars are used in quests.' },
   ]);
+});
+
+test('buildChatHistoryMessages excludes stopped-stream display rows and stopped tools', () => {
+  const session = mockChatSession({
+    id: 's1',
+    messages: [
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'Inspect it.' },
+      { id: 'n1', role: 'assistant', kind: 'assistant_narration', content: 'Inspecting files.' },
+      { id: 'p1', role: 'assistant', kind: 'assistant_progress', content: 'Step 2 of 5' },
+      {
+        id: 'tool-running',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'web_fetch url="https://example.test/page"',
+        toolCallCommand: 'web_fetch url="https://example.test/page"',
+        toolCallStatus: 'stopped',
+      },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'Partial\n\n*Stopped by user.*' },
+    ],
+  });
+
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
+    { role: 'user', content: 'Inspect it.' },
+    { role: 'assistant', content: 'Partial\n\n*Stopped by user.*' },
+  ]);
+});
+
+test('buildRetainedWebToolCalls excludes stopped tools', () => {
+  const session = mockChatSession({
+    id: 's1',
+    messages: [{
+      id: 'tool-running',
+      role: 'assistant',
+      kind: 'assistant_tool_call',
+      content: 'web_fetch url="https://example.test/page"',
+      toolCallCommand: 'web_fetch url="https://example.test/page"',
+      toolCallStatus: 'stopped',
+    }],
+  });
+
+  assert.deepEqual(buildRetainedWebToolCalls(session), []);
 });
 
 test('buildChatHistoryMessages composes the removal notice from the stored count', () => {

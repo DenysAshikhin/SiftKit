@@ -1,10 +1,10 @@
 import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-protocol.js';
-import type { ChatMessage as PersistedChatMessage } from './state/chat-sessions.js';
+import type { PersistedChatTranscriptMessage } from '@siftkit/contracts';
 
 export class ThinkingRetentionPolicy {
   constructor(private readonly maintainPerStepThinking: boolean) {}
 
-  prunePersistedMessages(messages: PersistedChatMessage[]): PersistedChatMessage[] {
+  prunePersistedMessages(messages: PersistedChatTranscriptMessage[]): PersistedChatTranscriptMessage[] {
     if (this.maintainPerStepThinking) {
       return messages;
     }
@@ -39,7 +39,7 @@ export class ThinkingRetentionPolicy {
     turnThinking[turn] = thinkingText;
   }
 
-  private findLatestPersistedThinkingIndex(messages: PersistedChatMessage[]): number {
+  private findLatestPersistedThinkingIndex(messages: PersistedChatTranscriptMessage[]): number {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index].kind === 'assistant_thinking') {
         return index;

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ChatTranscriptMessageSchema,
   ChatSessionResponseSchema,
-  LiveChatMessageSchema,
-  PersistedChatMessageSchema,
+  PersistedChatTranscriptMessageSchema,
+  ReplayableChatMessageSchema,
   ChatSessionSchema,
   ChatSessionBusyResponseSchema,
   ChatSessionOperationKindSchema,
@@ -16,11 +17,11 @@ const message = {
   createdAtUtc: '2026-01-01T00:00:00Z', sourceRunId: null,
 };
 
-test('PersistedChatMessageSchema accepts a minimal user message', () => {
-  assert.deepEqual(PersistedChatMessageSchema.parse(message), message);
+test('PersistedChatTranscriptMessageSchema accepts a minimal user message', () => {
+  assert.deepEqual(PersistedChatTranscriptMessageSchema.parse(message), message);
 });
 
-test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
+test('chat transcript lifecycle schemas distinguish running, stopped, and replayable tools', () => {
   const toolMessage = {
     ...message,
     id: 'tool-1',
@@ -36,35 +37,53 @@ test('ChatMessageSchema requires complete tool lifecycle metadata', () => {
     toolCallStatus: 'running',
   };
 
-  assert.equal(PersistedChatMessageSchema.parse(toolMessage).kind, 'assistant_tool_call');
-  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
-  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
-  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
-  assert.equal(PersistedChatMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse(toolMessage).success, true);
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse(toolMessage).success, false);
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse({
+    ...toolMessage,
+    toolCallStatus: 'stopped',
+  }).success, true);
+  assert.equal(ReplayableChatMessageSchema.safeParse({
+    ...toolMessage,
+    toolCallStatus: 'done',
+  }).success, true);
+  assert.equal(ReplayableChatMessageSchema.safeParse({
+    ...toolMessage,
+    toolCallStatus: 'stopped',
+  }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
 });
 
-test('PersistedChatMessageSchema rejects messages without a kind', () => {
+test('PersistedChatTranscriptMessageSchema rejects messages without a kind', () => {
   const { kind: _kind, ...kindlessMessage } = message;
-  assert.equal(PersistedChatMessageSchema.safeParse(kindlessMessage).success, false);
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse(kindlessMessage).success, false);
 });
 
-test('PersistedChatMessageSchema accepts a compaction summary row', () => {
+test('PersistedChatTranscriptMessageSchema accepts a compaction summary row', () => {
   const summary = {
     ...message,
     id: 'm2', role: 'assistant', kind: 'compaction_summary', content: 'summary text',
     compressedIntoSummary: false,
   };
-  assert.equal(PersistedChatMessageSchema.parse(summary).kind, 'compaction_summary');
+  assert.equal(PersistedChatTranscriptMessageSchema.parse(summary).kind, 'compaction_summary');
 });
 
-test('assistant narration is live-only and cannot enter persisted sessions', () => {
+test('assistant narration and progress persist with the stopped transcript', () => {
   const narration = { ...message, role: 'assistant', kind: 'assistant_narration', content: 'Inspecting files.' };
-  assert.equal(LiveChatMessageSchema.safeParse(narration).success, true);
-  assert.equal(PersistedChatMessageSchema.safeParse(narration).success, false);
+  const progress = { ...message, role: 'assistant', kind: 'assistant_progress', content: 'Step 2 of 5' };
+  assert.equal(PersistedChatTranscriptMessageSchema.parse(narration).kind, 'assistant_narration');
+  assert.equal(PersistedChatTranscriptMessageSchema.parse(progress).kind, 'assistant_progress');
+  assert.equal(ChatTranscriptMessageSchema.safeParse(narration).success, true);
+  assert.equal(ReplayableChatMessageSchema.safeParse(narration).success, false);
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse({ ...narration, role: 'user' }).success, false);
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse({ ...message, kind: 'assistant_bogus' }).success, false);
   assert.equal(ChatSessionSchema.safeParse({
     id: 's1', title: 't', modelPresetId: 'preset-a', model: null, contextWindowTokens: 4096,
-    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration],
-  }).success, false);
+    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration, progress],
+  }).success, true);
 });
 
 test('ChatSessionSchema no longer carries a condensed summary', () => {

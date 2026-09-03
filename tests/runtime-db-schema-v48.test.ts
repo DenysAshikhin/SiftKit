@@ -32,11 +32,11 @@ function seedStampedPromptTokenDb(dbPath: string): void {
   `).run(timestamp, timestamp);
   const insertMessage = database.prepare(`
     INSERT INTO chat_messages (
-      session_id, id, role, content,
+      session_id, id, role, kind, content,
       input_tokens_estimate, output_tokens_estimate, thinking_tokens,
       input_tokens_estimated, output_tokens_estimated, thinking_tokens_estimated,
       tool_call_prompt_token_count, created_at_utc, compressed_into_summary, position
-    ) VALUES ('session-1', ?, 'assistant', 'tool', 0, 0, 0, 1, 1, 1, ?, ?, 0, ?)
+    ) VALUES ('session-1', ?, 'assistant', 'assistant_tool_call', 'tool', 0, 0, 0, 1, 1, 1, ?, ?, 0, ?)
   `);
   insertMessage.run('tool-1', 207406, timestamp, 0);
   insertMessage.run('tool-2', 207406, timestamp, 1);

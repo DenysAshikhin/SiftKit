@@ -1,6 +1,4 @@
-import { buildLiveToolMessageId } from './live-tool-message';
-import { type ChatStreamToolEvent } from './chat-stream-parser';
-import { ChatMessageSchema, type ChatMessage, type ChatToolCallMessage } from '../types';
+import { ChatMessageSchema, type ChatMessage } from '../types';
 
 type LiveMessageKind = Exclude<ChatMessage['kind'], 'assistant_tool_call'>;
 
@@ -45,63 +43,4 @@ export function upsertLiveMessageInto(previous: ChatMessage[], message: ChatMess
   const next = previous.slice();
   next[index] = { ...previous[index], ...message };
   return next;
-}
-
-export function buildAppendedLiveToolMessage(
-  toolEvent: Extract<ChatStreamToolEvent, { kind: 'tool_start' }>,
-): ChatToolCallMessage {
-  const id = buildLiveToolMessageId(toolEvent.toolCallId);
-  return {
-    id,
-    role: 'assistant',
-    kind: 'assistant_tool_call',
-    content: toolEvent.command,
-    inputTokensEstimate: 0,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
-    inputTokensEstimated: false,
-    outputTokensEstimated: false,
-    thinkingTokensEstimated: false,
-    associatedToolTokens: 0,
-    createdAtUtc: new Date().toISOString(),
-    sourceRunId: null,
-    toolCallCommand: toolEvent.command,
-    toolCallActivityKind: toolEvent.activityKind,
-    toolCallActivitySubject: toolEvent.activitySubject,
-    toolCallTurn: toolEvent.turn,
-    toolCallMaxTurns: toolEvent.maxTurns,
-    toolCallExitCode: null,
-    toolCallPromptTokenCount: toolEvent.promptTokenCount,
-    toolCallStatus: 'running',
-  };
-}
-
-export function buildCompletedLiveToolMessage(
-  toolEvent: Extract<ChatStreamToolEvent, { kind: 'tool_result' }>,
-): ChatToolCallMessage {
-  const id = buildLiveToolMessageId(toolEvent.toolCallId);
-  return {
-    id,
-    role: 'assistant',
-    kind: 'assistant_tool_call',
-    content: toolEvent.command,
-    inputTokensEstimate: 0,
-    outputTokensEstimate: toolEvent.outputTokens,
-    thinkingTokens: 0,
-    inputTokensEstimated: false,
-    outputTokensEstimated: toolEvent.outputTokensEstimated,
-    thinkingTokensEstimated: false,
-    associatedToolTokens: toolEvent.outputTokens,
-    createdAtUtc: new Date().toISOString(),
-    sourceRunId: null,
-    toolCallCommand: toolEvent.command,
-    toolCallActivityKind: toolEvent.activityKind,
-    toolCallActivitySubject: toolEvent.activitySubject,
-    toolCallTurn: toolEvent.turn,
-    toolCallMaxTurns: toolEvent.maxTurns,
-    toolCallExitCode: toolEvent.exitCode,
-    toolCallPromptTokenCount: toolEvent.promptTokenCount,
-    toolCallOutputSnippet: toolEvent.outputSnippet,
-    toolCallStatus: 'done',
-  };
 }

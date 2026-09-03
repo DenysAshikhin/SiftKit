@@ -4,16 +4,22 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  PersistedChatMessageSchema,
+  ChatStreamToolEventSchema,
+  PersistedChatTranscriptMessageSchema,
   ChatStreamTextDeltaSchema,
   StopChatOperationRequestSchema,
-  type PersistedChatMessage as WireChatMessage,
+  finalizeStoppedChatTranscript,
+  reduceChatTranscript,
+  type ChatStreamToolEvent,
+  type ChatTranscriptMessage,
+  type ChatTranscriptMetadata,
+  type PersistedChatTranscriptMessage as WireChatMessage,
   type ChatSession as WireChatSession,
   type ChatSessionResponse,
   type ChatSessionsResponse,
   type ImageMetadata,
 } from '@siftkit/contracts';
-import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
+import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/chat-sessions.js';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
@@ -51,6 +57,7 @@ import {
   type ChatUsage,
   type PersistTurn,
   appendChatMessagesWithUsage,
+  appendChatStoppedTurn,
   buildChatSystemContent,
   buildChatHistoryMessages,
   condenseChatSession,
@@ -144,13 +151,9 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
 
 function forwardRepoSearchToolEvent(
   writer: SseResponseWriter,
-  event: RepoSearchProgressEvent,
-  scope: 'plan' | 'rs',
-  requestId: string,
+  event: ChatStreamToolEvent,
 ): void {
   if (event.kind === 'tool_start') {
-    const body = buildRepoSearchProgressLogBody(event);
-    if (body) serverLogger.emitBody(scope, requestId, body);
     writer.writeEvent('tool_start', {
       toolCallId: event.toolCallId,
       turn: event.turn,
@@ -179,6 +182,30 @@ function forwardRepoSearchToolEvent(
   }
 }
 
+function toChatStreamToolEvent(
+  event: Extract<RepoSearchProgressEvent, { kind: 'tool_start' | 'tool_result' }>,
+): ChatStreamToolEvent {
+  const common = {
+    kind: event.kind,
+    toolCallId: event.toolCallId,
+    turn: event.turn,
+    maxTurns: event.maxTurns,
+    activityKind: event.activityKind,
+    activitySubject: event.activitySubject,
+    command: event.command,
+    promptTokenCount: event.promptTokenCount,
+  };
+  return ChatStreamToolEventSchema.parse(event.kind === 'tool_start'
+    ? common
+    : {
+      ...common,
+      exitCode: event.exitCode,
+      outputSnippet: event.outputSnippet,
+      outputTokens: event.outputTokens,
+      outputTokensEstimated: event.outputTokensEstimated,
+    });
+}
+
 function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return {
     ...session,
@@ -186,12 +213,9 @@ function withPromptContext(config: SiftConfig, session: ChatSession): ChatSessio
   };
 }
 
-function toWireChatMessage(message: PersistedChatMessage): WireChatMessage {
+function toWireChatMessage(message: PersistedChatTranscriptMessage): WireChatMessage {
   const sourceRunId = message.sourceRunId ?? null;
-  if (message.kind === 'assistant_tool_call') {
-    return PersistedChatMessageSchema.parse({ ...message, sourceRunId, toolCallStatus: 'done' });
-  }
-  return PersistedChatMessageSchema.parse({ ...message, sourceRunId });
+  return PersistedChatTranscriptMessageSchema.parse({ ...message, sourceRunId });
 }
 
 function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSession {
@@ -315,6 +339,11 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     private readonly streamAnswer: boolean,
   ) {
     super();
+    this.transcriptMetadata = {
+      messageIdPrefix: `stopped-${requestId}`,
+      sourceRunId: requestId,
+      createdAtUtc: new Date().toISOString(),
+    };
   }
 
   get enabled(): boolean {
@@ -324,28 +353,40 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
   private readonly thinkingDeltas = new LiveTextDeltaTracker();
   private readonly narrationDeltas = new LiveTextDeltaTracker();
   private readonly answerDeltas = new LiveTextDeltaTracker();
-  private latestAnswerText = '';
+  private readonly transcriptMetadata: ChatTranscriptMetadata;
+  private transcriptMessages: ChatTranscriptMessage[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
 
   write(event: RepoSearchProgressEvent): void {
-    if (event.kind === 'answer') {
-      this.latestAnswerText = event.answerText;
-    }
     if (event.kind === 'thinking') {
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'thinking',
+        delta: { turn: event.turn, offset: 0, text: event.thinkingText },
+      }, this.transcriptMetadata);
       this.phaseTracker?.observeThinking(event.thinkingText);
       this.thinkingDeltas.pushSnapshot(event.turn, event.thinkingText, Date.now());
       this.emitDueDeltas(false);
       return;
     }
     if (event.kind === 'narration') {
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'narration',
+        delta: { turn: event.turn, offset: 0, text: event.narrationText },
+      }, this.transcriptMetadata);
       this.narrationDeltas.pushSnapshot(event.turn, event.narrationText, Date.now());
       this.emitDueDeltas(false);
       return;
     }
-    if (event.kind === 'answer' && this.streamAnswer) {
-      this.phaseTracker?.observeAnswer(event.answerText);
-      this.answerDeltas.pushSnapshot(event.turn, event.answerText, Date.now());
-      this.emitDueDeltas(false);
+    if (event.kind === 'answer') {
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'answer',
+        delta: { turn: event.turn, offset: 0, text: event.answerText },
+      }, this.transcriptMetadata);
+      if (this.streamAnswer) {
+        this.phaseTracker?.observeAnswer(event.answerText);
+        this.answerDeltas.pushSnapshot(event.turn, event.answerText, Date.now());
+        this.emitDueDeltas(false);
+      }
       return;
     }
     if (event.kind === 'context_warning') {
@@ -354,6 +395,14 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       return;
     }
     if (event.kind === 'progress_update') {
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'progress',
+        progress: {
+          turn: event.turn,
+          text: event.progressText,
+          elapsedMs: event.elapsedMs,
+        },
+      }, this.transcriptMetadata);
       this.flushPending();
       this.writer.writeEvent('progress', {
         turn: event.turn,
@@ -362,16 +411,33 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       });
       return;
     }
+    if (event.kind !== 'tool_start' && event.kind !== 'tool_result') {
+      this.flushPending();
+      return;
+    }
+    if (event.kind === 'tool_start') {
+      const body = buildRepoSearchProgressLogBody(event);
+      if (body) serverLogger.emitBody(this.scope, this.requestId, body);
+    }
+    const toolEvent = toChatStreamToolEvent(event);
+    this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+      kind: 'tool',
+      tool: toolEvent,
+    }, this.transcriptMetadata);
     this.flushPending();
-    forwardRepoSearchToolEvent(this.writer, event, this.scope, this.requestId);
+    forwardRepoSearchToolEvent(this.writer, toolEvent);
   }
 
   flushPending(): void {
     this.emitDueDeltas(true);
   }
 
-  getAnswerText(): string {
-    return this.latestAnswerText;
+  getStoppedMessages(marker = STOPPED_BY_USER_MARKER): PersistedChatTranscriptMessage[] {
+    return finalizeStoppedChatTranscript(
+      this.transcriptMessages,
+      marker,
+      this.transcriptMetadata,
+    );
   }
 
   private emitDueDeltas(force: boolean): void {
@@ -419,44 +485,27 @@ function registerChatAbort<T>(
   }
 }
 
-function appendStoppedChatTurn(
-  runtimeRoot: string,
-  session: ChatSession,
-  content: string,
-  images: string[],
-  partialAnswer: string,
-): ChatSession {
-  const partial = partialAnswer.trimEnd();
-  return appendChatMessagesWithUsage(
-    runtimeRoot,
-    session,
-    content,
-    partial ? `${partial}\n\n${STOPPED_BY_USER_MARKER}` : STOPPED_BY_USER_MARKER,
-    {},
-    { turns: [], images },
-  );
-}
-
 function finishStoppedChatStream(options: {
   signal: AbortSignal;
   runtimeRoot: string;
   session: ChatSession;
   content: string;
   images: string[];
-  partialAnswer: string;
+  imageMeta: ImageMetadata[];
+  stoppedMessages: PersistedChatTranscriptMessage[];
   configPath: string;
   writer: SseResponseWriter;
 }): boolean {
   if (!options.signal.aborted) {
     return false;
   }
-  const updatedSession = appendStoppedChatTurn(
-    options.runtimeRoot,
-    options.session,
-    options.content,
-    options.images,
-    options.partialAnswer,
-  );
+  const updatedSession = appendChatStoppedTurn(options.runtimeRoot, options.session, {
+    content: options.content,
+    images: options.images,
+    imageMeta: options.imageMeta,
+    transcriptMessages: options.stoppedMessages,
+    approvalMessages: [],
+  });
   options.writer.writeEvent('done', buildChatSessionResponse(readConfig(options.configPath), updatedSession));
   return true;
 }
@@ -770,7 +819,7 @@ function ingestAssistantMemoryTurn(
   preset: SiftPreset,
   sessionId: string,
   capturedAtUtc: string,
-  messages: readonly PersistedChatMessage[],
+  messages: readonly PersistedChatTranscriptMessage[],
 ): void {
   const lastUser = [...messages].reverse().find((message) => message.role === 'user');
   const lastAssistant = [...messages].reverse().find(
@@ -1090,7 +1139,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     const engineRequestId = randomUUID();
     const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, true);
-    let selectedImagesForError: { images: string[]; visionMaxImagePixels: number } | null = null;
+    let selectedImagesForError: { images: string[]; imageMeta: ImageMetadata[]; visionMaxImagePixels: number } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
     try {
@@ -1099,6 +1148,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       const selectedImages = admitSelectedChatImages(config, selected.session, messageRequest.images);
       selectedImagesForError = {
         images: selectedImages.images,
+        imageMeta: selectedImages.imageMeta,
         visionMaxImagePixels: getActiveModelPreset(selectedImages.effectiveConfig).VisionMaxImagePixels,
       };
       const selectedSession = selected.session;
@@ -1203,7 +1253,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         session: activeSession,
         content: userContent,
         images: selectedImagesForError?.images ?? messageRequest.images,
-        partialAnswer: progressWriter.getAnswerText(),
+        imageMeta: selectedImagesForError?.imageMeta ?? [],
+        stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
         writer: sseWriter,
       })) {
@@ -1362,7 +1413,8 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         session: activeSession,
         content: request.value.content,
         images: request.value.images,
-        partialAnswer: progressWriter.getAnswerText(),
+        imageMeta: [],
+        stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
         writer: sseWriter,
       })) {
@@ -1515,7 +1567,8 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         session: activeSession,
         content: request.value.content,
         images: request.value.images,
-        partialAnswer: progressWriter.getAnswerText(),
+        imageMeta: [],
+        stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
         writer: sseWriter,
       })) {
@@ -1618,7 +1671,13 @@ export class StopChatOperationEndpoint implements RouteEndpoint {
       sendJson(res, 409, { error: 'No matching stoppable operation is active for this session.' });
       return;
     }
+    const completionPromise = ctx.chatSessionOperations.waitForCompletion(active);
     active.abort();
+    const completion = await completionPromise;
+    if (completion.kind === 'failed') {
+      sendJson(res, 500, { error: completion.error });
+      return;
+    }
     sendJson(res, 200, { ok: true, operationKind: active.operationKind });
   }
 }

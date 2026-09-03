@@ -382,6 +382,78 @@ test('a compacting stream completion installs the boundary and corrected usage w
   }
 });
 
+test('a stopped stream completion replaces live state with the complete persisted transcript', async () => {
+  const runId = '4f9c1f9a-0000-4000-8000-000000000002';
+  const stoppedSession: ChatSession = {
+    ...SESSION,
+    messages: [
+      chatMessage({ id: 'stopped-user', role: 'user', kind: 'user_text', content: 'inspect it' }),
+      chatMessage({
+        id: 'stopped-thinking', role: 'assistant', kind: 'assistant_thinking',
+        content: 'partial thought', sourceRunId: runId,
+      }),
+      chatMessage({
+        id: 'stopped-progress', role: 'assistant', kind: 'assistant_progress',
+        content: 'Inspecting files.', sourceRunId: runId,
+      }),
+      {
+        ...chatMessage({
+          id: 'stopped-tool', role: 'assistant', kind: 'assistant_tool_call',
+          content: 'read path="index.ts"', sourceRunId: runId,
+        }),
+        kind: 'assistant_tool_call',
+        toolCallCommand: 'read path="index.ts"',
+        toolCallActivityKind: 'read',
+        toolCallActivitySubject: { kind: 'file', value: 'index.ts' },
+        toolCallTurn: 1,
+        toolCallMaxTurns: 2,
+        toolCallExitCode: null,
+        toolCallStatus: 'stopped',
+      },
+      chatMessage({
+        id: 'stopped-answer', role: 'assistant', kind: 'assistant_answer',
+        content: 'partial answer\n\n*Stopped by user.*', sourceRunId: runId,
+      }),
+    ],
+  };
+  const initialResponse = { session: SESSION, contextUsage: CONTEXT_USAGE };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: initialResponse,
+    streamResponse: { session: stoppedSession, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1',
+      refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }),
+      confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
+    act(() => { hook.result.current.setSessionDraft('s1', 'inspect it'); });
+    await act(async () => { await hook.result.current.sendMessage(); });
+
+    assert.deepEqual(
+      hook.result.current.selectedSession?.messages.map((message) => message.kind),
+      ['user_text', 'assistant_thinking', 'assistant_progress', 'assistant_tool_call', 'assistant_answer'],
+    );
+    assert.deepEqual(
+      hook.result.current.selectedSession?.messages.map((message) => message.content),
+      ['inspect it', 'partial thought', 'Inspecting files.', 'read path="index.ts"', 'partial answer\n\n*Stopped by user.*'],
+    );
+    assert.equal(
+      hook.result.current.selectedSession?.messages.find(
+        (message) => message.kind === 'assistant_tool_call',
+      )?.toolCallStatus,
+      'stopped',
+    );
+    assert.deepEqual(hook.result.current.runtimeStore.get('s1').liveMessages, []);
+  } finally {
+    fixture.restore();
+  }
+});
+
 test('stopOperation posts for the selected session', async () => {
   const response = { session: SESSION, contextUsage: CONTEXT_USAGE };
   const fixture = new ChatFetchFixture({

@@ -112,6 +112,7 @@ async function closeCaptionTestServer(
 
 async function withCaptionServer(
   options: Parameters<typeof seedCaptionSession>[0] = {},
+  engineService?: StatusEngineService,
 ): Promise<{
   tempRoot: string;
   previousCwd: string;
@@ -126,7 +127,7 @@ async function withCaptionServer(
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const fixture = seedCaptionSession(options);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, engineService });
   await server.startupPromise;
   const address = getAddressInfo(server);
   return { tempRoot, previousCwd, envBackup, fixture, server, baseUrl: `http://127.0.0.1:${address.port}` };
@@ -186,6 +187,84 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
   });
   return { requestId: 'caption-test', transcriptPath: '', artifactPath: '', scorecard };
 }
+
+class InjectedCaptionEngineService extends StatusEngineService {
+  requestCount = 0;
+
+  override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requestCount += 1;
+    return Promise.resolve(mockedCaptionExecution('injected caption'));
+  }
+}
+
+class CountingCaptionEngineService extends StatusEngineService {
+  requestCount = 0;
+
+  constructor(private readonly delayMs = 0) {
+    super();
+  }
+
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requestCount += 1;
+    if (this.delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, this.delayMs));
+    }
+    return await super.executeRepoSearch(request);
+  }
+}
+
+class StaticCaptionEngineService extends StatusEngineService {
+  constructor(
+    private readonly finalOutput: string,
+    private readonly compactionSummary = '',
+  ) {
+    super();
+  }
+
+  override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    return Promise.resolve(mockedCaptionExecution(this.finalOutput, this.compactionSummary));
+  }
+}
+
+class DeletingCaptionEngineService extends StatusEngineService {
+  private target: { runtimeRoot: string; sessionId: string; messageId: string } | null = null;
+
+  setTarget(target: { runtimeRoot: string; sessionId: string; messageId: string }): void {
+    this.target = target;
+  }
+
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    if (!this.target) {
+      throw new Error('Deleting caption engine target was not configured.');
+    }
+    deleteChatMessage(this.target.runtimeRoot, this.target.sessionId, this.target.messageId);
+    return await super.executeRepoSearch(request);
+  }
+}
+
+test('status server routes use the explicitly injected engine service', async () => {
+  const tempRoot = createManagedTempDir('siftkit-caption-injected-engine-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const fixture = seedCaptionSession();
+  const engineService = new InjectedCaptionEngineService();
+  const server = startStatusServer({ disableManagedLlamaStartup: true, engineService });
+  try {
+    await server.startupPromise;
+    const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+    const response = await requestJson(`${baseUrl}/dashboard/chat/sessions/${fixture.session.id}/images/caption`, {
+      method: 'POST', body: JSON.stringify({ messageId: fixture.message.id, imageIndex: 0 }),
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.caption, 'injected caption');
+    assert.equal(engineService.requestCount, 1);
+  } finally {
+    await closeCaptionTestServer(server, previousCwd, envBackup, tempRoot);
+  }
+});
 
 test('updates only the requested persisted image caption', () => {
   const runtimeRoot = createManagedTempDir('siftkit-caption-db-');
@@ -361,15 +440,8 @@ test('caption route performs one mocked vision pass and persists its caption', a
 });
 
 test('a sequential caption request returns the persisted caption without a second engine pass', async () => {
-  const harness = await withCaptionServer();
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  let calls = 0;
-  StatusEngineService.prototype.executeRepoSearch = async function executeRepoSearchWithCount(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    calls += 1;
-    return originalExecute.call(this, request);
-  };
+  const engineService = new CountingCaptionEngineService();
+  const harness = await withCaptionServer({}, engineService);
   try {
     const url = `${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`;
     const first = await requestJson(url, {
@@ -384,24 +456,15 @@ test('a sequential caption request returns the persisted caption without a secon
     assert.equal(second.statusCode, 200);
     assert.equal(first.body.caption, 'first caption');
     assert.equal(second.body.caption, 'first caption');
-    assert.equal(calls, 1);
+    assert.equal(engineService.requestCount, 1);
   } finally {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
   }
 });
 
 test('concurrent duplicate caption requests execute one vision pass and share its persisted result', async () => {
-  const harness = await withCaptionServer();
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  let calls = 0;
-  StatusEngineService.prototype.executeRepoSearch = async function executeRepoSearchWithDelay(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    calls += 1;
-    await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    return originalExecute.call(this, request);
-  };
+  const engineService = new CountingCaptionEngineService(30);
+  const harness = await withCaptionServer({}, engineService);
   try {
     const url = `${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`;
     const [first, second] = await Promise.all([
@@ -418,9 +481,8 @@ test('concurrent duplicate caption requests execute one vision pass and share it
     assert.equal(second.statusCode, 200);
     assert.equal(first.body.caption, 'concurrent caption');
     assert.equal(second.body.caption, 'concurrent caption');
-    assert.equal(calls, 1);
+    assert.equal(engineService.requestCount, 1);
   } finally {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
   }
 });
@@ -498,13 +560,7 @@ test('caption route reports distinct vision and retention guards', async () => {
 });
 
 test('caption route returns 500 when inference produces an empty final output', async () => {
-  const harness = await withCaptionServer();
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  StatusEngineService.prototype.executeRepoSearch = async function executeRepoSearchWithEmptyOutput(
-    _request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    return mockedCaptionExecution('   ');
-  };
+  const harness = await withCaptionServer({}, new StaticCaptionEngineService('   '));
   try {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
       method: 'POST',
@@ -513,21 +569,18 @@ test('caption route returns 500 when inference produces an empty final output', 
     assert.equal(response.statusCode, 500);
     assert.match(String(response.body.error), /empty caption/u);
   } finally {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
   }
 });
 
 test('caption route returns 404 when the image disappears during inference', async () => {
-  const harness = await withCaptionServer();
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  StatusEngineService.prototype.executeRepoSearch = async function executeRepoSearchAfterDeletion(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-    deleteChatMessage(harness.fixture.runtimeRoot, harness.fixture.session.id, harness.fixture.message.id);
-    return originalExecute.call(this, request);
-  };
+  const engineService = new DeletingCaptionEngineService();
+  const harness = await withCaptionServer({}, engineService);
+  engineService.setTarget({
+    runtimeRoot: harness.fixture.runtimeRoot,
+    sessionId: harness.fixture.session.id,
+    messageId: harness.fixture.message.id,
+  });
   try {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
       method: 'POST',
@@ -536,7 +589,6 @@ test('caption route returns 404 when the image disappears during inference', asy
     assert.equal(response.statusCode, 404);
     assert.equal(response.body.error, 'Image not found.');
   } finally {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
   }
 });
@@ -567,18 +619,14 @@ test('the message route persists admitted image metadata on the user message', a
 });
 
 test('a chat turn whose run compacted persists the summary row and flags earlier messages', async () => {
-  const context = await withCaptionServer();
+  const context = await withCaptionServer(
+    {},
+    new StaticCaptionEngineService('the fresh answer', 'SUMMARY OF PRIOR CONVERSATION'),
+  );
   saveChatSession(context.fixture.runtimeRoot, {
     ...context.fixture.session,
     messages: [{ ...context.fixture.message, content: 'X'.repeat(32_000) }],
   });
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  StatusEngineService.prototype.executeRepoSearch = async function executeCompactedRun(
-    this: StatusEngineService,
-    _request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    return mockedCaptionExecution('the fresh answer', 'SUMMARY OF PRIOR CONVERSATION');
-  };
   try {
     const response = await requestJson(
       `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`,
@@ -607,7 +655,6 @@ test('a chat turn whose run compacted persists the summary row and flags earlier
       1,
     );
   } finally {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }
 });

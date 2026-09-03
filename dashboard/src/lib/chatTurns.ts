@@ -18,21 +18,17 @@ export type ChatTurn = {
   main: ChatMessage | null;
 };
 
-export function normalizeMessageKind(message: ChatMessage): ChatMessage['kind'] {
-  return message.kind;
-}
-
 function isAnswerMessage(message: ChatMessage): boolean {
-  return normalizeMessageKind(message) === 'assistant_answer';
+  return message.kind === 'assistant_answer';
 }
 
 function isStepMessage(message: ChatMessage): boolean {
-  const kind = normalizeMessageKind(message);
+  const kind = message.kind;
   return kind === 'assistant_thinking' || kind === 'assistant_tool_call' || kind === 'assistant_progress';
 }
 
 function isThinkingMessage(message: ChatMessage): boolean {
-  return normalizeMessageKind(message) === 'assistant_thinking';
+  return message.kind === 'assistant_thinking';
 }
 
 function isToolCallMessage(message: ChatMessage): message is ChatToolCallMessage {

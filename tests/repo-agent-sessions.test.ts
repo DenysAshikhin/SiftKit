@@ -1124,7 +1124,7 @@ test('answer events are never fanned out: a non-live-text subscriber receives no
   assert.equal(subscriber.events.length, 0, 'non-live-text subscriber must not receive answer');
 });
 
-test('answer events are never fanned out: a live-text subscriber receives nothing', async (t) => {
+test('answer events reach a live-text subscriber for stopped-transcript capture', async (t) => {
   const answer: RepoSearchProgressEvent = { kind: 'answer', turn: 1, maxTurns: 4, answerText: 'the cipher is solved' };
   const engine = new ScriptedProgressEngine([answer]);
   const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
@@ -1136,7 +1136,7 @@ test('answer events are never fanned out: a live-text subscriber receives nothin
   assert.equal(boundary.status, 'completed');
   await session.settled;
 
-  assert.equal(subscriber.events.length, 0, 'live-text subscriber must not receive answer');
+  assert.deepEqual(subscriber.events, [answer]);
 });
 
 test('live-text events are not server-logged', async (t) => {

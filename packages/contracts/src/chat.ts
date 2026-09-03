@@ -52,8 +52,27 @@ export const ChatStreamToolEventSchema = z.discriminatedUnion('kind', [
 ]);
 export type ChatStreamToolEvent = z.infer<typeof ChatStreamToolEventSchema>;
 
+export const ToolCallStatusSchema = z.enum(['running', 'done', 'stopped']);
+export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
+
+export const ChatTranscriptRoleSchema = z.enum(['user', 'assistant']);
+export type ChatTranscriptRole = z.infer<typeof ChatTranscriptRoleSchema>;
+
+export const ChatTranscriptMessageKindSchema = z.enum([
+  'user_text',
+  'assistant_answer',
+  'assistant_thinking',
+  'assistant_tool_call',
+  'assistant_narration',
+  'assistant_progress',
+  'tool_image',
+  'compaction_summary',
+  'repo_agent_approval',
+]);
+export type ChatTranscriptMessageKind = z.infer<typeof ChatTranscriptMessageKindSchema>;
+
 const ChatMessageBaseSchema = z.object({
-  id: z.string(), role: z.enum(['user', 'assistant']),
+  id: z.string(), role: ChatTranscriptRoleSchema,
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),
@@ -67,7 +86,7 @@ const ChatMessageBaseSchema = z.object({
   toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
-  toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
+  toolCallOutput: z.string().nullable().optional(), toolCallStatus: ToolCallStatusSchema.optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
   createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
@@ -75,7 +94,7 @@ const ChatMessageBaseSchema = z.object({
   removedImageCount: z.number().int().nonnegative().optional(),
 });
 
-export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
+const ChatToolCallFields = {
   role: z.literal('assistant'),
   kind: z.literal('assistant_tool_call'),
   toolCallCommand: z.string().trim().min(1),
@@ -84,9 +103,21 @@ export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
   toolCallTurn: z.number().int().positive(),
   toolCallMaxTurns: z.number().int().positive(),
   toolCallExitCode: z.number().int().nullable(),
-  toolCallStatus: z.enum(['running', 'done']),
+} as const;
+
+export const ChatTranscriptToolCallMessageSchema = ChatMessageBaseSchema.extend({
+  ...ChatToolCallFields,
+  toolCallStatus: ToolCallStatusSchema,
 });
-export type ChatToolCallMessage = z.infer<typeof ChatToolCallMessageSchema>;
+export type ChatTranscriptToolCallMessage = z.infer<typeof ChatTranscriptToolCallMessageSchema>;
+
+const PersistedToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
+  toolCallStatus: z.enum(['done', 'stopped']),
+});
+
+const ReplayableToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
+  toolCallStatus: z.literal('done'),
+});
 
 export const ChatRepoAgentApprovalMessageSchema = ChatMessageBaseSchema.extend({
   role: z.literal('user'),
@@ -98,7 +129,7 @@ export const ChatRepoAgentApprovalMessageSchema = ChatMessageBaseSchema.extend({
 });
 export type ChatRepoAgentApprovalMessage = z.infer<typeof ChatRepoAgentApprovalMessageSchema>;
 
-const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
+const ChatTranscriptNonToolMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum([
     'user_text',
     'assistant_answer',
@@ -108,25 +139,39 @@ const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
   ]),
 });
 
-const LiveOnlyChatMessageSchema = ChatMessageBaseSchema.extend({
+const ChatTranscriptStreamTextMessageSchema = ChatMessageBaseSchema.extend({
   role: z.literal('assistant'),
   kind: z.enum(['assistant_narration', 'assistant_progress']),
 });
 
-export const PersistedChatMessageSchema = z.discriminatedUnion('kind', [
-  ChatToolCallMessageSchema,
+export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
+  ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
-  PersistedChatNonToolMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+  ChatTranscriptStreamTextMessageSchema,
 ]);
-export type PersistedChatMessage = z.infer<typeof PersistedChatMessageSchema>;
+export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
-export const LiveChatMessageSchema = z.discriminatedUnion('kind', [
-  ChatToolCallMessageSchema,
+export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
+  PersistedToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
-  PersistedChatNonToolMessageSchema,
-  LiveOnlyChatMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+  ChatTranscriptStreamTextMessageSchema,
 ]);
-export type LiveChatMessage = z.infer<typeof LiveChatMessageSchema>;
+export type PersistedChatTranscriptMessage = z.infer<typeof PersistedChatTranscriptMessageSchema>;
+
+export const ReplayableChatMessageSchema = z.discriminatedUnion('kind', [
+  ReplayableToolCallMessageSchema,
+  ChatRepoAgentApprovalMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+]);
+export type ReplayableChatMessage = z.infer<typeof ReplayableChatMessageSchema>;
+
+export function isReplayableChatMessage(
+  message: ChatTranscriptMessage,
+): message is ReplayableChatMessage {
+  return ReplayableChatMessageSchema.safeParse(message).success;
+}
 
 export const ChatPromptContextSchema = z.object({
   id: z.string(), role: z.literal('system'), kind: z.literal('system_context'),
@@ -141,7 +186,7 @@ export const ChatSessionSchema = z.object({
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
-  messages: z.array(PersistedChatMessageSchema), promptContext: ChatPromptContextSchema.optional(),
+  messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
 

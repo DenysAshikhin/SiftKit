@@ -1,21 +1,16 @@
-import { applyLiveThinkingDelta } from './live-thinking-message';
 import {
-  applyNarrationDelta,
-  demoteNarrationForTurn,
-  liveNarrationMessageId,
-  promoteNarrationToAnswer,
-} from './live-narration-message';
-import {
-  buildAppendedLiveToolMessage,
-  buildCompletedLiveToolMessage,
   buildLiveUserMessage,
-  createLiveMessage,
   upsertLiveMessageInto,
 } from './chat-live-messages';
-import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
-import type { ChatStreamApproval, ChatStreamProgress, ChatStreamTextDelta } from '@siftkit/contracts';
+import {
+  reduceChatTranscript,
+  type ChatStreamApproval,
+  type ChatStreamProgress,
+  type ChatStreamTextDelta,
+  type ChatTranscriptEvent,
+} from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 import type { RepoAgentDecision } from '../api';
 
@@ -93,40 +88,25 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
   };
 }
 
-function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
-  const toolMessage = toolEvent.kind === 'tool_start'
-    ? buildAppendedLiveToolMessage(toolEvent)
-    : buildCompletedLiveToolMessage(toolEvent);
+function applyTranscriptEvent(
+  runtime: ChatSessionRuntime,
+  event: ChatTranscriptEvent,
+): ChatSessionRuntime {
   return {
     ...runtime,
     awaitingResponse: false,
-    liveMessages: upsertLiveMessageInto(
-      toolEvent.kind === 'tool_start'
-        ? demoteNarrationForTurn(runtime.liveMessages, toolEvent.turn)
-        : runtime.liveMessages,
-      toolMessage,
-    ),
-    liveToolPromptTokenCount: toolEvent.promptTokenCount,
+    liveMessages: reduceChatTranscript(runtime.liveMessages, event, {
+      messageIdPrefix: 'live',
+      sourceRunId: null,
+      createdAtUtc: new Date().toISOString(),
+    }),
   };
 }
 
-function applyAnswer(runtime: ChatSessionRuntime, delta: ChatStreamTextDelta): ChatSessionRuntime {
-  const narrationId = liveNarrationMessageId(delta.turn);
-  if (runtime.liveMessages.some((message) => message.id === narrationId)) {
-    return {
-      ...runtime,
-      awaitingResponse: false,
-      liveMessages: promoteNarrationToAnswer(runtime.liveMessages, delta),
-    };
-  }
-  const existing = runtime.liveMessages.find((message) => message.id === 'live-answer');
-  const text = applyTextDelta(existing?.content ?? '', delta);
-  const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
-  answerMessage.outputTokensEstimate = Math.max(1, Math.ceil(text.length / 4));
+function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
   return {
-    ...runtime,
-    awaitingResponse: false,
-    liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage),
+    ...applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent }),
+    liveToolPromptTokenCount: toolEvent.promptTokenCount,
   };
 }
 
@@ -151,27 +131,13 @@ function applyTransition(
         ? { ...runtime, activity: { kind: 'idle' }, error: null }
         : runtime;
     case 'thinking':
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: applyLiveThinkingDelta(runtime.liveMessages, transition.delta, true),
-      };
+      return applyTranscriptEvent(runtime, { kind: 'thinking', delta: transition.delta });
     case 'narration':
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: applyNarrationDelta(runtime.liveMessages, transition.delta),
-      };
+      return applyTranscriptEvent(runtime, { kind: 'narration', delta: transition.delta });
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
-    case 'progress': {
-      const progressMessage = createLiveMessage('live-progress', 'assistant_progress', 'assistant', transition.progress.text);
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: upsertLiveMessageInto(runtime.liveMessages, progressMessage),
-      };
-    }
+    case 'progress':
+      return applyTranscriptEvent(runtime, { kind: 'progress', progress: transition.progress });
     case 'approval':
       return { ...runtime, awaitingResponse: false, pendingApproval: transition.approval };
     case 'approval-decision':
@@ -179,7 +145,7 @@ function applyTransition(
     case 'approval-clear':
       return { ...runtime, pendingApproval: null, resolvedApproval: null };
     case 'answer':
-      return applyAnswer(runtime, transition.delta);
+      return applyTranscriptEvent(runtime, { kind: 'answer', delta: transition.delta });
     case 'warning':
       return { ...runtime, warnings: [...runtime.warnings, transition.text] };
     case 'submit':

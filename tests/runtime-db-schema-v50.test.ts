@@ -32,11 +32,11 @@ function seedCondensedSessionDb(dbPath: string): void {
   `).run(timestamp, timestamp);
   const insertMessage = database.prepare(`
     INSERT INTO chat_messages (
-      session_id, id, role, content,
+      session_id, id, role, kind, content,
       input_tokens_estimate, output_tokens_estimate, thinking_tokens,
       input_tokens_estimated, output_tokens_estimated, thinking_tokens_estimated,
       created_at_utc, compressed_into_summary, position
-    ) VALUES ('session-1', ?, 'assistant', 'message', 0, 0, 0, 1, 1, 1, ?, ?, ?)
+    ) VALUES ('session-1', ?, 'assistant', 'assistant_answer', 'message', 0, 0, 0, 1, 1, 1, ?, ?, ?)
   `);
   insertMessage.run('m-1', timestamp, 1, 0);
   insertMessage.run('m-2', timestamp, 1, 1);

@@ -10,7 +10,7 @@ import {
   ChatOperationStatusResponseSchema,
   StopChatOperationRequestSchema,
   StopChatOperationResponseSchema,
-  PersistedChatMessageSchema,
+  PersistedChatTranscriptMessageSchema,
 } from '@siftkit/contracts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -40,7 +40,7 @@ test('approval stream payload parses', () => {
 });
 
 test('repo_agent_approval persisted message parses and old kinds still load', () => {
-  const approval = PersistedChatMessageSchema.parse({
+  const approval = PersistedChatTranscriptMessageSchema.parse({
     id: 'm1', role: 'user', kind: 'repo_agent_approval',
     content: 'approved bash: node --test tests/x.test.ts',
     inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
@@ -49,7 +49,7 @@ test('repo_agent_approval persisted message parses and old kinds still load', ()
     approvalCommand: 'node --test tests/x.test.ts', approvalReason: null,
   });
   assert.equal(approval.kind, 'repo_agent_approval');
-  const legacy = PersistedChatMessageSchema.parse({
+  const legacy = PersistedChatTranscriptMessageSchema.parse({
     id: 'm2', role: 'user', kind: 'user_text', content: 'hi',
     inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
     createdAtUtc: new Date().toISOString(),

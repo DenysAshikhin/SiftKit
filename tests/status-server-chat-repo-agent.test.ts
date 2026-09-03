@@ -9,7 +9,7 @@ import {
   ChatStreamTextDeltaSchema,
 } from '@siftkit/contracts';
 
-import { applyTextDelta } from '../dashboard/src/lib/stream-text-delta.js';
+import { applyChatStreamTextDelta } from '@siftkit/contracts';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
@@ -40,6 +40,28 @@ class EngineGate {
       throw new Error('Engine gate is not initialized.');
     }
     resolve();
+  }
+}
+
+class CapturingEngineService extends StatusEngineService {
+  readonly requests: RepoSearchExecutionRequest[] = [];
+
+  override executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requests.push(request);
+    return super.executeRepoSearch(request);
+  }
+}
+
+class GatedEngineService extends StatusEngineService {
+  constructor(private readonly gate: EngineGate) {
+    super();
+  }
+
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    if (request.prompt === 'hold generation') {
+      await this.gate.promise;
+    }
+    return await super.executeRepoSearch(request);
   }
 }
 
@@ -163,18 +185,8 @@ test('chat repo-agent decision endpoints reject sessions without active runs', a
 });
 
 test('chat repo-agent approval holds the lease, resumes the stream, and persists an audit row', async (t) => {
-  const harness = await startHarness('siftkit-chat-repo-agent-approve-', t);
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
-  const engineRequests: RepoSearchExecutionRequest[] = [];
-  StatusEngineService.prototype.executeRepoSearch = function captureRepoAgentRequest(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    engineRequests.push(request);
-    return originalExecute.call(this, request);
-  };
-  t.after(() => {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
-  });
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-approve-', t, { engineService });
   const sessionId = await createSession(harness, 'Approve run');
   const seeded = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
@@ -242,7 +254,7 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
     assert.equal(approval.approvalReason, null);
   }
   assert.equal(messages.at(-1)?.sourceRunId, runId);
-  const chatAgentRequest = engineRequests.find((request) => request.taskKind === 'repo-agent');
+  const chatAgentRequest = engineService.requests.find((request) => request.taskKind === 'repo-agent');
   assert.ok(chatAgentRequest);
   assert.equal(chatAgentRequest.prompt, 'write a file');
   assert.deepEqual(chatAgentRequest.history, [
@@ -269,26 +281,18 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
       mockCommandResults: {},
     }),
   });
-  const standaloneRequest = engineRequests.find((request) => request.prompt === 'standalone run');
+  const standaloneRequest = engineService.requests.find((request) => request.prompt === 'standalone run');
   assert.ok(standaloneRequest);
   assert.equal('history' in standaloneRequest, false);
 });
 
 test('chat repo-agent decide rejects a run that is generating instead of parked', async (t) => {
-  const harness = await startHarness('siftkit-chat-repo-agent-running-', t);
-  const sessionId = await createSession(harness, 'Running run');
-  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
   const engineGate = new EngineGate();
-  StatusEngineService.prototype.executeRepoSearch = async function holdRepoAgentRequest(
-    request: RepoSearchExecutionRequest,
-  ): Promise<RepoSearchExecutionResult> {
-    if (request.prompt === 'hold generation') {
-      await engineGate.promise;
-    }
-    return await originalExecute.call(this, request);
-  };
+  const harness = await startHarness('siftkit-chat-repo-agent-running-', t, {
+    engineService: new GatedEngineService(engineGate),
+  });
+  const sessionId = await createSession(harness, 'Running run');
   t.after(() => {
-    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     engineGate.release();
   });
 
@@ -375,7 +379,7 @@ test('chat repo-agent streams thinking deltas', async (t) => {
   let assembled = '';
   for (const frame of thinkingFrames) {
     assert.ok(frame.payload, 'thinking frames must carry a payload');
-    assembled = applyTextDelta(assembled, ChatStreamTextDeltaSchema.parse(frame.payload));
+    assembled = applyChatStreamTextDelta(assembled, ChatStreamTextDeltaSchema.parse(frame.payload));
   }
   assert.ok(
     assembled.includes('inspecting the cipher'),
