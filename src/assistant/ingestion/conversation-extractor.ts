@@ -1,8 +1,7 @@
 import { z } from '../../lib/zod.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { AssertionBasis, ObservationType } from '../domain/enums.js';
-import { CandidateObjectRefSchema, UnresolvedNodeRefSchema } from '../domain/keys.js';
-import { RelationTypeSchema } from '../domain/relation-types.js';
+import { buildProposedStatementSchema } from '../domain/proposal-schema.js';
 import type { StructuredOutputRunner } from '../inference/structured-runner.js';
 
 const StatementKindSchema = z.enum([
@@ -10,20 +9,13 @@ const StatementKindSchema = z.enum([
 ]);
 type StatementKind = z.infer<typeof StatementKindSchema>;
 
-const ExtractedStatementSchema = z.object({
+const ExtractedStatementSchema = buildProposedStatementSchema({
   statementKind: StatementKindSchema,
-  subject: UnresolvedNodeRefSchema,
-  predicate: RelationTypeSchema,
-  object: CandidateObjectRefSchema,
-  scope: UnresolvedNodeRefSchema.nullable(),
   validFromUtc: z.string().nullable(),
   validToUtc: z.string().nullable(),
-  rationale: z.string().min(1),
-  /** A suggestion only. Final confidence is decided by CandidateGate and resolveConfidence. */
-  suggestedConfidence: z.number().min(0).max(1),
-}).strict();
+});
 
-const ConversationExtractionSchema = z.object({
+export const ConversationExtractionSchema = z.object({
   statements: z.array(ExtractedStatementSchema).max(20),
 }).strict();
 
@@ -36,7 +28,8 @@ const EXTRACTOR_INSTRUCTIONS = [
   '- quotation: text the user quoted from somewhere else.',
   '- request: an instruction to you, not a fact.',
   '- third_party_fact: a fact about somebody other than the user.',
-  'Use only predicates from the supplied enum. Omit anything ambiguous.',
+  'Each predicate accepts only the subject and object types shown in its schema variant.',
+  'Omit anything ambiguous. Leave scope null unless the fact holds only in a named context.',
   'Never propose credentials, protected traits, or a medical diagnosis.',
   'Output JSON only.',
 ].join('\n');
@@ -108,7 +101,7 @@ export class ConversationExtractor {
         targetType: 'evidence',
         targetId: request.evidenceId,
         summary: 'Conversation extraction produced no usable structured output.',
-        details: { code: outcome.code, attempts: outcome.attempts },
+        details: { code: outcome.code, attempts: outcome.attempts, rawSample: outcome.rawSample },
       });
       return { observationIds: [], candidateIds: [] };
     }
