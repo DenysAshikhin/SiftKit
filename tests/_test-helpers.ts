@@ -142,7 +142,6 @@ export function getDefaultConfig(): TestConfig {
         MinP: 0.0,
         PresencePenalty: 0.0,
         RepetitionPenalty: 1.0,
-        MaxTokens: 4096,
         Threads: -1,
         FlashAttention: true,
         ParallelSlots: 1,
@@ -536,7 +535,7 @@ export async function withTestEnvAndServer(
   server.ModelPresets = modelPresets;
   const stubPort = Number(new URL(stub.baseUrl).port);
   modelPresets.ActivePresetId = 'default';
-  // Normalized, not a literal: a preset missing MaxTokens/samplers is a shape the config
+  // Normalized, not a literal: a preset missing samplers is a shape the config
   // store never produces, and the engine reads those fields on every request.
   modelPresets.Presets = normalizeModelRuntimePresetArray([{
     id: 'default',

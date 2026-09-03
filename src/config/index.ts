@@ -64,7 +64,6 @@ export {
 } from './getters.js';
 
 export {
-  applyMaxTokensOverrideToConfig,
   applyModelOverrideToConfig,
   overlayActivePreset,
 } from './overrides.js';

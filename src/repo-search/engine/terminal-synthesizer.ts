@@ -1,5 +1,5 @@
 import type { SiftConfig } from '../../config/index.js';
-import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import { resolveFinalGenerationTokenLimit } from '../../lib/context-token-budget.js';
 import {
   appendPlannerInstruction,
   requestTerminalSynthesis,
@@ -54,8 +54,8 @@ export class TerminalSynthesizer {
       }),
     });
     const synthesisPromptTokenCount = measurement.promptTokenCount;
-    const synthesisMaxTokens = getDynamicMaxOutputTokens({
-      config: this.options.config,
+    // Nothing is compacted after a terminal answer, so it may spend the compaction reserve.
+    const synthesisMaxTokens = resolveFinalGenerationTokenLimit({
       totalContextTokens: this.options.totalContextTokens,
       promptTokenCount: synthesisPromptTokenCount,
     });

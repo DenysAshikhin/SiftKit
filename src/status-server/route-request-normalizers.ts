@@ -113,9 +113,17 @@ export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest
   };
 }
 
-/** A caller-supplied output cap, applied downstream as an active-preset MaxTokens overlay. */
-function parseLlamaCppMaxTokens(reader: JsonRecordReader): number | undefined {
-  return reader.number('llamaCppMaxTokens') ?? undefined;
+/**
+ * A caller-supplied output cap, applied only to this summary operation. Anything
+ * other than a positive whole number of tokens is rejected here, so a bad request
+ * fails at the boundary rather than deep inside the provider call.
+ */
+function parseLlamaCppMaxTokens(reader: JsonRecordReader): number | null | undefined {
+  if (reader.value('llamaCppMaxTokens') === undefined) {
+    return undefined;
+  }
+  const value = reader.number('llamaCppMaxTokens');
+  return value !== null && Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | null {
@@ -130,6 +138,10 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   }
   const promptPrefixValue = reader.value('promptPrefix');
   const promptPrefix = typeof promptPrefixValue === 'string' ? promptPrefixValue : undefined;
+  const llamaCppMaxTokens = parseLlamaCppMaxTokens(reader);
+  if (llamaCppMaxTokens === null) {
+    return null;
+  }
   return {
     repoRoot,
     presetId: reader.optionalString('presetId'),
@@ -145,7 +157,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     requestTimeoutSeconds: reader.positiveNumber('requestTimeoutSeconds', DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
     timing: readSummaryTiming(reader.value('timing')),
     promptPrefix,
-    llamaCppMaxTokens: parseLlamaCppMaxTokens(reader),
+    llamaCppMaxTokens,
   };
 }
 

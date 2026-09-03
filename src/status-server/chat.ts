@@ -6,7 +6,7 @@ import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumC
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
-import { resolveContextTokenBudget } from '../lib/response-reserve.js';
+import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger } from '../repo-search/types.js';
@@ -851,7 +851,6 @@ export async function condenseChatSession(
   } as const;
   const contextBudget = resolveContextTokenBudget({
     totalContextTokens: resolveChatSessionContextWindow(config, session),
-    config: effectiveConfig,
   });
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,
@@ -859,7 +858,7 @@ export async function condenseChatSession(
     model: resolveChatSessionModel(config, session),
     timeoutMs: DEFAULT_TIMEOUT_MS,
     totalContextTokens: contextBudget.totalContextTokens,
-    responseReserveTokens: contextBudget.responseReserveTokens,
+    compactionReserveTokens: contextBudget.compactionReserveTokens,
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),

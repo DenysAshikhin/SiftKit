@@ -11,7 +11,7 @@ test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active 
         Presets: [{
           id: 'p', label: 'P', Model: 'm.gguf', BaseUrl: 'http://127.0.0.1:8097',
           NumCtx: 85000, Temperature: 0.7, TopP: 0.8, TopK: 20, MinP: 0,
-          PresencePenalty: 1.5, RepetitionPenalty: 1, MaxTokens: 15000,
+          PresencePenalty: 1.5, RepetitionPenalty: 1,
           GpuLayers: 999, Threads: -1, NcpuMoe: 10, FlashAttention: true,
           ParallelSlots: 1, Reasoning: 'off', IdleAction: 'unload',
         }],
@@ -23,4 +23,5 @@ test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active 
   assert.equal(snapshot.LlamaCpp.NumCtx, 85000);
   assert.equal(snapshot.LlamaCpp.Reasoning, 'off');
   assert.equal(snapshot.LlamaCpp.BaseUrl, 'http://127.0.0.1:8097');
+  assert.equal(Object.hasOwn(snapshot.LlamaCpp, 'MaxTokens'), false);
 });

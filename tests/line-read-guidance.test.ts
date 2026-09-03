@@ -50,6 +50,6 @@ test('normalizeMetrics backfills missing line-read fields to zero', () => {
 
 
 test('the repo-search baseline allowance matches the engine single-call floor exactly', () => {
-  const budget = new TurnBudget({ totalContextTokens: 32_000, maxTurns: DEFAULT_MAX_TURNS, config: null });
+  const budget = new TurnBudget({ totalContextTokens: 32_000, maxTurns: DEFAULT_MAX_TURNS });
   assert.equal(getRepoSearchPromptBaselinePerToolAllowanceTokens(null), budget.perToolCapTokens(0, 1));
 });

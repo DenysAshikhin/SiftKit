@@ -108,7 +108,6 @@ export function getDefaultConfig(): SiftConfig {
         MinP: 0.0,
         PresencePenalty: 0.0,
         RepetitionPenalty: 1.0,
-        MaxTokens: 4096,
         Threads: -1,
         FlashAttention: true,
         ParallelSlots: 1,

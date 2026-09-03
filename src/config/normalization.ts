@@ -534,7 +534,6 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
       input.KvCacheQuantization,
       defaults.KvCacheQuantization ?? SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
     ),
-    MaxTokens: getFinitePositiveInteger(input.MaxTokens, Number(defaults.MaxTokens ?? 15_000)),
     Temperature: getFiniteNumber(input.Temperature, Number(defaults.Temperature ?? 0.7)),
     TopP: getFiniteNumber(input.TopP, Number(defaults.TopP ?? 0.8)),
     TopK: getFiniteInteger(input.TopK, Number(defaults.TopK ?? 20)),

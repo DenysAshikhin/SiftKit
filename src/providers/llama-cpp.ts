@@ -3,7 +3,7 @@ import {
   getConfiguredLlamaNumCtx,
   type SiftConfig,
 } from '../config/index.js';
-import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
 import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
@@ -362,6 +362,7 @@ export async function generateLlamaCppResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
+  operationMaxTokens?: number;
 }): Promise<LlamaCppGenerateResult> {
   return generateLlamaCppChatResponse({
     config: options.config,
@@ -378,6 +379,7 @@ export async function generateLlamaCppResponse(options: {
     structuredOutput: options.structuredOutput,
     reasoningOverride: options.reasoningOverride,
     promptTokenCount: options.promptTokenCount,
+    operationMaxTokens: options.operationMaxTokens,
   });
 }
 
@@ -393,18 +395,21 @@ export async function generateLlamaCppChatResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
+  operationMaxTokens?: number;
 }): Promise<LlamaCppGenerateResult> {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
-  const maxTokens = getDynamicMaxOutputTokens({
-    config: options.config,
-    totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
-    promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
-      ? Number(options.promptTokenCount)
+  const maxTokens = resolveGenerationTokenLimit({
+    totalContextTokens: getConfiguredLlamaNumCtx(options.config),
+    // A measured count when the caller has one; the local estimate is the fallback,
+    // and both are whole tokens, so the budget rejects anything else as a bug.
+    promptTokenCount: typeof options.promptTokenCount === 'number' && options.promptTokenCount > 0
+      ? options.promptTokenCount
       : estimateTokenCountFromCharacters(options.config, promptChars),
+    operationMaxTokens: options.operationMaxTokens,
   });
 
   let response: NormalizedLlamaCppChatResponse;

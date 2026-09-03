@@ -354,7 +354,6 @@ export function buildRuntimeLaunchSnapshot(config: SiftConfig): RuntimeLaunchSna
       MinP: managed.MinP,
       PresencePenalty: managed.PresencePenalty,
       RepetitionPenalty: managed.RepetitionPenalty,
-      MaxTokens: managed.MaxTokens,
       GpuLayers: managed.GpuLayers,
       Threads: managed.Threads,
       NcpuMoe: managed.NcpuMoe,

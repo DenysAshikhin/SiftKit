@@ -129,6 +129,7 @@ export type InvokePlannerModeOptions = {
   additionalPromptPrefix: string;
   systemContext: PresetSystemContext;
   allowedTools?: PlannerToolName[];
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -541,6 +542,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
           slotId: this.options.slotId ?? undefined,
           cachePrompt: true,
           tools: this.toolDefinitions,
+          promptTokenCount,
+          operationMaxTokens: this.options.operationMaxTokens,
         });
       } finally {
         llamaSpan?.end();

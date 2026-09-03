@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostLlamaRuntimeSettings,
-  applyMaxTokensOverrideToConfig,
   applyModelOverrideToConfig,
   loadConfig,
   normalizeLoadedConfig,
@@ -228,11 +227,10 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredLlamaBaseUrl(this.config);
     getConfiguredLlamaNumCtx(this.config);
-    // Host sync first, then caller overlays: an explicit --model/MaxTokens must win
-    // over whatever the host reports, and both must be visible to every getter below.
+    // Host sync first, then the explicit model overlay. Output limits are operation-scoped
+    // and flow to the provider without mutating this configuration.
     this.config = await this.applyHostLlamaSettings(this.config);
     this.config = applyModelOverrideToConfig(this.config, this.request.model);
-    this.config = applyMaxTokensOverrideToConfig(this.config, this.request.llamaCppMaxTokens);
     this.model = getConfiguredModel(this.config);
     this.progress.configDone(this.provider, this.model);
     const activeVisionPreset = getActiveModelPreset(this.config);
@@ -363,6 +361,7 @@ export class SummaryRequestRunner {
         additionalPromptPrefix: context.additionalPromptPrefix,
         systemContext: context.systemContext,
         allowedPlannerTools: this.request.allowedPlannerTools,
+        operationMaxTokens: this.request.llamaCppMaxTokens,
         requestTimeoutSeconds: this.request.requestTimeoutSeconds,
         statusBackendUrl: this.request.statusBackendUrl,
         timingRecorder: this.timingRecorder,

@@ -120,7 +120,6 @@ export function getDefaultConfigObject(): SiftConfig {
     CacheRam: SIFT_DEFAULT_LLAMA_CACHE_RAM,
     CacheRecurrentRam: SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,
     KvCacheQuantization: SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
-    MaxTokens: 15_000,
     Temperature: 0.7,
     TopP: 0.8,
     TopK: 20,

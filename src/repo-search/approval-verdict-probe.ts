@@ -1,5 +1,7 @@
 import type { SiftConfig } from '../config/index.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
+import { renderWirePrompt } from './wire-prompt.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
 import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
@@ -105,12 +107,19 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
       pendingMessages,
       question,
       // Replay reconstructs the executing planner request from the persisted
-      // messages the live run submitted, with the configured thinking flags.
+      // messages the live run submitted, with the configured thinking flags. The
+      // live prompt measurement is not persisted with them, so a replay prices the
+      // reconstructed prompt locally instead.
       executing: captureExecutingPlannerRequest(
         serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
         thinking,
         tools,
         slotId,
+        estimateTokenCount(this.options.config, renderWirePrompt({
+          messages,
+          tools,
+          includeReasoningContent: thinking.reasoningContentEnabled,
+        }).text),
       ),
       logger: null,
     });

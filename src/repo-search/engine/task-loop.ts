@@ -218,9 +218,9 @@ export class TaskLoop {
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
     this.budget = new TurnBudget({
-      totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
+      totalContextTokens: options.totalContextTokens
+        || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32_000),
       maxTurns: this.maxTurns,
-      config: options.config,
     });
     this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
@@ -299,7 +299,7 @@ export class TaskLoop {
         model: String(options.model || ''),
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         totalContextTokens: this.budget.totalContextTokens,
-        responseReserveTokens: this.budget.responseReserveTokens,
+        compactionReserveTokens: this.budget.compactionReserveTokens,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         mockResponses: options.mockResponses,
         tokenUsage: this.tokenUsage,
@@ -443,6 +443,7 @@ export class TaskLoop {
         this.plannerThinking,
         this.plannerProtocolTools,
         this.slotId,
+        overflow.promptTokenCount,
       );
     }
     this.options.logger?.write({
@@ -452,13 +453,13 @@ export class TaskLoop {
       promptTokenCount: overflow.promptTokenCount,
       maxPromptBudget: overflow.maxPromptBudget,
       overflowTokens: overflow.overflowTokens,
-      maxOutputTokens: overflow.maxOutputTokens,
     });
     return {
       outcome: 'stop',
       turnNumber: turn,
       promptTokenCount: overflow.promptTokenCount,
-      maxOutputTokens: overflow.maxOutputTokens,
+      // A stopped turn issues no planner request, so it has no generation limit.
+      maxOutputTokens: 0,
       messages: toProtocolChatMessages(this.transcript.getMessages()),
       toolDefinitions: [...this.plannerProtocolTools],
       inForcedFinishMode,
@@ -689,6 +690,7 @@ export class TaskLoop {
         this.plannerThinking,
         this.plannerProtocolTools,
         this.slotId,
+        prepared.promptTokenCount,
       );
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,

@@ -18,7 +18,7 @@ function llama(overrides: Partial<DashboardModelRuntimePreset>): DashboardModelR
     ...MANAGED_PRESET,
     Backend: 'llama', Model: 'Qwen3.5-35B Q4_K_L', BindHost: '127.0.0.1', Port: 8097,
     NumCtx: 128000, GpuLayers: 999, BatchSize: 512, UBatchSize: 512, KvCacheQuantization: 'f16',
-    Temperature: 0.7, TopP: 0.8, TopK: 20, MaxTokens: 15000,
+    Temperature: 0.7, TopP: 0.8, TopK: 20,
     Reasoning: 'off', MaintainPerStepThinking: true, ReasoningBudget: 10000,
     SpeculativeEnabled: true, SpeculativeType: 'ngram-map-k', SpeculativeNgramSizeN: 12, SpeculativeNgramSizeM: 4,
     SpeculativeDraftMin: 2, SpeculativeDraftMax: 8,
@@ -42,7 +42,7 @@ test('memory summary branches on backend', () => {
 });
 
 test('sampling / reasoning / lifecycle summaries', () => {
-  assert.equal(summarizeSampling(llama({})), 'temp 0.7 · top-p 0.8 · top-k 20 · max 15k');
+  assert.equal(summarizeSampling(llama({})), 'temp 0.7 · top-p 0.8 · top-k 20');
   assert.equal(summarizeReasoning(llama({})), 'off · per-step thinking on · budget 10k');
   assert.equal(summarizeLifecycle(llama({})), 'startup 120s · probe 5s/1s · idle unload 600s');
 });
@@ -62,5 +62,5 @@ test('speculative summary covers ngram, draft and off', () => {
 
 test('summarizeModelPresetGroup dispatches by id and groups are complete', () => {
   assert.equal(MODEL_PRESET_GROUPS.length, 6);
-  assert.equal(summarizeModelPresetGroup('sampling', llama({})), 'temp 0.7 · top-p 0.8 · top-k 20 · max 15k');
+  assert.equal(summarizeModelPresetGroup('sampling', llama({})), 'temp 0.7 · top-p 0.8 · top-k 20');
 });

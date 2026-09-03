@@ -1,5 +1,5 @@
 import type { SiftConfig } from '../../config/index.js';
-import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import {
@@ -48,7 +48,6 @@ export type PreparedTurnBudget =
       promptTokenCount: number;
       maxPromptBudget: number;
       overflowTokens: number;
-      maxOutputTokens: number;
     };
 
 export class PromptPreparer {
@@ -82,7 +81,6 @@ export class PromptPreparer {
 
   private failOverflow(
     preflight: PreflightResult,
-    maxOutputTokens: number,
     turn: number,
     compacted: boolean,
   ): never {
@@ -90,8 +88,8 @@ export class PromptPreparer {
     const overflowError = new Error(
       `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
         + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
-        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} `
-        + `response_reserve_tokens=${budget.responseReserveTokens} compacted=${compacted}`,
+        + `total_context_tokens=${budget.totalContextTokens} `
+        + `compaction_reserve_tokens=${budget.compactionReserveTokens} compacted=${compacted}`,
     );
     this.options.logger?.write({
       kind: 'turn_preflight_overflow_fail',
@@ -100,9 +98,8 @@ export class PromptPreparer {
       promptTokenCount: preflight.promptTokenCount,
       maxPromptBudget: preflight.maxPromptBudget,
       overflowTokens: preflight.overflowTokens,
-      maxOutputTokens,
       totalContextTokens: budget.totalContextTokens,
-      responseReserveTokens: budget.responseReserveTokens,
+      compactionReserveTokens: budget.compactionReserveTokens,
       error: overflowError.message,
     });
     throw overflowError;
@@ -147,11 +144,13 @@ export class PromptPreparer {
     if (preflight.tokenizationAttempted) {
       progress.tokenizeDone(turn, preflight.promptChars, preflight);
     }
-    let maxOutputTokens = getDynamicMaxOutputTokens({
-      config: this.options.config,
-      totalContextTokens: budget.totalContextTokens,
-      promptTokenCount: preflight.promptTokenCount,
-    });
+    // An overflowing prompt has no generation limit: it must compact or stop first.
+    let maxOutputTokens = preflight.ok
+      ? resolveGenerationTokenLimit({
+        totalContextTokens: budget.totalContextTokens,
+        promptTokenCount: preflight.promptTokenCount,
+      })
+      : null;
 
     this.options.logger?.write({
       kind: 'turn_preflight_budget',
@@ -182,16 +181,14 @@ export class PromptPreparer {
           promptTokenCount: preflight.promptTokenCount,
           maxPromptBudget: preflight.maxPromptBudget,
           overflowTokens: preflight.overflowTokens,
-          maxOutputTokens,
           totalContextTokens: budget.totalContextTokens,
-          responseReserveTokens: budget.responseReserveTokens,
+          compactionReserveTokens: budget.compactionReserveTokens,
         });
         return {
           kind: 'context_overflow',
           promptTokenCount: preflight.promptTokenCount,
           maxPromptBudget: preflight.maxPromptBudget,
           overflowTokens: preflight.overflowTokens,
-          maxOutputTokens,
         };
       }
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
@@ -236,11 +233,12 @@ export class PromptPreparer {
         afterPromptTokenCount: afterCompaction.promptTokenCount,
         droppedMessageCount: compacted.droppedMessageCount,
       });
-      maxOutputTokens = getDynamicMaxOutputTokens({
-        config: this.options.config,
-        totalContextTokens: budget.totalContextTokens,
-        promptTokenCount: afterCompaction.promptTokenCount,
-      });
+      maxOutputTokens = afterCompaction.ok
+        ? resolveGenerationTokenLimit({
+          totalContextTokens: budget.totalContextTokens,
+          promptTokenCount: afterCompaction.promptTokenCount,
+        })
+        : null;
       this.options.logger?.write({
         kind: 'turn_preflight_compaction_applied',
         taskId,
@@ -262,8 +260,8 @@ export class PromptPreparer {
       preflight = afterCompaction;
     }
 
-    if (!preflight.ok) {
-      this.failOverflow(preflight, maxOutputTokens, turn, true);
+    if (!preflight.ok || maxOutputTokens === null) {
+      this.failOverflow(preflight, turn, true);
     }
 
     return {

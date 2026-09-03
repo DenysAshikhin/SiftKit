@@ -36,7 +36,6 @@ function presetToLlamaCpp(preset: DashboardModelRuntimePreset): DashboardLlamaCp
     MinP: preset.MinP,
     PresencePenalty: preset.PresencePenalty,
     RepetitionPenalty: preset.RepetitionPenalty,
-    MaxTokens: preset.MaxTokens,
     GpuLayers: preset.GpuLayers,
     Threads: preset.Threads,
     NcpuMoe: preset.NcpuMoe,
@@ -106,6 +105,12 @@ function createConfig(): DashboardConfig {
     },
   };
 }
+
+test('dashboard defaults omit model response MaxTokens', () => {
+  const preset = createPreset();
+  assert.equal(Object.hasOwn(preset, 'MaxTokens'), false);
+  assert.equal(Object.hasOwn(presetToLlamaCpp(preset), 'MaxTokens'), false);
+});
 
 function normalizeSingleModelPreset(
   preset: Partial<DashboardModelRuntimePreset>,

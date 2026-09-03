@@ -49,7 +49,7 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   });
 
   const plannerMessages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
-  const executing = captureExecutingPlannerRequest(plannerMessages, thinking, tools, slotId);
+  const executing = captureExecutingPlannerRequest(plannerMessages, thinking, tools, slotId, 1_000);
   await requestRepoSearchPlannerProtocolAction({
     config, baseUrl, model, messages: plannerMessages, slotId,
     timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: LIVE_PLANNER_MAX_TOKENS, ...thinking,

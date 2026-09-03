@@ -4,6 +4,7 @@ import { parseJsonText } from '../../lib/json.js';
 import { tableExists, tableHasColumn } from './schema-introspection.js';
 import {
   migrateAppConfigIdleAction,
+  migrateActiveStateRemoveMaxTokens,
   migrateAppConfigRemoveGlobalStartupContext,
   migrateAppConfigToPresetSourceOfTruth,
   migrateChatSessionsToModelPresetIdentity,
@@ -727,6 +728,12 @@ export const MIGRATIONS: readonly Migration[] = [
           CHECK (keyboard_idle_seconds >= 0);
         UPDATE assistant_activity_events SET keyboard_idle_seconds = mouse_idle_seconds;
       `);
+    },
+  },
+  {
+    version: 59,
+    up: (database) => {
+      migrateActiveStateRemoveMaxTokens(database);
     },
   },
 ];

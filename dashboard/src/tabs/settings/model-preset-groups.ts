@@ -31,7 +31,7 @@ export function summarizeMemory(preset: DashboardModelRuntimePreset): string {
 }
 
 export function summarizeSampling(preset: DashboardModelRuntimePreset): string {
-  return `temp ${preset.Temperature} · top-p ${preset.TopP} · top-k ${preset.TopK} · max ${formatCompactTokenCount(preset.MaxTokens)}`;
+  return `temp ${preset.Temperature} · top-p ${preset.TopP} · top-k ${preset.TopK}`;
 }
 
 export function summarizeReasoning(preset: DashboardModelRuntimePreset): string {

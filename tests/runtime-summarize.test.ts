@@ -1048,9 +1048,10 @@ test('empty structured output retries once then fails, and subsequent requests s
   });
 });
 
-test('summary requests use the host model and the caller MaxTokens overlay', async () => {
+test('summary requests use the host model and only an explicit operation cap', async () => {
   await withTempEnv(async () => {
-    await withStubServer(async (server) => {
+    await withStubServer(
+      async (server) => {
       resetHostLlamaSettingsCacheForTests();
       const stubBaseUrl = `http://127.0.0.1:${server.port}`;
       const hostPreset = server.state.config.Server.ModelPresets.Presets[0];
@@ -1058,6 +1059,8 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
         throw new Error('Stub host config has no model preset.');
       }
       hostPreset.Model = 'host-loaded-model.gguf';
+        hostPreset.NumCtx = 155_000;
+        server.state.config.Runtime.LlamaCpp.NumCtx = 155_000;
       const config = mockConfig({
         Runtime: { LlamaCpp: { BaseUrl: stubBaseUrl } },
         Server: {
@@ -1070,12 +1073,11 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
               Model: 'stale-local-model',
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
-              MaxTokens: 9000,
               IdleAction: 'unload',
             }],
+            },
           },
-        },
-      });
+        });
 
       const result = await summarizeRequest({
         repoRoot: process.cwd(),
@@ -1093,6 +1095,25 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
       assert.ok(chatRequest);
       assert.equal(chatRequest.model, 'host-loaded-model.gguf');
       assert.equal(chatRequest.max_tokens, 321);
+
+        await summarizeRequest({
+          repoRoot: process.cwd(),
+          question: 'summarize this',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          provider: 'real',
+          config,
     });
+
+        const uncappedRequest = server.state.chatRequests[1];
+        assert.ok(uncappedRequest);
+        assert.equal(
+          uncappedRequest.max_tokens,
+          155_000 - Math.ceil(getChatRequestText(uncappedRequest).length / 4),
+        );
+      },
+      { tokenizeCharsPerToken: 4 },
+    );
   });
 });

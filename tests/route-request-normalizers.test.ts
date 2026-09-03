@@ -124,6 +124,16 @@ test('parseSummaryRequest omits llamaCppMaxTokens when it is absent', () => {
   assert.equal(parsed?.llamaCppMaxTokens, undefined);
 });
 
+test('parseSummaryRequest rejects a llamaCppMaxTokens that is not a positive integer', () => {
+  for (const llamaCppMaxTokens of [0, -1, 1.5, 'abc']) {
+    assert.equal(
+      parseSummaryRequest({ question: 'q', inputText: 'some input text', repoRoot: 'C:/repo', llamaCppMaxTokens }),
+      null,
+      `llamaCppMaxTokens=${String(llamaCppMaxTokens)}`,
+    );
+  }
+});
+
 test('parseSummaryRequest preserves an explicit empty promptPrefix as an override', () => {
   // SummaryRequest semantics (request-runner.ts:290): undefined => use the
   // configured prefix; a string (including "") => explicit override. The HTTP

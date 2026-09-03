@@ -46,6 +46,7 @@ test('captureExecutingPlannerRequest isolates the snapshot from later input muta
     flags,
     tools,
     3,
+    1_000,
   );
   const serializedToolsBefore = captured.serializedToolsJson;
   const toolsBefore = [{

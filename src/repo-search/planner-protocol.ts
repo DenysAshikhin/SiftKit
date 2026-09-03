@@ -1,5 +1,7 @@
 import type { SiftConfig } from '../config/types.js';
-import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
+import { getConfiguredLlamaNumCtx } from '../config/getters.js';
+import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition, StreamStop } from '../llm-protocol/types.js';
@@ -231,6 +233,8 @@ export type ExecutingPlannerRequest = {
   readonly tools: readonly LlamaCppToolDefinition[];
   readonly serializedToolsJson: string;
   readonly slotId: number;
+  /** The measured size of this prompt, so a derived request budgets from it instead of re-counting. */
+  readonly promptTokenCount: number;
 };
 
 export type CompactionCacheOrigin =
@@ -248,7 +252,11 @@ export function captureExecutingPlannerRequest(
   flags: PlannerThinkingFlags,
   tools: readonly LlamaCppToolDefinition[],
   slotId: number,
+  promptTokenCount: number,
 ): ExecutingPlannerRequest {
+  if (!Number.isInteger(promptTokenCount) || promptTokenCount < 0) {
+    throw new Error(`promptTokenCount must be a non-negative integer, got ${promptTokenCount}.`);
+  }
   const serializedToolsJson = JSON.stringify(tools);
   return {
     serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
@@ -256,6 +264,7 @@ export function captureExecutingPlannerRequest(
     tools: LlamaCppToolDefinitionsSchema.parse(parseJsonValueText(serializedToolsJson)),
     serializedToolsJson,
     slotId,
+    promptTokenCount,
   };
 }
 
@@ -641,13 +650,23 @@ export async function requestApprovalVerdict(options: {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
+  const verdictMessages = buildApprovalVerdictPromptMessages(
+    options.transcriptMessages,
+    options.pendingMessages,
+    options.question,
+  );
   const serializedMessages = serializeProtocolMessages(
-    buildApprovalVerdictPromptMessages(
-      options.transcriptMessages,
-      options.pendingMessages,
-      options.question,
-    ),
+    verdictMessages,
     options.executing.flags.reasoningContentEnabled,
+  );
+  // A verdict extends an executing planner prompt whose size is already measured, so only
+  // the appended messages need pricing. Estimating that short tail keeps an approval
+  // decision off the tokenize round trip without re-counting the whole prompt.
+  const promptTokenCount = options.executing.promptTokenCount + estimateTokenCount(
+    options.config,
+    serializedMessages.slice(options.executing.serializedMessageJson.length)
+      .map((message) => JSON.stringify(message))
+      .join(''),
   );
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,
@@ -656,12 +675,13 @@ export async function requestApprovalVerdict(options: {
     messages: serializedMessages,
     slotId: options.executing.slotId,
     timeoutMs: options.timeoutMs,
-    maxTokens: clampToPresetMaxTokens(
-      options.config,
-      options.executing.flags.thinkingEnabled
+    maxTokens: resolveGenerationTokenLimit({
+      totalContextTokens: getConfiguredLlamaNumCtx(options.config),
+      promptTokenCount,
+      operationMaxTokens: options.executing.flags.thinkingEnabled
         ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
         : APPROVAL_VERDICT_MAX_TOKENS,
-    ),
+    }),
     // The thinking flags mirror the executing planner request: they feed the
     // server-side chat_template_kwargs, and any difference re-renders (and so
     // re-prefills) the shared prompt prefix. Thinking is bounded, not disabled:

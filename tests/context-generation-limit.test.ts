@@ -1,112 +1,67 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clampToPresetMaxTokens, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
-import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
-import { JsonValueSchema } from '../src/lib/json-types.js';
-import type { SiftConfig } from '../src/config/types.js';
-import { asRuntimeSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
+import {
+  resolveFinalGenerationTokenLimit,
+  resolveGenerationTokenLimit,
+} from '../src/lib/context-token-budget.js';
 
-function configWithMaxTokens(maxTokens: number): SiftConfig {
-  return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: maxTokens, IdleAction: 'unload' }] } },
-  });
-}
-
-// Normalization repairs a non-positive MaxTokens, so the loud-failure branch needs a raw object.
-function configWithRawMaxTokens(maxTokens: number): SiftConfig {
-  const base = configWithMaxTokens(15_000);
-  return asRuntimeSiftConfig(JsonValueSchema.parse({
-    ...base,
-    Server: {
-      ...base.Server,
-      ModelPresets: {
-        ...base.Server.ModelPresets,
-        Presets: base.Server.ModelPresets.Presets.map((preset) => ({ ...preset, MaxTokens: maxTokens })),
-      },
-    },
-  }));
-}
-
-test('a roomy context yields exactly the shared reserve as the output cap', () => {
-  assert.equal(
-    getDynamicMaxOutputTokens({
-      totalContextTokens: 140_000,
-      promptTokenCount: 20_000,
-      config: configWithMaxTokens(15_000),
-    }),
-    RESPONSE_RESERVE_TOKENS,
-  );
+test('generation uses the window still free at the current prompt position', () => {
+  assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 0 }), 155_000);
+  assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 285 }), 154_715);
+  assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 100_000 }), 55_000);
 });
 
-test('a nearly full context yields only what remains', () => {
+// The reserve caps how large a prompt may grow, not how much a request may generate,
+// so a prompt admitted at the very top of its budget still has the reserve to answer in.
+test('a prompt at the top of its budget still generates into the compaction reserve', () => {
+  assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 140_000 }), 15_000);
+  assert.equal(resolveGenerationTokenLimit({ totalContextTokens: 32_000, promptTokenCount: 17_000 }), 15_000);
+});
+
+test('an explicit operation cap may only lower the context-derived limit', () => {
   assert.equal(
-    getDynamicMaxOutputTokens({
-      totalContextTokens: 140_000,
-      promptTokenCount: 133_000,
-      config: configWithMaxTokens(15_000),
-    }),
+    resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 285, operationMaxTokens: 4_096 }),
+    4_096,
+  );
+  assert.equal(
+    resolveGenerationTokenLimit({ totalContextTokens: 8_000, promptTokenCount: 1_000, operationMaxTokens: 10_000 }),
     7_000,
   );
 });
 
-test('the output cap is already bounded by the preset MaxTokens without a second clamp', () => {
-  assert.equal(
-    getDynamicMaxOutputTokens({
-      totalContextTokens: 140_000,
-      promptTokenCount: 1_000,
-      config: configWithMaxTokens(2_000),
-    }),
-    2_000,
-  );
+test('a prompt that fills the window fails loudly instead of generating one token', () => {
+  for (const promptTokenCount of [155_000, 200_000]) {
+    assert.throws(
+      () => resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount }),
+      /fills the 155000-token context window/u,
+    );
+  }
 });
 
-test('the output cap never drops below one token', () => {
-  assert.equal(
-    getDynamicMaxOutputTokens({
-      totalContextTokens: 140_000,
-      promptTokenCount: 200_000,
-      config: configWithMaxTokens(15_000),
-    }),
-    1,
-  );
+test('invalid prompt counts fail loudly', () => {
+  for (const promptTokenCount of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(
+      () => resolveGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount }),
+      /promptTokenCount must be a non-negative integer/u,
+    );
+  }
 });
 
-test('an absent config still bounds the output cap by the shared reserve', () => {
-  assert.equal(
-    getDynamicMaxOutputTokens({ totalContextTokens: 140_000, promptTokenCount: 20_000, config: null }),
-    RESPONSE_RESERVE_TOKENS,
-  );
+test('invalid operation caps fail loudly', () => {
+  for (const operationMaxTokens of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(
+      () => resolveGenerationTokenLimit({
+        totalContextTokens: 155_000,
+        promptTokenCount: 285,
+        operationMaxTokens,
+      }),
+      /operationMaxTokens must be a positive integer/u,
+    );
+  }
 });
 
-test('clampToPresetMaxTokens caps a fixed value at the active preset MaxTokens', () => {
-  assert.equal(clampToPresetMaxTokens(configWithMaxTokens(2000), 25_000), 2000);
-});
-
-test('clampToPresetMaxTokens keeps a value below the preset cap', () => {
-  assert.equal(clampToPresetMaxTokens(configWithMaxTokens(15_000), 1234), 1234);
-});
-
-test('clampToPresetMaxTokens throws on a non-positive preset MaxTokens instead of capping at 1', () => {
-  assert.throws(
-    () => clampToPresetMaxTokens(configWithRawMaxTokens(0), 100),
-    /Active model preset "default" has an invalid MaxTokens: 0/,
-  );
-});
-
-test('clampToPresetMaxTokens throws on a fractional preset MaxTokens', () => {
-  assert.throws(
-    () => clampToPresetMaxTokens(configWithRawMaxTokens(12.5), 100),
-    /Active model preset "default" has an invalid MaxTokens: 12.5/,
-  );
-});
-
-test('estimate-driven callers still get a positive cap', () => {
-  assert.ok(
-    getDynamicMaxOutputTokens({
-      totalContextTokens: 32_000,
-      promptTokenCount: 1_000,
-      config: configWithMaxTokens(15_000),
-    }) > 0,
-  );
+test('a terminal answer is still attempted from an over-full transcript', () => {
+  assert.equal(resolveFinalGenerationTokenLimit({ totalContextTokens: 155_000, promptTokenCount: 140_000 }), 15_000);
+  assert.equal(resolveFinalGenerationTokenLimit({ totalContextTokens: 7_000, promptTokenCount: 7_589 }), 1);
 });

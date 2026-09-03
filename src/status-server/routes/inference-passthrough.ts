@@ -13,6 +13,8 @@ import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-ty
 import { parseJsonValueText } from '../../lib/json.js';
 import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
+import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
 import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
 import { serverLogger } from '../server-logger.js';
@@ -91,18 +93,25 @@ function validateChatBody(bodyText: string): number {
   return parsed.messages.length;
 }
 
-function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string {
+function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config: SiftConfig): string {
   const parsed = parseJsonValueText(bodyText);
   if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
     throw new Error('Expected a JSON object with a messages array.');
   }
   const defaults = buildPresetRequestDefaults(preset);
   parsed.model = preset.Model ?? preset.id;
-  // The preset is authoritative for sampling; a caller may only lower max_tokens.
-  const callerMaxTokens = typeof parsed.max_tokens === 'number' && parsed.max_tokens >= 1
-    ? parsed.max_tokens
-    : defaults.maxTokens;
-  parsed.max_tokens = Math.min(callerMaxTokens, defaults.maxTokens);
+  // The preset is authoritative for sampling; a caller may only lower the ceiling the
+  // context leaves once this prompt is accounted for. A passthrough caller supplies no
+  // measured count, so the prompt is priced with the local estimate.
+  parsed.max_tokens = resolveGenerationTokenLimit({
+    totalContextTokens: preset.NumCtx,
+    promptTokenCount: estimateTokenCount(config, JSON.stringify(parsed.messages)),
+    operationMaxTokens: typeof parsed.max_tokens === 'number'
+      && Number.isInteger(parsed.max_tokens)
+      && parsed.max_tokens >= 1
+      ? parsed.max_tokens
+      : undefined,
+  });
   parsed.temperature = defaults.temperature;
   parsed.top_p = defaults.topP;
   parsed.top_k = defaults.topK;
@@ -238,7 +247,7 @@ class WorkloadEndpoint implements RouteEndpoint {
         return;
       }
       if (match.pathname === CHAT_PATH) {
-        const translatedBody = translateChatBody(bodyText, currentPreset);
+        const translatedBody = translateChatBody(bodyText, currentPreset, currentConfig);
         serverLogger.event({
           scope: 'proxy',
           id: '',

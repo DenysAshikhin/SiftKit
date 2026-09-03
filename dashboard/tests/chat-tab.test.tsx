@@ -725,7 +725,6 @@ test('a real compacting stream persists and immediately renders one boundary', a
     preset.NumCtx = 9_000;
     // Compaction reserves two thirds of generation for reasoning and guarantees
     // a 512-token summary-output floor, so the fixture needs the full 3x budget.
-    preset.MaxTokens = 1_536;
     writeConfig(getRuntimeDatabasePath(), config);
 
     const created = ChatSessionResponseSchema.parse((await requestJson(

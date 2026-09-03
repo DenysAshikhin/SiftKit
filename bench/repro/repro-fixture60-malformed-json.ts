@@ -364,7 +364,11 @@ export async function runFixture60MalformedJsonRepro(
     const backend = DEFAULT_SUMMARY_PROVIDER;
     const model = getConfiguredModel(config);
     const promptPrefix = getConfiguredPromptPrefix(config) ?? '';
-    const promptBuilder = new SummaryReproPromptBuilder(config, repoRoot, promptPrefix);
+    // The system context is loaded from the fixture tree, not the checkout: the chunk
+    // budget below sizes slices against NumCtx alone, so a repro that pulled in this
+    // repository's own context files would build prompts larger than the whole window
+    // and vary with whatever the checkout happens to contain.
+    const promptBuilder = new SummaryReproPromptBuilder(config, fixtureRoot, promptPrefix);
     const promptComposition = promptBuilder.getComposition();
     manifest.backend = backend;
     manifest.model = model;

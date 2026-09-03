@@ -47,6 +47,7 @@ export async function invokeProviderSummary(options: {
   chunkTotal: number | null;
   chunkPath: string | null;
   reasoningOverride?: 'on' | 'off';
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -134,6 +135,7 @@ export async function invokeProviderSummary(options: {
         idleTimeoutSeconds: options.requestTimeoutSeconds ?? 600,
         slotId: options.slotId ?? undefined,
         reasoningOverride: options.reasoningOverride,
+        operationMaxTokens: options.operationMaxTokens,
         structuredOutput: {
           kind: 'siftkit-decision-json',
           allowUnsupportedInput: options.provider !== 'real' || options.phase === 'leaf' && options.chunkPath !== null,

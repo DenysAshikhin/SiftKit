@@ -35,7 +35,6 @@ test('dashboard metrics timeseries loads when managed llama is unconfigured', as
     config.Runtime.LlamaCpp.MinP = 0;
     config.Runtime.LlamaCpp.PresencePenalty = 0;
     config.Runtime.LlamaCpp.RepetitionPenalty = 0;
-    config.Runtime.LlamaCpp.MaxTokens = 0;
     config.Runtime.LlamaCpp.GpuLayers = 0;
     config.Runtime.LlamaCpp.Threads = 0;
     config.Runtime.LlamaCpp.FlashAttention = null;

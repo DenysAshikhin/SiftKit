@@ -52,7 +52,6 @@ export type ModelIntegerField =
   | 'UBatchSize'
   | 'CacheRam'
   | 'CacheRecurrentRam'
-  | 'MaxTokens'
   | 'TopK'
   | 'SpeculativeNgramSizeN'
   | 'SpeculativeNgramSizeM'

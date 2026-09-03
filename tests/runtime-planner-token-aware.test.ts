@@ -29,7 +29,7 @@ import {
 const SIFTKIT_REPO_ROOT = process.cwd();
 import type { SiftConfig } from '../src/config/types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
-import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 import type { SummaryPolicyProfile } from '../src/summary/types.js';
 
 interface FixtureManifestEntry {
@@ -541,7 +541,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   });
 });
 
-test('getPlannerPromptBudget subtracts the shared response reserve from a 190k context', () => {
+test('getPlannerPromptBudget subtracts the shared compaction reserve from a 190k context', () => {
   const config = getDefaultConfig();
   config.Runtime.LlamaCpp.NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'off';
@@ -549,8 +549,8 @@ test('getPlannerPromptBudget subtracts the shared response reserve from a 190k c
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
-    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
+    compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - PROMPT_COMPACTION_RESERVE_TOKENS,
   });
 });
 
@@ -562,20 +562,8 @@ test('the planner budget no longer varies with Reasoning: thinking draws from th
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
-    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
-  });
-});
-
-test('a lower preset MaxTokens shrinks the planner reserve and frees prompt tokens', () => {
-  const config = getDefaultConfig();
-  config.Runtime.LlamaCpp.NumCtx = 190000;
-  getActiveModelPreset(config).MaxTokens = 6000;
-
-  assert.deepEqual(getPlannerPromptBudget(config), {
-    numCtxTokens: 190000,
-    responseReserveTokens: 6000,
-    plannerStopLineTokens: 184000,
+    compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - PROMPT_COMPACTION_RESERVE_TOKENS,
   });
 });
 

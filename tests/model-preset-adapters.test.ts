@@ -26,6 +26,25 @@ function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRu
   return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'llama', ...overrides });
 }
 
+test('model preset contracts reject the removed MaxTokens field', () => {
+  const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  assert.ok(defaultPreset);
+  assert.equal(Object.hasOwn(defaultPreset, 'MaxTokens'), false);
+  assert.equal(ModelPresetFieldSchema.safeParse('MaxTokens').success, false);
+  assert.equal(
+    ManagedLlamaSettingsSchema.safeParse({ ...defaultPreset, MaxTokens: 512 })
+      .success,
+    true,
+  );
+  assert.equal(
+    Object.hasOwn(
+      ManagedLlamaSettingsSchema.parse({ ...defaultPreset, MaxTokens: 512 }),
+      'MaxTokens',
+    ),
+    false,
+  );
+});
+
 test('EXL3 adapter translates shared batching and MTP settings for managed Tabby', () => {
   const preset = createModelPreset({
     Backend: 'exl3',
@@ -355,7 +374,6 @@ const PRESET_FIELD_EXPECTATIONS = {
   CacheRam: EXL3_MANAGED_ONLY,
   CacheRecurrentRam: EXL3_ONLY,
   KvCacheQuantization: EXL3_NARROWED,
-  MaxTokens: ON_BOTH_BACKENDS,
   Temperature: ON_BOTH_BACKENDS,
   TopP: ON_BOTH_BACKENDS,
   TopK: ON_BOTH_BACKENDS,
@@ -421,12 +439,10 @@ test('EXL3 adapter returns common request defaults', () => {
     Backend: 'exl3',
     ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
     Reasoning: 'on',
-    MaxTokens: 73,
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
 
   assert.deepEqual(adapter.buildRequestDefaults(preset), {
-    maxTokens: 73,
     temperature: preset.Temperature,
     topP: preset.TopP,
     topK: preset.TopK,
@@ -444,7 +460,6 @@ test('EXL3 adapter returns common request defaults', () => {
 test('llama adapter preserves launch settings and common request defaults', () => {
   const preset = createModelPreset({
     Backend: 'llama',
-    MaxTokens: 42,
     Temperature: 0.25,
     TopP: 0.9,
     TopK: 17,
@@ -460,7 +475,6 @@ test('llama adapter preserves launch settings and common request defaults', () =
 
   assert.deepEqual(adapter.buildLaunchSettings(preset), ManagedLlamaSettingsSchema.parse(preset));
   assert.deepEqual(adapter.buildRequestDefaults(preset), {
-    maxTokens: 42,
     temperature: 0.25,
     topP: 0.9,
     topK: 17,

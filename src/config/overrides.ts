@@ -45,14 +45,3 @@ export function applyModelOverrideToConfig(config: SiftConfig, model: string | n
   const trimmed = typeof model === 'string' ? model.trim() : '';
   return trimmed ? overlayActivePreset(config, { Model: trimmed }) : config;
 }
-
-/** Caller-supplied output cap; `clampToPresetMaxTokens` then enforces it like any preset cap. */
-export function applyMaxTokensOverrideToConfig(config: SiftConfig, maxTokens: number | undefined): SiftConfig {
-  if (maxTokens === undefined) {
-    return config;
-  }
-  if (!Number.isFinite(maxTokens) || Math.floor(maxTokens) < 1) {
-    throw new Error(`MaxTokens override must be a positive integer, got ${maxTokens}.`);
-  }
-  return overlayActivePreset(config, { MaxTokens: Math.floor(maxTokens) });
-}

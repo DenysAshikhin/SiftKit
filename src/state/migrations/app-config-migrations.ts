@@ -27,6 +27,9 @@ const IdleActionMigrationConfigRowSchema = z.object({ presets_json: z.string() }
 const IdleActionMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string().nullable() });
 const IdleActionMigrationBenchmarkSessionRowSchema = z.object({ id: z.string(), original_config_json: z.string() });
 const IdleActionMigrationBenchmarkCaseRowSchema = z.object({ id: z.string(), managed_preset_json: z.string() });
+const MaxTokensMigrationConfigRowSchema = z.object({ presets_json: z.string() });
+const MaxTokensMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string() });
+const MaxTokensMigrationMetadataRowSchema = z.object({ value: z.string() });
 
 const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
   'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
@@ -598,4 +601,84 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
     }
   });
   migrate();
+}
+
+function stripPresetMaxTokens(value: JsonValue, source: string): JsonObject {
+  const preset = requireMigrationObject(value, source);
+  const { MaxTokens: _MaxTokens, ...remaining } = preset;
+  return remaining;
+}
+
+function stripPresetArrayMaxTokens(text: string, source: string): JsonObject[] {
+  const parsed = parseMigrationJson(text, source);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Cannot migrate ${source}: expected a JSON array of preset objects.`);
+  }
+  return parsed.map((preset, index) => stripPresetMaxTokens(preset, `${source}[${index}]`));
+}
+
+/** v59: removes the retired response cap from every active execution snapshot. */
+export function migrateActiveStateRemoveMaxTokens(database: RuntimeDatabase): void {
+  const rawConfigRow = database.prepare(
+    'SELECT server_llama_presets_json AS presets_json FROM app_config WHERE id = 1',
+  ).get();
+  const configRow = rawConfigRow == null ? null : MaxTokensMigrationConfigRowSchema.parse(rawConfigRow);
+  const presets = configRow === null
+    ? null
+    : stripPresetArrayMaxTokens(configRow.presets_json, 'app_config.server_llama_presets_json');
+
+  const sessions = z.array(MaxTokensMigrationSessionRowSchema).parse(database.prepare(`
+    SELECT id, model_preset_json
+    FROM chat_sessions
+    WHERE model_preset_json IS NOT NULL
+    ORDER BY id
+  `).all());
+  const migratedSessions = sessions.map((session) => {
+    const source = `chat_sessions[${session.id}].model_preset_json`;
+    return {
+      id: session.id,
+      modelPresetJson: JSON.stringify(
+        stripPresetMaxTokens(parseMigrationJson(session.model_preset_json, source), source),
+      ),
+    };
+  });
+
+  const rawLaunchRow = database.prepare(
+    "SELECT value FROM runtime_metadata WHERE key = 'runtime_llama_launch_snapshot'",
+  ).get();
+  const launchRow = rawLaunchRow == null ? null : MaxTokensMigrationMetadataRowSchema.parse(rawLaunchRow);
+  let migratedLaunchJson: string | null = null;
+  if (launchRow !== null) {
+    const launchSource = 'runtime_metadata.runtime_llama_launch_snapshot';
+    const launch = requireMigrationObject(parseMigrationJson(launchRow.value, launchSource), launchSource);
+    migratedLaunchJson = JSON.stringify({
+      ...launch,
+      LlamaCpp: stripPresetMaxTokens(JsonValueSchema.parse(launch.LlamaCpp), `${launchSource}.LlamaCpp`),
+    });
+  }
+
+  database.transaction(() => {
+    if (presets !== null) {
+      database.prepare(`
+        UPDATE app_config
+        SET server_llama_presets_json = ?
+        WHERE id = 1
+      `).run(JSON.stringify(presets));
+    }
+    const updateSession = database.prepare(`
+      UPDATE chat_sessions
+      SET model_preset_json = ?
+      WHERE id = ?
+    `);
+    for (const session of migratedSessions) {
+      updateSession.run(session.modelPresetJson, session.id);
+    }
+    if (migratedLaunchJson !== null) {
+      database.prepare(`
+        UPDATE runtime_metadata
+        SET value = ?
+        WHERE key = 'runtime_llama_launch_snapshot'
+      `).run(migratedLaunchJson);
+    }
+  })();
 }

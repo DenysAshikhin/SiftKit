@@ -121,7 +121,7 @@ export type StructuredModelDecision = {
 
 export type PlannerPromptBudget = {
   numCtxTokens: number;
-  responseReserveTokens: number;
+  compactionReserveTokens: number;
   plannerStopLineTokens: number;
 };
 

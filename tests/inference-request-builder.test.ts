@@ -19,7 +19,6 @@ const tools = [
   },
 ];
 const defaults = {
-  maxTokens: 128,
   temperature: 0.7,
   topP: 0.8,
   topK: 20,
@@ -40,7 +39,7 @@ test('llama request includes llama-only cache and slot controls', () => {
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true, slotId: 2 },
   });
@@ -58,7 +57,7 @@ test('streamed EXL3 request asks the server for usage in the final chunk', () =>
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
@@ -73,7 +72,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
     messages,
     tools,
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     responseFormat: {
       type: 'json_schema',
       json_schema: { name: 'answer', schema: { type: 'object' } },
@@ -105,7 +104,6 @@ test('request builder emits every shared sampler for EXL3', () => {
     messages,
     tools: [],
     defaults: {
-      maxTokens: 256,
       temperature: 0.2,
       topP: 0.9,
       topK: 40,
@@ -142,7 +140,7 @@ test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbo
       messages,
       tools: [],
       defaults,
-      maxTokens: defaults.maxTokens,
+      maxTokens: 128,
       thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
       llama: { cachePrompt: false },
     });
@@ -158,7 +156,6 @@ test('sampling always comes from preset defaults; maxTokens is the sole request 
     messages,
     tools: [],
     defaults: {
-      maxTokens: 256,
       temperature: 0.7,
       topP: 0.8,
       topK: 20,
@@ -193,7 +190,7 @@ test('request builder omits thinking kwargs when no thinking override is supplie
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     thinking: { enabled: undefined, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: false },
   });
@@ -208,7 +205,7 @@ test('llama request includes reasoning content when requested', () => {
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     thinking: { enabled: true, preserve: true, reasoningContent: true, effort: 'xhigh' as const },
     llama: { cachePrompt: false },
   });
@@ -236,7 +233,7 @@ test('request builder preserves the canonical planner schema for llama', () => {
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     responseFormat: {
       type: 'json_schema',
       json_schema: { name: 'planner', schema },
@@ -285,7 +282,7 @@ test('request builder passes the structured-output schema through unchanged for 
     messages,
     tools: [],
     defaults,
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     responseFormat: {
       type: 'json_schema',
       json_schema: { name: 'planner', schema },
@@ -309,7 +306,7 @@ test('thinking requests carry the preset reasoning effort', () => {
       messages,
       tools: [],
       defaults: { ...defaults, reasoningEffort: effort },
-      maxTokens: defaults.maxTokens,
+      maxTokens: 128,
       thinking: { enabled: true, preserve: false, reasoningContent: false, effort },
       llama: { cachePrompt: true },
     });
@@ -325,7 +322,7 @@ test('non-thinking requests omit reasoning effort because the template ignores i
     messages,
     tools: [],
     defaults: { ...defaults, reasoningEffort: 'low' },
-    maxTokens: defaults.maxTokens,
+    maxTokens: 128,
     thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'low' },
     llama: { cachePrompt: true },
   });

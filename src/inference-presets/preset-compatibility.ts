@@ -16,7 +16,6 @@ export type PresetFieldAvailability =
   | { visible: true; enabled: boolean; reason: string | null };
 
 export const PresetRequestDefaultsSchema = z.object({
-  maxTokens: z.number(),
   temperature: z.number(),
   topP: z.number(),
   topK: z.number(),
@@ -33,7 +32,6 @@ export type PresetRequestDefaults = z.infer<typeof PresetRequestDefaultsSchema>;
 
 export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRequestDefaults {
   return {
-    maxTokens: preset.MaxTokens,
     temperature: preset.Temperature,
     topP: preset.TopP,
     topK: preset.TopK,
@@ -107,7 +105,6 @@ const PRESET_FIELD_SUPPORT = {
   CacheRam: 'exl3-managed-only',
   CacheRecurrentRam: 'exl3-managed-only-unsupported-by-llama',
   KvCacheQuantization: 'exl3-cache-modes',
-  MaxTokens: 'both',
   Temperature: 'both',
   TopP: 'both',
   TopK: 'both',

@@ -58,7 +58,6 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
         MinP: 0,
         PresencePenalty: 1.5,
         RepetitionPenalty: 1,
-        MaxTokens: 15000,
         Threads: 0,
         FlashAttention: true,
         ParallelSlots: 1,

@@ -94,6 +94,7 @@ export type InvokeSummaryCoreOptions = {
   additionalPromptPrefix: string;
   systemContext: PresetSystemContext;
   allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
@@ -255,6 +256,7 @@ class SummaryCoreRunner {
       additionalPromptPrefix: this.options.additionalPromptPrefix,
       systemContext: this.options.systemContext,
       allowedTools: this.options.allowedPlannerTools,
+      operationMaxTokens: this.options.operationMaxTokens,
       requestTimeoutSeconds: this.options.requestTimeoutSeconds,
       statusBackendUrl: this.options.statusBackendUrl,
       timingRecorder: this.options.timingRecorder || null,
@@ -460,6 +462,7 @@ class SummaryCoreRunner {
         chunkTotal: this.options.chunkTotal ?? null,
         chunkPath: this.options.chunkPath ?? null,
         reasoningOverride,
+        operationMaxTokens: this.options.operationMaxTokens,
         requestTimeoutSeconds: this.options.requestTimeoutSeconds,
         statusBackendUrl: this.options.statusBackendUrl,
         timingRecorder: this.options.timingRecorder || null,

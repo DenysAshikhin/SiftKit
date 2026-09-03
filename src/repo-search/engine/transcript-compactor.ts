@@ -77,7 +77,7 @@ export class TranscriptCompactor {
     model: string;
     timeoutMs: number;
     totalContextTokens: number;
-    responseReserveTokens: number;
+    compactionReserveTokens: number;
     useEstimatedTokensOnly: boolean;
     mockResponses: MockPlannerResponseInput[] | undefined;
     tokenUsage: TokenUsageTracker;
@@ -149,7 +149,7 @@ export class TranscriptCompactor {
     const state = input.cacheOrigin.kind === 'planner'
       ? input.cacheOrigin.executing
       : input.cacheOrigin;
-    const generationTokenCeiling = Math.max(0, Math.floor(this.options.responseReserveTokens));
+    const generationTokenCeiling = Math.max(0, Math.floor(this.options.compactionReserveTokens));
     const measurement = await countPlannerPromptTokens({
       config: this.tokenCountConfig,
       prompt: renderWirePrompt({

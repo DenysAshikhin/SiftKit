@@ -68,7 +68,6 @@ test('settings tooltip labels include the documented fields', () => {
       'CacheRam',
       'CacheRecurrentRam',
       'KV cache quant',
-      'MaxTokens',
       'Temperature',
       'TopP',
       'TopK',

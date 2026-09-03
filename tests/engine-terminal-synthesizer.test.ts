@@ -156,6 +156,7 @@ function synthesisInput() {
       SYNTHESIS_FLAGS,
       [],
       0,
+      1_000,
     ),
     turnsUsed: 3,
     mockResponseIndex: 0,

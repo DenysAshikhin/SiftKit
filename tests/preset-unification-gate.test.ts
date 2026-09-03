@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-// Every inference request derives its sampling, MaxTokens, and reasoning from the
+// Every inference request derives its sampling and reasoning from the
 // single active ModelRuntimePreset. These patterns are the shapes that previously
 // bypassed it; re-introducing one silently splits the source of truth again.
 

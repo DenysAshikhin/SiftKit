@@ -285,9 +285,6 @@ export function ModelPresetsSection({
 
       {group('sampling', (
         <>
-          <SettingsSectionField sectionId="model-presets" label="MaxTokens">
-            <input type="number" value={preset.MaxTokens} onChange={(event) => modelPresetActions.setInteger('MaxTokens', parseIntegerInput(event.target.value, preset.MaxTokens))} />
-          </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Temperature">
             <input type="number" step="0.01" value={preset.Temperature} onChange={(event) => modelPresetActions.setFloat('Temperature', parseFloatInput(event.target.value, preset.Temperature))} />
           </SettingsSectionField>

@@ -15,6 +15,8 @@ export const THINKING_ON_FLAGS = {
 } satisfies PlannerThinkingFlags;
 
 const VERDICT_FIXTURE_SLOT_ID = 2;
+/** A small measured prompt: the fixture exercises verdict wiring, not budget exhaustion. */
+const VERDICT_FIXTURE_PROMPT_TOKENS = 1_000;
 
 /** The executing planner snapshot a verdict must extend: serialized transcript, flags, full tool set. */
 export function captureExecutingForVerdict(
@@ -26,6 +28,7 @@ export function captureExecutingForVerdict(
     flags,
     toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
     VERDICT_FIXTURE_SLOT_ID,
+    VERDICT_FIXTURE_PROMPT_TOKENS,
   );
 }
 

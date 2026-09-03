@@ -366,7 +366,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 3, config: MOCK_LOOP_DEFAULTS.config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 3 });
   const baselinePerToolCapTokens = budget.perToolCapTokens(0, 1);
   const oversizedOutput = Array.from(
     { length: 500 },
@@ -997,7 +997,7 @@ test('runTaskLoop compacts an overflowing repo-agent history and continues from 
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10, config: MOCK_LOOP_DEFAULTS.config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10 });
   const baselinePerToolCapTokens = budget.perToolCapTokens(0, 1);
   const expectedThirdCommandCap = budget.perToolCapTokens(2, 1);
   const result = await runTaskLoop(
@@ -1045,7 +1045,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
   // 15k goes to the shared response reserve, leaving the 35500 prompt tokens this
   // scenario is tuned to.
   const totalContextTokens = 50500;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10, config: MOCK_LOOP_DEFAULTS.config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10 });
   const targetQuestionTokens = budget.maxPromptTokens - budget.perToolCapTokens(0, 1) + 1;
   const oversizedQuestion = 'Q'.repeat(Math.ceil(
     targetQuestionTokens * getTokenEstimateCharactersPerToken(undefined),
@@ -2352,7 +2352,7 @@ function renderTurnOnePrompt(taskKind: LoopTaskKind, historyChars: number): stri
  * rendered prompt is counted the same way here and the padding is exact by construction.
  */
 function historyCharsForPromptLimit(taskKind: LoopTaskKind, totalContextTokens: number): number {
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6 });
   const fixedChars = renderTurnOnePrompt(taskKind, 0).length;
   const historyChars = budget.maxPromptTokens * getTokenEstimateCharactersPerToken(undefined) - fixedChars;
   assert.ok(historyChars > 0, `the fixed prompt (${fixedChars} chars) must sit below the limit`);
@@ -2362,8 +2362,8 @@ function historyCharsForPromptLimit(taskKind: LoopTaskKind, totalContextTokens: 
 
 test('a repo-agent prompt inside the former 129k-140k blind zone still receives its tool result intact', async () => {
   const totalContextTokens = 155_000;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
-  assert.equal(budget.responseReserveTokens, 15_000);
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6 });
+  assert.equal(budget.compactionReserveTokens, 15_000);
   assert.equal(budget.maxPromptTokens, 140_000);
   const events: JsonObject[] = [];
 
@@ -2392,7 +2392,7 @@ test('a repo-agent prompt inside the former 129k-140k blind zone still receives 
 for (const taskKind of ['repo-agent', 'chat'] as const) {
   test(`a ${taskKind} loop at the prompt limit blocks the tool, compacts, and lets the model reissue it`, async () => {
     const totalContextTokens = 32_000;
-    const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+    const budget = new TurnBudget({ totalContextTokens, maxTurns: 6 });
     const historyChars = historyCharsForPromptLimit(taskKind, totalContextTokens);
     const events: JsonObject[] = [];
 
@@ -2439,7 +2439,7 @@ for (const taskKind of ['repo-agent', 'chat'] as const) {
 
 test('a repo-search loop at the prompt limit blocks the tool and forces an answer instead of compacting', async () => {
   const totalContextTokens = 32_000;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6, config: MOCK_LOOP_DEFAULTS.config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 6 });
   const historyChars = historyCharsForPromptLimit('repo-search', totalContextTokens);
   const events: JsonObject[] = [];
 

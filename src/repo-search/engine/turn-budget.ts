@@ -1,5 +1,4 @@
-import type { SiftConfig } from '../../config/index.js';
-import { resolveContextTokenBudget } from '../../lib/response-reserve.js';
+import { resolveContextTokenBudget } from '../../lib/context-token-budget.js';
 
 // Floor on the share of maxPromptTokens one turn's tool results may consume in
 // total. The share grows as a run progresses (later calls are better targeted
@@ -59,17 +58,16 @@ export type AvailableToolResultCapacity = {
 
 export class TurnBudget {
   readonly totalContextTokens: number;
-  readonly responseReserveTokens: number;
+  readonly compactionReserveTokens: number;
   readonly maxPromptTokens: number;
   private readonly maxTurns: number;
 
-  constructor(options: { totalContextTokens: number; maxTurns: number; config: SiftConfig | null | undefined }) {
+  constructor(options: { totalContextTokens: number; maxTurns: number }) {
     const context = resolveContextTokenBudget({
       totalContextTokens: options.totalContextTokens,
-      config: options.config,
     });
     this.totalContextTokens = context.totalContextTokens;
-    this.responseReserveTokens = context.responseReserveTokens;
+    this.compactionReserveTokens = context.compactionReserveTokens;
     this.maxPromptTokens = context.maxPromptTokens;
     this.maxTurns = Math.max(1, options.maxTurns);
   }

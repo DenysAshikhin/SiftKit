@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
@@ -170,11 +169,4 @@ test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and f
   assert.equal(tracker.snapshot().outputTokens, 15);
   assert.equal(tracker.snapshot().outputTokensEstimatedCount, 1);
   assert.equal(tracker.snapshot().toolTokens, 4);
-});
-
-test('getDynamicMaxOutputTokens uses the smaller of the shared reserve or the remaining context', () => {
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000, config: null }), 4096);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239, config: null }), 15000);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199, config: null }), 1);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250, config: null }), 1);
 });

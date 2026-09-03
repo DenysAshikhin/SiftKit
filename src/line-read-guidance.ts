@@ -181,8 +181,8 @@ export function buildLineReadGuidance(options: {
 // The floor allowance the engine grants a lone tool call at the start of a run:
 // no completed commands yet, and a batch of one.
 export function getRepoSearchPromptBaselinePerToolAllowanceTokens(config?: SiftConfig | null): number {
-  const totalContextTokens = Math.max(1, Number(config ? getConfiguredLlamaNumCtx(config) : 32000));
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: DEFAULT_MAX_TURNS, config });
+  const totalContextTokens = config ? getConfiguredLlamaNumCtx(config) : 32_000;
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: DEFAULT_MAX_TURNS });
   return budget.perToolCapTokens(0, 1);
 }
 

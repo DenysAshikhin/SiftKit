@@ -43,6 +43,10 @@ test('renders six collapsible groups with Identity open by default and a live su
   assert.match(markup, /class="gsum"/);
 });
 
+test('sampling controls do not render the removed MaxTokens input', () => {
+  assert.doesNotMatch(render(MANAGED_PRESET), /<label>MaxTokens</u);
+});
+
 test('llama backend shows llama-only fields without the exl3 marker', () => {
   const markup = render(MANAGED_PRESET);
   assert.match(markup, /Model path \(\.gguf\)/);

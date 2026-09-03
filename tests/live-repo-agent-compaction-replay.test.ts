@@ -214,6 +214,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     thinking,
     plannerTools,
     slotId,
+    1_000,
   );
   const transcript = new TranscriptManager({
     systemPromptContent: 'placeholder',
@@ -232,7 +233,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     source.finalToolResultText,
     source.finalThinkingText,
   );
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 100, config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 100 });
   const replayPreflight = await preflightPlannerPromptBudget({
     config,
     prompt: renderWirePrompt({
@@ -270,7 +271,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
       model,
       timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
       totalContextTokens,
-      responseReserveTokens: budget.responseReserveTokens,
+      compactionReserveTokens: budget.compactionReserveTokens,
       useEstimatedTokensOnly: false,
       mockResponses: undefined,
       tokenUsage: new TokenUsageTracker(config, false),

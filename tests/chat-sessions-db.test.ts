@@ -241,7 +241,6 @@ test('chat sessions round-trip the full model preset snapshot', () => {
         Model: 'snap-model',
         NumCtx: 12_345,
         Temperature: 0.5,
-        MaxTokens: 777,
         Reasoning: 'on',
       }),
       presetId: 'chat',
@@ -257,7 +256,6 @@ test('chat sessions round-trip the full model preset snapshot', () => {
     assert.equal(loaded?.modelPreset.Model, 'snap-model');
     assert.equal(loaded?.modelPreset.NumCtx, 12_345);
     assert.equal(loaded?.modelPreset.Temperature, 0.5);
-    assert.equal(loaded?.modelPreset.MaxTokens, 777);
     assert.equal(loaded?.modelPreset.Reasoning, 'on');
   });
 });

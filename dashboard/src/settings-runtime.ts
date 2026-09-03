@@ -24,7 +24,6 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   config.Runtime.LlamaCpp.NcpuMoe = activePreset.NcpuMoe;
   config.Runtime.LlamaCpp.FlashAttention = activePreset.FlashAttention;
   config.Runtime.LlamaCpp.ParallelSlots = activePreset.ParallelSlots;
-  config.Runtime.LlamaCpp.MaxTokens = activePreset.MaxTokens;
   config.Runtime.LlamaCpp.Temperature = activePreset.Temperature;
   config.Runtime.LlamaCpp.TopP = activePreset.TopP;
   config.Runtime.LlamaCpp.TopK = activePreset.TopK;

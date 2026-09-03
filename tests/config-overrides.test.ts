@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyMaxTokensOverrideToConfig, applyModelOverrideToConfig, overlayActivePreset } from '../src/config/overrides.js';
+import { applyModelOverrideToConfig, overlayActivePreset } from '../src/config/overrides.js';
 import {
   getActiveModelPreset,
   getConfiguredLlamaNumCtx,
@@ -16,8 +16,8 @@ function buildConfig() {
       ModelPresets: {
         ActivePresetId: 'active',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096, IdleAction: 'unload' },
-          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048, IdleAction: 'unload' },
+          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload' },
+          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload' },
         ],
       },
     },
@@ -41,28 +41,6 @@ test('applyModelOverrideToConfig trims the override and ignores blank values', (
   assert.equal(applyModelOverrideToConfig(config, null), config);
 });
 
-test('applyMaxTokensOverrideToConfig overlays MaxTokens onto the active preset', () => {
-  const config = applyMaxTokensOverrideToConfig(buildConfig(), 512);
-
-  assert.equal(getActiveModelPreset(config).MaxTokens, 512);
-  assert.equal(config.Server.ModelPresets.Presets[1]?.MaxTokens, 2048);
-});
-
-test('applyMaxTokensOverrideToConfig floors fractional values and passes undefined through', () => {
-  const config = buildConfig();
-
-  assert.equal(getActiveModelPreset(applyMaxTokensOverrideToConfig(config, 900.7)).MaxTokens, 900);
-  assert.equal(applyMaxTokensOverrideToConfig(config, undefined), config);
-});
-
-test('applyMaxTokensOverrideToConfig rejects non-positive and non-finite values loudly', () => {
-  const config = buildConfig();
-
-  assert.throws(() => applyMaxTokensOverrideToConfig(config, 0), /MaxTokens/u);
-  assert.throws(() => applyMaxTokensOverrideToConfig(config, -5), /MaxTokens/u);
-  assert.throws(() => applyMaxTokensOverrideToConfig(config, Number.NaN), /MaxTokens/u);
-  assert.throws(() => applyMaxTokensOverrideToConfig(config, Number.POSITIVE_INFINITY), /MaxTokens/u);
-});
 
 // Runtime.LlamaCpp is the live launch record and outranks the persisted preset in the
 // getters, so an overlay that leaves it untouched would be ignored for these two fields.
@@ -109,16 +87,14 @@ test('overlays follow the active preset id rather than the first preset', () => 
       ModelPresets: {
         ActivePresetId: 'other',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096, IdleAction: 'unload' },
-          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048, IdleAction: 'unload' },
+          { id: 'active', label: 'active', Model: 'preset-model', IdleAction: 'unload' },
+          { id: 'other', label: 'other', Model: 'other-model', IdleAction: 'unload' },
         ],
       },
     },
   });
-  const overlaid = applyMaxTokensOverrideToConfig(applyModelOverrideToConfig(config, 'override-model'), 128);
+  const overlaid = applyModelOverrideToConfig(config, 'override-model');
 
   assert.equal(getActiveModelPreset(overlaid).Model, 'override-model');
-  assert.equal(getActiveModelPreset(overlaid).MaxTokens, 128);
   assert.equal(overlaid.Server.ModelPresets.Presets[0]?.Model, 'preset-model');
-  assert.equal(overlaid.Server.ModelPresets.Presets[0]?.MaxTokens, 4096);
 });
