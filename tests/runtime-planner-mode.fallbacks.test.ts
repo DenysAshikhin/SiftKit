@@ -68,7 +68,7 @@ test('planner fails fast when the planner response body is empty', async () => {
           provider: 'real',
           model: 'mock-model',
         }),
-        /Planner mode failed: llama\.cpp did not return a response body\./u,
+        /Planner mode failed: inference did not return a response body\./u,
       );
       assert.equal(server.state.chatRequests.length, 1);
       assert.equal(server.state.chatRequests[0]?.response_format, undefined);

@@ -1,7 +1,7 @@
 import { EnvBackup } from './env-backup.js';
 
 /**
- * Sandboxed tests must never fall back to the production status/llama ports, so the env
+ * Sandboxed tests must never fall back to the production status/engine ports, so the env
  * overrides point at a closed port instead of being unset. An unstubbed call then fails
  * fast and locally with ECONNREFUSED rather than reaching the developer's live SiftKit.
  */

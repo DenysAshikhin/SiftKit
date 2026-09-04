@@ -1,4 +1,4 @@
-import type { NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import type { NormalizedInferenceChatResponse } from '../llm-protocol/types.js';
 import { parseNativePlannerActions } from '../planner-protocol/native-actions.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type { AgentLoopAction } from './types.js';
@@ -9,7 +9,7 @@ type SummaryPlannerParseOptions = {
 
 export class AgentLoopActionParser {
   parseRepoSearchActions(
-    response: NormalizedLlamaCppChatResponse,
+    response: NormalizedInferenceChatResponse,
     toolDefinitions: readonly PlannerToolDefinition[],
   ): AgentLoopAction[] {
     return parseNativePlannerActions(response, {
@@ -19,7 +19,7 @@ export class AgentLoopActionParser {
   }
 
   parseSummaryPlannerActions(
-    response: NormalizedLlamaCppChatResponse,
+    response: NormalizedInferenceChatResponse,
     options: SummaryPlannerParseOptions,
   ): AgentLoopAction[] {
     return parseNativePlannerActions(response, {

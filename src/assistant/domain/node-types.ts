@@ -17,7 +17,7 @@ export type NodeType = z.infer<typeof NodeTypeSchema>;
  * tests, and a projection policy.
  */
 export const NODE_TYPE_DEFINITIONS = {
-  person: 'A human being, including the assistant owner (canonical key person:self) and third parties.',
+  person: 'A human being, including the assistant owner (canonical key person:owner) and third parties.',
   organization: 'A company, institution, team, or other collective body.',
   place: 'A physical or named location at any granularity, from a city to a room.',
   device: 'A physical computing or peripheral device such as a workstation, phone, or GPU.',
@@ -41,7 +41,7 @@ export const NODE_TYPE_DEFINITIONS = {
   food_recipe: 'A named dish or recipe.',
   media_work: 'A book, film, series, game, album, or other authored work.',
   model: 'A machine-learning model identified by name, family, and quantization.',
-  inference_backend: 'A runtime that serves models, such as llama.cpp or TabbyAPI.',
+  inference_backend: 'A runtime that serves models, such as inference or TabbyAPI.',
   dataset: 'A named collection of data used for evaluation or training.',
   benchmark: 'A named, repeatable measurement procedure.',
   configuration_profile: 'A named bundle of settings applied to software, a model, or a device.',

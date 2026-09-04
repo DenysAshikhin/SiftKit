@@ -53,16 +53,16 @@ export const RuntimeEngineConfigSchema = z.object({
   ModelPath: z.string().nullable().optional(), Temperature: z.number().nullable().optional(),
   TopP: z.number().nullable().optional(), TopK: z.number().nullable().optional(), MinP: z.number().nullable().optional(),
   PresencePenalty: z.number().nullable().optional(), RepetitionPenalty: z.number().nullable().optional(),
-  MaxTokens: z.number().nullable().optional(), ParallelSlots: z.number().nullable().optional(),
+  ParallelSlots: z.number().nullable().optional(),
   Reasoning: ReasoningSchema.nullable().optional(),
 });
 export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
-  NumCtx: z.number(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
+  NumCtx: z.number(), NcpuMoe: z.number(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
   CacheRecurrentRam: z.number(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
-  MaxTokens: z.number(), Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
+  Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
   Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
   PreserveThinking: z.boolean(), MaintainPerStepThinking: z.boolean(),
@@ -75,8 +75,8 @@ const ModelPresetSettingsShape = {
 };
 
 export const ModelPresetFieldSchema = z.enum([
-  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'ParallelSlots', 'UBatchSize', 'CacheRam',
-  'CacheRecurrentRam', 'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
+  'CacheRecurrentRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',

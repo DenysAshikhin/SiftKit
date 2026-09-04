@@ -33,7 +33,7 @@ const NON_CODE_EXTENSIONS = new Set([
   // Data / model files
   '.dat', '.db', '.sqlite', '.sqlite3',
   '.parquet', '.arrow', '.feather',
-  '.onnx', '.pb', '.pt', '.pth', '.safetensors', '.gguf',
+  '.onnx', '.pb', '.pt', '.pth', '.safetensors',
   // Documents / misc
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
   '.pom',

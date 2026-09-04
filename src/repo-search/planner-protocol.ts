@@ -1,9 +1,11 @@
 import type { SiftConfig } from '../config/types.js';
-import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
-import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import { getConfiguredEngineNumCtx } from '../config/getters.js';
+import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
+import { InferenceClient } from '../llm-protocol/inference-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
-import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRequest, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall, LlamaCppToolDefinition, StreamStop } from '../llm-protocol/types.js';
-import { CLEAN_STREAM_STOP, LlamaCppToolDefinitionsSchema } from '../llm-protocol/types.js';
+import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceContentPart, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
@@ -13,7 +15,7 @@ import {
   retryProviderRequest,
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
-import { buildLlamaJsonSchemaResponseFormat } from '../providers/structured-output-schema.js';
+import { buildInferenceJsonSchemaResponseFormat } from '../providers/structured-output-schema.js';
 import { buildApprovalVerdictJsonSchema } from './approval-verdict.js';
 import { buildPlannerJsonSchema, type PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { parseMockPlannerResponse, type MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
@@ -31,7 +33,7 @@ export type PlannerActionResponse = {
   narrationText: string;
   classification: LiveContentSnapshot['classification'];
   thinkingText: string;
-  toolCalls: LlamaCppToolCall[];
+  toolCalls: InferenceToolCall[];
   mockExhausted: boolean;
   stop: StreamStop;
   nextMockResponseIndex?: number;
@@ -46,8 +48,8 @@ export type PlannerActionResponse = {
 };
 
 export type ChatMessage = {
-  role: LlamaCppChatRole;
-  content?: string | LlamaCppContentPart[];
+  role: InferenceChatRole;
+  content?: string | InferenceContentPart[];
   /** Internal repository-image identity; omitted by toProtocolChatMessages. */
   imagePathKey?: string;
   reasoning_content?: string;
@@ -228,9 +230,10 @@ export type PlannerThinkingFlags = {
 export type ExecutingPlannerRequest = {
   readonly serializedMessageJson: readonly string[];
   readonly flags: Readonly<PlannerThinkingFlags>;
-  readonly tools: readonly LlamaCppToolDefinition[];
+  readonly tools: readonly InferenceToolDefinition[];
   readonly serializedToolsJson: string;
-  readonly slotId: number;
+  /** The measured size of this prompt, so a derived request budgets from it instead of re-counting. */
+  readonly promptTokenCount: number;
 };
 
 export type CompactionCacheOrigin =
@@ -238,24 +241,26 @@ export type CompactionCacheOrigin =
   | {
       readonly kind: 'new_epoch';
       readonly flags: Readonly<PlannerThinkingFlags>;
-      readonly tools: readonly LlamaCppToolDefinition[];
-      readonly slotId: number;
+      readonly tools: readonly InferenceToolDefinition[];
     };
 
 /** Captures the same serialized values sent to the provider. */
 export function captureExecutingPlannerRequest(
-  serializedMessages: readonly LlamaCppChatMessage[],
+  serializedMessages: readonly InferenceChatMessage[],
   flags: PlannerThinkingFlags,
-  tools: readonly LlamaCppToolDefinition[],
-  slotId: number,
+  tools: readonly InferenceToolDefinition[],
+  promptTokenCount: number,
 ): ExecutingPlannerRequest {
+  if (!Number.isInteger(promptTokenCount) || promptTokenCount < 0) {
+    throw new Error(`promptTokenCount must be a non-negative integer, got ${promptTokenCount}.`);
+  }
   const serializedToolsJson = JSON.stringify(tools);
   return {
     serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
     flags: { ...flags },
-    tools: LlamaCppToolDefinitionsSchema.parse(parseJsonValueText(serializedToolsJson)),
+    tools: InferenceToolDefinitionsSchema.parse(parseJsonValueText(serializedToolsJson)),
     serializedToolsJson,
-    slotId,
+    promptTokenCount,
   };
 }
 
@@ -272,7 +277,7 @@ export type PlannerResponseConstraint =
 function buildPlannerResponseFormat(constraint: PlannerResponseConstraint) {
   return constraint.responseSchema === null
     ? null
-    : buildLlamaJsonSchemaResponseFormat({
+    : buildInferenceJsonSchemaResponseFormat({
       name: constraint.responseSchemaName,
       schema: constraint.responseSchema,
     });
@@ -298,8 +303,7 @@ type PlannerRequestBase = PlannerThinkingFlags & {
    * request layer never re-derives them from a transcript, so a caller that
    * snapshots what it passes here has the sent bytes by construction.
    */
-  messages: LlamaCppChatMessage[];
-  slotId?: number;
+  messages: InferenceChatMessage[];
   /** Per-attempt allowance, not a total wall clock: bounds the SSE idle gap and caps the retry window. */
   timeoutMs: number;
   maxTokens: number;
@@ -309,8 +313,8 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  tools: readonly LlamaCppToolDefinition[];
-  toolChoice?: LlamaCppChatRequest['tool_choice'];
+  tools: readonly InferenceToolDefinition[];
+  toolChoice?: InferenceChatRequest['tool_choice'];
   reasoningBudgetMessage?: string;
   reasoningBudgetTokens?: number;
   continuationMinTokens?: number;
@@ -337,18 +341,18 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
   return { thinkingText: thinkingParts.join('\n').trim(), text };
 }
 
-function toLlamaChatRole(role: string): LlamaCppChatRole {
+function toInferenceChatRole(role: string): InferenceChatRole {
   return role === 'system' || role === 'user' || role === 'assistant' || role === 'tool' ? role : 'user';
 }
 
-export function toProtocolChatMessages(messages: readonly ChatMessage[]): LlamaCppChatMessage[] {
+export function toProtocolChatMessages(messages: readonly ChatMessage[]): InferenceChatMessage[] {
   return messages.map((message) => ({
-    role: toLlamaChatRole(message.role),
+    role: toInferenceChatRole(message.role),
     content: message.content ?? null,
     ...(message.reasoning_content === undefined ? {} : { reasoning_content: message.reasoning_content }),
     ...(message.tool_call_id === undefined ? {} : { tool_call_id: message.tool_call_id }),
     ...(message.tool_calls === undefined ? {} : {
-      tool_calls: message.tool_calls.map((toolCall): LlamaCppToolCall => ({
+      tool_calls: message.tool_calls.map((toolCall): InferenceToolCall => ({
         id: toolCall.id,
         type: 'function',
         function: { name: toolCall.function.name, arguments: toolCall.function.arguments },
@@ -365,7 +369,7 @@ export function toProtocolChatMessages(messages: readonly ChatMessage[]): LlamaC
 export function serializeProtocolMessages(
   messages: readonly ChatMessage[],
   reasoningContentEnabled: boolean,
-): LlamaCppChatMessage[] {
+): InferenceChatMessage[] {
   return toProtocolChatMessages(messages.map((message) => serializePlannerMessage(message, reasoningContentEnabled)));
 }
 
@@ -412,11 +416,6 @@ function logProviderRetry(options: {
 
 function assertPromptCacheExtension(options: PlannerDerivedRequestOptions): void {
   const prefix = options.cachePrefix;
-  if (prefix.slotId !== options.slotId) {
-    throw new Error(
-      `${options.stage} prompt-cache contract violated: slot expected ${prefix.slotId}, received ${String(options.slotId)}`,
-    );
-  }
   if (prefix.serializedToolsJson !== JSON.stringify(options.tools)) {
     throw new Error(`${options.stage} prompt-cache contract violated: tools diverged`);
   }
@@ -492,7 +491,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   let response;
   try {
     response = await retryProviderRequest(
-      () => new LlamaCppClient().chat({
+      () => new InferenceClient().chat({
         config: options.config,
         baseUrl: options.baseUrl,
         model: options.model,
@@ -500,7 +499,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         tools: [...options.tools],
         ...(options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice }),
         maxTokens: options.maxTokens,
-        slotId: options.slotId,
         responseFormat: responseFormat ?? undefined,
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
         allowedToolNames,
@@ -590,9 +588,23 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
  * An approval verdict may only be requested as an extension of this prompt —
  * anything else re-prefills the whole context and breaks the prompt cache.
  */
-/** The verdict is a two-field JSON object; only mirrored thinking needs headroom before it. */
+/** The verdict is a two-field JSON object; a non-thinking planner needs only answer headroom. */
 const APPROVAL_VERDICT_MAX_TOKENS = 512;
-const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
+/**
+ * The verdict reasons under a fixed budget: 1024 tokens matches unbounded-thinking safety recall
+ * on the red-team corpus while capping a runaway verdict that would otherwise spend 25-65 s. When
+ * exceeded, the exl3 client closes the think block with a response_prefix continuation and answers,
+ * so the shared planner prompt prefix stays cached. See
+ * docs/superpowers/plans/2026-09-02-bounded-thinking-approval-verdict.md.
+ */
+const APPROVAL_VERDICT_REASONING_BUDGET_TOKENS = 1024;
+/** Outer ceiling for the thinking case: the budget is the real cap, plus the same answer room as a non-thinking verdict. */
+const APPROVAL_VERDICT_THINKING_MAX_TOKENS = APPROVAL_VERDICT_REASONING_BUDGET_TOKENS + APPROVAL_VERDICT_MAX_TOKENS;
+/** Floor for the continuation that emits the JSON after the budget is hit. */
+const APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS = 256;
+/** Spliced into the closed think block when the verdict budget is hit; steers straight to the JSON. */
+export const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
+  'Thinking budget reached. Output the approval verdict JSON now.';
 
 /** Executing transcript, pending assistant tool call, then the transient verdict question. */
 export function buildApprovalVerdictPromptMessages(
@@ -627,31 +639,51 @@ export async function requestApprovalVerdict(options: {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
+  const verdictMessages = buildApprovalVerdictPromptMessages(
+    options.transcriptMessages,
+    options.pendingMessages,
+    options.question,
+  );
   const serializedMessages = serializeProtocolMessages(
-    buildApprovalVerdictPromptMessages(
-      options.transcriptMessages,
-      options.pendingMessages,
-      options.question,
-    ),
+    verdictMessages,
     options.executing.flags.reasoningContentEnabled,
+  );
+  // A verdict extends an executing planner prompt whose size is already measured, so only
+  // the appended messages need pricing. Estimating that short tail keeps an approval
+  // decision off the tokenize round trip without re-counting the whole prompt.
+  const promptTokenCount = options.executing.promptTokenCount + estimateTokenCount(
+    options.config,
+    serializedMessages.slice(options.executing.serializedMessageJson.length)
+      .map((message) => JSON.stringify(message))
+      .join(''),
   );
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializedMessages,
-    slotId: options.executing.slotId,
     timeoutMs: options.timeoutMs,
-    maxTokens: clampToPresetMaxTokens(
-      options.config,
-      options.executing.flags.thinkingEnabled
+    maxTokens: resolveGenerationTokenLimit({
+      totalContextTokens: getConfiguredEngineNumCtx(options.config),
+      promptTokenCount,
+      operationMaxTokens: options.executing.flags.thinkingEnabled
         ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
         : APPROVAL_VERDICT_MAX_TOKENS,
-    ),
+    }),
     // The thinking flags mirror the executing planner request: they feed the
     // server-side chat_template_kwargs, and any difference re-renders (and so
-    // re-prefills) the shared prompt prefix.
+    // re-prefills) the shared prompt prefix. Thinking is bounded, not disabled:
+    // the budget caps reasoning at APPROVAL_VERDICT_REASONING_BUDGET_TOKENS, and
+    // the exl3 client closes the think block with a response_prefix continuation
+    // that byte-extends this same prefix, so the cache survives.
     ...options.executing.flags,
+    ...(options.executing.flags.thinkingEnabled
+      ? {
+        reasoningBudgetTokens: APPROVAL_VERDICT_REASONING_BUDGET_TOKENS,
+        reasoningBudgetMessage: APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
+        continuationMinTokens: APPROVAL_VERDICT_CONTINUATION_MIN_TOKENS,
+      }
+      : {}),
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
@@ -686,7 +718,6 @@ export async function requestTerminalSynthesis(options: {
       options.messages,
       options.executing.flags.reasoningContentEnabled,
     ),
-    slotId: options.executing.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
     ...options.executing.flags,
@@ -704,7 +735,7 @@ export async function requestTerminalSynthesis(options: {
 
 function deriveCompactionBranch(
   executing: ExecutingPlannerRequest,
-  serializedHistory: readonly LlamaCppChatMessage[],
+  serializedHistory: readonly InferenceChatMessage[],
 ): ExecutingPlannerRequest {
   const serializedMessageJson = serializedHistory.map((message) => JSON.stringify(message));
   const sharedMessageCount = Math.min(
@@ -764,7 +795,6 @@ export async function requestContextCompactionSummary(options: {
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializedMessages,
-    slotId: state.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
     reasoningBudgetTokens: options.reasoningBudgetTokens,

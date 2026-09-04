@@ -1,9 +1,11 @@
 import type { SiftConfig } from '../config/index.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
+import { renderWirePrompt } from './wire-prompt.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
 import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
-import { LlamaCppToolDefinitionsSchema, type LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import { InferenceToolDefinitionsSchema, type InferenceToolDefinition } from '../llm-protocol/types.js';
 import { ApprovalVerdictSchema } from './approval-verdict.js';
 import {
   isApprovalExemptReadOnlyTool,
@@ -53,7 +55,7 @@ export const AutoApprovalActionSchema = z.object({
 
 export const AutoApprovalReplayPayloadSchema = z.object({
   messages: z.array(ReplayMessageSchema).min(1),
-  tools: LlamaCppToolDefinitionsSchema.min(1),
+  tools: InferenceToolDefinitionsSchema.min(1),
   action: AutoApprovalActionSchema,
 });
 export type AutoApprovalReplayPayload = z.infer<typeof AutoApprovalReplayPayloadSchema>;
@@ -78,7 +80,7 @@ export type ApprovalVerdictModelClient = {
     messages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
-    tools: readonly LlamaCppToolDefinition[],
+    tools: readonly InferenceToolDefinition[],
   ): Promise<PlannerActionResponse>;
 };
 
@@ -87,7 +89,6 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     config: SiftConfig;
     baseUrl: string;
     model: string;
-    slotId: number;
     timeoutMs: number;
     thinking: PlannerThinkingFlags;
   }) {}
@@ -96,21 +97,27 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     messages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
-    tools: readonly LlamaCppToolDefinition[],
+    tools: readonly InferenceToolDefinition[],
   ): Promise<PlannerActionResponse> {
-    const { thinking, slotId, ...request } = this.options;
+    const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
       transcriptMessages: messages,
       pendingMessages,
       question,
       // Replay reconstructs the executing planner request from the persisted
-      // messages the live run submitted, with the configured thinking flags.
+      // messages the live run submitted, with the configured thinking flags. The
+      // live prompt measurement is not persisted with them, so a replay prices the
+      // reconstructed prompt locally instead.
       executing: captureExecutingPlannerRequest(
         serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
         thinking,
         tools,
-        slotId,
+        estimateTokenCount(this.options.config, renderWirePrompt({
+          messages,
+          tools,
+          includeReasoningContent: thinking.reasoningContentEnabled,
+        }).text),
       ),
       logger: null,
     });
@@ -122,7 +129,7 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
 
   constructor(
     private readonly messages: ChatMessage[],
-    private readonly tools: readonly LlamaCppToolDefinition[],
+    private readonly tools: readonly InferenceToolDefinition[],
     private readonly modelClient: ApprovalVerdictModelClient,
   ) {}
 

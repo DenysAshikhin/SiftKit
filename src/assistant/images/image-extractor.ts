@@ -2,31 +2,24 @@ import { ImageDataUrlSchema } from '@siftkit/contracts';
 
 import { z } from '../../lib/zod.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import { CandidateObjectRefSchema, UnresolvedNodeRefSchema } from '../domain/keys.js';
-import { RelationTypeSchema } from '../domain/relation-types.js';
+import { buildProposedStatementSchema } from '../domain/proposal-schema.js';
 import type { StructuredOutputRunner } from '../inference/structured-runner.js';
 import type { EvidenceRow } from '../storage/rows.js';
 import type { CaptureQueueStore } from './capture-queue-store.js';
 import { isUsableCapability, type AssistantImageCapabilityProvider } from './image-capability.js';
 
-const ScreenshotStatementSchema = z.object({
-  subject: UnresolvedNodeRefSchema,
-  predicate: RelationTypeSchema,
-  object: CandidateObjectRefSchema,
-  scope: UnresolvedNodeRefSchema.nullable(),
-  rationale: z.string().min(1),
-  /** A suggestion only; the basis ceiling and the single-screenshot clamp decide the rest. */
-  suggestedConfidence: z.number().min(0).max(1),
-}).strict();
+const ScreenshotStatementSchema = buildProposedStatementSchema({});
 
-const ImageExtractionSchema = z.object({
+export const ImageExtractionSchema = z.object({
   statements: z.array(ScreenshotStatementSchema).max(10),
 }).strict();
 
 const EXTRACTOR_INSTRUCTIONS = [
   'Describe the durable facts about the user that the supplied screenshot shows — the tools,',
   'projects, and preferences visible in it. Report only what is observable.',
-  'Use only predicates from the supplied enum. Omit anything ambiguous or transient.',
+  'Each predicate accepts only the subject and object types shown in its schema variant.',
+  'Omit anything ambiguous or transient. Leave scope null unless the fact holds only in a',
+  'named context.',
   'Never propose credentials, protected traits, or a medical diagnosis.',
   'Output JSON only.',
 ].join('\n');
@@ -82,6 +75,13 @@ export class ImageExtractor {
     this.queue.setState(evidenceId, 'processing');
 
     const evidence = this.graph.evidence.requireEvidence(evidenceId);
+    // Retention deletes blobs by age without consulting queued work, so the pixels may already be
+    // gone. That is terminal, not a failure: retrying cannot bring a deleted blob back, and
+    // letting the read throw burned the job's whole retry budget before dead-lettering it.
+    if (!this.graph.evidence.hasReadableBlob(evidence)) {
+      this.discardDeletedBlob(ownerId, evidenceId);
+      return { kind: 'rejected' };
+    }
     const imageDataUrl = this.readImageDataUrl(evidence);
     if (this.capability.read().instanceId !== admission.instanceId) {
       this.queue.setState(evidenceId, 'awaiting_image_capability');
@@ -104,7 +104,7 @@ export class ImageExtractor {
         targetType: 'evidence',
         targetId: evidenceId,
         summary: 'Screenshot extraction produced no usable structured output.',
-        details: { code: outcome.code, attempts: outcome.attempts },
+        details: { code: outcome.code, attempts: outcome.attempts, rawSample: outcome.rawSample },
       });
       this.queue.markProcessed(evidenceId);
       return { kind: 'rejected' };
@@ -152,6 +152,22 @@ export class ImageExtractor {
 
     this.queue.markProcessed(evidenceId);
     return { kind: 'processed', observationIds, candidateIds };
+  }
+
+  /**
+   * Retires a capture whose pixels retention already removed. Terminal, not a failure: the blob
+   * cannot come back, so the capture is marked processed and the cause is audited.
+   */
+  discardDeletedBlob(ownerId: string, evidenceId: string): void {
+    this.graph.audit.recordAuditEvent({
+      ownerId,
+      eventType: 'extraction_rejected',
+      targetType: 'evidence',
+      targetId: evidenceId,
+      summary: 'Screenshot pixels were deleted before extraction ran.',
+      details: { code: 'blob_deleted' },
+    });
+    this.queue.markProcessed(evidenceId);
   }
 
   private readImageDataUrl(evidence: EvidenceRow): string {

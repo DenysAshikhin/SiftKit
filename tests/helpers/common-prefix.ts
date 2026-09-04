@@ -1,6 +1,6 @@
 // Prefix-cache regression tests assert that volatile prompt inputs never shorten the
 // shared head of two composed prompts below the systemContext block, which is what
-// llama.cpp's cache_prompt reuses.
+// backend prompt-cache reuse.
 export function longestCommonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
   let index = 0;

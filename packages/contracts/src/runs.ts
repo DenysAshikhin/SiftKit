@@ -22,8 +22,19 @@ export const RunLogDeleteResponseSchema = z.object({
 });
 export type RunLogDeleteResponse = z.infer<typeof RunLogDeleteResponseSchema>;
 
+/**
+ * Canonical operation identity of a run. `kind` (`run_kind`) stays the coarse dashboard grouping;
+ * this field preserves the original operation before that grouping collapses `repo-agent` into
+ * `repo_search`. Null means "not recorded" (legacy row or a non-operation run kind), never a default.
+ */
+export const RunOperationTypeSchema = z.enum(['summary', 'repo-search', 'repo-agent', 'plan', 'chat']);
+export type RunOperationType = z.infer<typeof RunOperationTypeSchema>;
+
 export const RunRecordSchema = z.object({
   id: z.string(), kind: z.string(), status: z.string(),
+  operationType: RunOperationTypeSchema.nullable(),
+  operationPresetId: z.string().nullable(), modelPresetId: z.string().nullable(),
+  operationPresetJson: z.string().nullable(), modelPresetJson: z.string().nullable(),
   startedAtUtc: z.string().nullable(), finishedAtUtc: z.string().nullable(),
   title: z.string(), model: z.string().nullable(), backend: InferenceBackendIdSchema.nullable(),
   inputTokens: z.number().nullable(), outputTokens: z.number().nullable(), thinkingTokens: z.number().nullable(),

@@ -105,6 +105,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
         requestId: 'repo-boundary',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
+        turnRecords: [],
         scorecard: buildMockScorecard('server repo-search response'),
       });
       return;

@@ -1,21 +1,28 @@
+import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ModelRuntimePresetSchema, SiftPresetSchema } from '@siftkit/contracts';
 import { awaitRepoSearchRunPersistence, executeRepoSearchRequest } from '../src/repo-search/execute.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { PresetCatalog } from '../src/preset-catalog.js';
+import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
 import { loadDashboardRuns } from '../src/status-server/dashboard-runs/queries.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
 // Execution posts run status; these tests assert on progress events only.
+const isolatedRuntime = new IsolatedRuntime();
 const deadEndpoints = new DeadEndpointEnv();
-before(() => { deadEndpoints.apply(); });
-after(() => { deadEndpoints.restore(); });
+before(() => { isolatedRuntime.start(); deadEndpoints.apply(); });
+after(async () => { await isolatedRuntime.close(); deadEndpoints.restore(); });
 
 const MOCK_CONFIG = mockSiftConfig({
   Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
@@ -250,5 +257,165 @@ test('repo-agent uses ExpandReads=false and still skips already-returned lines',
     assert.equal(result.scorecard.readOverlapSummary.totalUniqueLinesRead, 30);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function findPersistedRun(runtimeRoot: string, requestId: string) {
+  const run = loadDashboardRuns(runtimeRoot).find((candidate) => candidate.id === requestId);
+  if (!run) {
+    throw new Error(`Expected run ${requestId} to be persisted.`);
+  }
+  return run;
+}
+
+// The engine collapses repo-agent into the legacy repo_search grouping; the canonical identity
+// must survive beside it, and the preset snapshots must describe the configuration the run used
+// even when the live configuration changes before the deferred write lands.
+test('completed runs persist canonical operation identity beside the legacy grouping', async () => {
+  const dir = createManagedTempDir('siftkit-agent-identity-');
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    const config = mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } } });
+    const activeModelPreset = getActiveModelPreset(config);
+    const originalModel = activeModelPreset.Model;
+    const operationPreset = PresetCatalog.fromPresets(config.Presets).requireById('repo-search');
+    await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      taskKind: 'repo-agent',
+      requestId: 'identity-agent',
+      prompt: 'finish immediately',
+      repoRoot: dir,
+      config,
+      model: 'mock',
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: repoAgentFinishResponses('done'),
+      mockCommandResults: {},
+      progressWriter: new CollectingProgressWriter([]),
+    });
+    for (const preset of config.Presets) {
+      preset.promptPrefix = 'MUTATED AFTER THE RUN';
+    }
+    activeModelPreset.Model = 'mutated-after-the-run';
+    await awaitRepoSearchRunPersistence();
+
+    const run = findPersistedRun(path.join(dir, '.siftkit'), 'identity-agent');
+    assert.equal(run.kind, 'repo_search');
+    assert.equal(run.status, 'completed');
+    assert.equal(run.operationType, 'repo-agent');
+    assert.equal(run.operationPresetId, 'repo-search');
+    assert.equal(run.modelPresetId, activeModelPreset.id);
+    assert.deepEqual(SiftPresetSchema.parse(parseJsonValueText(run.operationPresetJson ?? '')), operationPreset);
+    assert.equal(ModelRuntimePresetSchema.parse(parseJsonValueText(run.modelPresetJson ?? '')).Model, originalModel);
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
+test('failed runs persist canonical operation identity', async () => {
+  const dir = createManagedTempDir('siftkit-agent-identity-failed-');
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    const config = mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 9_000 }] } } });
+    await assert.rejects(executeRepoSearchRequest({
+      presetId: 'repo-search',
+      taskKind: 'repo-agent',
+      requestId: 'identity-agent-failed',
+      prompt: 'Q'.repeat(60_000),
+      repoRoot: dir,
+      config,
+      model: 'mock',
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: [{ content: 'SUMMARY BODY' }],
+      mockCommandResults: {},
+    }));
+    await awaitRepoSearchRunPersistence();
+
+    const run = findPersistedRun(path.join(dir, '.siftkit'), 'identity-agent-failed');
+    assert.equal(run.kind, 'repo_search');
+    assert.equal(run.status, 'failed');
+    assert.equal(run.operationType, 'repo-agent');
+    assert.equal(run.operationPresetId, 'repo-search');
+    assert.equal(run.modelPresetId, getActiveModelPreset(config).id);
+    assert.equal(typeof run.operationPresetJson, 'string');
+    assert.equal(typeof run.modelPresetJson, 'string');
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
+test('every engine operation type persists its own canonical identity', async () => {
+  const dir = createManagedTempDir('siftkit-identity-kinds-');
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    const cases: { taskKind: RepoSearchTaskKind; presetId: string; kind: string }[] = [
+      { taskKind: 'repo-search', presetId: 'repo-search', kind: 'repo_search' },
+      { taskKind: 'plan', presetId: 'plan', kind: 'plan' },
+      { taskKind: 'chat', presetId: 'chat', kind: 'repo_search' },
+    ];
+    for (const entry of cases) {
+      await executeRepoSearchRequest({
+        presetId: entry.presetId,
+        taskKind: entry.taskKind,
+        requestId: `identity-${entry.taskKind}`,
+        prompt: 'finish immediately',
+        repoRoot: dir,
+        config: MOCK_CONFIG,
+        model: 'mock',
+        ...(entry.taskKind === 'chat' ? { systemPrompt: 'assistant', allowedTools: [] } : {}),
+        availableModels: ['mock'],
+        mockResponses: [{ content: 'done' }],
+        mockCommandResults: {},
+      });
+    }
+    await awaitRepoSearchRunPersistence();
+
+    for (const entry of cases) {
+      const run = findPersistedRun(path.join(dir, '.siftkit'), `identity-${entry.taskKind}`);
+      assert.equal(run.kind, entry.kind, entry.taskKind);
+      assert.equal(run.operationType, entry.taskKind);
+      assert.equal(run.operationPresetId, entry.presetId);
+      assert.equal(run.modelPresetId, getActiveModelPreset(MOCK_CONFIG).id);
+    }
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
+test('chat runs persist the session model-preset snapshot rather than the active global preset', async () => {
+  const dir = createManagedTempDir('siftkit-identity-session-');
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    const sessionPreset = mockModelPreset({ id: 'session-snapshot', Model: 'session-model' });
+    assert.notEqual(sessionPreset.id, getActiveModelPreset(MOCK_CONFIG).id);
+    await executeRepoSearchRequest({
+      presetId: 'chat',
+      taskKind: 'chat',
+      requestId: 'identity-session-chat',
+      prompt: 'hello',
+      repoRoot: dir,
+      config: MOCK_CONFIG,
+      modelPresetId: sessionPreset.id,
+      modelPreset: sessionPreset,
+      model: 'mock',
+      systemPrompt: 'assistant',
+      allowedTools: [],
+      availableModels: ['mock'],
+      mockResponses: [{ content: 'hi' }],
+      mockCommandResults: {},
+    });
+    await awaitRepoSearchRunPersistence();
+
+    const run = findPersistedRun(path.join(dir, '.siftkit'), 'identity-session-chat');
+    assert.equal(run.operationType, 'chat');
+    assert.equal(run.modelPresetId, 'session-snapshot');
+    assert.deepEqual(ModelRuntimePresetSchema.parse(parseJsonValueText(run.modelPresetJson ?? '')), sessionPreset);
+  } finally {
+    process.chdir(previousCwd);
   }
 });

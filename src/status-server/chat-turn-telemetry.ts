@@ -16,7 +16,7 @@ export function getMockTokenConfig(config: SiftConfig, mockResponses: MockPlanne
   return Array.isArray(mockResponses) ? undefined : config;
 }
 
-/** The default llama base URL means no local tokenizer to reach, so counting falls back. */
+/** The default engine base URL means no local tokenizer to reach, so counting falls back. */
 export function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
   const baseUrl = getConfiguredEngineBaseUrl(config);
   return baseUrl === SIFT_DEFAULT_ENGINE_BASE_URL ? undefined : config;

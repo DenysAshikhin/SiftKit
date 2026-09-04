@@ -4,7 +4,7 @@ import {
   getDashboardHealth,
   pickManagedFile,
   restartBackend,
-  testLlamaCppBaseUrl as testLlamaCppBaseUrlRequest,
+  testInferenceBaseUrl as testInferenceBaseUrlRequest,
   updateDashboardConfig,
 } from '../api';
 import { createPresetIdFromLabel } from '../dashboard-presets';
@@ -350,7 +350,7 @@ export function useSettingsController(deps: {
       return onPickModelPath();
     },
     testBaseUrl(baseUrl, timeoutMs) {
-      return onTestLlamaCppBaseUrl(baseUrl, timeoutMs);
+      return onTestInferenceBaseUrl(baseUrl, timeoutMs);
     },
   };
 
@@ -458,19 +458,19 @@ export function useSettingsController(deps: {
     presetActions.setAutoloadFile(presetId, index, picked);
   }
 
-  async function onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void> {
+  async function onTestInferenceBaseUrl(baseUrl: string, timeoutMs: number): Promise<void> {
     setSettingsError(null);
     try {
-      const response = await testLlamaCppBaseUrlRequest(baseUrl, timeoutMs);
+      const response = await testInferenceBaseUrlRequest(baseUrl, timeoutMs);
       if (!response.ok) {
-        throw new Error(response.error || `llama.cpp test failed with status ${response.statusCode}`);
+        throw new Error(response.error || `Inference engine test failed with status ${response.statusCode}`);
       }
       setSettingsSavedAtUtc(new Date().toISOString());
-      deps.enqueueToast('info', `llama.cpp reachable at ${response.baseUrl || baseUrl}.`);
+      deps.enqueueToast('info', `Inference engine reachable at ${response.baseUrl || baseUrl}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsError(message);
-      deps.enqueueToast('error', `llama.cpp test failed: ${message}`);
+      deps.enqueueToast('error', `Inference engine test failed: ${message}`);
     }
   }
 

@@ -10,6 +10,7 @@ import {
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
 } from '../src/status-server/dashboard-runs.js';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import { withTempEnv } from './_runtime-helpers.js';
 
 test('dashboard runs keep persisted speculative totals when artifact payloads disagree', async () => {
@@ -26,6 +27,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         database,
         requestId,
         taskKind: 'repo-search',
+        identity: UNRECORDED_RUN_IDENTITY,
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
@@ -54,6 +56,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         database,
         requestId,
         artifactType: 'summary_request',
+        identity: UNRECORDED_RUN_IDENTITY,
         artifactPayload: {
           requestId,
           question: 'find speculative metrics',
@@ -98,6 +101,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         database,
         requestId,
         taskKind: 'repo-search',
+        identity: UNRECORDED_RUN_IDENTITY,
         prompt: 'find speculative metrics',
         repoRoot: tempRoot,
         model: 'mock-model',
@@ -126,6 +130,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         database,
         requestId,
         artifactType: 'summary_request',
+        identity: UNRECORDED_RUN_IDENTITY,
         artifactPayload: {
           requestId,
           question: 'find speculative metrics',

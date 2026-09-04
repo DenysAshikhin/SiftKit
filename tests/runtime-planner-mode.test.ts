@@ -35,6 +35,7 @@ import {
   createPlannerDebugRecorder,
 } from '../src/summary/artifacts.js';
 import { getStatusArtifactUri } from '../src/state/status-artifacts.js';
+import { operationOnlyRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
 
 interface PlannerDebugEvent {
   kind?: string;
@@ -692,7 +693,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
         '|',
         `& (Resolve-Path -LiteralPath '${shimPath}')`,
         "'Find all transitions in the Lumbridge Castle area.'",
-        '--backend llama.cpp',
+        '--backend removed-engine',
         '--model mock-model',
       ].join(' ');
       const result = await spawnProcess('powershell.exe', [
@@ -1518,7 +1519,7 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
   });
 });
 
-test('planner requests carry no llama.cpp slot or cache fields', async () => {
+test('planner requests carry no removed slot or cache fields', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -1690,6 +1691,7 @@ test('planner debug artifact persists without writing a dump file', async () => 
         finalOutput: 'the build failed',
         classification: 'command_failure',
         rawReviewRequired: true,
+        identity: operationOnlyRunIdentity('summary'),
       });
 
       assert.ok(artifact, 'artifact must be produced');

@@ -11,6 +11,7 @@ function createSession(presetId: string, mode: ChatSessionMode = 'chat'): ChatSe
     id: 'session-1',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
+    planRepoRoot: 'C:/repo',
     presetId,
     mode,
   };

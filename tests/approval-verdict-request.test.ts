@@ -2,25 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  captureExecutingPlannerRequest,
   requestApprovalVerdict,
-  serializeProtocolMessages,
   type ChatMessage,
-  type PlannerThinkingFlags,
+  type ExecutingPlannerRequest,
 } from '../src/repo-search/planner-protocol.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.js';
-import {
-  ApprovalModeSchema,
-  RepoSearchApprovalRequestSchema,
-} from '../src/repo-search/engine/approval-gate.js';
+import { ApprovalModeSchema } from '@siftkit/contracts';
+import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
+import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -32,30 +28,14 @@ const transcript: ChatMessage[] = [
   { role: 'assistant', content: 'analysis', reasoning_content: 'thinking-1' },
 ];
 
-function captureExecuting(messages: ChatMessage[], flags: PlannerThinkingFlags = {
-  thinkingEnabled: true,
-  reasoningContentEnabled: true,
-  preserveThinking: true,
-}) {
-  return captureExecutingPlannerRequest(
-    serializeProtocolMessages(messages, flags.reasoningContentEnabled),
-    flags,
-    toProtocolTools(resolveRepoSearchPlannerToolDefinitions()),
-    2,
-  );
-}
-
 const APPROVE_MOCK = '{"verdict":"approve","reason":"ok"}';
 
-function verdictOptions(transcriptMessages: ChatMessage[], executing: ReturnType<typeof captureExecuting>) {
+function verdictOptions(transcriptMessages: ChatMessage[], executing: ExecutingPlannerRequest) {
   return {
     config: MOCK_CONFIG,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
-    transcriptMessages,
-    pendingMessages: [],
-    question: 'approve?',
-    executing,
+    ...baseVerdictOptions(transcriptMessages, executing),
     timeoutMs: 5000,
     mockResponses: [{ content: APPROVE_MOCK }],
     mockResponseIndex: 0,
@@ -99,14 +79,14 @@ test('buildApprovalVerdictJsonSchema constrains verdict to approve|deny|unsure',
 });
 
 test('requestApprovalVerdict consumes one mock response and advances the index', async () => {
-  const response = await requestApprovalVerdict(verdictOptions(transcript, captureExecuting(transcript)));
+  const response = await requestApprovalVerdict(verdictOptions(transcript, captureExecutingForVerdict(transcript)));
   assert.equal(response.text, APPROVE_MOCK);
   assert.equal(response.nextMockResponseIndex, 1);
 });
 
 test('verdict accepts a transcript that extends the executing planner request', async () => {
   const grown: ChatMessage[] = [...transcript, { role: 'assistant', content: 'follow-up' }];
-  const response = await requestApprovalVerdict(verdictOptions(grown, captureExecuting(transcript)));
+  const response = await requestApprovalVerdict(verdictOptions(grown, captureExecutingForVerdict(transcript)));
   assert.equal(response.text, APPROVE_MOCK);
 });
 
@@ -115,14 +95,14 @@ test('verdict fails loud when a transcript message diverges from the executing p
     index === 1 ? { ...message, content: 'rewritten task' } : message
   ));
   await assert.rejects(
-    requestApprovalVerdict(verdictOptions(rewritten, captureExecuting(transcript))),
+    requestApprovalVerdict(verdictOptions(rewritten, captureExecutingForVerdict(transcript))),
     /(?:diverged at message 1|message 1 diverged)/u,
   );
 });
 
 test('verdict fails loud when the transcript is shorter than the executing planner request', async () => {
   await assert.rejects(
-    requestApprovalVerdict(verdictOptions(transcript.slice(0, 2), captureExecuting(transcript))),
+    requestApprovalVerdict(verdictOptions(transcript.slice(0, 2), captureExecutingForVerdict(transcript))),
     /diverged/u,
   );
 });
@@ -130,7 +110,7 @@ test('verdict fails loud when the transcript is shorter than the executing plann
 test('verdict serializes the transcript with the executing request flags', async () => {
   // Captured with reasoning content disabled: the prefix has reasoning_content
   // stripped, and the fresh verdict serialization must strip it identically.
-  const executing = captureExecuting(transcript, {
+  const executing = captureExecutingForVerdict(transcript, {
     thinkingEnabled: false,
     reasoningContentEnabled: false,
     preserveThinking: false,

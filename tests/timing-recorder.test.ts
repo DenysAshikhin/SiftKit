@@ -132,7 +132,7 @@ test('temporary timing recorder writes event details and label summaries to a te
   });
 });
 
-test('repo-search execution dumps temp timing json with llama and tool phases', async () => {
+test('repo-search execution dumps temp timing json with inference and tool phases', async () => {
   const tempRoot = createManagedTempDir('siftkit-repo-timing-test-');
   const tracePath = path.join(tempRoot, 'repo-trace.json');
 
@@ -162,7 +162,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
     const labels = new Set(trace.summary.map((entry) => entry.label));
     assert.equal(trace.kind, 'repo-search');
     assert.equal(trace.status, 'completed');
-    assert.equal(labels.has('repo.llama.request'), true);
+    assert.equal(labels.has('repo.inference.request'), true);
     assert.equal(labels.has('repo.tool.execute'), true);
     assert.equal(labels.has('repo.tool.append'), true);
     assert.equal(labels.has('repo.tool.prompt_tokens'), false);
@@ -171,7 +171,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
   });
 });
 
-test('summary planner dumps temp timing json with planner llama and tool phases', async () => {
+test('summary planner dumps temp timing json with planner inference and tool phases', async () => {
   const tempRoot = createManagedTempDir('siftkit-summary-timing-test-');
   const tracePath = path.join(tempRoot, 'summary-trace.json');
 
@@ -210,7 +210,7 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
     const labels = new Set(trace.summary.map((entry) => entry.label));
     assert.equal(trace.kind, 'summary');
     assert.equal(trace.status, 'completed');
-    assert.equal(labels.has('summary.planner.llama.request'), true);
+    assert.equal(labels.has('summary.planner.inference.request'), true);
     assert.equal(labels.has('summary.planner.tool.execute'), true);
     assert.equal(labels.has('summary.planner.tool.append'), true);
   });

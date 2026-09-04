@@ -131,25 +131,17 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
       });
       assert.equal(firstChat.status, 200);
 
-      const tokenize = await fetch(`${siftBaseUrl}/tokenize`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content: 'first tokens' }),
-      });
-      assert.equal(tokenize.status, 200);
-      assert.deepEqual(z.object({ count: z.number() }).parse(await tokenize.json()), { count: 2 });
-
       const tokenEncode = await fetch(`${siftBaseUrl}/v1/token/encode`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'second tokens' }),
+        body: JSON.stringify({ text: 'first tokens' }),
       });
       assert.equal(tokenEncode.status, 200);
       assert.deepEqual(
         z.object({ tokens: z.array(z.number()), length: z.number() }).parse(await tokenEncode.json()),
         { tokens: [10, 20], length: 2 },
       );
-      assert.deepEqual(tokenBodies, [{ text: 'first tokens' }, { text: 'second tokens' }]);
+      assert.deepEqual(tokenBodies, [{ text: 'first tokens' }]);
 
       await waitFor(() => unloadCount === 1);
       await waitFor(async () => {
@@ -354,9 +346,6 @@ test('chat queued during a preset switch is translated for the target preset', a
           tools,
           parallel_tool_calls: true,
           response_format: responseFormat,
-          cache_prompt: true,
-          id_slot: 4,
-          timings_per_token: true,
         }),
       });
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -371,9 +360,6 @@ test('chat queued during a preset switch is translated for the target preset', a
       assert.deepEqual(secondChatBodies[0]?.tools, tools);
       assert.equal(secondChatBodies[0]?.parallel_tool_calls, true);
       assert.deepEqual(secondChatBodies[0]?.response_format, responseFormat);
-      assert.equal(secondChatBodies[0]?.cache_prompt, undefined);
-      assert.equal(secondChatBodies[0]?.id_slot, undefined);
-      assert.equal(secondChatBodies[0]?.timings_per_token, undefined);
       assert.deepEqual(secondChatBodies[0]?.chat_template_kwargs, {
         enable_thinking: true,
         preserve_thinking: true,

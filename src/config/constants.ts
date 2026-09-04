@@ -71,7 +71,6 @@ export const RUNTIME_OWNED_ENGINE_KEYS = [
   'MinP',
   'PresencePenalty',
   'RepetitionPenalty',
-  'MaxTokens',
   'ParallelSlots',
   'Reasoning',
 ] as const;

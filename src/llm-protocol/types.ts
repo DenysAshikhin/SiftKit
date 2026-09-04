@@ -4,22 +4,22 @@ import { z } from '../lib/zod.js';
 
 export type { JsonObject, JsonValue } from '../lib/json-types.js';
 
-export const LLAMA_CPP_PROTOCOL_FORMAT = 'openai-compatible' as const;
+export const INFERENCE_PROTOCOL_FORMAT = 'openai-compatible' as const;
 
-export type LlamaCppChatRole = 'system' | 'user' | 'assistant' | 'tool';
+export type InferenceChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type LlamaCppContentPart = {
+export type InferenceContentPart = {
   type: string;
   text?: string;
   image_url?: { url: string };
 };
 
-export type LlamaCppReasoningPart = {
+export type InferenceReasoningPart = {
   type?: string;
   text?: string;
 };
 
-export type LlamaCppToolCall = {
+export type InferenceToolCall = {
   id: string;
   type: 'function';
   function: {
@@ -28,15 +28,15 @@ export type LlamaCppToolCall = {
   };
 };
 
-export type LlamaCppChatMessage = {
-  role: LlamaCppChatRole;
-  content: string | LlamaCppContentPart[] | null;
-  reasoning_content?: string | LlamaCppReasoningPart[] | null;
+export type InferenceChatMessage = {
+  role: InferenceChatRole;
+  content: string | InferenceContentPart[] | null;
+  reasoning_content?: string | InferenceReasoningPart[] | null;
   tool_call_id?: string;
-  tool_calls?: LlamaCppToolCall[];
+  tool_calls?: InferenceToolCall[];
 };
 
-export const LlamaCppToolDefinitionSchema = z.object({
+export const InferenceToolDefinitionSchema = z.object({
   type: z.literal('function'),
   function: z.object({
     name: z.string().min(1),
@@ -44,23 +44,23 @@ export const LlamaCppToolDefinitionSchema = z.object({
     parameters: JsonObjectSchema,
   }),
 });
-export const LlamaCppToolDefinitionsSchema = z.array(LlamaCppToolDefinitionSchema);
-export type LlamaCppToolDefinition = z.infer<typeof LlamaCppToolDefinitionSchema>;
+export const InferenceToolDefinitionsSchema = z.array(InferenceToolDefinitionSchema);
+export type InferenceToolDefinition = z.infer<typeof InferenceToolDefinitionSchema>;
 
-export type LlamaCppResponseFormat =
+export type InferenceResponseFormat =
   | { type: 'json_object' }
   | { type: 'json_schema'; json_schema: JsonObject };
 
-export type LlamaCppChatTemplateKwargs = {
+export type InferenceChatTemplateKwargs = {
   enable_thinking?: boolean;
   reasoning_content?: boolean;
   preserve_thinking?: boolean;
   reasoning_effort?: ReasoningEffort;
 };
 
-export type LlamaCppChatRequest = {
+export type InferenceChatRequest = {
   model: string;
-  messages: LlamaCppChatMessage[];
+  messages: InferenceChatMessage[];
   temperature?: number;
   top_p?: number;
   top_k?: number;
@@ -69,18 +69,17 @@ export type LlamaCppChatRequest = {
   repeat_penalty?: number;
   repetition_penalty?: number;
   max_tokens?: number;
-  cache_prompt?: boolean;
-  id_slot?: number;
   stream?: boolean;
   stream_options?: { include_usage: boolean };
-  tools?: LlamaCppToolDefinition[];
+  tools?: InferenceToolDefinition[];
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   parallel_tool_calls?: boolean;
-  response_format?: LlamaCppResponseFormat;
-  chat_template_kwargs?: LlamaCppChatTemplateKwargs;
+  response_format?: InferenceResponseFormat;
+  chat_template_kwargs?: InferenceChatTemplateKwargs;
+  response_prefix?: string;
 };
 
-export type LlamaCppUsage = {
+export type InferenceUsage = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
@@ -116,22 +115,27 @@ export const THINKING_BUDGET_EARLY_STOP_REASON = 'thinking budget exhausted';
  * client and carried unchanged to `describeStreamTruncation`, the only interpreter. Nothing is
  * normalized here, so a clean OpenAI-style stream still carries `finishReason: 'stop'`.
  */
-export type StreamStop = {
+export const StreamStopSchema = z.strictObject({
   /** Set when the client itself cut the stream (thinking budget). */
-  readonly earlyStopReason: string | null;
+  earlyStopReason: z.string().nullable(),
   /** Backend `choices[].eos_reason` (TabbyAPI/exl3); the last non-empty frame wins. */
-  readonly backendEosReason: string | null;
+  backendEosReason: z.string().nullable(),
   /** OpenAI-style `choices[].finish_reason`; the last non-empty frame wins. */
-  readonly finishReason: string | null;
-};
+  finishReason: z.string().nullable(),
+});
+export type StreamStop = z.infer<typeof StreamStopSchema>;
 
 /** No stop signal at all: mock responses and producers that have no stream behind them. */
-export const CLEAN_STREAM_STOP: StreamStop = Object.freeze({ earlyStopReason: null, backendEosReason: null, finishReason: null });
+export const CLEAN_STREAM_STOP: StreamStop = Object.freeze(StreamStopSchema.parse({
+  earlyStopReason: null,
+  backendEosReason: null,
+  finishReason: null,
+}));
 
-export type NormalizedLlamaCppChatResponse = LiveContentResult & {
+export type NormalizedInferenceChatResponse = LiveContentResult & {
   reasoningText: string;
-  toolCalls: LlamaCppToolCall[];
-  usage: LlamaCppUsage;
+  toolCalls: InferenceToolCall[];
+  usage: InferenceUsage;
   raw: JsonObject;
   stop: StreamStop;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildLlamaJsonSchemaResponseFormat,
+  buildInferenceJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
 } from '../src/providers/structured-output-schema.js';
 
@@ -23,9 +23,9 @@ test('buildSummaryDecisionJsonSchema includes unsupported_input when enabled', (
   );
 });
 
-test('buildLlamaJsonSchemaResponseFormat wraps schema for chat completions', () => {
+test('buildInferenceJsonSchemaResponseFormat wraps schema for chat completions', () => {
   const schema = buildSummaryDecisionJsonSchema({ allowUnsupportedInput: false });
-  const responseFormat = buildLlamaJsonSchemaResponseFormat({
+  const responseFormat = buildInferenceJsonSchemaResponseFormat({
     name: 'summary_decision',
     schema,
   });

@@ -3,6 +3,8 @@ import type { RepoSearchProgressEvent } from '../types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { TokenCountSource } from '../prompt-budget.js';
 import type { ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import { foldTurnTokenRecords, resolveCharsPerToken } from './turn-token-record.js';
+import type { TurnTokenRecord } from './turn-token-record.js';
 
 export type TokenizeDoneInfo = {
   promptTokenCount: number;
@@ -85,6 +87,21 @@ export class ProgressReporter {
 
   llmEnd(turn: number, promptTokenCount: number, thinkingTokenCount: number): void {
     this.emit({ kind: 'llm_end', turn, maxTurns: this.maxTurns, promptTokenCount, thinkingTokenCount, elapsedMs: this.elapsedMs() });
+  }
+
+  /** Publishes the closing record for `turn`. The lookup and the fold live here so no caller
+   *  can emit a frame that disagrees with another caller's. */
+  usageForTurn(turn: number, records: readonly TurnTokenRecord[]): void {
+    const record = records.find((entry) => entry.turn === turn);
+    if (!record) {
+      throw new Error(`Token usage record missing for turn ${turn}.`);
+    }
+    this.emit({
+      kind: 'usage', turn, maxTurns: this.maxTurns, record,
+      totals: foldTurnTokenRecords(records),
+      charsPerToken: resolveCharsPerToken(records),
+      elapsedMs: this.elapsedMs(),
+    });
   }
 
   thinking(turn: number, thinkingText: string): void {

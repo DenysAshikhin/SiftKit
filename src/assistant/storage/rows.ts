@@ -231,6 +231,7 @@ export const CandidateRowSchema = z.object({
   rationale: z.string(),
   status: CandidateStatusSchema,
   rejection_reason: z.string().nullable(),
+  hold_json: z.string().nullable(),
   user_notes: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
@@ -330,7 +331,8 @@ export const ActivityEventRowSchema = z.object({
   process_name: z.string().nullable(),
   normalized_title: z.string().nullable(),
   fullscreen: SqliteBooleanSchema,
-  idle_seconds: z.number().int().min(0),
+  mouse_idle_seconds: z.number().int().min(0),
+  keyboard_idle_seconds: z.number().int().min(0),
   session_locked: SqliteBooleanSchema,
   session_id: z.string().nullable(),
 });

@@ -11,10 +11,14 @@ import {
   ChatOperationStatusResponseSchema,
   StopChatOperationResponseSchema,
   ActiveChatRepoAgentResponseSchema,
+  ChatRepoAgentApprovalModeResponseSchema,
+  ChatRepoAgentDecideResponseSchema,
   AssistantMemoryHistoryEntryDtoSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantMutationResponseSchema,
+  AssistantResolveIdentityResponseSchema,
   type AssistantMemoryHistoryEntryDto,
+  type AssistantResolveIdentityResponse,
   type AssistantValidationCandidateDto,
   type DashboardConfig,
   type DashboardHealth,
@@ -48,6 +52,9 @@ import {
   type ChatOperationStatusResponse,
   type ChatRepoAgentStreamRequest,
   type ActiveChatRepoAgentResponse,
+  type ApprovalMode,
+  type ChatRepoAgentApprovalModeResponse,
+  type ChatRepoAgentDecideResponse,
   type RepoAgentDecision,
   type StopChatOperationResponse,
   type ModelLifecycleAction,
@@ -113,6 +120,19 @@ export async function saveAssistantValidationNotes(
     `/assistant/validation/${encodeURIComponent(candidateId)}/notes`,
     AssistantMutationResponseSchema,
     { method: 'PATCH', headers: assistantHeaders(token), body: JSON.stringify({ notes }) },
+  );
+}
+
+/** Answers an open "is this name you?" hold on a candidate and reports what it did. */
+export async function resolveAssistantCandidateIdentity(
+  token: string,
+  candidateId: string,
+  isOwner: boolean,
+): Promise<AssistantResolveIdentityResponse> {
+  return fetchJson(
+    `/assistant/validation/${encodeURIComponent(candidateId)}/resolve-identity`,
+    AssistantResolveIdentityResponseSchema,
+    { method: 'POST', headers: assistantHeaders(token), body: JSON.stringify({ isOwner }) },
   );
 }
 
@@ -350,11 +370,11 @@ export function pickManagedFile(
   });
 }
 
-export function testLlamaCppBaseUrl(
+export function testInferenceBaseUrl(
   baseUrl: string,
   healthcheckTimeoutMs: number,
 ): Promise<EngineConnectionTestResponse> {
-  return fetchJson('/config/llama-cpp/test', EngineConnectionTestResponseSchema, {
+  return fetchJson('/config/engine/test', EngineConnectionTestResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ BaseUrl: baseUrl, HealthcheckTimeoutMs: healthcheckTimeoutMs }),
@@ -556,10 +576,6 @@ export function streamRepoSearchMessage(
 
 export type { RepoAgentDecision } from '@siftkit/contracts';
 
-const RepoAgentDecisionResponseSchema = z.object({
-  ok: z.literal(true),
-  runId: z.string().uuid(),
-});
 export function streamRepoAgentMessage(
   sessionId: string,
   payload: ChatRepoAgentStreamRequest,
@@ -573,14 +589,29 @@ export function streamRepoAgentMessage(
 export function decideRepoAgent(
   sessionId: string,
   decision: RepoAgentDecision,
-): Promise<z.infer<typeof RepoAgentDecisionResponseSchema>> {
+): Promise<ChatRepoAgentDecideResponse> {
   return fetchJson(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/decide`,
-    RepoAgentDecisionResponseSchema,
+    ChatRepoAgentDecideResponseSchema,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(decision),
+    },
+  );
+}
+
+export function updateRepoAgentApprovalMode(
+  sessionId: string,
+  approval: ApprovalMode,
+): Promise<ChatRepoAgentApprovalModeResponse> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/approval-mode`,
+    ChatRepoAgentApprovalModeResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approval }),
     },
   );
 }

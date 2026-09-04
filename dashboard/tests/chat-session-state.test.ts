@@ -26,7 +26,7 @@ function session(messages: ChatMessage[]): ChatSession {
 
 test('active session with a running tool live message returns tool', () => {
   const runtime = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
@@ -38,7 +38,7 @@ test('active session with a running tool live message returns tool', () => {
 
 test('active streaming assistant with no running tool returns streaming', () => {
   const runtime = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
     .get('s1');
@@ -46,7 +46,7 @@ test('active streaming assistant with no running tool returns streaming', () => 
 });
 
 test('last turn with a non-zero tool exit returns failed', () => {
-  const runtime = new ChatSessionRuntimeStore().ensureSession('s1').get('s1');
+  const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '').get('s1');
   assert.equal(
     deriveSessionIndicator(
       session([msg({ kind: 'assistant_tool_call', toolCallStatus: 'done', toolCallExitCode: 1 })]),
@@ -57,7 +57,7 @@ test('last turn with a non-zero tool exit returns failed', () => {
 });
 
 test('completed answer returns completed', () => {
-  const runtime = new ChatSessionRuntimeStore().ensureSession('s1').get('s1');
+  const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '').get('s1');
   assert.equal(
     deriveSessionIndicator(session([msg({ kind: 'assistant_answer', content: 'done' })]), runtime),
     'completed',
@@ -66,7 +66,7 @@ test('completed answer returns completed', () => {
 
 test('runtime failure overrides completed persisted messages', () => {
   const runtime = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'failure', sessionId: 's1', message: 'backend failed' })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
@@ -74,19 +74,22 @@ test('runtime failure overrides completed persisted messages', () => {
 
 test('isSessionBusy covers local operations, foreign conflicts, and recovered approvals', () => {
   const idle: ChatSessionRuntime = new ChatSessionRuntimeStore()
-    .ensureSession('s')
+    .ensureSession('s', '')
     .get('s');
   assert.equal(isSessionBusy(null), false);
   assert.equal(isSessionBusy(idle), false);
   const active = new ChatSessionRuntimeStore()
+    .ensureSession('s', '')
     .apply({ kind: 'begin', sessionId: 's', operationKind: 'message', operationId: OPERATION_ID })
     .get('s');
   assert.equal(isSessionBusy(active), true);
   const foreignBusy = new ChatSessionRuntimeStore()
+    .ensureSession('s', '')
     .apply({ kind: 'remote-begin', sessionId: 's', operationKind: 'repo-search' })
     .get('s');
   assert.equal(isSessionBusy(foreignBusy), true);
   const recoveredApproval = new ChatSessionRuntimeStore()
+    .ensureSession('s', '')
     .apply({
       kind: 'approval',
       sessionId: 's',

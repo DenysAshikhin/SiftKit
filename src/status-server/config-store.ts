@@ -59,8 +59,8 @@ const AppConfigRowSchema = z.object({
   interactive_idle_timeout_ms: z.number(),
   interactive_max_transcript_characters: z.number(),
   interactive_transcript_retention: z.number(),
-  server_llama_presets_json: z.string(),
-  server_llama_active_preset_id: z.string().nullable(),
+  server_model_presets_json: z.string(),
+  server_model_active_preset_id: z.string().nullable(),
   server_external_server_enabled: z.number(),
   inference_json: z.string(),
   server_exl3_json: z.string(),
@@ -108,7 +108,11 @@ function parseModelRuntimePresetArray(text: OptionalJsonValue): ModelRuntimePres
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
-  return normalizeModelRuntimePresetArray(parseJsonValueText(text), {});
+  const parsed = parseJsonValueText(text);
+  if (Array.isArray(parsed) && parsed.length === 0) {
+    return getDefaultConfigObject().Server.ModelPresets.Presets;
+  }
+  return normalizeModelRuntimePresetArray(parsed, {});
 }
 
 function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
@@ -135,10 +139,10 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
     interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
     interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
     server_external_server_enabled: activePreset.ExternalServerEnabled === true ? 1 : 0,
-    server_llama_presets_json: JSON.stringify(
+    server_model_presets_json: JSON.stringify(
       modelPresets.Presets,
     ),
-    server_llama_active_preset_id: getNullableTrimmedString(modelPresets.ActivePresetId),
+    server_model_active_preset_id: getNullableTrimmedString(modelPresets.ActivePresetId),
     inference_json: JSON.stringify(normalized.Inference),
     server_exl3_json: JSON.stringify(normalized.Server.Engines.Exl3),
     operation_mode_allowed_tools_json: JSON.stringify(
@@ -173,8 +177,8 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
     },
     Server: {
       ModelPresets: {
-        Presets: parseModelRuntimePresetArray(row.server_llama_presets_json),
-        ActivePresetId: row.server_llama_active_preset_id,
+        Presets: parseModelRuntimePresetArray(row.server_model_presets_json),
+        ActivePresetId: row.server_model_active_preset_id,
       },
       Engines: { Exl3: parseJsonValueText(row.server_exl3_json) },
     },
@@ -225,8 +229,8 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       interactive_idle_timeout_ms,
       interactive_max_transcript_characters,
       interactive_transcript_retention,
-      server_llama_presets_json,
-      server_llama_active_preset_id,
+      server_model_presets_json,
+      server_model_active_preset_id,
       server_external_server_enabled,
       inference_json,
       server_exl3_json,
@@ -257,8 +261,8 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'interactive_idle_timeout_ms',
     'interactive_max_transcript_characters',
     'interactive_transcript_retention',
-    'server_llama_presets_json',
-    'server_llama_active_preset_id',
+    'server_model_presets_json',
+    'server_model_active_preset_id',
     'server_external_server_enabled',
     'inference_json',
     'server_exl3_json',

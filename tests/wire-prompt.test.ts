@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { renderWirePrompt, WIRE_GENERATION_PROMPT } from '../src/repo-search/wire-prompt.js';
 
@@ -31,7 +31,7 @@ test('renders each message as a ChatML block and appends the generation prompt',
 });
 
 test('places tool schemas in the leading block', () => {
-  const tools: LlamaCppToolDefinition[] = [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }];
+  const tools: InferenceToolDefinition[] = [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }];
   const rendered = renderWirePrompt({
     messages: [{ role: 'system', content: 'SYS' }, { role: 'user', content: 'HI' }],
     tools,
@@ -43,7 +43,7 @@ test('places tool schemas in the leading block', () => {
 });
 
 test('emits a standalone leading block when tools exist but messages do not', () => {
-  const tools: LlamaCppToolDefinition[] = [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }];
+  const tools: InferenceToolDefinition[] = [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }];
   const rendered = renderWirePrompt({ messages: [], tools, includeReasoningContent: false });
 
   assert.equal(rendered.text, block('system', JSON.stringify(tools)) + WIRE_GENERATION_PROMPT);

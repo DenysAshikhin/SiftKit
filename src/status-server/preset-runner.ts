@@ -210,6 +210,8 @@ export class StatusPresetRunner {
     const result = await this.engineService.executeRepoSearch({
       presetId: preset.id,
       taskKind: 'chat',
+      modelPresetId: session.modelPresetId,
+      modelPreset: session.modelPreset,
       prompt,
       repoRoot: getRepoRoot(request),
       config: effectiveConfig,

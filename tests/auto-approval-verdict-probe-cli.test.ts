@@ -9,12 +9,12 @@ import {
 import { parseJsonText } from '../src/lib/json.js';
 import { z } from '../src/lib/zod.js';
 import { ReplayMessageSchema } from '../src/repo-search/approval-verdict-probe.js';
-import { LlamaCppToolDefinitionsSchema } from '../src/llm-protocol/types.js';
+import { InferenceToolDefinitionsSchema } from '../src/llm-protocol/types.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 
 const ApprovalRequestSchema = z.object({
   messages: z.array(ReplayMessageSchema),
-  tools: LlamaCppToolDefinitionsSchema,
+  tools: InferenceToolDefinitionsSchema,
   tool_choice: z.literal('none'),
 });
 

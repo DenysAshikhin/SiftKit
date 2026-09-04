@@ -1,7 +1,7 @@
 import type { SiftConfig } from '../config/index.js';
 import { notifyStatusBackend } from '../config/index.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
-import { generateLlamaCppResponse, type LlamaCppGenerateResult } from '../providers/llama-cpp.js';
+import { generateInferenceResponse, type InferenceGenerateResult } from '../providers/inference.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { runMockProvider } from './providers/mock-provider.js';
 import { traceSummary } from './artifacts.js';
@@ -32,7 +32,6 @@ export type ProviderSummaryMetrics = {
 
 export async function invokeProviderSummary(options: {
   requestId: string;
-  slotId: number | null;
   provider: SummaryProviderId;
   config: SiftConfig;
   model: string;
@@ -47,6 +46,7 @@ export async function invokeProviderSummary(options: {
   chunkTotal: number | null;
   chunkPath: string | null;
   reasoningOverride?: 'on' | 'off';
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -118,29 +118,29 @@ export async function invokeProviderSummary(options: {
       `provider start provider=${options.provider} model=${options.model} phase=${options.phase} `
       + `chunk=${chunkLabel} timeout_s=${options.requestTimeoutSeconds ?? 600}`
     );
-    const llamaSpan = options.timingRecorder?.start('summary.llama.request', {
+    const inferenceSpan = options.timingRecorder?.start('summary.inference.request', {
       phase: options.phase,
       chunk: chunkLabel,
       promptTokenCount: options.promptTokenCount ?? -1,
     });
-    let response: LlamaCppGenerateResult;
+    let response: InferenceGenerateResult;
     try {
-      response = await generateLlamaCppResponse({
+      response = await generateInferenceResponse({
         config: options.config,
         model: options.model,
         prompt: options.prompt,
         promptTokenCount: options.promptTokenCount,
         // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
         idleTimeoutSeconds: options.requestTimeoutSeconds ?? 600,
-        slotId: options.slotId ?? undefined,
         reasoningOverride: options.reasoningOverride,
+        operationMaxTokens: options.operationMaxTokens,
         structuredOutput: {
           kind: 'siftkit-decision-json',
           allowUnsupportedInput: options.provider !== 'real' || options.phase === 'leaf' && options.chunkPath !== null,
         },
       });
     } finally {
-      llamaSpan?.end();
+      inferenceSpan?.end();
     }
     inputTokens = getProcessedPromptTokens(
       response.usage?.promptTokens ?? null,

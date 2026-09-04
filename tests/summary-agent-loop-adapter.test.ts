@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { SummaryPlannerActionAdapter, type SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import type { AgentLoopResponseContext } from '../src/agent-loop/types.js';
-import { CLEAN_STREAM_STOP, type NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.js';
 
 const usage = {
   promptTokens: 1,
@@ -36,8 +36,8 @@ const controller: SummaryPlannerLoopController = {
 
 function buildResponse(
   text: string,
-  toolCalls: NormalizedLlamaCppChatResponse['toolCalls'] = [],
-): NormalizedLlamaCppChatResponse {
+  toolCalls: NormalizedInferenceChatResponse['toolCalls'] = [],
+): NormalizedInferenceChatResponse {
   return {
     text,
     rawText: text,
@@ -67,7 +67,7 @@ const RESPONSE_CONTEXT: AgentLoopResponseContext = {
   turns: [],
 };
 
-function contextFor(response: NormalizedLlamaCppChatResponse): AgentLoopResponseContext {
+function contextFor(response: NormalizedInferenceChatResponse): AgentLoopResponseContext {
   return { ...RESPONSE_CONTEXT, response };
 }
 

@@ -9,12 +9,14 @@ import type {
   PresetSurface,
   PresetToolName,
   IdleSummarySnapshotRow,
-  LiveChatMessage,
+  ChatTranscriptMessage,
+  ChatTranscriptToolCallMessage,
 } from '@siftkit/contracts';
-import { LiveChatMessageSchema } from '@siftkit/contracts';
+import { ChatTranscriptMessageSchema } from '@siftkit/contracts';
 
-export const ChatMessageSchema = LiveChatMessageSchema;
-export type ChatMessage = LiveChatMessage;
+export const ChatMessageSchema = ChatTranscriptMessageSchema;
+export type ChatMessage = ChatTranscriptMessage;
+export type ChatToolCallMessage = ChatTranscriptToolCallMessage;
 
 // Dashboard-local aliases over the shared contract types (no contract-name equivalent).
 export type DashboardRuntimeEngineConfig = RuntimeEngineConfig;

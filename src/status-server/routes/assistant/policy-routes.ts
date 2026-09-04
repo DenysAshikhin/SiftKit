@@ -1,4 +1,6 @@
-import { AssistantValidationNotesRequestSchema } from '@siftkit/contracts';
+import {
+  AssistantResolveIdentityRequestSchema, AssistantValidationNotesRequestSchema,
+} from '@siftkit/contracts';
 import { sendJson } from '../../http-utils.js';
 import {
   assistantRoute, BlockPolicyTopicSchema, body, id, PolicyPatchSchema, sendError, success,
@@ -36,6 +38,13 @@ export const validationNotesEndpoint = assistantRoute(async ({ service, req, res
   if (!service.validation.setNotes(id(match), request.notes)) {
     sendError(res, 404, 'not_found', 'Validation candidate was not found.');
   } else sendJson(res, 200, success(service));
+});
+
+/** Answers an open "is this name you?" hold and reports what the re-promotion did. */
+export const resolveIdentityEndpoint = assistantRoute(async ({ service, req, res, match }) => {
+  const request = await body(req, AssistantResolveIdentityRequestSchema);
+  const outcome = service.validation.resolveIdentity(id(match), request.isOwner);
+  sendJson(res, 200, { ...success(service), outcome: outcome.kind });
 });
 
 export const deleteValidationEndpoint = assistantRoute(({ service, res, match }) => {

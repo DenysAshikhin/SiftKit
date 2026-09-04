@@ -141,6 +141,7 @@ const SAMPLE_SESSION: ChatSessionResponse['session'] = {
   modelPresetId: 'test-model',
   model: null,
   contextWindowTokens: 0,
+  planRepoRoot: 'C:/repo',
   createdAtUtc: '2026-06-03T00:00:00.000Z',
   updatedAtUtc: '2026-06-03T00:00:00.000Z',
   messages: [],
@@ -261,4 +262,27 @@ test('ChatStreamReader releases the reader lock when consumption stops early', a
     break;
   }
   assert.equal(released, true);
+});
+
+test('parses a usage frame into a usage event', () => {
+  const payload = {
+    turn: 3,
+    maxTurns: 20,
+    record: {
+      turn: 3, promptTokens: 700, thinkingTokens: 55, outputTokens: 12, toolTokens: 33,
+      generatedChars: 268, thinkingTokensEstimated: false, outputTokensEstimated: false,
+    },
+    totals: {
+      promptTokens: 2100, thinkingTokens: 165, outputTokens: 36, toolTokens: 99,
+      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
+    },
+    charsPerToken: 4,
+  };
+  const packet = `event: usage\ndata: ${JSON.stringify(payload)}`;
+  assert.deepEqual(parseChatStreamPacket(packet), { kind: 'usage', usage: payload });
+});
+
+test('rejects a malformed usage frame instead of silently dropping the numbers', () => {
+  const packet = 'event: usage\ndata: {"turn":3,"maxTurns":20,"charsPerToken":4}';
+  assert.equal(parseChatStreamPacket(packet), null);
 });

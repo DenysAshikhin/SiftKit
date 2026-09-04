@@ -1,3 +1,4 @@
+import { restoreLegacyPresetColumns } from './helpers/app-config-migration-fixture.js';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -32,15 +33,16 @@ function seedStampedPromptTokenDb(dbPath: string): void {
   `).run(timestamp, timestamp);
   const insertMessage = database.prepare(`
     INSERT INTO chat_messages (
-      session_id, id, role, content,
+      session_id, id, role, kind, content,
       input_tokens_estimate, output_tokens_estimate, thinking_tokens,
       input_tokens_estimated, output_tokens_estimated, thinking_tokens_estimated,
       tool_call_prompt_token_count, created_at_utc, compressed_into_summary, position
-    ) VALUES ('session-1', ?, 'assistant', 'tool', 0, 0, 0, 1, 1, 1, ?, ?, 0, ?)
+    ) VALUES ('session-1', ?, 'assistant', 'assistant_tool_call', 'tool', 0, 0, 0, 1, 1, 1, ?, ?, 0, ?)
   `);
   insertMessage.run('tool-1', 207406, timestamp, 0);
   insertMessage.run('tool-2', 207406, timestamp, 1);
   insertMessage.run('tool-3', null, timestamp, 2);
+  restoreLegacyPresetColumns(database);
   database.prepare('UPDATE runtime_schema SET version = 47 WHERE id = 1').run();
   closeRuntimeDatabase();
 }
@@ -88,6 +90,7 @@ test('v48 tolerates a chat_messages table that predates the prompt-token column'
     writeConfig(dbPath, getDefaultConfigObject());
     const database = getRuntimeDatabase(dbPath);
     database.exec('ALTER TABLE chat_messages DROP COLUMN tool_call_prompt_token_count;');
+    restoreLegacyPresetColumns(database);
     database.prepare('UPDATE runtime_schema SET version = 47 WHERE id = 1').run();
     closeRuntimeDatabase();
 

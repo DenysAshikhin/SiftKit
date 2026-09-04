@@ -75,8 +75,8 @@ test('ParallelSlots limits exl3 HTTP admission and queues the second request', a
   }
 });
 
-test('ParallelSlots allows two llama requests before queueing the third', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-http-queue-llama-', { parallelSlots: 2 });
+test('ParallelSlots allows two inference requests before queueing the third', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-inference-', { parallelSlots: 2 });
   await harness.start();
   try {
     const first = harness.holdModelLock('first request', 400);

@@ -182,6 +182,7 @@ test('a tool image is persisted as a tool_image row right after its tool call', 
   const session = createTestChatSession(runtimeRoot);
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'question', 'answer', {}, {
+    turnRecords: [],
     turns: [{
       thinkingText: '',
       toolMessages: [{
@@ -210,6 +211,7 @@ test('a persisted tool_image row survives a session reload with its data URL and
   const runtimeRoot = createManagedTempDir('image-persist-reload');
   const session = createTestChatSession(runtimeRoot);
   appendChatMessagesWithUsage(runtimeRoot, session, 'question', 'answer', {}, {
+    turnRecords: [],
     turns: [{
       thinkingText: '',
       toolMessages: [{

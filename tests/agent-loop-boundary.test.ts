@@ -8,8 +8,8 @@ type SourceFile = {
   text: string;
 };
 
-const LLAMA_ENDPOINT_LITERAL_ALLOWLIST = new Set<string>([
-  'src/llm-protocol/llama-cpp-client.ts',
+const ENGINE_ENDPOINT_LITERAL_ALLOWLIST = new Set<string>([
+  'src/llm-protocol/inference-client.ts',
   'src/status-server/managed-tabby.ts',
   'src/status-server/tabby-model-client.ts',
   'src/status-server/routes/inference-passthrough.ts',
@@ -33,9 +33,9 @@ function listTypeScriptFiles(root: string): SourceFile[] {
   return result;
 }
 
-test('llama.cpp active HTTP request construction lives only in LlamaCppClient', () => {
+test('inference HTTP request construction lives only in InferenceClient', () => {
   const offenders = listTypeScriptFiles(path.join(process.cwd(), 'src'))
-    .filter((file) => !LLAMA_ENDPOINT_LITERAL_ALLOWLIST.has(file.filePath))
+    .filter((file) => !ENGINE_ENDPOINT_LITERAL_ALLOWLIST.has(file.filePath))
     .filter((file) => /\/v1\/chat\/completions|\/tokenize|\/v1\/models/u.test(file.text))
     .map((file) => file.filePath)
     .sort();
@@ -45,7 +45,7 @@ test('llama.cpp active HTTP request construction lives only in LlamaCppClient', 
 
 test('tool-call protocol parsing has one implementation', () => {
   const offenders = listTypeScriptFiles(path.join(process.cwd(), 'src'))
-    .filter((file) => file.filePath !== 'src/llm-protocol/llama-cpp-client.ts')
+    .filter((file) => file.filePath !== 'src/llm-protocol/inference-client.ts')
     .filter((file) => file.filePath !== 'src/llm-protocol/tool-call-parser.ts')
     .filter((file) => file.filePath !== 'src/llm-protocol/streaming-response-assembler.ts')
     .filter((file) => /function_call|delta\.tool_calls|message\?\.tool_calls|choice\?\.tool_calls/u.test(file.text))

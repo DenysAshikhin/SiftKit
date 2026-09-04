@@ -12,7 +12,14 @@
 .hchip { font: inherit; font-size: 0.66rem; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--dim); background: none; cursor: pointer; }
 .hchip.on { border-color: var(--acc); color: var(--acc); }
 
-.msgs { flex: 1; overflow-y: auto; padding: 14px 18px; display: grid; gap: 10px; align-content: start; }
+.message-pane { flex: 1; min-height: 0; position: relative; }
+.msgs { height: 100%; box-sizing: border-box; overflow-y: auto; padding: 14px 18px 52px; display: grid; gap: 10px; align-content: start; }
+.jump-to-bottom {
+  position: absolute; left: 50%; bottom: 10px; z-index: 5; transform: translateX(-50%);
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px;
+  background: var(--panel2); color: var(--ink); font: inherit; font-size: 0.68rem; cursor: pointer;
+}
+.jump-to-bottom:hover { border-color: var(--acc); color: var(--acc); }
 .msg { max-width: 72%; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 0.81rem; }
 .msg.user { justify-self: end; background: #17222e; border-color: #2a3b4d; }
 .msg.ai { justify-self: start; background: var(--panel); }
@@ -107,6 +114,7 @@
 .composer-settings-popover { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); }
 .composer-settings-popover.warning { border-color: #5a4a2a; }
 .composer-plan-row { display: flex; gap: 8px; align-items: center; }
+.approval-mode { display: inline-flex; gap: 4px; margin-left: auto; }
 .composer-plan-root { flex: 1; }
 
 /* ---- error banner ---- */
@@ -132,7 +140,8 @@
 
 .msg.pending { opacity: 0.72; }
 .msg.pending .who { color: var(--dim); }
-.image-zoom { border: none; background: none; padding: 0; cursor: zoom-in; display: block; line-height: 0; }
+.image-zoom { border: none; background: none; padding: 0; cursor: zoom-in; display: block; line-height: 0; max-width: 100%; }
+.image-zoom img { max-width: 100%; height: auto; }
 .image-lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(4, 8, 12, 0.88); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .image-lightbox img { max-width: 90vw; max-height: 90vh; object-fit: contain; cursor: default; }
 .image-lightbox-close { position: absolute; top: 14px; right: 18px; font-size: 1.4rem; line-height: 1; color: var(--ink); background: none; border: none; cursor: pointer; }

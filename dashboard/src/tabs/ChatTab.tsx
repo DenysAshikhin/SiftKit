@@ -1,22 +1,22 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { sumImageTokens } from '@siftkit/contracts';
 
 import {
   formatCompactTokenCount,
   formatDate,
+  formatLiveMessageTokenLabel,
   formatMessageTokenLabel,
   formatNumber,
   formatTokenLabel,
-  getMessageKnownTokenCount,
-  getMessageTokenCount,
+  getTurnTokenDisplay,
 } from '../lib/format';
 import {
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
+import { resolveLiveContextUsage } from '../lib/contextBar';
+import { deriveSessionIndicator, isSessionBusy, ownsRepoAgentRun, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { ToolActivityRow } from '../components/ToolActivityRow';
@@ -25,13 +25,16 @@ import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
 import type { RepoAgentDecision } from '../api';
+import type { ApprovalMode } from '@siftkit/contracts';
+import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
 import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
-import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
+import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
+import { hasSamePresetExecutionContext } from '../dashboard-presets';
 import type {
   ChatSession,
   ContextUsage,
@@ -51,32 +54,6 @@ function getGroundingStatusLabel(status: ChatMessage['groundingStatus']): string
     return GROUNDING_STATUS_LABELS[status];
   }
   return null;
-}
-
-type TurnTokenDisplay = {
-  tokenCount: number | null;
-  exact: boolean;
-};
-
-function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
-  let total = 0;
-  let knownTotal = 0;
-  let hasUnavailableComponent = false;
-  for (const message of messages) {
-    const imageTokens = sumImageTokens(message.imageMeta);
-    const tokenCount = getMessageTokenCount(message);
-    if (tokenCount === null) {
-      hasUnavailableComponent = true;
-      knownTotal += getMessageKnownTokenCount(message) + imageTokens;
-    } else {
-      total += tokenCount + imageTokens;
-      knownTotal += tokenCount + imageTokens;
-    }
-  }
-  if (!hasUnavailableComponent) {
-    return { tokenCount: total, exact: true };
-  }
-  return knownTotal > 0 ? { tokenCount: knownTotal, exact: false } : { tokenCount: null, exact: false };
 }
 
 export type ChatSessionIndicatorView = {
@@ -118,6 +95,7 @@ export type ChatTabProps = {
   onSendRepoSearch(): Promise<void>;
   onSendRepoAgent(): Promise<void>;
   onSubmitRepoAgentDecision(decision: RepoAgentDecision): Promise<void>;
+  onChangeRepoAgentApprovalMode(mode: ApprovalMode): Promise<void>;
   onStopOperation(): Promise<void>;
   onSendMessage(): Promise<void>;
   onPendingImagesChange(images: PendingImage[]): void;
@@ -215,6 +193,7 @@ export function ChatTab({
   onSendRepoSearch,
   onSendRepoAgent,
   onSubmitRepoAgentDecision,
+  onChangeRepoAgentApprovalMode,
   onStopOperation,
   onSendMessage,
   onPendingImagesChange,
@@ -225,7 +204,8 @@ export function ChatTab({
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
-  const liveToolPromptTokenCount = selectedRuntime?.liveToolPromptTokenCount ?? null;
+  const latestUsage = selectedRuntime?.latestUsage ?? null;
+  const streamedCharsSinceUsage = selectedRuntime?.streamedCharsSinceUsage ?? 0;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
   const chatError = selectedRuntime?.error ?? null;
   const warnings = selectedRuntime?.warnings ?? [];
@@ -243,7 +223,17 @@ export function ChatTab({
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
-  const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
+  const {
+    chatLogRef,
+    onChatLogScroll,
+    jumpToBottom,
+    showJumpToBottom,
+  } = useChatScroll(
+    selectedSessionId,
+    visibleMessageIds,
+    liveMessageScrollSignature,
+    selectedRuntime?.pendingApproval?.approvalId ?? null,
+  );
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
   const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
@@ -299,9 +289,28 @@ export function ChatTab({
     void onSendMessage();
   }
 
-  const usedRatio = contextUsage && contextUsage.contextWindowTokens > 0
-    ? Math.max(0, Math.min(1, contextUsage.totalUsedTokens / contextUsage.contextWindowTokens))
-    : 0;
+  function changePreset(presetId: string): void {
+    const nextPreset = webPresets.find((preset) => preset.id === presetId) ?? null;
+    if (
+      selectedChatPreset
+      && nextPreset
+      && !hasSamePresetExecutionContext(selectedChatPreset, nextPreset)
+      && !window.confirm(
+        `Switching from “${selectedChatPreset.label}” to “${nextPreset.label}” keeps the conversation history, but invalidates the current model context/prompt cache. Continue?`,
+      )
+    ) {
+      return;
+    }
+    void onUpdateSessionPreset(presetId);
+  }
+
+  const liveContextUsage = resolveLiveContextUsage({
+    contextUsage,
+    latestUsage,
+    streamedCharsSinceUsage,
+    busy: selectedSessionBusy,
+  });
+  const usedRatio = liveContextUsage?.ratio ?? 0;
   const contextTone = getContextBarFillTone(usedRatio);
 
   return (
@@ -338,7 +347,7 @@ export function ChatTab({
               <span>Preset</span>
               <select
                 value={selectedChatPreset?.id || ''}
-                onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
+                onChange={(event) => changePreset(event.target.value)}
                 disabled={selectedSessionBusy || webPresets.length === 0}
               >
                 {webPresets.length === 0 ? <option value="">No presets</option> : null}
@@ -369,7 +378,8 @@ export function ChatTab({
               </button>
             </div>
 
-            <div className="msgs" ref={chatLogRef}>
+            <div className="message-pane">
+              <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll}>
               {compactedMessages.length > 0 ? (
                 <CompactedHistoryPanel
                   compactedMessages={compactedMessages}
@@ -459,6 +469,12 @@ export function ChatTab({
                   <div className="recent-activity-list" />
                 </section>
               ) : null}
+              </div>
+              {showJumpToBottom ? (
+                <button type="button" className="jump-to-bottom" onClick={jumpToBottom}>
+                  Jump to bottom
+                </button>
+              ) : null}
             </div>
 
             {chatError ? (
@@ -481,7 +497,7 @@ export function ChatTab({
               {showSettings ? (
                 <SettingsPopover
                   contextUsage={contextUsage}
-                  liveToolPromptTokenCount={liveToolPromptTokenCount}
+                  liveToolPromptTokenCount={latestUsage?.record.promptTokens ?? null}
                   isRepoToolMode={isRepoToolMode}
                   chatBusy={selectedSessionBusy}
                   onCondense={onCondense}
@@ -499,10 +515,17 @@ export function ChatTab({
                   <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={selectedSessionBusy || !planRepoRootInput.trim()}>
                     Directory
                   </button>
+                  {chatMode === 'repo-agent' && selectedRuntime ? (
+                    <RepoAgentApprovalModeControl
+                      value={selectedRuntime.repoAgentApprovalMode}
+                      disabled={selectedRuntime.activity.kind !== 'idle' && !ownsRepoAgentRun(selectedRuntime)}
+                      onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
+                    />
+                  ) : null}
                 </div>
               ) : null}
-              {contextUsage ? (
-                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(contextUsage.totalUsedTokens)} / ${formatNumber(contextUsage.contextWindowTokens)}`}>
+              {liveContextUsage ? (
+                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(liveContextUsage.usedTokens)} / ${formatNumber(liveContextUsage.contextWindowTokens)}`}>
                   <i style={{ width: `${usedRatio * 100}%` }} />
                 </div>
               ) : null}
@@ -530,8 +553,8 @@ export function ChatTab({
                   rows={2}
                   disabled={selectedSessionBusy}
                 />
-                {contextUsage ? (
-                  <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
+                {liveContextUsage ? (
+                  <span className="ctx-label">{liveContextUsage.exact ? '' : '~'}{formatCompactTokenCount(liveContextUsage.usedTokens)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
                 ) : null}
                 <label className="mini-btn attach" title="Attach images">
                   Attach
@@ -693,7 +716,7 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
 }) {
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const messageLabel = messageKind === 'assistant_thinking'
     ? 'assistant thinking'
     : messageKind === 'assistant_tool_call'
@@ -704,7 +727,9 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
       <span>{messageLabel} · {isPending ? 'sending…' : isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
         {isPending ? <span className="sp" /> : null}
-        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">{formatMessageTokenLabel(message)}</span>
+        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">
+          {isLive ? formatLiveMessageTokenLabel(message) : formatMessageTokenLabel(message)}
+        </span>
         {!isLive ? (
           <button
             type="button"
@@ -733,7 +758,7 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   isDirectChatMode: boolean;
 }) {
   const content = useSmoothedText(message.content, isLive);
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const groundingStatusLabel = messageKind === 'assistant_answer'
     ? getGroundingStatusLabel(message.groundingStatus)
     : null;
@@ -802,7 +827,7 @@ function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   extraClass?: string | undefined;
 }) {
-  const messageKind = normalizeMessageKind(message);
+  const messageKind = message.kind;
   const tone = message.role === 'user' ? 'user' : 'ai';
   return (
     <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}${isPending ? ' pending' : ''}`}>
@@ -821,18 +846,14 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const aggregateTokens = getTurnTokenDisplay(turn.messages);
+  const aggregateTokens = getTurnTokenDisplay(turn);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
-  const tokenLabel = aggregateTokens.tokenCount === null
-    ? 'tokens unavailable'
-    : aggregateTokens.exact
-      ? formatTokenLabel(aggregateTokens.tokenCount, 'context tokens')
-      : `${formatNumber(aggregateTokens.tokenCount)} known tokens`;
-  const tokenTitle = aggregateTokens.tokenCount === null
-    ? 'tokens unavailable'
-    : aggregateTokens.exact
-      ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
-      : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
+  const tokenLabel = aggregateTokens.exact
+    ? formatTokenLabel(aggregateTokens.tokenCount, 'run tokens')
+    : `~${formatNumber(aggregateTokens.tokenCount)} run tokens`;
+  const tokenTitle = turn.isLive
+    ? 'Provisional unique token total across the bubbles currently streaming in this turn.'
+    : 'Unique run tokens: aggregate model generation plus tool output and retained images; internal bubbles are not added twice.';
   const toolMessages = turn.messages.filter((message): message is ChatToolCallMessage => message.kind === 'assistant_tool_call');
   const latestTool = toolMessages[toolMessages.length - 1] ?? null;
   const toolProgress = latestTool ? `${toolMessages.length}/${latestTool.toolCallMaxTurns}` : null;

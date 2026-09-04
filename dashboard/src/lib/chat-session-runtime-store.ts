@@ -1,21 +1,19 @@
-import { applyLiveThinkingDelta } from './live-thinking-message';
 import {
-  applyNarrationDelta,
-  demoteNarrationForTurn,
-  liveNarrationMessageId,
-  promoteNarrationToAnswer,
-} from './live-narration-message';
-import {
-  buildAppendedLiveToolMessage,
-  buildCompletedLiveToolMessage,
   buildLiveUserMessage,
-  createLiveMessage,
   upsertLiveMessageInto,
 } from './chat-live-messages';
-import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
-import type { ChatStreamApproval, ChatStreamProgress, ChatStreamTextDelta } from '@siftkit/contracts';
+import {
+  reduceChatTranscript,
+  DEFAULT_APPROVAL_MODE,
+  type ApprovalMode,
+  type ChatStreamApproval,
+  type ChatStreamProgress,
+  type ChatStreamTextDelta,
+  type ChatStreamUsageEvent,
+  type ChatTranscriptEvent,
+} from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 import type { RepoAgentDecision } from '../api';
 
@@ -38,7 +36,9 @@ export type ChatSessionRuntime = {
   error: string | null;
   warnings: string[];
   contextUsage: ContextUsage | null;
-  liveToolPromptTokenCount: number | null;
+  latestUsage: ChatStreamUsageEvent | null;
+  /** Streamed text characters since the last usage frame; sizes the in-flight tail. */
+  streamedCharsSinceUsage: number;
   draft: string;
   pendingImages: PendingImage[];
   submittedInput: SubmittedChatInput | null;
@@ -48,6 +48,7 @@ export type ChatSessionRuntime = {
   planMaxTurnsInput: string;
   pendingApproval: ChatStreamApproval | null;
   resolvedApproval: ResolvedRepoAgentApproval | null;
+  repoAgentApprovalMode: ApprovalMode;
 };
 
 export type ChatSessionRuntimeTransition =
@@ -68,12 +69,14 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'failure'; sessionId: string; message: string }
   | { kind: 'control-error'; sessionId: string; message: string }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
+  | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
   | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
-  | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string };
+  | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string }
+  | { kind: 'repo-agent-approval-mode'; sessionId: string; approval: ApprovalMode };
 
-function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
+function createChatSessionRuntime(sessionId: string, planRepoRootInput: string): ChatSessionRuntime {
   return {
     sessionId,
     activity: { kind: 'idle' },
@@ -81,53 +84,42 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
     error: null,
     warnings: [],
     contextUsage: null,
-    liveToolPromptTokenCount: null,
+    latestUsage: null,
+    streamedCharsSinceUsage: 0,
     draft: '',
     pendingImages: [],
     submittedInput: null,
     awaitingResponse: false,
-    planRepoRootInput: '',
+    planRepoRootInput,
     planMaxTurnsInput: '',
     pendingApproval: null,
     resolvedApproval: null,
+    repoAgentApprovalMode: DEFAULT_APPROVAL_MODE,
+  };
+}
+
+function applyTranscriptEvent(
+  runtime: ChatSessionRuntime,
+  event: ChatTranscriptEvent,
+): ChatSessionRuntime {
+  return {
+    ...runtime,
+    awaitingResponse: false,
+    liveMessages: reduceChatTranscript(runtime.liveMessages, event, {
+      messageIdPrefix: 'live',
+      sourceRunId: null,
+      createdAtUtc: new Date().toISOString(),
+    }),
   };
 }
 
 function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
-  const toolMessage = toolEvent.kind === 'tool_start'
-    ? buildAppendedLiveToolMessage(toolEvent)
-    : buildCompletedLiveToolMessage(toolEvent);
-  return {
-    ...runtime,
-    awaitingResponse: false,
-    liveMessages: upsertLiveMessageInto(
-      toolEvent.kind === 'tool_start'
-        ? demoteNarrationForTurn(runtime.liveMessages, toolEvent.turn)
-        : runtime.liveMessages,
-      toolMessage,
-    ),
-    liveToolPromptTokenCount: toolEvent.promptTokenCount,
-  };
+  return applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
 }
 
-function applyAnswer(runtime: ChatSessionRuntime, delta: ChatStreamTextDelta): ChatSessionRuntime {
-  const narrationId = liveNarrationMessageId(delta.turn);
-  if (runtime.liveMessages.some((message) => message.id === narrationId)) {
-    return {
-      ...runtime,
-      awaitingResponse: false,
-      liveMessages: promoteNarrationToAnswer(runtime.liveMessages, delta),
-    };
-  }
-  const existing = runtime.liveMessages.find((message) => message.id === 'live-answer');
-  const text = applyTextDelta(existing?.content ?? '', delta);
-  const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
-  answerMessage.outputTokensEstimate = Math.max(1, Math.ceil(text.length / 4));
-  return {
-    ...runtime,
-    awaitingResponse: false,
-    liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage),
-  };
+function applyUsageEvent(runtime: ChatSessionRuntime, usage: ChatStreamUsageEvent): ChatSessionRuntime {
+  const next = applyTranscriptEvent(runtime, { kind: 'usage', usage });
+  return { ...next, latestUsage: usage, streamedCharsSinceUsage: 0 };
 }
 
 function applyTransition(
@@ -150,36 +142,23 @@ function applyTransition(
       return runtime.activity.kind === 'remote'
         ? { ...runtime, activity: { kind: 'idle' }, error: null }
         : runtime;
+    // Every streamed character sizes the in-flight tail, whichever text channel carried it.
     case 'thinking':
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: applyLiveThinkingDelta(runtime.liveMessages, transition.delta, true),
-      };
     case 'narration':
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: applyNarrationDelta(runtime.liveMessages, transition.delta),
-      };
+    case 'answer': {
+      const next = applyTranscriptEvent(runtime, { kind: transition.kind, delta: transition.delta });
+      return { ...next, streamedCharsSinceUsage: next.streamedCharsSinceUsage + transition.delta.text.length };
+    }
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
-    case 'progress': {
-      const progressMessage = createLiveMessage('live-progress', 'assistant_progress', 'assistant', transition.progress.text);
-      return {
-        ...runtime,
-        awaitingResponse: false,
-        liveMessages: upsertLiveMessageInto(runtime.liveMessages, progressMessage),
-      };
-    }
+    case 'progress':
+      return applyTranscriptEvent(runtime, { kind: 'progress', progress: transition.progress });
     case 'approval':
       return { ...runtime, awaitingResponse: false, pendingApproval: transition.approval };
     case 'approval-decision':
       return { ...runtime, pendingApproval: null, resolvedApproval: transition.resolution };
     case 'approval-clear':
       return { ...runtime, pendingApproval: null, resolvedApproval: null };
-    case 'answer':
-      return applyAnswer(runtime, transition.delta);
     case 'warning':
       return { ...runtime, warnings: [...runtime.warnings, transition.text] };
     case 'submit':
@@ -228,6 +207,8 @@ function applyTransition(
       return { ...runtime, error: transition.message };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
+    case 'usage':
+      return applyUsageEvent(runtime, transition.usage);
     case 'draft':
       return { ...runtime, draft: transition.draft };
     case 'images':
@@ -240,6 +221,8 @@ function applyTransition(
         planRepoRootInput: transition.planRepoRootInput,
         planMaxTurnsInput: transition.planMaxTurnsInput,
       };
+    case 'repo-agent-approval-mode':
+      return { ...runtime, repoAgentApprovalMode: transition.approval };
   }
 }
 
@@ -263,21 +246,20 @@ export class ChatSessionRuntimeStore {
     return [...this.runtimesBySessionId.values()];
   }
 
-  ensureSession(sessionId: string): ChatSessionRuntimeStore {
+  /** Seeds the composer repo root from the session so the default directory is visible and editable. */
+  ensureSession(sessionId: string, planRepoRootInput: string): ChatSessionRuntimeStore {
     if (this.runtimesBySessionId.has(sessionId)) {
       return this;
     }
     const next = new Map(this.runtimesBySessionId);
-    next.set(sessionId, createChatSessionRuntime(sessionId));
+    next.set(sessionId, createChatSessionRuntime(sessionId, planRepoRootInput));
     return new ChatSessionRuntimeStore(next);
   }
 
-  /** The single copy-on-write path. Writers create the runtime if it is absent. */
+  /** The single copy-on-write path. The session must have been seeded by ensureSession first. */
   apply(transition: ChatSessionRuntimeTransition): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(transition.sessionId)
-      ?? createChatSessionRuntime(transition.sessionId);
     const next = new Map(this.runtimesBySessionId);
-    next.set(transition.sessionId, applyTransition(existing, transition));
+    next.set(transition.sessionId, applyTransition(this.get(transition.sessionId), transition));
     return new ChatSessionRuntimeStore(next);
   }
 

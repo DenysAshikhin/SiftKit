@@ -1,3 +1,4 @@
+import { restoreLegacyPresetColumns, createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
@@ -65,7 +66,6 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 55);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
   assert.equal(version, CURRENT_SCHEMA_VERSION);
@@ -140,6 +140,7 @@ test('re-opening an already-migrated database is a no-op, not a duplicate seed',
 test('a v38 database upgrades in place and keeps its pre-existing rows', () => {
   const dbPath = tempDbPath('siftkit-assistant-migration-upgrade-');
   const seed = new Database(dbPath);
+  createAppConfigMigrationFixture(seed);
   seed.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 38);
@@ -306,15 +307,15 @@ test('v43 adds the desktop observation tables with their guards and indexes', ()
     database.prepare(`
       INSERT INTO assistant_activity_events (
         id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
-        fullscreen, idle_seconds, session_locked, session_id
+        fullscreen, mouse_idle_seconds, keyboard_idle_seconds, session_locked, session_id
       ) VALUES ('aevt_1', ?, '2026-08-10T09:00:00.000Z', 'app:code', 'Code.exe', 'SiftKit',
-        0, 4, 0, 'asess_1')
+        0, 4, 9, 0, 'asess_1')
     `).run(ownerId);
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_activity_events (
         id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
-        fullscreen, idle_seconds, session_locked, session_id
-      ) VALUES ('aevt_bad', ?, '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, 0, -1, 0, NULL)
+        fullscreen, mouse_idle_seconds, keyboard_idle_seconds, session_locked, session_id
+      ) VALUES ('aevt_bad', ?, '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, 0, -1, 0, 0, NULL)
     `).run(ownerId), /CHECK constraint failed/);
 
     assert.throws(() => database.prepare(`
@@ -379,6 +380,7 @@ test('a v43 database gains the device nonce table when it migrates forward', () 
 
   const downgrade = new Database(dbPath);
   downgrade.exec('DROP TABLE assistant_device_nonces;');
+  restoreLegacyPresetColumns(downgrade);
   downgrade.prepare('UPDATE runtime_schema SET version = 43 WHERE id = 1').run();
   downgrade.close();
   assert.equal(tableNames(dbPath).includes('assistant_device_nonces'), false);
@@ -415,6 +417,7 @@ test('a v44 database gains the assertion recency indexes when it migrates forwar
     DROP INDEX graph_assertions_subject_recency_idx;
     DROP INDEX graph_assertions_object_recency_idx;
   `);
+  restoreLegacyPresetColumns(downgrade);
   downgrade.prepare('UPDATE runtime_schema SET version = 44 WHERE id = 1').run();
   downgrade.close();
 

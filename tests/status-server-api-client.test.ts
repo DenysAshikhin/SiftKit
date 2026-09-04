@@ -2,10 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpClient, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import {
-  StatusServerApiClient,
-  StatusServerOperationError,
-} from '../src/cli/status-server-api-client.js';
+import { StatusServerApiClient } from '../src/cli/status-server-api-client.js';
+import { StatusServerOperationError } from '../src/lib/operation-stream.js';
 import { SilentProgressRenderer } from '../src/cli/progress-renderer.js';
 import { z } from '../src/lib/zod.js';
 import {
@@ -106,7 +104,7 @@ test('repo-agent uses its own inactivity timeout without changing repo-search', 
   const renderer = new SilentProgressRenderer(process.stderr, 'test');
 
   await assert.rejects(
-    () => client.requestRepoAgent({ prompt: 'agent task' }, renderer),
+    () => client.requestRepoAgent({ prompt: 'agent task', approval: 'auto' }, renderer),
     /stream failed/iu,
   );
   await assert.rejects(
@@ -123,7 +121,7 @@ test('repo-agent start and decide parse run results through the server-owned rou
   const client = new StatusServerApiClient(http, { repoAgentIdleTimeoutMs: 25 });
   const renderer = new SilentProgressRenderer(process.stderr, 'test');
 
-  const started = await client.requestRepoAgent({ prompt: 'agent task' }, renderer);
+  const started = await client.requestRepoAgent({ prompt: 'agent task', approval: 'auto' }, renderer);
   const decided = await client.requestRepoAgentDecide({
     runId: '550e8400-e29b-41d4-a716-446655440000',
     decision: 'approve',

@@ -81,12 +81,9 @@ export function parseChatMessageOperationRequest(
   return messageRequest;
 }
 
-/** Falls back to the session's saved root, then to the process root, exactly as the endpoints did. */
+/** Falls back to the session's saved root, exactly as the endpoints did. */
 function resolveChatRepoRoot(requestedRepoRoot: string | undefined, session: ChatSession): string {
-  const sessionRepoRoot = typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-    ? session.planRepoRoot.trim()
-    : process.cwd();
-  return resolve(requestedRepoRoot || sessionRepoRoot);
+  return resolve(requestedRepoRoot || session.planRepoRoot);
 }
 
 /** Sends a 400 and returns null when the body is not a valid repo operation request. */
@@ -174,6 +171,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       rejectBusyChatSession(ctx, res, sessionId, this.operationKind, acquisition.active);
       return;
     }
+    const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
     try {
       await this.run(ctx, req, res, {
         sessionId,
@@ -181,12 +179,16 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         session,
         parsedBody,
         value,
-        lease: acquisition?.kind === 'acquired' ? acquisition.lease : null,
+        lease,
       });
-    } finally {
-      if (acquisition?.kind === 'acquired') {
-        ctx.chatSessionOperations.release(acquisition.lease);
+      if (lease && !ctx.chatSessionOperations.finish(lease, { kind: 'completed' })) {
+        throw new Error(`Failed to finish chat session operation ${lease.sessionId}.`);
       }
+    } catch (error) {
+      if (lease) {
+        ctx.chatSessionOperations.finish(lease, { kind: 'failed', error: toError(error).message });
+      }
+      throw error;
     }
   }
 }

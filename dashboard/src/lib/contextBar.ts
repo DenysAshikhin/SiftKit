@@ -1,122 +1,44 @@
-import type { OptionalJsonValue } from '../../../src/lib/json-types.js';
-import { formatNumber } from './format';
+import type { ChatStreamUsageEvent } from '@siftkit/contracts';
 import type { ContextUsage } from '../types';
 
-export type ContextBarSectionKind = 'provider-overhead' | 'used' | 'free' | 'warn';
-
-export type ContextBarSection = {
-  kind: ContextBarSectionKind;
-  tokenCount: number;
-  percent: number;
-  titleText: string;
-};
-
-export type ContextBarVisual = {
+export type LiveContextUsage = {
+  usedTokens: number;
+  contextWindowTokens: number;
+  /** usedTokens / contextWindowTokens clamped to [0, 1]. */
   ratio: number;
-  percent: number;
-  fillColor: string;
-  titleText: string;
-  sections: ContextBarSection[];
+  /** False while the count includes the in-flight streaming tail estimate. */
+  exact: boolean;
 };
 
-export function computeContextBarVisual(used: number, total: number): Omit<ContextBarVisual, 'sections'> {
-  const ratio = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0;
-  const percent = ratio * 100;
-  const hue = 120 - 120 * ratio;
-  const fillColor = `hsl(${hue}, 70%, 45%)`;
-  const titleText = `${formatNumber(used)} / ${formatNumber(total)} (${(ratio * 100).toFixed(1)}% used)`;
-  return { ratio, percent, fillColor, titleText };
-}
-
-function getNonNegativeInteger(value: OptionalJsonValue): number {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
-}
-
-function getSectionPercent(tokenCount: number, total: number): number {
-  return total > 0 ? Math.max(0, Math.min(100, (tokenCount / total) * 100)) : 0;
-}
-
-function appendSection(sections: ContextBarSection[], kind: ContextBarSectionKind, tokenCount: number, total: number, titleText: string): void {
-  if (tokenCount <= 0) {
-    return;
-  }
-  sections.push({
-    kind,
-    tokenCount,
-    percent: getSectionPercent(tokenCount, total),
-    titleText,
-  });
-}
-
-// Resolves the bar shown beneath the composer. While a turn is generating, the most
-// truthful "context window fullness" signal is the backend prompt_tokens for the active
-// tool step (liveToolPromptTokenCount); it is preferred over the persisted total usage so
-// the bar grows in realtime. A fresh session has no contextUsage until the turn completes,
-// so the session's own window is used as the denominator during that first stream.
-export function resolveContextBarVisual(
-  usage: ContextUsage | null,
-  sessionContextWindowTokens: number,
-  liveToolPromptTokenCount: number | null,
-  chatBusy: boolean,
-): ContextBarVisual | null {
-  const liveUsed = chatBusy
-    && typeof liveToolPromptTokenCount === 'number'
-    && Number.isFinite(liveToolPromptTokenCount)
-    && liveToolPromptTokenCount > 0
-    ? liveToolPromptTokenCount
-    : null;
-  if (!usage && liveUsed === null) {
+/**
+ * Drives the bar and label beneath the composer. At rest it mirrors the persisted usage.
+ * While a turn streams it reads the newest usage frame, which is exact up to the last turn
+ * boundary, and adds only the tail streamed since then, so the bar moves with the turn
+ * instead of waiting for it to end.
+ */
+export function resolveLiveContextUsage(input: {
+  contextUsage: ContextUsage | null;
+  latestUsage: ChatStreamUsageEvent | null;
+  streamedCharsSinceUsage: number;
+  busy: boolean;
+}): LiveContextUsage | null {
+  const { contextUsage } = input;
+  if (!contextUsage || contextUsage.contextWindowTokens <= 0) {
     return null;
   }
-  const total = usage ? usage.contextWindowTokens : sessionContextWindowTokens;
-  if (total <= 0) {
-    return null;
-  }
-  const hasEstimatedUsage = usage ? Number(usage.estimatedTokenFallbackTokens || 0) > 0 : false;
-  const showingEstimatedPersistedUsage = hasEstimatedUsage && liveUsed === null;
-  const baseUsed = usage ? usage.totalUsedTokens : 0;
-  const used = liveUsed === null
-    ? baseUsed
-    : hasEstimatedUsage
-      ? liveUsed
-      : Math.max(baseUsed, liveUsed);
-  const visual = computeContextBarVisual(used, total);
-  const providerOverheadTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.providerOverheadTokens);
-  const warnThresholdTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.warnThresholdTokens);
-  const providerTokens = Math.min(providerOverheadTokens, total);
-  const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
-  const warnTokens = Math.min(warnThresholdTokens, Math.max(total - providerTokens - usedTokens, 0));
-  const freeTokens = Math.max(total - providerTokens - usedTokens - warnTokens, 0);
-  const sections: ContextBarSection[] = [];
-  const unavailableTitle = 'Context token count unavailable: this session includes fallback token estimates.';
-  appendSection(
-    sections,
-    'provider-overhead',
-    providerTokens,
-    total,
-    `Provider overhead reserve: ${formatNumber(providerTokens)} tokens used by request framing, model options, and chat template metadata.`,
-  );
-  appendSection(
-    sections,
-    'used',
+  const contextWindowTokens = contextUsage.contextWindowTokens;
+  const finish = (usedTokens: number, exact: boolean): LiveContextUsage => ({
     usedTokens,
-    total,
-    showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText,
-  );
-  appendSection(
-    sections,
-    'free',
-    freeTokens,
-    total,
-    showingEstimatedPersistedUsage ? 'Free context token count unavailable.' : `${formatNumber(freeTokens)} tokens currently free.`,
-  );
-  appendSection(
-    sections,
-    'warn',
-    warnTokens,
-    total,
-    `Warning zone: the last ${formatNumber(warnThresholdTokens)} tokens. When used context reaches here the session should be condensed. Chatting further risks the model's response being cut off if the context window fills up.`,
-  );
-  return { ...visual, titleText: showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText, sections };
+    contextWindowTokens,
+    ratio: Math.min(1, Math.max(0, usedTokens / contextWindowTokens)),
+    exact,
+  });
+  if (!input.busy || !input.latestUsage) {
+    return finish(contextUsage.totalUsedTokens, true);
+  }
+  // The frame is exact up to the last turn boundary. Only the tail streamed since then is
+  // estimated, sized by the ratio the previous turn actually measured.
+  const usage = input.latestUsage;
+  const tailTokens = Math.ceil(input.streamedCharsSinceUsage / usage.charsPerToken);
+  return finish(usage.record.promptTokens + tailTokens, tailTokens === 0);
 }

@@ -23,7 +23,7 @@ export type BenchmarkRunnerOptions = {
   promptPrefix?: string;
   promptPrefixFile?: string;
   requestTimeoutSeconds?: number;
-  llamaCppMaxTokens?: number;
+  inferenceMaxTokens?: number;
 };
 
 export type BenchmarkCaseResult = {

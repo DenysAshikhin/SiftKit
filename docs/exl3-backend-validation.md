@@ -27,4 +27,4 @@ Reusable prefix-cache behavior and comparative MTP-on/off benefit were not class
 
 ## Recovery
 
-If EXL3 startup fails, inspect `.siftkit/logs/managed-tabby/latest-startup.log` and `GET /runtime/inference`. A successful automatic rollback restores the previous preset definition and runtime. Correct the EXL3 preset in Dashboard Settings, or select a working llama.cpp preset.
+If EXL3 startup fails, inspect `.siftkit/logs/managed-tabby/latest-startup.log` and `GET /runtime/inference`. A successful automatic rollback restores the previous preset definition and runtime. Correct the EXL3 preset in Dashboard Settings or select another working EXL3 preset.

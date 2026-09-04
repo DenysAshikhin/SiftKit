@@ -43,6 +43,7 @@ export type AssistantTabProps = {
   onPreviewForgetTopic(topicKey: string): Promise<void>;
   onConfirmForgetTopic(topicKey: string, previewToken: string, addPolicy: boolean): Promise<void>;
   onFetchEvidencePixels(id: string): Promise<Blob>;
+  onClaimOwner(id: string, reason: string): Promise<void>;
   onAnswerQuestion(answer: string): Promise<void>;
   onSkipQuestion(): Promise<void>;
   onSnoozeQuestion(eligibleAfterUtc: string): Promise<void>;
@@ -113,6 +114,7 @@ export function AssistantTab(props: AssistantTabProps) {
           onPreviewForgetTopic={props.onPreviewForgetTopic}
           onConfirmForgetTopic={props.onConfirmForgetTopic}
           onFetchEvidencePixels={props.onFetchEvidencePixels}
+          onClaimOwner={props.onClaimOwner}
         />
       </section>
       <aside className="assistant-pane assistant-context-pane">

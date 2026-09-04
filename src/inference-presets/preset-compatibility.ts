@@ -9,8 +9,6 @@ import type {
 /** How SiftKit shapes OpenAI-style chat requests for TabbyAPI. */
 export const INFERENCE_REQUEST_COMPATIBILITY = {
   repetitionPenaltyKey: 'repetition_penalty',
-  /** llama.cpp-era request fields TabbyAPI rejects; stripped from passthrough requests. */
-  removedFields: ['repeat_penalty', 'cache_prompt', 'id_slot', 'timings_per_token'],
   /** TabbyAPI templates do not accept a `reasoning_content` kwarg. */
   reasoningContent: false,
 } as const;
@@ -25,7 +23,6 @@ export type PresetFieldAvailability =
   | { visible: true; enabled: boolean; reason: string | null };
 
 export const PresetRequestDefaultsSchema = z.object({
-  maxTokens: z.number(),
   temperature: z.number(),
   topP: z.number(),
   topK: z.number(),
@@ -42,7 +39,6 @@ export type PresetRequestDefaults = z.infer<typeof PresetRequestDefaultsSchema>;
 
 export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRequestDefaults {
   return {
-    maxTokens: preset.MaxTokens,
     temperature: preset.Temperature,
     topP: preset.TopP,
     topK: preset.TopK,
@@ -91,12 +87,13 @@ const PRESET_FIELD_SUPPORT = {
   BaseUrl: 'always',
   ModelPath: 'always',
   NumCtx: 'always',
+  NcpuMoe: 'managed-only',
   ParallelSlots: 'managed-only',
   UBatchSize: 'always',
   CacheRam: 'managed-only',
   CacheRecurrentRam: 'managed-only',
   KvCacheQuantization: 'always',
-  MaxTokens: 'always',
+
   Temperature: 'always',
   TopP: 'always',
   TopK: 'always',

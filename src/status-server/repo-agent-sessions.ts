@@ -7,16 +7,17 @@ import {
   isTerminalStatus,
   RepoAgentRunStateSchema,
   repoAgentStateToResult,
+  type RepoAgentApproval,
   type RepoAgentRunResult,
   type RepoAgentRunState,
 } from '../repo-agent/run-schemas.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
+import type { ApprovalMode } from '@siftkit/contracts';
 import {
   ApprovalGate,
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
   type ApprovalGateObserver,
-  type ApprovalMode,
 } from '../repo-search/engine/approval-gate.js';
 import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.js';
 import type {
@@ -62,8 +63,11 @@ export type RepoAgentModelLockAdapter = {
 
 export type RepoAgentEngineRequest = Omit<
   RepoSearchExecutionRequest,
-  'progressWriter' | 'approvalGate' | 'approvalMode' | 'abortSignal'
+  'progressWriter' | 'approvalGate' | 'abortSignal'
 >;
+
+/** Where a parked approval surfaces: as a progress frame to the attached client, or as a boundary result. */
+export type RepoAgentApprovalDelivery = 'progress' | 'boundary';
 
 type BoundaryWaiter = {
   sinceRevision: number;
@@ -96,7 +100,9 @@ export type RepoAgentSessionOptions = {
   runId: string;
   requestId: string;
   admission: RepoSearchAdmissionRecord;
+  /** Initial mode; switch it later with `setApprovalMode`. */
   approvalMode: ApprovalMode;
+  approvalDelivery: RepoAgentApprovalDelivery;
   store: RepoAgentRunStore;
   engine: RepoAgentEngine;
   locks: RepoAgentModelLockAdapter;
@@ -114,7 +120,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   readonly runId: string;
   private readonly requestId: string;
   private readonly admission: RepoSearchAdmissionRecord;
-  private readonly approvalMode: ApprovalMode;
+  private readonly approvalDelivery: RepoAgentApprovalDelivery;
   private readonly store: RepoAgentRunStore;
   private readonly engine: RepoAgentEngine;
   private readonly locks: RepoAgentModelLockAdapter;
@@ -122,7 +128,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly engineRequest: RepoAgentEngineRequest;
   private readonly abortController = new AbortController();
   private readonly progressWriter = new SessionProgressWriter(this);
-  private readonly gate: ApprovalGate | undefined;
+  private readonly gate: ApprovalGate;
   private readonly waiters: BoundaryWaiter[] = [];
   private subscriber: RepoAgentSessionSubscriber | null = null;
   // In-memory only on purpose: large thinking text must never land in the persisted run state.
@@ -135,25 +141,41 @@ export class RepoAgentSession implements ApprovalGateObserver {
     this.runId = options.runId;
     this.requestId = options.requestId;
     this.admission = options.admission;
-    this.approvalMode = options.approvalMode;
+    this.approvalDelivery = options.approvalDelivery;
     this.store = options.store;
     this.engine = options.engine;
     this.locks = options.locks;
     this.approvalGates = options.approvalGates;
     this.engineRequest = options.engineRequest;
     this.state = this.store.readState(this.runId);
-    this.gate = options.approvalMode === 'off'
-      ? undefined
-      : new ApprovalGate({
-        requestId: options.requestId,
-        progressWriter: this.progressWriter,
-        abortSignal: this.abortController.signal,
-        bypassReadOnlyTools: true,
-        observer: this,
-        ...(options.decisionTimeoutMs === undefined
-          ? {}
-          : { decisionTimeoutMs: options.decisionTimeoutMs }),
-      });
+    this.gate = new ApprovalGate({
+      requestId: options.requestId,
+      progressWriter: this.progressWriter,
+      abortSignal: this.abortController.signal,
+      mode: options.approvalMode,
+      bypassReadOnlyTools: true,
+      observer: this,
+      ...(options.decisionTimeoutMs === undefined
+        ? {}
+        : { decisionTimeoutMs: options.decisionTimeoutMs }),
+    });
+  }
+
+  getApprovalMode(): ApprovalMode {
+    return this.gate.mode;
+  }
+
+  /**
+   * Switches the live mode. Switching to `off` also approves a parked request and returns it so the
+   * caller can record the decision; every other switch leaves a parked request waiting.
+   */
+  setApprovalMode(mode: ApprovalMode): RepoAgentApproval | null {
+    this.gate.setMode(mode);
+    if (mode !== 'off' || this.state.status !== 'approval_required') {
+      return null;
+    }
+    const approval = this.state.approval;
+    return this.submitDecision({ runId: this.runId, decision: 'approve' }) ? approval : null;
   }
 
   get settled(): Promise<void> {
@@ -204,7 +226,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
     if (input.runId !== this.runId) {
       throw new Error(`Decision run ID ${input.runId} does not match session run ID ${this.runId}.`);
     }
-    if (!this.gate || this.state.status !== 'approval_required') {
+    if (this.state.status !== 'approval_required') {
       return false;
     }
     const decision: ApprovalDecision = input.decision === 'approve'
@@ -278,11 +300,14 @@ export class RepoAgentSession implements ApprovalGateObserver {
   handleProgressEvent(event: RepoSearchProgressEvent): void {
     if (event.kind === 'approval_request') {
       this.publishApproval(event);
-      if (this.approvalMode !== 'interactive') {
+      if (this.approvalDelivery === 'boundary') {
         return;
       }
     }
     if (event.kind === 'answer') {
+      if (this.subscriber?.wantsLiveText) {
+        this.subscriber.writeProgress(event);
+      }
       return;
     }
     if (isLiveTextProgressEvent(event)) {
@@ -303,9 +328,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   // ---- internals ----
 
   private async run(): Promise<void> {
-    if (this.gate) {
-      this.approvalGates.set(this.requestId, this.gate);
-    }
+    this.approvalGates.set(this.requestId, this.gate);
     let lock: { release(): void } | null = null;
     const lockWaitStartedAt = Date.now();
     const lockWaitTimer = setInterval(() => {
@@ -336,8 +359,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
         ...this.engineRequest,
         abortSignal: this.abortController.signal,
         progressWriter: this.progressWriter,
-        ...(this.gate ? { approvalGate: this.gate } : {}),
-        approvalMode: this.approvalMode,
+        approvalGate: this.gate,
       });
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
       this.executionResult = result;
@@ -359,9 +381,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
       }
     } finally {
       lock?.release();
-      if (this.gate) {
-        this.approvalGates.delete(this.requestId);
-      }
+      this.approvalGates.delete(this.requestId);
     }
   }
 
@@ -452,7 +472,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
     if (isTerminalStatus(this.state.status)) {
       return repoAgentStateToResult(this.state);
     }
-    if (this.state.status === 'approval_required' && this.approvalMode !== 'interactive') {
+    if (this.state.status === 'approval_required' && this.approvalDelivery === 'boundary') {
       return repoAgentStateToResult(this.state);
     }
     return null;

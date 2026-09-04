@@ -157,7 +157,7 @@ test('ok lines survive quiet level and carry the green SGR when colour is enable
   const sink = collect();
   const logger = new ServerLogger({ level: 'quiet', colour: true, write: sink.write });
 
-  logger.ok({ scope: 'llama', id: '', event: 'ready', fields: 'base_url=http://127.0.0.1:8080' });
+  logger.ok({ scope: 'inference', id: '', event: 'ready', fields: 'base_url=http://127.0.0.1:8080' });
 
   assert.equal(sink.lines.length, 1);
   assert.ok(sink.lines[0].includes('\x1b[32m'), 'terminal success lines must be green');

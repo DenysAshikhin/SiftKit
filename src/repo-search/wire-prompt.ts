@@ -1,4 +1,4 @@
-import type { LlamaCppContentPart, LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import type { InferenceContentPart, InferenceToolDefinition } from '../llm-protocol/types.js';
 import { countContentImages } from '../llm-protocol/image-attachments.js';
 import { serializeProtocolMessages, type ChatMessage } from './planner-protocol.js';
 
@@ -12,7 +12,7 @@ export const WIRE_GENERATION_PROMPT = `${IM_START}assistant\n`;
 
 export type WirePromptInput = {
   messages: readonly ChatMessage[];
-  tools: readonly LlamaCppToolDefinition[];
+  tools: readonly InferenceToolDefinition[];
   includeReasoningContent: boolean;
 };
 
@@ -22,7 +22,7 @@ export type WirePrompt = {
   imageCount: number;
 };
 
-function renderContent(content: string | LlamaCppContentPart[] | null | undefined): string {
+function renderContent(content: string | InferenceContentPart[] | null | undefined): string {
   if (typeof content === 'string') {
     return content;
   }

@@ -2,8 +2,8 @@ import type { AgentLoopAction } from '../agent-loop/types.js';
 import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue, type OptionalJsonValue } from '../lib/json-types.js';
 import { ModelJson } from '../lib/model-json.js';
 import { z } from '../lib/zod.js';
-import { LlamaCppToolCallParser } from '../llm-protocol/tool-call-parser.js';
-import type { LiveContentClassification, LlamaCppToolCall } from '../llm-protocol/types.js';
+import { InferenceToolCallParser } from '../llm-protocol/tool-call-parser.js';
+import type { LiveContentClassification, InferenceToolCall } from '../llm-protocol/types.js';
 import type { PlannerToolDefinition } from './json-schema.js';
 
 export class NativePlannerResponseError extends Error {
@@ -30,7 +30,7 @@ export type NativePlannerResponse = {
   rawText: string;
   narrationText: string;
   classification: LiveContentClassification;
-  toolCalls: readonly LlamaCppToolCall[];
+  toolCalls: readonly InferenceToolCall[];
 };
 
 export type NativePlannerActionOptions = {
@@ -38,7 +38,7 @@ export type NativePlannerActionOptions = {
   contentWithoutTools: 'finish' | 'invalid';
 };
 
-function parseArguments(toolCall: LlamaCppToolCall): JsonObject {
+function parseArguments(toolCall: InferenceToolCall): JsonObject {
   const parsed = ModelJson.parseToolArguments(toolCall.function.arguments);
   if (parsed) {
     return parsed;
@@ -113,7 +113,7 @@ function repairStringifiedArguments(args: JsonObject, issues: readonly z.core.$Z
 }
 
 function parseDefinitionArguments<T>(
-  toolCall: LlamaCppToolCall,
+  toolCall: InferenceToolCall,
   args: JsonObject,
   argumentSchema: z.ZodType<T>,
 ): T {
@@ -141,7 +141,7 @@ function parseDefinitionArguments<T>(
 }
 
 function parseToolAction(
-  toolCall: LlamaCppToolCall,
+  toolCall: InferenceToolCall,
   options: NativePlannerActionOptions,
 ): AgentLoopAction {
   const toolName = toolCall.function.name.trim();
@@ -177,7 +177,7 @@ export function parseNativePlannerActions(
   const content = response.narrationText.trim();
   const rawContent = response.rawText.trim();
   const fallbackScan = response.toolCalls.length === 0 && rawContent
-    ? new LlamaCppToolCallParser().scanFromText(rawContent)
+    ? new InferenceToolCallParser().scanFromText(rawContent)
     : null;
   const toolCalls = response.toolCalls.length > 0
     ? response.toolCalls

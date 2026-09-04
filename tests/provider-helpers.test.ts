@@ -10,7 +10,7 @@ import {
   retryProviderRequest,
 } from '../src/lib/provider-helpers.js';
 
-test('provider helpers extract llama timings and predicted token counts when usage is absent', () => {
+test('provider helpers ignore removed legacy timing payloads', () => {
   const body = {
     timings: {
       cache_n: 20,
@@ -28,18 +28,18 @@ test('provider helpers extract llama timings and predicted token counts when usa
 
   assert.deepEqual(getPromptUsageFromResponseBody(body), {
     promptTokens: null,
-    promptCacheTokens: 20,
-    promptEvalTokens: 10,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
   });
   assert.deepEqual(getCompletionUsageFromResponseBody(body), {
-    completionTokens: 8,
+    completionTokens: null,
     thinkingTokens: null,
   });
   assert.deepEqual(getTimingUsageFromResponseBody(body), {
-    promptEvalDurationMs: 50.5,
-    generationDurationMs: 64.25,
-    promptTokensPerSecond: 198.02,
-    generationTokensPerSecond: 124.51,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
+    promptTokensPerSecond: null,
+    generationTokensPerSecond: null,
   });
 });
 
@@ -104,17 +104,17 @@ test('provider helpers treat Indeterminate TabbyAPI rates and absent draft stats
   });
 });
 
-test('llama timings take precedence over TabbyAPI-shaped usage timing fields', () => {
+test('provider helpers use TabbyAPI usage timing and ignore legacy timing fields', () => {
   const body = {
     usage: { prompt_time: 9.9, completion_time: 9.9 },
     timings: { prompt_ms: 50.5, predicted_ms: 64.25, prompt_per_second: 198.02, predicted_per_second: 124.51 },
   };
 
   assert.deepEqual(getTimingUsageFromResponseBody(body), {
-    promptEvalDurationMs: 50.5,
-    generationDurationMs: 64.25,
-    promptTokensPerSecond: 198.02,
-    generationTokensPerSecond: 124.51,
+    promptEvalDurationMs: 9900,
+    generationDurationMs: 9900,
+    promptTokensPerSecond: null,
+    generationTokensPerSecond: null,
   });
 });
 

@@ -18,7 +18,7 @@ function preset(overrides: Partial<DashboardModelRuntimePreset>): DashboardModel
     ...MANAGED_PRESET,
     Model: 'Qwen3.5-35B', ModelPath: 'Qwen3.5-35B-exl3-4.0bpw', BaseUrl: 'http://127.0.0.1:8098',
     NumCtx: 128000, UBatchSize: 512, KvCacheQuantization: 'f16',
-    Temperature: 0.7, TopP: 0.8, TopK: 20, MaxTokens: 15000,
+    Temperature: 0.7, TopP: 0.8, TopK: 20,
     Reasoning: 'off', MaintainPerStepThinking: true, ReasoningBudget: 10000,
     SpeculativeEnabled: true, SpeculativeDraftMax: 8, SpeculativeDynamic: true,
     StartupTimeoutMs: 120000, HealthcheckTimeoutMs: 5000, HealthcheckIntervalMs: 1000,
@@ -40,7 +40,7 @@ test('memory summary reports context, chunk size and KV cache mode', () => {
 });
 
 test('sampling / reasoning / lifecycle summaries', () => {
-  assert.equal(summarizeSampling(preset({})), 'temp 0.7 · top-p 0.8 · top-k 20 · max 15k');
+  assert.equal(summarizeSampling(preset({})), 'temp 0.7 · top-p 0.8 · top-k 20');
   assert.equal(summarizeReasoning(preset({})), 'off · per-step thinking on · budget 10k');
   assert.equal(summarizeLifecycle(preset({})), 'startup 120s · probe 5s/1s · idle unload 600s');
 });
@@ -60,5 +60,5 @@ test('speculative summary covers dynamic, fixed and off', () => {
 
 test('summarizeModelPresetGroup dispatches by id and groups are complete', () => {
   assert.equal(MODEL_PRESET_GROUPS.length, 6);
-  assert.equal(summarizeModelPresetGroup('sampling', preset({})), 'temp 0.7 · top-p 0.8 · top-k 20 · max 15k');
+  assert.equal(summarizeModelPresetGroup('sampling', preset({})), 'temp 0.7 · top-p 0.8 · top-k 20');
 });

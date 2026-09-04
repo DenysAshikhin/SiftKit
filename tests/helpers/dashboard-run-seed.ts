@@ -6,6 +6,11 @@ import {
 } from '../../src/status-server/dashboard-runs.js';
 import type { StatusArtifactType } from '../../src/state/status-artifacts.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
+import {
+  operationOnlyRunIdentity,
+  UNRECORDED_RUN_IDENTITY,
+  type RunIdentity,
+} from '../../src/status-server/dashboard-runs/run-identity.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -20,12 +25,18 @@ export class DashboardRunSeeder {
     this.database = new Database(databasePath);
   }
 
-  artifact(artifactType: StatusArtifactType, requestId: string, artifactPayload: JsonObject): void {
+  artifact(
+    artifactType: StatusArtifactType,
+    requestId: string,
+    artifactPayload: JsonObject,
+    identity: RunIdentity,
+  ): void {
     upsertRunArtifactPayload({
       database: this.database,
       requestId,
       artifactType,
       artifactPayload,
+      identity,
     });
   }
 
@@ -39,11 +50,11 @@ export class DashboardRunSeeder {
       requestId: options.requestId,
       question: options.question,
       backend: 'exl3',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
+      model: 'Qwen3.5-9B-EXL3',
       summary: `Summary output for ${options.requestId}`,
       createdAtUtc: options.createdAtUtc,
       ...options.payload,
-    });
+    }, operationOnlyRunIdentity('summary'));
   }
 
   repoSearchRun(options: {
@@ -58,6 +69,7 @@ export class DashboardRunSeeder {
       database: this.database,
       requestId: options.requestId,
       taskKind: 'repo-search',
+      identity: UNRECORDED_RUN_IDENTITY,
       prompt: options.prompt,
       repoRoot: options.repoRoot,
       model: 'mock-model',

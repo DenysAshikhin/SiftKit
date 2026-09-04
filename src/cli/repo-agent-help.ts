@@ -1,4 +1,5 @@
 import { z } from '../lib/zod.js';
+import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
 import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
 
 export const REPO_AGENT_CANONICAL_INVOCATION =
@@ -68,7 +69,7 @@ export const RepoAgentHelpSchema = z.object({
   command: z.literal('repo-agent'),
   topic: RepoAgentHelpTopicSchema,
   canonicalInvocation: z.literal(REPO_AGENT_CANONICAL_INVOCATION),
-  defaultApproval: z.literal('auto'),
+  defaultApproval: z.literal(DEFAULT_APPROVAL_MODE),
   ttyMode: z.literal('server-streamed-interactive'),
   nonTtyMode: z.literal('server-streamed-boundary-json'),
   commands: z.array(RepoAgentHelpCommandSchema),
@@ -96,7 +97,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
   command: 'repo-agent',
   topic: 'root',
   canonicalInvocation: REPO_AGENT_CANONICAL_INVOCATION,
-  defaultApproval: 'auto',
+  defaultApproval: DEFAULT_APPROVAL_MODE,
   ttyMode: 'server-streamed-interactive',
   nonTtyMode: 'server-streamed-boundary-json',
   commands: [
@@ -122,7 +123,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
     {
       name: '--approval',
       value: '<interactive|auto|off>',
-      default: 'auto',
+      default: DEFAULT_APPROVAL_MODE,
       description: 'Set approval handling.',
     },
     { name: '--progress', value: null, default: 'false', description: 'Stream progress lines to stderr.' },

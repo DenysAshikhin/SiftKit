@@ -1,4 +1,4 @@
-import type { LlamaCppChatMessage } from '../../providers/llama-cpp.js';
+import type { InferenceChatMessage } from '../../providers/inference.js';
 import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
@@ -139,7 +139,7 @@ export function buildPlannerForcedFinishUserPrompt(reason?: string): string {
   ].join('\n');
 }
 
-export function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string {
+export function renderPlannerTranscript(messages: InferenceChatMessage[]): string {
   return messages.map((message) => {
     const sections: string[] = [];
     if (typeof message.content === 'string' && message.content) {
@@ -160,6 +160,6 @@ export function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string
 export function buildPlannerAssistantToolMessage(
   action: SummaryNativeToolCall,
   toolCallId: string
-): LlamaCppChatMessage {
+): InferenceChatMessage {
   return buildSharedAssistantToolCallMessage(action, toolCallId);
 }

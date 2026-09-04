@@ -6,7 +6,7 @@ import { runTaskLoop } from '../src/repo-search/engine.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
 import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -35,7 +35,7 @@ type LoopRun = {
  * responses in this file never emit tool calls, so the permissive argument schema is
  * never exercised; only the wire rendering (name, description, parameters) matters.
  */
-function toPlannerToolDefinitions(tools: readonly LlamaCppToolDefinition[]): PlannerToolDefinition[] {
+function toPlannerToolDefinitions(tools: readonly InferenceToolDefinition[]): PlannerToolDefinition[] {
   return tools.map((tool) => ({
     kind: 'tool',
     type: 'function',
@@ -45,7 +45,7 @@ function toPlannerToolDefinitions(tools: readonly LlamaCppToolDefinition[]): Pla
   }));
 }
 
-async function runOneTurnAgainstServer(options: { plannerTools?: readonly LlamaCppToolDefinition[] } = {}): Promise<LoopRun> {
+async function runOneTurnAgainstServer(options: { plannerTools?: readonly InferenceToolDefinition[] } = {}): Promise<LoopRun> {
   const server = http.createServer((req, res) => {
     let body = '';
     req.setEncoding('utf8');

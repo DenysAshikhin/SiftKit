@@ -5,7 +5,7 @@ import { RouteTable } from '../route-table.js';
 import {
   HealthEndpoint,
   StatusReadEndpoint,
-  LlamaCppConfigTestEndpoint,
+  EngineConfigTestEndpoint,
   ConfigReadEndpoint,
   ConfigUpdateEndpoint,
   StatusRestartEndpoint,
@@ -46,7 +46,7 @@ const CORE_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },
   { method: 'POST', path: '/status', endpoint: STATUS_POST_ENDPOINT },
   { method: 'POST', path: /^\/status\/terminal-metadata(?:\?.*)?$/u, endpoint: STATUS_POST_ENDPOINT },
-  { method: 'POST', path: /^\/config\/llama-cpp\/test(?:\?.*)?$/u, endpoint: new LlamaCppConfigTestEndpoint() },
+  { method: 'POST', path: /^\/config\/engine\/test(?:\?.*)?$/u, endpoint: new EngineConfigTestEndpoint() },
   { method: 'GET', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigReadEndpoint() },
   { method: 'PUT', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigUpdateEndpoint() },
   { method: 'POST', path: '/status/restart', endpoint: new StatusRestartEndpoint() },

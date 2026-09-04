@@ -36,7 +36,7 @@ export class IncrementalTokenCounter {
       return {
         tokenCount: this.lastCount,
         source: this.lastSource,
-        llamaTokenCount: null,
+        inferenceTokenCount: null,
         approximate: this.lastApproximate,
       };
     }
@@ -50,7 +50,7 @@ export class IncrementalTokenCounter {
         return {
           tokenCount: this.lastCount,
           source: delta.source,
-          llamaTokenCount: delta.llamaTokenCount,
+          inferenceTokenCount: delta.inferenceTokenCount,
           approximate: true,
         };
       }
@@ -59,7 +59,7 @@ export class IncrementalTokenCounter {
       return {
         tokenCount: estimateTokenCount(config, text),
         source: 'estimate',
-        llamaTokenCount: delta.llamaTokenCount,
+        inferenceTokenCount: delta.inferenceTokenCount,
         approximate: true,
       };
     }

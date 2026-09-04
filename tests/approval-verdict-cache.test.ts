@@ -7,7 +7,7 @@ import {
   serializeProtocolMessages,
 } from '../src/repo-search/planner-protocol.js';
 import { buildAssistantToolCallMessage } from '../src/tool-call-messages.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
+import { toProtocolTools } from '../src/providers/inference.js';
 
 test('the verdict prompt shares P + A with the next planner request', () => {
   const transcript = [
@@ -45,7 +45,7 @@ test('captureExecutingPlannerRequest isolates the snapshot from later input muta
     serializeProtocolMessages([{ role: 'user', content: 'q' }], false),
     flags,
     tools,
-    3,
+    1_000,
   );
   const serializedToolsBefore = captured.serializedToolsJson;
   const toolsBefore = [{

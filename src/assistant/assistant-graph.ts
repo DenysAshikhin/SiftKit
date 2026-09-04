@@ -108,6 +108,20 @@ export class AssistantGraph {
     return this.audit.getGraphVersion();
   }
 
+  /**
+   * Schedules one recompile of the memory documents at the current graph version, cancelling any
+   * recompile still queued. The documents are only rebuilt when something asks: every path that
+   * changes what the owner's tiers should say must call this.
+   */
+  enqueueProjectionMaintenance(ownerId: string, priority: number): void {
+    this.jobs.enqueueSuperseding({
+      ownerId,
+      jobType: 'projection_maintenance',
+      payload: { reason: 'graph_changed' },
+      idempotencyKey: `projection_maintenance:${this.graphVersion}`,
+    }, priority);
+  }
+
   nowUtc(): string {
     return this.clock.nowUtc();
   }

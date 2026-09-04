@@ -97,8 +97,8 @@ export const CUSTOM_PRESET = {
 export const MANAGED_PRESET = {
   id: 'managed', label: 'Managed', Backend: 'exl3', Model: 'test-model',
   ExternalServerEnabled: false, BaseUrl: 'http://127.0.0.1:8080', ModelPath: null,
-  NumCtx: 4096, VisionEnabled: false, VisionOffload: false, VisionImageRetention: 8, VisionMaxImagePixels: 0, ParallelSlots: 1, UBatchSize: 512, CacheRam: 2048, CacheRecurrentRam: 4096,
-  KvCacheQuantization: 'f16', MaxTokens: 512, Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
+  NumCtx: 4096, NcpuMoe: 0, VisionEnabled: false, VisionOffload: false, VisionImageRetention: 8, VisionMaxImagePixels: 0, ParallelSlots: 1, UBatchSize: 512, CacheRam: 2048, CacheRecurrentRam: 4096,
+  KvCacheQuantization: 'f16', Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
   Reasoning: 'off', ReasoningEffort: 'xhigh', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
   SpeculativeEnabled: false,
   SpeculativeDraftMax: 16, SpeculativeDynamic: true, ReasoningBudget: 128, ReasoningBudgetMessage: '',

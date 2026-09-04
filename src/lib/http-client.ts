@@ -91,13 +91,13 @@ export class HttpTimeoutError extends Error {
   }
 }
 
-export class LlamaHttpError extends Error {
+export class InferenceHttpError extends Error {
   public readonly statusCode: number;
   public readonly rawText: string;
 
   constructor(statusCode: number, rawText: string) {
-    super(`llama.cpp stream failed with HTTP ${statusCode}${rawText.trim() ? `: ${rawText.trim()}` : '.'}`);
-    this.name = 'LlamaHttpError';
+    super(`inference stream failed with HTTP ${statusCode}${rawText.trim() ? `: ${rawText.trim()}` : '.'}`);
+    this.name = 'InferenceHttpError';
     this.statusCode = statusCode;
     this.rawText = rawText;
   }

@@ -8,6 +8,7 @@ import { getActiveModelPreset } from '../../src/config/getters.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import { z } from '../../src/lib/zod.js';
 import { startStatusServer } from '../../src/status-server/index.js';
+import type { StatusEngineService } from '../../src/status-server/engine-service.js';
 import { readConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { getConfigPath } from '../../src/status-server/paths.js';
 import { FakeTabbyModelState } from './tabby-fake.js';
@@ -51,7 +52,7 @@ function readUserContents(body: string): string[] {
 
 const QUEUE_WAIT_TIMEOUT_MS = 2_000;
 const QUEUE_POLL_INTERVAL_MS = 10;
-const LOCK_HOLDER_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+const LOCK_HOLDER_MODEL = 'Qwen3.5-35B-A3B-EXL3';
 const LOCK_HOLDER_COMMAND = "git operation=\"grep\" path=\"src\" pattern=\"x\"";
 
 export interface DashboardModelQueueHarnessOptions {
@@ -65,6 +66,7 @@ export interface DashboardModelQueueHarnessOptions {
    * test's intended capacity is always visible at its call site rather than implied by the backend.
    */
   parallelSlots: number;
+  engineService?: StatusEngineService;
 }
 
 export class DashboardModelQueueHarness {
@@ -74,6 +76,7 @@ export class DashboardModelQueueHarness {
   private readonly envBackup: Record<string, string | undefined>;
   private readonly exl3ActivePreset: boolean;
   private readonly parallelSlots: number;
+  private readonly engineService: StatusEngineService | undefined;
   private readonly fakeTabbyModel = new FakeTabbyModelState();
   private fakeTabbyServer: http.Server | null = null;
   private readonly pendingChatRequests = new Map<string, PendingChatRequest>();
@@ -88,6 +91,7 @@ export class DashboardModelQueueHarness {
   constructor(tempDirectoryPrefix: string, options: DashboardModelQueueHarnessOptions) {
     this.exl3ActivePreset = options.exl3ActivePreset ?? false;
     this.parallelSlots = options.parallelSlots;
+    this.engineService = options.engineService;
     this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -101,7 +105,10 @@ export class DashboardModelQueueHarness {
     }
     try {
       await this.startFakeTabby();
-      const server = startStatusServer({ disableManagedEngineStartup: !this.exl3ActivePreset });
+      const server = startStatusServer({
+        disableManagedEngineStartup: !this.exl3ActivePreset,
+        engineService: this.engineService,
+      });
       this.server = server;
       await server.startupPromise;
       const address = getAddressInfo(server);

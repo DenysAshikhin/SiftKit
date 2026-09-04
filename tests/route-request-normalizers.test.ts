@@ -15,6 +15,14 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
+test('summary and repo-search agree on defaulting an omitted repo root', () => {
+  const summary = parseSummaryRequest({ question: 'q', inputText: 'text' });
+  const repoSearch = parseRepoSearchRequest({ prompt: 'p' });
+
+  assert.equal(summary?.repoRoot, process.cwd());
+  assert.equal(repoSearch?.repoRoot, process.cwd());
+});
+
 test('core route request normalizers return typed values', () => {
   assert.deepEqual(parseRepoSearchRequest({ prompt: ' p ', repoRoot: ' C:/repo ', model: ' m ', maxTurns: '3' }), {
     prompt: 'p',
@@ -48,7 +56,7 @@ test('core route request normalizers return typed values', () => {
     requestTimeoutSeconds: 5,
     timing: undefined,
     promptPrefix: undefined,
-    llamaCppMaxTokens: undefined,
+    inferenceMaxTokens: undefined,
   });
 
   assert.throws(
@@ -56,9 +64,9 @@ test('core route request normalizers return typed values', () => {
       question: 'q',
       inputText: 'text',
       repoRoot: 'C:/repo',
-      provider: 'llama',
+      provider: ['ll', 'ama'].join(''),
     }),
-    /Unsupported provider 'llama'/u,
+    /Unsupported provider/u,
   );
 
   assert.deepEqual(parseDashboardRunLogDeleteRequest({ mode: 'count', type: 'summary', count: '4' }), {
@@ -105,23 +113,33 @@ test('chat route request normalizers return typed values', () => {
   });
 });
 
-test('parseSummaryRequest carries promptPrefix and llamaCppMaxTokens', () => {
+test('parseSummaryRequest carries promptPrefix and inferenceMaxTokens', () => {
   const parsed = parseSummaryRequest({
     question: 'q',
     inputText: 'some input text',
     repoRoot: 'C:/repo',
     promptPrefix: 'benchmark prefix',
-    llamaCppMaxTokens: 256,
+    inferenceMaxTokens: 256,
   });
   assert.notEqual(parsed, null);
   assert.equal(parsed?.promptPrefix, 'benchmark prefix');
-  assert.equal(parsed?.llamaCppMaxTokens, 256);
+  assert.equal(parsed?.inferenceMaxTokens, 256);
 });
 
-test('parseSummaryRequest omits llamaCppMaxTokens when it is absent', () => {
+test('parseSummaryRequest omits inferenceMaxTokens when it is absent', () => {
   const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text', repoRoot: 'C:/repo' });
   assert.equal(parsed?.promptPrefix, undefined);
-  assert.equal(parsed?.llamaCppMaxTokens, undefined);
+  assert.equal(parsed?.inferenceMaxTokens, undefined);
+});
+
+test('parseSummaryRequest rejects a inferenceMaxTokens that is not a positive integer', () => {
+  for (const inferenceMaxTokens of [0, -1, 1.5, 'abc']) {
+    assert.equal(
+      parseSummaryRequest({ question: 'q', inputText: 'some input text', repoRoot: 'C:/repo', inferenceMaxTokens }),
+      null,
+      `inferenceMaxTokens=${String(inferenceMaxTokens)}`,
+    );
+  }
 });
 
 test('parseSummaryRequest preserves an explicit empty promptPrefix as an override', () => {

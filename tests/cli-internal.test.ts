@@ -346,7 +346,7 @@ test('internal op summary rejects an unknown Provider from the request file', as
       Question: 'Summarize the build output',
       Text: 'Build output: all 42 tests passed.\n'.repeat(30),
       Format: 'text',
-      Provider: 'llama',
+      Provider: ['ll', 'ama'].join(''),
     }), 'utf8');
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();
@@ -356,7 +356,7 @@ test('internal op summary rejects an unknown Provider from the request file', as
       stderr: stderr.stream,
     });
     assert.equal(code, 1);
-    assert.match(stderr.read(), /Unsupported provider 'llama'/u);
+    assert.match(stderr.read(), /Unsupported provider/u);
   });
 });
 

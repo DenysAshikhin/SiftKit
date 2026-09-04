@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import { buildStreamingTestConfig } from './helpers/streaming-client.js';
 
 /** Rejects any blocking request aimed at chat completions. */
@@ -25,7 +25,7 @@ class ChatBlockingDetector {
 }
 
 test('chat never issues a blocking request to /v1/chat/completions', async () => {
-  const client = new LlamaCppClient(new ChatBlockingDetector());
+  const client = new InferenceClient(new ChatBlockingDetector());
 
   const response = await client.chat({
     config: buildStreamingTestConfig(),

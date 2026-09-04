@@ -211,7 +211,7 @@ export class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRout
       requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
       timing: summaryRequest.timing,
       promptPrefix: summaryRequest.promptPrefix,
-      llamaCppMaxTokens: summaryRequest.llamaCppMaxTokens,
+      inferenceMaxTokens: summaryRequest.inferenceMaxTokens,
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       config: readConfig(ctx.configPath),
       abortSignal: stream.abortSignal,

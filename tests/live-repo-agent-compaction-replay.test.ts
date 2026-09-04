@@ -16,7 +16,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { z } from '../src/lib/zod.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
+import { toProtocolTools } from '../src/providers/inference.js';
 import {
   captureExecutingPlannerRequest,
   PLANNER_REASONING_BUDGET_MESSAGE,
@@ -31,7 +31,6 @@ import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js
 import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import {
-  allocateLlamaCppSlotId,
   resolvePlannerThinkingFlags,
 } from '../src/repo-search/engine/task-loop-support.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
@@ -208,12 +207,11 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     applyWebToolPolicy([...INTERACTIVE_REPO_TOOL_NAMES], webToolPolicy),
     activePreset.VisionEnabled === true,
   ));
-  const slotId = allocateLlamaCppSlotId(config);
   const executing = captureExecutingPlannerRequest(
     serializeProtocolMessages(source.executingMessages, thinking.reasoningContentEnabled),
     thinking,
     plannerTools,
-    slotId,
+    1_000,
   );
   const transcript = new TranscriptManager({
     systemPromptContent: 'placeholder',
@@ -232,7 +230,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     source.finalToolResultText,
     source.finalThinkingText,
   );
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 100, config });
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 100 });
   const replayPreflight = await preflightPlannerPromptBudget({
     config,
     prompt: renderWirePrompt({
@@ -240,8 +238,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
       tools: plannerTools,
       includeReasoningContent: thinking.reasoningContentEnabled,
     }),
-    totalContextTokens: budget.totalContextTokens,
-    responseReserveTokens: budget.responseReserveTokens,
+    maxPromptTokens: budget.maxPromptTokens,
   });
   assert.ok(
     Math.abs(replayPreflight.promptTokenCount - source.sourcePromptTokenCount)
@@ -271,7 +268,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
       model,
       timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
       totalContextTokens,
-      responseReserveTokens: budget.responseReserveTokens,
+      compactionReserveTokens: budget.compactionReserveTokens,
       useEstimatedTokensOnly: false,
       mockResponses: undefined,
       tokenUsage: new TokenUsageTracker(config, false),
@@ -347,7 +344,6 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     baseUrl,
     model,
     messages: serializeProtocolMessages(transcript.getMessages(), thinking.reasoningContentEnabled),
-    slotId,
     timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
     maxTokens: prepared.maxOutputTokens,
     ...thinking,

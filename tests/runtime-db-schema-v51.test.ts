@@ -1,3 +1,4 @@
+import { restoreLegacyPresetColumns } from './helpers/app-config-migration-fixture.js';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -39,6 +40,7 @@ test('v51 adds activity kind and explicitly marks historical tool rows as comman
     `);
     insertMessage.run('tool', 'assistant_tool_call', timestamp, 0);
     insertMessage.run('answer', 'assistant_answer', timestamp, 1);
+    restoreLegacyPresetColumns(database);
     database.prepare('UPDATE runtime_schema SET version = 50 WHERE id = 1').run();
     closeRuntimeDatabase();
 
@@ -73,7 +75,6 @@ test('v51 adds activity kind and explicitly marks historical tool rows as comman
         readonly.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
       );
       assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-      assert.equal(CURRENT_SCHEMA_VERSION, 55);
     } finally {
       readonly.close();
     }

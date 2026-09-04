@@ -25,7 +25,7 @@ import {
   writeManagedEngineLauncher,
   type RuntimeStatusResponse,
   type HealthCheckResponse,
-  type LlamaModelsResponse,
+  type InferenceModelsResponse,
 } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
@@ -339,13 +339,13 @@ test('real status server with disableManagedEngineStartup leaves an externally s
 
     try {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
       await withRealStatusServer(async () => {
         await waitForAsyncExpectation(async () => {
-          const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+          const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
           assert.equal(models.data[0].id, 'managed-test-model');
         }, 1000);
       }, {
@@ -355,7 +355,7 @@ test('real status server with disableManagedEngineStartup leaves an externally s
       });
 
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 1000);
     } finally {

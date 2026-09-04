@@ -1,9 +1,9 @@
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { ModelJson } from '../lib/model-json.js';
 import {
-  countLlamaCppTokensDetailed,
-  type CountLlamaCppTokensOptions,
-} from '../providers/llama-cpp.js';
+  countInferenceTokensDetailed,
+  type CountInferenceTokensOptions,
+} from '../providers/inference.js';
 import { getActiveInferenceBackend } from '../config/index.js';
 import type { SiftConfig } from '../config/index.js';
 import {
@@ -26,7 +26,7 @@ import {
   traceSummary,
 } from './artifacts.js';
 import {
-  getLlamaCppChunkThresholdCharacters,
+  getInferenceChunkThresholdCharacters,
   getPlannerActivationThresholdCharacters,
   getPlannerPromptBudget,
   sumTokenCounts,
@@ -71,7 +71,6 @@ export type SummaryCoreResult = {
 
 export type InvokeSummaryCoreOptions = {
   requestId: string;
-  slotId: number | null;
   question: string;
   inputText: string;
   images: readonly string[];
@@ -94,6 +93,7 @@ export type InvokeSummaryCoreOptions = {
   additionalPromptPrefix: string;
   systemContext: PresetSystemContext;
   allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
@@ -105,10 +105,10 @@ type SummaryCoreState = {
   rootInputCharacterCount: number;
   phase: SummaryPhase;
   chunkThreshold: number;
-  llamaPromptBudget: ReturnType<typeof getPlannerPromptBudget> | null;
+  inferencePromptBudget: ReturnType<typeof getPlannerPromptBudget> | null;
   plannerActivationThreshold: number;
   chunkLabel: string;
-  isTopLevelLlamaPass: boolean;
+  isTopLevelInferencePass: boolean;
 };
 
 type SummaryPromptContext = {
@@ -144,7 +144,7 @@ function toSummaryCompletionMetrics(
   };
 }
 
-function getSummaryTokenizeOptions(requestTimeoutSeconds: number | undefined): CountLlamaCppTokensOptions | undefined {
+function getSummaryTokenizeOptions(requestTimeoutSeconds: number | undefined): CountInferenceTokensOptions | undefined {
   const timeoutSeconds = Number(requestTimeoutSeconds);
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
     return undefined;
@@ -195,18 +195,18 @@ class SummaryCoreRunner {
       1,
       Math.floor(this.options.chunkThresholdOverride ?? (
         this.options.provider === 'real'
-          ? getLlamaCppChunkThresholdCharacters(this.options.config)
+          ? getInferenceChunkThresholdCharacters(this.options.config)
           : getChunkThresholdCharacters(this.options.config)
       ))
     );
-    const llamaPromptBudget = this.options.provider === 'real'
+    const inferencePromptBudget = this.options.provider === 'real'
       ? getPlannerPromptBudget(this.options.config)
       : null;
     return {
       rootInputCharacterCount,
       phase,
       chunkThreshold,
-      llamaPromptBudget,
+      inferencePromptBudget,
       plannerActivationThreshold: this.options.provider === 'real'
         ? getPlannerActivationThresholdCharacters(this.options.config)
         : chunkThreshold,
@@ -215,7 +215,7 @@ class SummaryCoreRunner {
           ? `${this.options.chunkIndex}/${this.options.chunkTotal}`
           : 'none'
       ),
-      isTopLevelLlamaPass: this.options.provider === 'real'
+      isTopLevelInferencePass: this.options.provider === 'real'
         && phase === 'leaf'
         && !this.options.chunkContext
         && this.options.chunkThresholdOverride == null,
@@ -231,15 +231,14 @@ class SummaryCoreRunner {
   }
 
   private shouldStartInPlannerMode(state: SummaryCoreState): boolean {
-    return state.isTopLevelLlamaPass
-      && (state.llamaPromptBudget?.plannerStopLineTokens ?? 0) > 0
+    return state.isTopLevelInferencePass
+      && (state.inferencePromptBudget?.plannerStopLineTokens ?? 0) > 0
       && this.options.inputText.length > state.plannerActivationThreshold;
   }
 
   private async invokePlanner(): Promise<SummaryCoreResult> {
     const plannerDecision = await invokePlannerMode({
       requestId: this.options.requestId,
-      slotId: this.options.slotId,
       question: this.options.question,
       inputText: this.options.inputText,
       images: this.options.images,
@@ -255,6 +254,7 @@ class SummaryCoreRunner {
       additionalPromptPrefix: this.options.additionalPromptPrefix,
       systemContext: this.options.systemContext,
       allowedTools: this.options.allowedPlannerTools,
+      operationMaxTokens: this.options.operationMaxTokens,
       requestTimeoutSeconds: this.options.requestTimeoutSeconds,
       statusBackendUrl: this.options.statusBackendUrl,
       timingRecorder: this.options.timingRecorder || null,
@@ -346,7 +346,7 @@ class SummaryCoreRunner {
       enabled: effectivePromptLimit !== null && effectivePromptLimit > 0,
     });
     const tokenCountResult = effectivePromptLimit !== null && effectivePromptLimit > 0
-      ? await this.countLlamaPromptTokens(state, prompt)
+      ? await this.countInferencePromptTokens(state, prompt)
       : null;
     const promptTokenCount = tokenCountResult?.tokenCount ?? null;
     promptTokenSpan?.end({ promptTokenCount: promptTokenCount ?? -1 });
@@ -358,18 +358,18 @@ class SummaryCoreRunner {
     return promptTokenCount;
   }
 
-  private async countLlamaPromptTokens(
+  private async countInferencePromptTokens(
     state: SummaryCoreState,
     prompt: string,
-  ): Promise<Awaited<ReturnType<typeof countLlamaCppTokensDetailed>>> {
+  ): Promise<Awaited<ReturnType<typeof countInferenceTokensDetailed>>> {
     const tokenizeOptions = getSummaryTokenizeOptions(this.options.requestTimeoutSeconds);
     this.options.progress?.tokenizeStart(state.phase, state.chunkLabel, prompt.length);
-    return countLlamaCppTokensDetailed(this.options.config, prompt, tokenizeOptions);
+    return countInferenceTokensDetailed(this.options.config, prompt, tokenizeOptions);
   }
 
   private logTokenizeEnd(
     state: SummaryCoreState,
-    tokenCountResult: Awaited<ReturnType<typeof countLlamaCppTokensDetailed>> | null,
+    tokenCountResult: Awaited<ReturnType<typeof countInferenceTokensDetailed>> | null,
   ): void {
     const effectivePromptLimit = this.effectivePromptLimit(state);
     if (effectivePromptLimit === null || effectivePromptLimit <= 0) {
@@ -382,7 +382,7 @@ class SummaryCoreRunner {
 
   private effectivePromptLimit(state: SummaryCoreState): number | null {
     return this.options.provider === 'real'
-      ? (state.llamaPromptBudget?.plannerStopLineTokens ?? 0)
+      ? (state.inferencePromptBudget?.plannerStopLineTokens ?? 0)
       : null;
   }
 
@@ -445,7 +445,6 @@ class SummaryCoreRunner {
     try {
       providerResult = await invokeProviderSummary({
         requestId: this.options.requestId,
-        slotId: this.options.slotId,
         provider: this.options.provider,
         config: this.options.config,
         model: this.options.model,
@@ -460,6 +459,7 @@ class SummaryCoreRunner {
         chunkTotal: this.options.chunkTotal ?? null,
         chunkPath: this.options.chunkPath ?? null,
         reasoningOverride,
+        operationMaxTokens: this.options.operationMaxTokens,
         requestTimeoutSeconds: this.options.requestTimeoutSeconds,
         statusBackendUrl: this.options.statusBackendUrl,
         timingRecorder: this.options.timingRecorder || null,
@@ -564,7 +564,7 @@ class SummaryCoreRunner {
     return this.options.provider === 'real'
       && state.phase === 'leaf'
       && !this.options.chunkContext
-      && /llama\.cpp generate failed with HTTP 400\b/iu.test(getErrorMessage(error));
+      && /inference generate failed with HTTP 400\b/iu.test(getErrorMessage(error));
   }
 }
 

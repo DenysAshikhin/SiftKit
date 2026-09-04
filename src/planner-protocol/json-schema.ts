@@ -1,12 +1,12 @@
 import type { AgentLoopFinishAction } from '../agent-loop/types.js';
 import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
-import type { LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import type { InferenceToolDefinition } from '../llm-protocol/types.js';
 import { z } from '../lib/zod.js';
 
 type PlannerToolDefinitionBase = {
   type: 'function';
   exampleArgs: JsonObject;
-  function: LlamaCppToolDefinition['function'];
+  function: InferenceToolDefinition['function'];
 };
 
 export type PlannerToolDefinition = PlannerToolDefinitionBase & (

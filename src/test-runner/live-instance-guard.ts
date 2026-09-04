@@ -4,7 +4,7 @@ import type { ClientRequestArgs } from 'node:http';
 
 /**
  * Node preload for the test suite. Tests sandbox the filesystem by chdir-ing into a temp
- * repo, but an unstubbed status notification or llama probe still resolves to the
+ * repo, but an unstubbed status notification or engine probe still resolves to the
  * production defaults and lands on the developer's running SiftKit — POST /status/complete
  * and /status/terminal-metadata mutate its runtime database. Any request that reaches a
  * default port therefore fails the test file that made it. Isolation is each file's job:
@@ -36,7 +36,7 @@ function readGuardedPort(envName: string): string {
 
 const GUARDED_PORTS = new Map<string, string>([
   [readGuardedPort('SIFTKIT_GUARD_STATUS_PORT'), 'status server'],
-  [readGuardedPort('SIFTKIT_GUARD_ENGINE_PORT'), 'llama.cpp server'],
+  [readGuardedPort('SIFTKIT_GUARD_ENGINE_PORT'), 'inference server'],
 ]);
 
 const violations: string[] = [];

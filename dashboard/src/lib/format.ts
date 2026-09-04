@@ -10,6 +10,7 @@ import type {
   RunGroupFilter,
   RunRecord,
 } from '../types.js';
+import type { ChatTurn } from './chatTurns.js';
 
 const {
   getAcceptanceRate,
@@ -65,37 +66,48 @@ export function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-function readTokenComponent(value: OptionalJsonValue): number {
+function readTokenCount(value: OptionalJsonValue): number {
   const tokenCount = Number(value);
   return Number.isFinite(tokenCount) && tokenCount >= 0 ? tokenCount : 0;
 }
 
-function hasExactTokenComponent(tokenCount: number, estimated: boolean | undefined): boolean {
-  return tokenCount <= 0 || estimated === false;
+type TokenComponent = {
+  tokenCount: number;
+  exact: boolean;
+};
+
+type MessageTokenComponents = {
+  input: TokenComponent;
+  output: TokenComponent;
+  thinking: TokenComponent;
+};
+
+function readTokenComponent(value: OptionalJsonValue, estimated: boolean | undefined): TokenComponent {
+  const tokenCount = readTokenCount(value);
+  return { tokenCount, exact: tokenCount <= 0 || estimated === false };
 }
 
-function getKnownTokenComponent(tokenCount: number, estimated: boolean | undefined): number {
-  return tokenCount > 0 && estimated === false ? tokenCount : 0;
+function getMessageTokenComponents(message: ChatMessage): MessageTokenComponents {
+  return {
+    input: readTokenComponent(message.inputTokensEstimate, message.inputTokensEstimated),
+    output: readTokenComponent(message.outputTokensEstimate, message.outputTokensEstimated),
+    thinking: readTokenComponent(message.thinkingTokens, message.thinkingTokensEstimated),
+  };
 }
 
 export function getMessageTokenCount(message: ChatMessage): number | null {
-  const inputTokens = readTokenComponent(message.inputTokensEstimate);
-  const outputTokens = readTokenComponent(message.outputTokensEstimate);
-  const thinkingTokens = readTokenComponent(message.thinkingTokens);
-  if (
-    !hasExactTokenComponent(inputTokens, message.inputTokensEstimated)
-    || !hasExactTokenComponent(outputTokens, message.outputTokensEstimated)
-    || !hasExactTokenComponent(thinkingTokens, message.thinkingTokensEstimated)
-  ) {
+  const components = getMessageTokenComponents(message);
+  if (!components.input.exact || !components.output.exact || !components.thinking.exact) {
     return null;
   }
-  return inputTokens + outputTokens + thinkingTokens;
+  return components.input.tokenCount + components.output.tokenCount + components.thinking.tokenCount;
 }
 
 export function getMessageKnownTokenCount(message: ChatMessage): number {
-  return getKnownTokenComponent(readTokenComponent(message.inputTokensEstimate), message.inputTokensEstimated)
-    + getKnownTokenComponent(readTokenComponent(message.outputTokensEstimate), message.outputTokensEstimated)
-    + getKnownTokenComponent(readTokenComponent(message.thinkingTokens), message.thinkingTokensEstimated);
+  const components = getMessageTokenComponents(message);
+  return (components.input.exact ? components.input.tokenCount : 0)
+    + (components.output.exact ? components.output.tokenCount : 0)
+    + (components.thinking.exact ? components.thinking.tokenCount : 0);
 }
 
 export function getReplayDisplayTokenCount(message: ChatMessage): number | null {
@@ -110,6 +122,46 @@ export function formatMessageTokenLabel(message: ChatMessage): string {
   }
   const textLabel = formatTokenLabel(textTokens);
   return imageTokens > 0 ? `${textLabel} (+${formatNumber(imageTokens)} img)` : textLabel;
+}
+
+type TokenDisplay = {
+  tokenCount: number;
+  exact: boolean;
+  imageTokens: number;
+};
+
+export function getLiveMessageTokenDisplay(message: ChatMessage): TokenDisplay {
+  const components = getMessageTokenComponents(message);
+  const imageTokens = sumImageTokens(message.imageMeta);
+  return {
+    tokenCount: components.input.tokenCount + components.output.tokenCount + components.thinking.tokenCount + imageTokens,
+    exact: components.input.exact && components.output.exact && components.thinking.exact,
+    imageTokens,
+  };
+}
+
+export function sumLiveTokenDisplays(messages: readonly ChatMessage[]): { tokenCount: number; exact: boolean } {
+  const displays = messages.map(getLiveMessageTokenDisplay);
+  return {
+    tokenCount: displays.reduce((sum, display) => sum + display.tokenCount, 0),
+    exact: displays.every((display) => display.exact),
+  };
+}
+
+export function formatLiveMessageTokenLabel(message: ChatMessage): string {
+  const display = getLiveMessageTokenDisplay(message);
+  const textTokens = display.tokenCount - display.imageTokens;
+  if (textTokens === 0 && display.imageTokens > 0) {
+    return `${formatNumber(display.imageTokens)} image tokens`;
+  }
+  const textLabel = `${display.exact ? '' : '~'}${formatNumber(textTokens)} tokens`;
+  return display.imageTokens > 0
+    ? `${textLabel} (+${formatNumber(display.imageTokens)} img)`
+    : textLabel;
+}
+
+export function getTurnTokenDisplay(turn: ChatTurn): { tokenCount: number; exact: boolean } {
+  return sumLiveTokenDisplays(turn.messages);
 }
 
 export function getSessionTelemetryStats(session: ChatSession | null): {

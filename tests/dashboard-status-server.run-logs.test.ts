@@ -89,7 +89,7 @@ function seedRunHistoryFixtures(dbPath: string): void {
 
     const insertManagedRun = database.prepare(`
       INSERT INTO inference_runs (id, backend, purpose, base_url, status, started_at_utc, finished_at_utc, updated_at_utc)
-      VALUES (?, 'llama', ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'exl3', ?, ?, ?, ?, ?, ?)
     `);
     insertManagedRun.run('mlr-old', 'startup', 'http://127.0.0.1:9001', 'ready', '2026-04-05T10:00:00.000Z', '2026-04-05T10:05:00.000Z', '2026-04-05T10:05:00.000Z');
     insertManagedRun.run('mlr-running', 'startup', 'http://127.0.0.1:9002', 'running', '2026-04-06T10:00:00.000Z', null, '2026-04-06T10:00:00.000Z');
@@ -360,7 +360,7 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   }
 });
 
-test('dashboard before_date all-type delete wipes run history across tables while preserving benchmarks, running llama, and post-cutoff rows', async () => {
+test('dashboard before_date all-type delete wipes run history across tables while preserving benchmarks, a running engine, and post-cutoff rows', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-run-delete-all-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');

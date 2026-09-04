@@ -56,6 +56,7 @@ type MutableTurn = {
   promptCacheTokens: number | null;
   completionTokens: number | null;
   thinkingTokens: number | null;
+  stop: LiveRunTurn['stop'];
   providerRequests: MutableProviderRequest[];
   approval: { verdict: string; reason: string } | null;
   tool: MutableTool | null;
@@ -239,6 +240,7 @@ export class LiveRunSnapshotCollector {
       promptCacheTokens: turn.promptCacheTokens,
       completionTokens: turn.completionTokens,
       thinkingTokens: turn.thinkingTokens,
+      stop: turn.stop,
       providerRequests: turn.providerRequests.map((request) => ({
         stage: request.stage,
         startedAtUtc: new Date(request.startedAtMs).toISOString(),
@@ -281,6 +283,7 @@ export class LiveRunSnapshotCollector {
       promptCacheTokens: null,
       completionTokens: null,
       thinkingTokens: null,
+      stop: null,
       providerRequests: [],
       approval: null,
       tool: null,
@@ -409,6 +412,7 @@ export class LiveRunSnapshotCollector {
     turn.promptTokens = optionalNumber(parsed.data.promptTokens) ?? turn.promptTokens;
     turn.completionTokens = optionalNumber(parsed.data.completionTokens);
     turn.thinkingTokens = optionalNumber(parsed.data.thinkingTokens);
+    turn.stop = parsed.data.stop;
     turn.promptCacheTokens = optionalNumber(parsed.data.promptCacheTokens);
     turn.promptEvalTokens = optionalNumber(parsed.data.promptEvalTokens);
     this.setPhase('idle', parsed.data.turn, null);

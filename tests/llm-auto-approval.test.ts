@@ -52,7 +52,7 @@ class UnansweringWriter extends CollectingProgressWriter<RepoSearchProgressEvent
  */
 test('an auto-review that reaches no verdict aborts when nobody answers the escalation', async () => {
   const writer = new UnansweringWriter();
-  const harness = new ApprovalGateHarness(writer, false, ESCALATION_DECISION_TIMEOUT_MS);
+  const harness = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: ESCALATION_DECISION_TIMEOUT_MS });
   const gate = new LlmApprovalGate({
     requestId: 'run-1',
     humanGate: harness.gate,
@@ -153,7 +153,6 @@ function makeAutoLoopOptions(
     mockCommandResults: {},
     progressWriter: writer,
     approvalGate: gate,
-    approvalMode: 'auto' as const,
     logger: logger ?? null,
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES]),
   };
@@ -163,7 +162,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
   const tempRoot = createManagedTempDir('siftkit-llm-auto-approve-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
@@ -195,7 +194,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
   const tempRoot = createManagedTempDir('siftkit-llm-auto-deny-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -218,7 +217,7 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   const tempRoot = createManagedTempDir('siftkit-llm-auto-unsure-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -255,7 +254,7 @@ for (const testCase of AUTO_FAST_PATH_CASES) {
     try {
       fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
       const writer = new RecordingWriter(new AlwaysAbortProvider());
-      const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+      const gate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
       writer.gate = gate;
       const { events: logEvents, logger } = makeRecordingLogger();
       // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
@@ -282,7 +281,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
   const tempRoot = createManagedTempDir('siftkit-llm-auto-badverdict-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -295,7 +294,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
     const auto = writer.ofKind('approval_auto');
     assert.equal(auto.length, 1);
     assert.equal(auto[0].verdict, 'unsure');
-    assert.equal(auto[0].reason, 'verdict call failed');
+    assert.match(auto[0].reason, /^verdict call failed: /u);
     assert.equal(writer.ofKind('approval_request').length, 1);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -304,7 +303,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
 
 test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
   const writer = new RecordingWriter(new AlwaysApproveProvider());
-  const humanGate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
+  const humanGate = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
   writer.gate = humanGate;
   let verdictAttempts = 0;
   const gate = new LlmApprovalGate({
@@ -442,7 +441,7 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
 
   const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
-    const gate = new ApprovalGateHarness(new SilentProgressWriter(), false, UNREACHED_GATE_TIMEOUT_MS).gate;
+    const gate = new ApprovalGateHarness(new SilentProgressWriter(), { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     const result = await runTaskLoop(makeTask('execute the cache-chain test actions'), {
       repoRoot: tempRoot,
       model: 'mock-model',
@@ -461,7 +460,6 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
       minToolCallsBeforeFinish: 0,
       mockCommandResults: {},
       approvalGate: gate,
-      approvalMode: 'auto' as const,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES]),
     });
 
@@ -523,32 +521,5 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-  }
-});
-
-test('auto mode without a human gate fails loudly at construction', async () => {
-  const tempRoot = createManagedTempDir('siftkit-llm-auto-nogate-');
-  try {
-    const writer = new RecordingWriter(new AlwaysApproveProvider());
-    await assert.rejects(
-      runTaskLoop(makeTask('write a file'), {
-        repoRoot: tempRoot,
-        systemContext: createEmptyPresetSystemContext(),
-        config: mockOfflineSiftConfig(),
-        model: 'mock-model',
-        baseUrl: DEAD_BASE_URL,
-        runtimeProfile: RUNTIME_PROFILE,
-        maxTurns: 4,
-        minToolCallsBeforeFinish: 0,
-        mockResponses: [{ content: "unreachable" }],
-        mockCommandResults: {},
-        progressWriter: writer,
-        approvalMode: 'auto' as const,
-        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES]),
-      }),
-      /approvalMode "auto" requires an approvalGate/u,
-    );
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });

@@ -171,6 +171,7 @@ test('POST /repo-agent emits activity_summary after ten tool turns', async (t) =
       repoRoot: process.cwd(),
       model: 'mock-model',
       maxTurns: 12,
+      approval: 'auto',
       availableModels: ['mock-model'],
       mockResponses,
       mockCommandResults: {},
@@ -190,48 +191,20 @@ test('POST /repo-agent emits activity_summary after ten tool turns', async (t) =
   );
 });
 
-test('POST /repo-agent defaults omitted approval to auto review', async (t) => {
-  const harness = await startHarness('siftkit-repo-agent-default-auto-', t);
-  const written = path.join(process.cwd(), 'default-auto.txt');
+test('POST /repo-agent rejects an omitted approval mode', async (t) => {
+  const harness = await startHarness('siftkit-repo-agent-missing-approval-', t);
   const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
     body: {
-      prompt: 'write a file',
-      repoRoot: process.cwd(),
-      model: 'mock-model',
-      maxTurns: 4,
+      prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       availableModels: ['mock-model'],
-      mockResponses: [
-        { toolCalls: [{ name: "write", arguments: {"path":"default-auto.txt","content":"safe"} }] },
-        { content: '{"verdict":"approve","reason":"task-scoped write"}' },
-        ...repoAgentFinishResponses('done'),
-      ],
+      mockResponses: [{ content: "unreachable" }],
       mockCommandResults: {},
     },
     timeoutMs: 20_000,
-    onProgress: async (event) => {
-      if (event.kind !== 'approval_request') {
-        return;
-      }
-      await postJson(`${harness.baseUrl}/repo-search/approval`, {
-        requestId: String(event.requestId),
-        approvalId: String(event.approvalId),
-        decision: 'abort',
-      });
-      assert.fail('Omitted repo-agent approval unexpectedly required manual review.');
-    },
   });
-  assert.ok(response.result, response.rawBody);
-  assert.equal(fs.readFileSync(written, 'utf8'), 'safe');
-  assert.equal(
-    response.progress.filter((event) => event.kind === 'approval_request').length,
-    0,
-  );
-  const autoFrames = response.progress.filter(
-    (event) => event.kind === 'approval_auto',
-  );
-  assert.equal(autoFrames.length, 1);
-  assert.equal(autoFrames[0].verdict, 'approve');
-  fs.rmSync(written, { force: true });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.result, null);
+  assert.match(response.rawBody, /approval must be one of: interactive, auto, off/u);
 });
 
 test('POST /repo-agent with approval:"off" runs autonomously with no approval frames', async (t) => {
@@ -287,6 +260,7 @@ test('POST /repo-agent: read-only tools execute without approval frames', async 
   const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
     body: {
       prompt: 'inspect files', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 8,
+      approval: 'auto',
       availableModels: ['mock-model'],
       mockResponses: [
         { toolCalls: [{ name: "read", arguments: {"path":"package.json","offset":1,"limit":2} }] },

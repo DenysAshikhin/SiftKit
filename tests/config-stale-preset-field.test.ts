@@ -14,7 +14,7 @@ function withStalePresetField(dbPath: string, field: string, value: number): voi
   const preset = getDefaultConfig().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   getRuntimeDatabase(dbPath)
-    .prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1')
+    .prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1')
     .run(JSON.stringify([{ ...preset, [field]: value }]));
 }
 
@@ -53,7 +53,7 @@ test('a persisted preset list that is not valid JSON fails loud instead of reset
   try {
     writeConfig(dbPath, getDefaultConfig());
     getRuntimeDatabase(dbPath)
-      .prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1')
+      .prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1')
       .run('{ broken json');
 
     assert.throws(() => readConfig(dbPath), /persisted configuration in .* is invalid/u);

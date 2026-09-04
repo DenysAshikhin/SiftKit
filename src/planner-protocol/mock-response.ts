@@ -1,6 +1,6 @@
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
-import type { LlamaCppToolCall, StreamStop } from '../llm-protocol/types.js';
+import { StreamStopSchema, type InferenceToolCall, type StreamStop } from '../llm-protocol/types.js';
 
 export const MockPlannerToolCallSchema = z.strictObject({
   id: z.string().trim().min(1).optional(),
@@ -29,7 +29,7 @@ export type MockPlannerResponseInput = z.input<typeof MockPlannerResponseSchema>
 export function parseMockPlannerResponse(value: MockPlannerResponseInput, responseIndex: number): {
   content: string;
   thinking: string;
-  toolCalls: LlamaCppToolCall[];
+  toolCalls: InferenceToolCall[];
   stop: StreamStop;
 } {
   const response = MockPlannerResponseSchema.parse(value);
@@ -44,10 +44,10 @@ export function parseMockPlannerResponse(value: MockPlannerResponseInput, respon
         arguments: JSON.stringify(toolCall.arguments),
       },
     })),
-    stop: {
+    stop: StreamStopSchema.parse({
       earlyStopReason: response.earlyStopReason,
       backendEosReason: response.backendEosReason,
       finishReason: response.finishReason,
-    },
+    }),
   };
 }

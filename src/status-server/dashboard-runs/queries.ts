@@ -24,6 +24,11 @@ const RUN_LOG_LIST_SELECT_COLUMNS = `
   request_id,
   run_kind,
   run_group,
+  operation_type,
+  operation_preset_id,
+  model_preset_id,
+  operation_preset_json,
+  model_preset_json,
   terminal_state,
   started_at_utc,
   finished_at_utc,
@@ -52,6 +57,11 @@ const RUN_LOG_DETAIL_SELECT_COLUMNS = `
   request_id,
   run_kind,
   run_group,
+  operation_type,
+  operation_preset_id,
+  model_preset_id,
+  operation_preset_json,
+  model_preset_json,
   terminal_state,
   started_at_utc,
   finished_at_utc,
@@ -106,8 +116,7 @@ export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
   }
 }
 
-export function buildDashboardRunDetail(runtimeRoot: string, runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
-  void runtimeRoot;
+export function buildDashboardRunDetail(runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
   const databasePath = getRuntimeDatabasePath();
   if (!existsSync(databasePath)) {
     return null;

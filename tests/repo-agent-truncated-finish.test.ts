@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { StreamStop } from '../src/llm-protocol/types.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import { TRUNCATED_FINISH_MESSAGE, TaskResultSchema, buildStreamStopNotice } from '../src/repo-search/engine/task-loop-support.js';
+import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { parseLoggedEvent, plannerLogMessages, userMessagesOfTurn } from './helpers/logged-events.js';
@@ -48,6 +50,42 @@ function assistantMessagesOfTurn(events: readonly JsonObject[], turn: number): A
   return plannerLogMessages(events.find((event) => event.kind === 'turn_new_messages' && event.turn === turn))
     .filter((message) => message.role === 'assistant')
     .map((message) => message.content);
+}
+
+const STOP_LOG_CASES = [
+  {
+    name: 'backend repetition',
+    response: { content: '', backendEosReason: 'loop_detected' },
+    expected: { earlyStopReason: null, backendEosReason: 'loop_detected', finishReason: null },
+  },
+  {
+    name: 'client early stop',
+    response: { content: '', earlyStopReason: 'thinking budget exhausted' },
+    expected: { earlyStopReason: 'thinking budget exhausted', backendEosReason: null, finishReason: null },
+  },
+  {
+    name: 'maximum token limit',
+    response: { content: 'partial', finishReason: 'length' },
+    expected: { earlyStopReason: null, backendEosReason: null, finishReason: 'length' },
+  },
+  {
+    name: 'clean completion',
+    response: { content: 'complete answer' },
+    expected: { earlyStopReason: null, backendEosReason: null, finishReason: null },
+  },
+] satisfies readonly { name: string; response: MockPlannerResponseInput; expected: StreamStop }[];
+
+for (const stopCase of STOP_LOG_CASES) {
+  test(`turn model response logs ${stopCase.name} stop fields`, async () => {
+    const { events } = await runScenario({
+      id: `agent-model-response-stop-${stopCase.name.replaceAll(' ', '-')}`,
+      mockResponses: [stopCase.response, { content: 'complete answer' }, VERDICT],
+    });
+
+    const rawModelResponse = events.find((event) => event.kind === 'turn_model_response' && event.turn === 1);
+    const modelResponse = TurnModelResponseEventSchema.parse(rawModelResponse);
+    assert.deepEqual(modelResponse.stop, stopCase.expected);
+  });
 }
 
 test('a finish produced by a backend repetition loop is rejected once and the next finish is accepted', async () => {

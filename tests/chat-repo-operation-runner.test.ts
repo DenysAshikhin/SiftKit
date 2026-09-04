@@ -127,6 +127,12 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
     transcriptPath: 'transcript.jsonl',
     artifactPath: 'artifact.json',
     scorecard,
+    // The engine's per-turn records are what the answer row is built from; the scorecard totals
+    // above only feed the rate and cache fields.
+    turnRecords: [{
+      turn: 1, promptTokens: 20, thinkingTokens: 2, outputTokens: 8, toolTokens: 4,
+      generatedChars: 32, thinkingTokensEstimated: true, outputTokensEstimated: true,
+    }],
   };
 }
 
@@ -276,8 +282,9 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
       assert.equal(tool?.toolCallActivityKind, 'search');
       assert.equal(answer?.outputTokensEstimate, 8);
       assert.equal(answer?.outputTokensEstimated, true);
-      assert.equal(answer?.thinkingTokens, 2);
-      assert.equal(answer?.thinkingTokensEstimated, true);
+      // Per-step rows own thinking; the answer row owns only the answer.
+      assert.equal(answer?.thinkingTokens, 0);
+      assert.equal(answer?.thinkingTokensEstimated, false);
       assert.equal(answer?.promptCacheTokens, 3);
       assert.equal(answer?.promptEvalTokens, 10);
       assert.equal(answer?.promptTokensPerSecond, 20);
@@ -470,6 +477,29 @@ test('chat repo operation runner rejects plan images when image retention is zer
       /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
     );
     assert.equal(engineService.request, null);
+  } finally {
+    closeRuntimeDatabase();
+    fs.rmSync(runtimeRoot, { force: true, recursive: true });
+  }
+});
+
+test('chat repo operation runner passes the session model-preset identity to the engine', async () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-identity-');
+  const engineService = new StubStatusEngineService(buildResult('done'));
+  try {
+    const request = createRequest(runtimeRoot, engineService, new RecordingProgressWriter());
+    request.session.modelPresetId = 'session-snapshot';
+    request.session.modelPreset = mockModelPreset({ id: 'session-snapshot', Model: 'session-model', NumCtx: 4096 });
+    assert.notEqual(request.session.modelPresetId, request.config.Server.ModelPresets.ActivePresetId);
+
+    await new ChatRepoOperationRunner().runRepoSearch(request);
+
+    const engineRequest = engineService.request;
+    if (!engineRequest) {
+      throw new Error('Expected the engine request to be captured.');
+    }
+    assert.equal(engineRequest.modelPresetId, 'session-snapshot');
+    assert.deepEqual(engineRequest.modelPreset, request.session.modelPreset);
   } finally {
     closeRuntimeDatabase();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });

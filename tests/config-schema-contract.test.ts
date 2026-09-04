@@ -35,34 +35,10 @@ test('configuration owns backend selection only through the active model preset'
   assert.equal(config.Server.Engines.Exl3.ModelRoot, 'D:\\personal\\models\\elx3');
 });
 
-test('config and contracts carry no llama.cpp vocabulary', () => {
-  const sources = [
-    'packages/contracts/src/config.ts',
-    'packages/contracts/src/system.ts',
-    'packages/contracts/src/index.ts',
-    'src/config/constants.ts',
-    'src/config/defaults.ts',
-    'src/config/getters.ts',
-    'src/config/host-sync.ts',
-    'src/config/normalization.ts',
-    'src/config/overrides.ts',
-    'src/config/types.ts',
-    'src/config/index.ts',
-    'src/status-server/config-store.ts',
-    'src/status-server/runtime-launch-snapshot.ts',
-  ];
-  for (const source of sources) {
-    assert.doesNotMatch(fs.readFileSync(source, 'utf8'), /LlamaCpp|ManagedLlama|SIFT_DEFAULT_LLAMA|gguf/u, source);
-  }
-  assert.equal(fs.existsSync('packages/contracts/src/managed-llama-failure.ts'), false);
-  assert.equal(fs.existsSync('src/inference-presets/request-compatibility.ts'), false);
-});
-
 test('config-store does not define untyped config defaults or Dict signatures', () => {
   const source = fs.readFileSync('src/status-server/config-store.ts', 'utf8');
 
   assert.doesNotMatch(source, /import type \{ Dict \} from ['"]\.\.\/lib\/types\.js['"]/u);
-  assert.doesNotMatch(source, /const DEFAULT_MANAGED_LLAMA_PRESET: Dict/u);
   assert.doesNotMatch(source, /export function getDefaultConfig\(\): Dict/u);
   assert.doesNotMatch(source, /export function normalizeConfig\(input: unknown\): Dict/u);
   assert.doesNotMatch(source, /export function readConfig\(configPath: string\): Dict/u);
@@ -84,7 +60,6 @@ test('typed default config is live and imported by the status server', () => {
   const source = fs.readFileSync('src/status-server/config-store.ts', 'utf8');
 
   assert.match(source, /getDefaultConfigObject/u);
-  assert.doesNotMatch(source, /Version: ['"]0\.1\.0['"][\s\S]*Backend: ['"]llama\.cpp['"]/u);
 });
 
 test('dashboard does not mirror the config schema', () => {

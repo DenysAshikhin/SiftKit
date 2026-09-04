@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { HttpResponseError, type FullJsonResponse, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import {
   RawFrameHttpClient,
   RecordingLogger,
@@ -13,7 +13,7 @@ import {
 
 test('malformed stream frames are logged rather than silently skipped', async () => {
   const logger = new RecordingLogger();
-  const client = new LlamaCppClient(new RawFrameHttpClient([
+  const client = new InferenceClient(new RawFrameHttpClient([
     contentFrame('hello'),
     'not-json-at-all',
     contentFrame(' world'),
@@ -38,7 +38,7 @@ test('malformed stream frames are logged rather than silently skipped', async ()
 
 test('a stream that yields no frames throws rather than returning empty text', async () => {
   const logger = new RecordingLogger();
-  const client = new LlamaCppClient(new RawFrameHttpClient([]));
+  const client = new InferenceClient(new RawFrameHttpClient([]));
 
   await assert.rejects(
     client.chat({
@@ -60,7 +60,7 @@ test('a stream that yields no frames throws rather than returning empty text', a
 
 test('a stream ending without [DONE] throws', async () => {
   const logger = new RecordingLogger();
-  const client = new LlamaCppClient(new RawFrameHttpClient([contentFrame('partial')]));
+  const client = new InferenceClient(new RawFrameHttpClient([contentFrame('partial')]));
 
   await assert.rejects(
     client.chat({
@@ -100,7 +100,7 @@ class FlakyStreamHttpClient {
 
 test('a transient failure before the first frame is retried', async () => {
   const http = new FlakyStreamHttpClient(1);
-  const client = new LlamaCppClient(http);
+  const client = new InferenceClient(http);
 
   const response = await client.chat({
     config: buildStreamingTestConfig(),
@@ -118,7 +118,7 @@ test('a transient failure before the first frame is retried', async () => {
 
 test('retry: false propagates a transient failure without a second attempt', async () => {
   const http = new FlakyStreamHttpClient(1);
-  const client = new LlamaCppClient(http);
+  const client = new InferenceClient(http);
 
   await assert.rejects(
     client.chat({

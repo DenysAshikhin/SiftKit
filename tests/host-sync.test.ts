@@ -15,7 +15,7 @@ import {
   type SiftConfig,
 } from '../src/config/index.js';
 import { getPlannerPromptBudget } from '../src/summary.js';
-import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 import { mockConfig } from './_runtime-helpers.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 
@@ -107,7 +107,7 @@ test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/
   });
   const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
   if (!hostPreset) throw new Error('Host model preset is missing');
-  hostPreset.Model = 'host-loaded-model.gguf';
+  hostPreset.Model = 'host-loaded-model.exl3';
   getActiveModelPreset(hostConfig).Reasoning = 'off';
   const host = await startHostConfigServer(hostConfig);
   try {
@@ -122,16 +122,19 @@ test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/
     // The client's stale local NumCtx (150k) is replaced by the host's real 75008.
     assert.equal(getConfiguredEngineNumCtx(resolved), 75_008);
     // The client's stale local model ('mock-model') is replaced by the host's.
-    assert.equal(getConfiguredModel(resolved), 'host-loaded-model.gguf');
+    assert.equal(getConfiguredModel(resolved), 'host-loaded-model.exl3');
     // The host config is read without booting the host's managed engine.
     assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
 
     // Budget math now matches the server that actually serves the request: the shared
-    // response reserve comes off the host's real NumCtx, not the stale local 150k.
+    // compaction reserve comes off the host's real NumCtx, not the stale local 150k.
     const budget = getPlannerPromptBudget(resolved);
     assert.equal(budget.numCtxTokens, 75_008);
-    assert.equal(budget.responseReserveTokens, RESPONSE_RESERVE_TOKENS);
-    assert.equal(budget.plannerStopLineTokens, 75_008 - RESPONSE_RESERVE_TOKENS);
+    assert.equal(
+      budget.compactionReserveTokens,
+      PROMPT_COMPACTION_RESERVE_TOKENS,
+    );
+    assert.equal(budget.plannerStopLineTokens, 75_008 - PROMPT_COMPACTION_RESERVE_TOKENS);
   } finally {
     await host.close();
   }
@@ -150,7 +153,6 @@ test('applyHostEngineRuntimeSettings overlays the host preset request fields ont
       MinP: 0.02,
       PresencePenalty: 0.4,
       RepetitionPenalty: 1.2,
-      MaxTokens: 2222,
       // Normalization only keeps the thinking flags when Reasoning is on.
       Reasoning: 'on',
       ReasoningContent: true,
@@ -172,7 +174,6 @@ test('applyHostEngineRuntimeSettings overlays the host preset request fields ont
         MinP: 0.5,
         PresencePenalty: 0,
         RepetitionPenalty: 1,
-        MaxTokens: 15_000,
         Reasoning: 'off',
         ReasoningContent: false,
         PreserveThinking: false,
@@ -189,7 +190,6 @@ test('applyHostEngineRuntimeSettings overlays the host preset request fields ont
     assert.equal(preset.MinP, 0.02);
     assert.equal(preset.PresencePenalty, 0.4);
     assert.equal(preset.RepetitionPenalty, 1.2);
-    assert.equal(preset.MaxTokens, 2222);
     assert.equal(preset.Reasoning, 'on');
     assert.equal(preset.ReasoningContent, true);
     assert.equal(preset.PreserveThinking, true);

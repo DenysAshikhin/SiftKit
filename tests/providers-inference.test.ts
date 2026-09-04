@@ -1,0 +1,130 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+
+import {
+  countInferenceTokens,
+  listInferenceModels,
+  generateInferenceResponse,
+  getInferenceProviderStatus,
+} from '../src/providers/inference.js';
+import { loadConfig } from '../src/config/index.js';
+import { getErrorMessage } from '../src/lib/errors.js';
+import { withTestEnvAndServer } from './_test-helpers.js';
+import { getAddressInfo } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+
+test('listInferenceModels returns model list from server', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    const models = await listInferenceModels(config);
+    assert.ok(Array.isArray(models));
+    assert.ok(models.length >= 1);
+  });
+});
+
+test('getInferenceProviderStatus returns reachable status', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    const status = await getInferenceProviderStatus(config);
+    assert.equal(status.Available, true);
+    assert.equal(status.Reachable, true);
+    assert.equal(typeof status.BaseUrl, 'string');
+    assert.equal(status.Error, null);
+  });
+});
+
+test('getInferenceProviderStatus returns unreachable when server is down', async () => {
+  const config = {
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: DEAD_BASE_URL, NumCtx: 10000, IdleAction: 'unload' as const }],
+      },
+    },
+    Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+    Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+  };
+  const status = await getInferenceProviderStatus(mockSiftConfig(config));
+  assert.equal(status.Available, true);
+  assert.equal(status.Reachable, false);
+  assert.equal(typeof status.Error, 'string');
+});
+
+test('countInferenceTokens returns count from server', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    try {
+      const count = await countInferenceTokens(config, 'hello world');
+      assert.equal(typeof count, 'number');
+    } catch (error) {
+      assert.ok(getErrorMessage(error).length > 0);
+    }
+  });
+});
+
+test('countInferenceTokens respects a bounded transient retry timeout', { timeout: 1500 }, async () => {
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/token/encode') {
+      requestCount += 1;
+      req.resume();
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: {
+          message: 'Loading model',
+          type: 'unavailable_error',
+          code: 503,
+        },
+      }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = getAddressInfo(server);
+  const config = {
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'exl3' as const, BaseUrl: `http://127.0.0.1:${address.port}`, NumCtx: 10000, IdleAction: 'unload' as const }],
+      },
+    },
+    Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+    Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+  };
+
+  try {
+    const startedAt = Date.now();
+    const count = await countInferenceTokens(
+      mockSiftConfig(config),
+      'hello world',
+      { timeoutMs: 200, retryMaxWaitMs: 200 },
+    );
+
+    assert.equal(count, null);
+    assert.equal(requestCount, 1);
+    assert.ok(Date.now() - startedAt < 1000);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('generateInferenceResponse returns text response', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    const response = await generateInferenceResponse({
+      config,
+      model: 'mock-model',
+      prompt: 'Hello, world!',
+      idleTimeoutSeconds: 30,
+    });
+    assert.equal(typeof response.text, 'string');
+    assert.ok(response.text.length > 0);
+    assert.equal(typeof response.usage, 'object');
+  });
+});

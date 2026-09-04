@@ -42,6 +42,10 @@ test('renders six collapsible groups with Identity open by default and a live su
   assert.match(markup, /class="gsum"/);
 });
 
+test('sampling controls do not render the removed MaxTokens input', () => {
+  assert.doesNotMatch(render(MANAGED_PRESET), /<label>MaxTokens</u);
+});
+
 test('the preset editor flags mp-body as exl3 and asks for the EXL3 model directory', () => {
   const markup = render(MANAGED_PRESET);
   assert.match(markup, /id="mp-body" class="exl3"/);
@@ -107,4 +111,9 @@ test('a different selected preset does not receive active runtime metrics', () =
   const markup = render(different, ACTIVE_RUNTIME_STATUS);
   assert.doesNotMatch(markup, /Model ceiling/u);
   assert.doesNotMatch(markup, /free VRAM/u);
+});
+
+test('EXL3 expert offloading stays editable for managed presets', () => {
+  const markup = render({ ...MANAGED_PRESET, NcpuMoe: 12 });
+  assert.match(markup, /NcpuMoe[\s\S]*?<input type="number"[^>]*value="12"/u);
 });

@@ -24,7 +24,7 @@ test('detects common credential shapes', () => {
 });
 
 test('ordinary technical prose is not a secret', () => {
-  const result = scanner.scan('I run llama.cpp with a 32k context on an RTX 4090.');
+  const result = scanner.scan('I run a local inference engine with a 32k context on an RTX 4090.');
   assert.equal(result.containsSecret, false);
   assert.deepEqual(result.matchedRuleIds, []);
   assert.deepEqual(result.topics, []);

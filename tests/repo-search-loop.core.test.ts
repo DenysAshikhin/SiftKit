@@ -14,8 +14,8 @@ import {
   assertConfiguredModelPresent,
   runRepoSearch,
 } from '../src/repo-search/engine.js';
-import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
-import { estimateTokenCount } from '../src/lib/token-estimate.js';
+import { resolveFinalGenerationTokenLimit, resolveGenerationTokenLimit } from '../src/lib/context-token-budget.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
 import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
@@ -37,7 +37,7 @@ function createTempRepoRoot(gitignoreText = '') {
 }
 
 // F14 (test-pyramid rebalance): pure-function decisions previously co-located here were
-// relocated to their seams (command-safety, model-json, provider-helpers, dynamic-output-cap,
+// relocated to their seams (command-safety, model-json, provider-helpers, context-token-budget,
 // repo-search-prompts). The remaining runTaskLoop cases are intentionally retained as E2E
 // integration coverage: each exercises engine orchestration branches (native-tool dispatch,
 // in-loop tool-result budgeting, finish-depth/duplicate/forced-finish governance, live
@@ -49,13 +49,13 @@ function createTempRepoRoot(gitignoreText = '') {
 
 test('assertConfiguredModelPresent hard-fails when configured model is missing', () => {
   assert.throws(
-    () => assertConfiguredModelPresent('Qwen3.5-9B-Q8_0.gguf', ['Qwen3.5-27B-Q4_K_M.gguf']),
+    () => assertConfiguredModelPresent('Qwen3.5-9B-EXL3', ['Qwen3.5-27B-EXL3']),
     /Configured model not found/u
   );
 });
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
-  const scorecard = await runRepoSearch({
+  const { scorecard } = await runRepoSearch({
                                           plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
@@ -63,9 +63,9 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
     config: mockSiftConfig({
       Server: { ModelPresets: { Presets: [{ BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 }] } },
     }),
-    model: 'Qwen3.5-9B-Q8_0.gguf',
+    model: 'Qwen3.5-9B-EXL3',
     baseUrl: 'http://127.0.0.1:8097',
-    availableModels: ['Qwen3.5-27B-Q4_K_M.gguf'],
+    availableModels: ['Qwen3.5-27B-EXL3'],
     maxTurns: 1,
     taskPrompt: 'find anything',
     mockResponses: [
@@ -79,7 +79,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 
 test('repo-search executes a native web_search tool when allowed', async () => {
   const events: RepoSearchProgressEvent[] = [];
-  const scorecard = await runRepoSearch({
+  const { scorecard } = await runRepoSearch({
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',
@@ -95,9 +95,9 @@ test('repo-search executes a native web_search tool when allowed', async () => {
         FetchMaxCharacters: 12000,
       },
     }),
-    model: 'Qwen3.5-9B-Q8_0.gguf',
+    model: 'Qwen3.5-9B-EXL3',
     baseUrl: 'http://127.0.0.1:8097',
-    availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+    availableModels: ['Qwen3.5-9B-EXL3'],
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['web_search']),
     maxTurns: 2,
     taskPrompt: 'find latest siftkit info',
@@ -341,8 +341,8 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      // 20000 total leaves the same 5000-token usable prompt budget this test was
-      // written against: 10000 response reserve, then 5000 held back for compaction.
+      // 20000 total leaves a 10000-token prompt limit after the 10000-token response
+      // reserve; the per-tool cap derived from it is what truncates this output.
       totalContextTokens: 20000,
       mockResponses: [
         { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"planner","path":"src"} }] },
@@ -991,7 +991,7 @@ test('runTaskLoop records line-read stats for read windows', async () => {
   }
 });
 
-test('runTaskLoop sends append-only chat requests without llama slot or cache fields', async () => {
+test('runTaskLoop sends append-only chat requests without removed slot or cache fields', async () => {
   const chatRequests: JsonObject[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
@@ -1279,7 +1279,8 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
   assert.equal(result.finalOutput, 'best-effort answer with evidence');
 });
 
-test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt budget', async () => {
+test('155k planner generation uses the current prompt position without the removed response ceilings', async () => {
+  const totalContextTokens = 155_000;
   const chatRequests: JsonObject[] = [];
   const loggedPromptTokenCounts: number[] = [];
   const server = http.createServer((req, res) => {
@@ -1304,15 +1305,14 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
-  // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
   const config = mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 20000, MaxTokens: 100_000 }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: totalContextTokens, Reasoning: 'on', ReasoningBudget: 100_000 }] } },
   });
 
   try {
     const result = await runTaskLoop(
       {
-        id: 'task-dynamic-planner-max-tokens',
+        id: 'task-155k-planner-generation',
         question: 'Find planner prompt location.',
       },
       {
@@ -1323,7 +1323,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         baseUrl,
         model: 'mock-model',
         config,
-        totalContextTokens: 20000,
+        totalContextTokens,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
         logger: {
@@ -1340,17 +1340,22 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
     assert.equal(result.reason, 'finish');
     assert.equal(chatRequests.length, 1);
     assert.equal(loggedPromptTokenCounts.length, 1);
-    assert.equal(
-      Number(chatRequests[0].max_tokens),
-      getDynamicMaxOutputTokens({ config, totalContextTokens: 20000, promptTokenCount: loggedPromptTokenCounts[0] })
-    );
+    assert.ok(loggedPromptTokenCounts[0] < 6_000);
+    const requestMaxTokens = Number(chatRequests[0].max_tokens);
+    assert.equal(requestMaxTokens, 155_000 - loggedPromptTokenCounts[0]);
+    assert.ok(requestMaxTokens > 15_000);
+    assert.ok(requestMaxTokens > 149_000);
+    assert.equal(getActiveModelPreset(config).ReasoningBudget, 100_000);
+    assert.ok(requestMaxTokens > getActiveModelPreset(config).ReasoningBudget);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
 test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', async () => {
+  const totalContextTokens = 155_000;
   const chatRequests: JsonObject[] = [];
+  const plannerPromptTokenCounts: number[] = [];
   const terminalPromptTokenCounts: number[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -1381,9 +1386,8 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
-  // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
   const config = mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 14000, MaxTokens: 100_000 }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: totalContextTokens }] } },
   });
 
   try {
@@ -1400,13 +1404,16 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         baseUrl,
         model: 'mock-model',
         config,
-        totalContextTokens: 14000,
+        totalContextTokens,
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
         logger: {
           path: 'test',
           write(event) {
+            if (event.kind === 'turn_preflight_budget' && Number.isFinite(event.promptTokenCount)) {
+              plannerPromptTokenCounts.push(Number(event.promptTokenCount));
+            }
             if (event.kind === 'task_terminal_synthesis_requested' && Number.isFinite(event.promptTokenCount)) {
               terminalPromptTokenCounts.push(Number(event.promptTokenCount));
             }
@@ -1431,88 +1438,26 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
     assert.deepEqual(terminalRequest.tools, plannerRequest.tools);
     assert.equal(terminalRequest.tool_choice, 'none');
     assert.equal('cache_prompt' in terminalRequest, false);
+    assert.equal(plannerPromptTokenCounts.length, 1);
     assert.equal(terminalPromptTokenCounts.length, 1);
+    assert.ok(terminalPromptTokenCounts[0] > plannerPromptTokenCounts[0]);
     assert.equal(
-      Number(terminalRequest.max_tokens),
-      getDynamicMaxOutputTokens({
-        config,
-        totalContextTokens: 14000,
-        promptTokenCount: terminalPromptTokenCounts[0],
+      Number(plannerRequest.max_tokens),
+      resolveGenerationTokenLimit({
+        totalContextTokens,
+        promptTokenCount: plannerPromptTokenCounts[0],
       })
     );
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-  }
-});
-
-test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset MaxTokens', async () => {
-  const chatRequests: JsonObject[] = [];
-  const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
-      let body = '';
-      req.setEncoding('utf8');
-      req.on('data', (chunk) => { body += chunk; });
-      req.on('end', () => {
-        const parsed = JSON.parse(body || '{}');
-        chatRequests.push(parsed);
-        const isTerminalSynthesis = parsed.tool_choice === 'none' && chatRequests.length > 1;
-        sendChatCompletionSse(res, {
-          choices: [{
-            message: {
-              role: 'assistant',
-              content: isTerminalSynthesis ? 'best-effort answer' : '',
-            },
-          }],
-          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-        });
-      });
-      return;
-    }
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'not found' }));
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
-
-  // MaxTokens sits far below the shared reserve, so the preset cap is what must survive.
-  const config = mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: baseUrl, NumCtx: 12000, MaxTokens: 900 }] } },
-  });
-
-  try {
-    const result = await runTaskLoop(
-      {
-        id: 'task-preset-max-tokens-clamp',
-        question: 'Find planner prompt location.',
-      },
-      {
-        plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
-        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
-        repoRoot: process.cwd(),
-        systemContext: createEmptyPresetSystemContext(),
-        baseUrl,
-        model: 'mock-model',
-        config,
-        totalContextTokens: 12000,
-        maxTurns: 1,
-        maxInvalidResponses: 1,
-        minToolCallsBeforeFinish: 0,
-      }
+    assert.equal(
+      Number(terminalRequest.max_tokens),
+      resolveFinalGenerationTokenLimit({
+        totalContextTokens,
+        promptTokenCount: terminalPromptTokenCounts[0],
+      }),
     );
-
-    assert.equal(result.reason, 'invalid_response_limit');
-    assert.equal(chatRequests.length, 2);
-    const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
-    // The preset bound is applied inside the shared reserve, so no second clamp is needed.
-    assert.equal(getDynamicMaxOutputTokens({
-      config,
-      totalContextTokens: 12000,
-      promptTokenCount: estimateTokenCount(config, synthesisPrompt),
-    }), 900);
-    assert.equal(Number(chatRequests[0].max_tokens), 900);
-    assert.equal(Number(chatRequests[1].max_tokens), 900);
+    assert.ok(
+      Number(terminalRequest.max_tokens) < Number(plannerRequest.max_tokens),
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

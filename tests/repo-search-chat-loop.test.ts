@@ -506,7 +506,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
 });
 
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
-  const scorecard = await runRepoSearch({
+  const { scorecard } = await runRepoSearch({
     repoRoot: os.tmpdir(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'chat',

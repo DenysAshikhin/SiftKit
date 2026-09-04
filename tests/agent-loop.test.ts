@@ -20,8 +20,8 @@ import type {
 } from '../src/agent-loop/types.js';
 import {
   CLEAN_STREAM_STOP,
-  type LlamaCppUsage,
-  type NormalizedLlamaCppChatResponse,
+  type InferenceUsage,
+  type NormalizedInferenceChatResponse,
 } from '../src/llm-protocol/types.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
@@ -33,8 +33,8 @@ const REPO_PARSE_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions(['grep', 
 
 function parserResponse(
   text: string,
-  toolCalls: NormalizedLlamaCppChatResponse['toolCalls'] = [],
-): NormalizedLlamaCppChatResponse {
+  toolCalls: NormalizedInferenceChatResponse['toolCalls'] = [],
+): NormalizedInferenceChatResponse {
   return {
     text,
     rawText: text,
@@ -150,7 +150,7 @@ class StubToolAdapter implements AgentLoopToolAdapter {
   }
 }
 
-function stubUsage(promptTokens: number | null): LlamaCppUsage {
+function stubUsage(promptTokens: number | null): InferenceUsage {
   return {
     promptTokens,
     completionTokens: 1,
@@ -163,7 +163,7 @@ function stubUsage(promptTokens: number | null): LlamaCppUsage {
 }
 
 test('agent loop executes tool turns before accepting finish', async () => {
-  const responses: NormalizedLlamaCppChatResponse[] = [
+  const responses: NormalizedInferenceChatResponse[] = [
     parserResponse('tool'),
     { ...parserResponse('finish'), usage: stubUsage(2) },
   ];
@@ -192,7 +192,7 @@ test('agent loop executes tool turns before accepting finish', async () => {
 
 test('agent loop delegates invalid responses to the action adapter', async () => {
   const actionAdapter = new StubActionAdapter();
-  const responses: NormalizedLlamaCppChatResponse[] = [
+  const responses: NormalizedInferenceChatResponse[] = [
     parserResponse('invalid'),
     parserResponse('finish'),
   ];
@@ -347,7 +347,7 @@ test('agent loop stops when model client requests stop', async () => {
 });
 
 test('agent loop honors inspect continue and inspect stop without parsing actions', async () => {
-  const responses: NormalizedLlamaCppChatResponse[] = [
+  const responses: NormalizedInferenceChatResponse[] = [
     parserResponse('ignored'),
     parserResponse('ignored'),
   ];
@@ -450,7 +450,7 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
   };
   const emptyToolAdapter = new StubToolAdapter();
-  const baseResponse: NormalizedLlamaCppChatResponse = {
+  const baseResponse: NormalizedInferenceChatResponse = {
     text: 'finish',
     rawText: 'finish',
     narrationText: 'finish',

@@ -21,6 +21,7 @@ const SESSION_SHELL = {
   title: 'S',
   model: 'test-model',
   contextWindowTokens: 100,
+  planRepoRoot: 'C:/repo',
   thinkingEnabled: true,
   presetId: 'chat-default',
   mode: 'chat',

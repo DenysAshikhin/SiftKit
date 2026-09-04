@@ -54,7 +54,7 @@ import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
-import { TurnBudget } from './turn-budget.js';
+import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.js';
 import {
   RepoNativeToolCallSchema,
   type RepoNativeToolCall,
@@ -102,6 +102,8 @@ type AcceptedToolContext = ValidatedToolAction & {
   fingerprint: string;
   normalizedKey: string;
   runFullOutputDecision: RunOutputDecision | null;
+  /** Resolved before any side effect; the result is fitted against exactly this. */
+  capacity: AvailableToolResultCapacity;
 };
 
 type NativeExecutionContext = AcceptedToolContext & {
@@ -130,8 +132,6 @@ type FittedToolOutcome = {
   resultTokenCountEstimated: boolean;
   rawResultTokenCount: number;
   lineReadStats: { lineReadCalls?: number; lineReadLinesTotal?: number; lineReadTokensTotal?: number } | null;
-  perToolCapTokens: number;
-  remainingTokenAllowance: number;
 };
 
 /**
@@ -304,7 +304,6 @@ export class ToolActionProcessor {
       return validated;
     }
     const { normalizedToolName, nativeCall, command } = validated;
-    const runFullOutputDecision = this.beginRun(nativeCall);
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
@@ -315,7 +314,6 @@ export class ToolActionProcessor {
         recordedCommand: command,
         transcriptCommand: command,
         reason: attempt.rejectionReason,
-        output: `Rejected command: ${attempt.rejectionReason}`,
         rejectionKind: 'budget',
       });
       state.pendingForcedFinishCountdownText = attempt.countdownText;
@@ -326,6 +324,31 @@ export class ToolActionProcessor {
       return 'next';
     }
 
+    // Capacity is settled before anything observes the request: the full-output gate,
+    // duplicate screening, approval and execution all assume the result can be inserted.
+    const capacity = this.deps.budget.resolveToolResultCapacity({
+      promptTokenCount,
+      acceptedToolPromptTokensThisTurn: state.acceptedToolPromptTokensThisTurn,
+      completedCommandCount: state.completedCommandCountAtTurnStart,
+      batchCommandCount: state.batchCommandCount,
+    });
+    if (capacity.kind === 'exhausted') {
+      const reason = `context budget exhausted: prompt_tokens=${promptTokenCount} `
+        + `max_prompt_tokens=${this.deps.budget.maxPromptTokens} remaining_tool_tokens=0; `
+        + 'tool was not executed. Reissue the action after compaction.';
+      counters.rejectedCalls += 1;
+      this.recordRejectedToolCall(turn, state, {
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        recordedCommand: command,
+        transcriptCommand: command,
+        reason,
+        rejectionKind: 'budget',
+      });
+      return 'next';
+    }
+
+    const runFullOutputDecision = this.beginRun(nativeCall);
     const fingerprint = nativeCall.toolName === 'git'
       ? fingerprintGitToolCall(nativeCall.args)
       : fingerprintToolCall({ toolName: normalizedToolName, command, args: toolAction.args });
@@ -336,6 +359,7 @@ export class ToolActionProcessor {
       fingerprint,
       normalizedKey: command,
       runFullOutputDecision,
+      capacity,
     }, prospectiveToolType, state);
     if (screened !== null) {
       return screened;
@@ -364,7 +388,6 @@ export class ToolActionProcessor {
           recordedCommand: command,
           transcriptCommand: command,
           reason,
-          output: `Rejected command: ${reason}`,
           rejectionKind: 'safety',
         });
         return 'next';
@@ -377,6 +400,7 @@ export class ToolActionProcessor {
       fingerprint,
       normalizedKey: command,
       runFullOutputDecision,
+      capacity,
     };
     return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokenCount);
   }
@@ -445,7 +469,11 @@ export class ToolActionProcessor {
     });
   }
 
-  /** Records a rejected tool call: a safe:false command entry plus its transcript outcome. */
+  /**
+   * Records a rejected tool call: a safe:false command entry plus its transcript outcome.
+   * The model-visible output defaults to the reason; a caller overrides it only when the
+   * model needs a different message than the audit reason.
+   */
   private recordRejectedToolCall(
     turn: number,
     state: TurnBatchState,
@@ -454,12 +482,13 @@ export class ToolActionProcessor {
       rawArgs: AgentLoopToolAction['args'];
       recordedCommand: string;
       transcriptCommand: string;
-      reason: string | null;
-      output: string;
+      reason: string;
+      output?: string;
       rejectionKind: RejectionKind;
     },
   ): void {
     const { commands } = this.deps;
+    const output = rejection.output ?? `Rejected command: ${rejection.reason}`;
     commands.push({
       command: rejection.recordedCommand,
       activityKind: 'command',
@@ -468,14 +497,14 @@ export class ToolActionProcessor {
       safe: false,
       reason: rejection.reason,
       exitCode: null,
-      output: rejection.output,
+      output,
     });
     this.logRejectedCommand({
       turn,
       toolName: rejection.toolName,
       command: rejection.transcriptCommand,
       reason: rejection.reason,
-      output: rejection.output,
+      output,
       rejectionKind: rejection.rejectionKind,
     });
     state.batchOutcomes.push({
@@ -485,7 +514,7 @@ export class ToolActionProcessor {
         commandToRun: rejection.transcriptCommand,
       }),
       toolCallId: this.getToolCallId(state),
-      toolContent: rejection.output,
+      toolContent: output,
     });
   }
 
@@ -765,7 +794,6 @@ export class ToolActionProcessor {
       recordedCommand: command,
       transcriptCommand: nativeExecution.command,
       reason: nativeExecution.reason,
-      output: `Rejected command: ${nativeExecution.reason}`,
       rejectionKind: 'safety',
     });
     return 'next';
@@ -906,8 +934,6 @@ export class ToolActionProcessor {
   private async fitToolResult(
     turn: number,
     context: ExecutedToolContext,
-    state: TurnBatchState,
-    promptTokenCount: number,
   ): Promise<FittedToolOutcome> {
     const {
       normalizedToolName, nativeExecution,
@@ -933,17 +959,14 @@ export class ToolActionProcessor {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
     resultText = applyToolOutputRepetitionGuard(resultText);
-    const perToolCapTokens = this.deps.budget.perToolCapTokens(state.completedCommandCountAtTurnStart, state.batchCommandCount);
-    // The wire prompt is what occupies the request, so what still fits is measured against it.
-    const remainingTokenAllowance = this.deps.budget.remainingToolAllowance(promptTokenCount, state.acceptedToolPromptTokensThisTurn);
     const fitted = await this.deps.resultBudgeter.fit({
       taskId: this.deps.task.id,
       turn,
       toolName: normalizedToolName,
       resultText,
       rawResultText,
-      perToolCapTokens,
-      remainingTokenAllowance,
+      // Resolved before execution against the wire prompt that occupies the request.
+      capacity: context.capacity,
       commandSucceededForFitting: Number(executed.exitCode) === 0,
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
       keep: nativeExecution && nativeExecution.ok && nativeExecution.outputKeep ? nativeExecution.outputKeep : 'head',
@@ -982,8 +1005,6 @@ export class ToolActionProcessor {
       resultTokenCountEstimated: fitted.resultTokenCountEstimated,
       rawResultTokenCount,
       lineReadStats: lineReadStats || null,
-      perToolCapTokens,
-      remainingTokenAllowance,
     };
   }
 
@@ -1000,11 +1021,12 @@ export class ToolActionProcessor {
     const activity = context.activity;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
-    const fittedOutcome = await this.fitToolResult(turn, context, state, promptTokenCount);
+    const fittedOutcome = await this.fitToolResult(turn, context);
     const {
       commandToRun, resultText, resultTokenCount, resultTokenCountEstimated,
-      rawResultTokenCount, lineReadStats, perToolCapTokens, remainingTokenAllowance,
+      rawResultTokenCount, lineReadStats,
     } = fittedOutcome;
+    const { perToolCapTokens, remainingTokenAllowance } = context.capacity;
 
     const toolType = normalizedToolName;
     toolStats.recordToolCall({
@@ -1054,7 +1076,8 @@ export class ToolActionProcessor {
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
-    tokenUsage.addToolTokens(resultTokenCount);
+    tokenUsage.addToolTokens(resultTokenCount, turn);
+    progress.usageForTurn(turn, tokenUsage.turnRecords());
 
     const imageDataUrls = nativeExecution && nativeExecution.ok && nativeExecution.imageDataUrl
       ? [nativeExecution.imageDataUrl]

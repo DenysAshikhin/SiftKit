@@ -6,6 +6,10 @@ const SensitivitySchema = z.enum([
   'low', 'personal', 'sensitive', 'highly_sensitive', 'secret_prohibited',
 ]);
 
+export const NODE_STATUSES = ['active', 'merged', 'archived', 'deleted'] as const;
+export const NodeStatusSchema = z.enum(NODE_STATUSES);
+export type NodeStatus = z.infer<typeof NodeStatusSchema>;
+
 export const AssistantStatusResponseSchema = z.object({
   available: z.boolean(),
   enabled: z.boolean(),
@@ -15,41 +19,55 @@ export const AssistantStatusResponseSchema = z.object({
 }).strict();
 export type AssistantStatusResponse = z.infer<typeof AssistantStatusResponseSchema>;
 
-export const AssistantBackgroundWorkBlockReasonSchema = z.enum([
-  'drain_blocked',
-  'assistant_disabled',
-  'drain_already_running',
-  'preemption_requested',
-  'server_busy',
-  'environment_heartbeat_missing',
-  'model_recently_active',
-  'mouse_idle_below_threshold',
-  'keyboard_idle_below_threshold',
-  'on_battery',
-  'battery_below_minimum',
-  'daily_gpu_limit',
-  'model_not_resident',
-  'image_capability_unavailable',
-  'no_claimable_job',
-]);
-export type AssistantBackgroundWorkBlockReason = z.infer<
-  typeof AssistantBackgroundWorkBlockReasonSchema
->;
+const CountSchema = z.number().int().min(0);
 
-const AssistantBackgroundWorkDecisionDetailSchema = z.union([
-  z.string(), z.number(), z.boolean(), z.null(),
-]);
+/** One persisted background-work decision: the reason discriminates its `details` payload. */
+function backgroundWorkDecision<Reason extends string, Details extends z.ZodRawShape>(
+  reason: Reason,
+  details: Details,
+) {
+  return z.object({
+    recordedAtUtc: z.string(),
+    reason: z.literal(reason),
+    queuedJobCount: CountSchema,
+    pendingCaptureCount: CountSchema,
+    details: z.object(details).strict(),
+  }).strict();
+}
 
-export const AssistantBackgroundWorkDecisionDtoSchema = z.object({
-  recordedAtUtc: z.string(),
-  reason: AssistantBackgroundWorkBlockReasonSchema,
-  queuedJobCount: z.number().int().min(0),
-  pendingCaptureCount: z.number().int().min(0),
-  details: z.record(z.string(), AssistantBackgroundWorkDecisionDetailSchema),
-}).strict();
+export const AssistantBackgroundWorkDecisionDtoSchema = z.discriminatedUnion('reason', [
+  backgroundWorkDecision('drain_blocked', { drainBlockers: z.number().int().min(1) }),
+  backgroundWorkDecision('assistant_disabled', {}),
+  backgroundWorkDecision('drain_already_running', {}),
+  backgroundWorkDecision('preemption_requested', {}),
+  backgroundWorkDecision('server_busy', {}),
+  backgroundWorkDecision('environment_heartbeat_missing', {}),
+  backgroundWorkDecision('model_recently_active', {
+    secondsSinceModelActivity: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('mouse_idle_below_threshold', {
+    mouseIdleSeconds: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('keyboard_idle_below_threshold', {
+    keyboardIdleSeconds: CountSchema, requiredIdleSeconds: CountSchema,
+  }),
+  backgroundWorkDecision('on_battery', {}),
+  backgroundWorkDecision('battery_below_minimum', {}),
+  backgroundWorkDecision('daily_gpu_limit', {}),
+  backgroundWorkDecision('model_not_resident', {}),
+  backgroundWorkDecision('image_capability_unavailable', {}),
+  backgroundWorkDecision('no_claimable_job', {}),
+]);
 export type AssistantBackgroundWorkDecisionDto = z.infer<
   typeof AssistantBackgroundWorkDecisionDtoSchema
 >;
+export type AssistantBackgroundWorkBlockReason = AssistantBackgroundWorkDecisionDto['reason'];
+
+type BlockOf<Decision> = Decision extends { reason: string; details: object }
+  ? Pick<Decision, 'reason' | 'details'>
+  : never;
+/** A reason with its typed payload, before the store adds the recording metadata. */
+export type AssistantBackgroundWorkBlock = BlockOf<AssistantBackgroundWorkDecisionDto>;
 
 export const AssistantBackgroundDecisionHistoryResponseSchema = z.object({
   items: z.array(AssistantBackgroundWorkDecisionDtoSchema).max(100),
@@ -76,8 +94,25 @@ export const AssistantNodeDetailSchema = AssistantNodeSummarySchema.extend({
   description: z.string().nullable(),
   properties: JsonObjectSchema,
   aliases: z.array(z.string()),
+  /** Whether this node is the assistant owner, so the control surface need not know the key. */
+  isOwner: z.boolean(),
+  status: NodeStatusSchema,
 }).strict();
 export type AssistantNodeDetail = z.infer<typeof AssistantNodeDetailSchema>;
+
+/** The owner confirming a duplicate `person` node names them. Merges it into the owner node. */
+export const AssistantClaimOwnerResponseSchema = z.object({
+  ok: z.literal(true),
+  graphVersion: z.number().int().min(0),
+  mergeId: z.string(),
+  ownerNodeId: z.string(),
+  /** Distinct facts from the claimed node that now sit on the owner. */
+  movedAssertionCount: z.number().int().min(0),
+  /** Facts retired because the owner already held the same one. The merge log restores them. */
+  retiredAssertionCount: z.number().int().min(0),
+  movedAliases: z.array(z.string()),
+}).strict();
+export type AssistantClaimOwnerResponse = z.infer<typeof AssistantClaimOwnerResponseSchema>;
 
 export const AssistantAssertionDtoSchema = z.object({
   id: z.string(),
@@ -152,6 +187,13 @@ export const AssistantPolicyDtoSchema = z.object({
 }).strict();
 export type AssistantPolicyDto = z.infer<typeof AssistantPolicyDtoSchema>;
 
+/** Why a candidate waits in `needs_confirmation`. The dashboard renders one card per kind. */
+export const AssistantCandidateHoldSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('topic'), topic: z.string() }).strict(),
+  z.object({ kind: z.literal('possible_owner_alias'), name: z.string() }).strict(),
+]);
+export type AssistantCandidateHold = z.infer<typeof AssistantCandidateHoldSchema>;
+
 export const AssistantValidationCandidateDtoSchema = z.object({
   id: z.string(),
   status: z.enum(['pending', 'needs_confirmation']),
@@ -162,8 +204,24 @@ export const AssistantValidationCandidateDtoSchema = z.object({
   evidenceId: z.string().nullable(),
   userNotes: z.string(),
   createdAtUtc: z.string(),
+  hold: AssistantCandidateHoldSchema.nullable(),
 }).strict();
 export type AssistantValidationCandidateDto = z.infer<typeof AssistantValidationCandidateDtoSchema>;
+
+export const AssistantResolveIdentityRequestSchema = z.object({
+  isOwner: z.boolean(),
+}).strict();
+export type AssistantResolveIdentityRequest =
+  z.infer<typeof AssistantResolveIdentityRequestSchema>;
+
+export const AssistantResolveIdentityResponseSchema = z.object({
+  ok: z.literal(true),
+  graphVersion: z.number().int().min(0),
+  /** What the answer did to the candidate. Anything but `promoted` leaves it in the queue. */
+  outcome: z.enum(['promoted', 'needs_confirmation', 'rejected']),
+}).strict();
+export type AssistantResolveIdentityResponse =
+  z.infer<typeof AssistantResolveIdentityResponseSchema>;
 
 export const AssistantValidationNotesRequestSchema = z.object({
   notes: z.string().max(10_000),
@@ -248,6 +306,36 @@ export const AssistantFactoryResetPreviewSchema = z.object({
   blobBytes: z.number().int().min(0),
 }).strict();
 export type AssistantFactoryResetPreview = z.infer<typeof AssistantFactoryResetPreviewSchema>;
+
+/** What the one-shot cleanup would touch. The token goes stale if any of it changes. */
+export const AssistantGraphCleanupPreviewSchema = z.object({
+  previewToken: z.string(),
+  graphVersion: z.number().int().min(0),
+  orphanNodeIds: z.array(z.string()),
+  resumableCaptureIds: z.array(z.string()),
+  discardableCaptureIds: z.array(z.string()),
+  reclassifiableEvidenceCount: z.number().int().min(0),
+  reclassifiableAssertionCount: z.number().int().min(0),
+}).strict();
+export type AssistantGraphCleanupPreview = z.infer<typeof AssistantGraphCleanupPreviewSchema>;
+
+export const AssistantGraphCleanupRequestSchema = z.object({
+  previewToken: z.string().min(1),
+  /** Rewrites rows the owner already has, so it is opt-in. */
+  reclassifyScreenshots: z.boolean(),
+}).strict();
+export type AssistantGraphCleanupRequest = z.infer<typeof AssistantGraphCleanupRequestSchema>;
+
+export const AssistantGraphCleanupResultSchema = z.object({
+  ok: z.literal(true),
+  graphVersion: z.number().int().min(0),
+  nodesDeleted: z.number().int().min(0),
+  capturesRequeued: z.number().int().min(0),
+  capturesDiscarded: z.number().int().min(0),
+  evidenceReclassified: z.number().int().min(0),
+  assertionsReclassified: z.number().int().min(0),
+}).strict();
+export type AssistantGraphCleanupResult = z.infer<typeof AssistantGraphCleanupResultSchema>;
 
 export const AssistantConfirmTokenRequestSchema = z.object({
   previewToken: z.string().min(1),

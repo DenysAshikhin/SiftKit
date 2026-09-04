@@ -61,7 +61,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
   const manifestDirectory = path.dirname(resolvedManifestPath);
   const fixtureRoot = resolvePathFromBase(getRequiredString(raw.fixtureRoot, 'fixtureRoot'), manifestDirectory);
   const startScript = resolvePathFromBase(getRequiredString(raw.startScript, 'startScript'), manifestDirectory);
-  const stopScript = resolveOptionalPathFromBase(raw.stopScript ?? null, manifestDirectory);
+  const stopScript = resolvePathFromBase(getRequiredString(raw.stopScript, 'stopScript'), manifestDirectory);
   const resultsRoot = resolvePathFromBase(getRequiredString(raw.resultsRoot, 'resultsRoot'), manifestDirectory);
   const configUrl = getRequiredString(raw.configUrl, 'configUrl');
   const manifestPromptPrefixFile = resolveOptionalPathFromBase(raw.promptPrefixFile ?? null, manifestDirectory);
@@ -78,7 +78,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
   if (!fs.existsSync(startScript)) {
     throw new Error(`Start script does not exist: ${startScript}`);
   }
-  if (stopScript && !fs.existsSync(stopScript)) {
+  if (!fs.existsSync(stopScript)) {
     throw new Error(`Stop script does not exist: ${stopScript}`);
   }
   if (manifestPromptPrefixFile && !fs.existsSync(manifestPromptPrefixFile)) {

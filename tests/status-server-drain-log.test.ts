@@ -37,16 +37,16 @@ test('a long drain wait logs once on entry and once on resume', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  // Hold the llama flush queue busy so the terminal-metadata drain re-schedules
+  // Hold the inference flush queue busy so the terminal-metadata drain re-schedules
   // many times before it is allowed to run.
   const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
-  let llamaFlushIdle = false;
+  let inferenceFlushIdle = false;
   let busyChecks = 0;
   InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
-    if (!llamaFlushIdle) {
+    if (!inferenceFlushIdle) {
       busyChecks += 1;
     }
-    return llamaFlushIdle && originalIsIdle.call(this);
+    return inferenceFlushIdle && originalIsIdle.call(this);
   };
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
@@ -81,7 +81,7 @@ test('a long drain wait logs once on entry and once on resume', async () => {
       await waitForAsyncExpectation(() => {
         assert.ok(busyChecks >= 2, `expected at least two blocked drain attempts, got ${busyChecks}`);
       });
-      llamaFlushIdle = true;
+      inferenceFlushIdle = true;
       await waitForAsyncExpectation(async () => {
         const status = await requestJson(`${baseUrl}/status`);
         assert.equal(status.body.status, 'false');

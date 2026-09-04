@@ -10,7 +10,6 @@ import {
   ConfiguredApprovalVerdictModelClient,
 } from '../../src/repo-search/approval-verdict-probe.js';
 import {
-  allocateLlamaCppSlotId,
   DEFAULT_TIMEOUT_MS,
   resolvePlannerThinkingFlags,
 } from '../../src/repo-search/engine/task-loop-support.js';
@@ -58,7 +57,6 @@ export async function main(): Promise<void> {
       config,
       baseUrl: getConfiguredEngineBaseUrl(config),
       model,
-      slotId: allocateLlamaCppSlotId(config),
       timeoutMs: DEFAULT_TIMEOUT_MS,
       thinking,
     }),

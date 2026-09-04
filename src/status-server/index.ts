@@ -81,7 +81,7 @@ import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/p
 import { AssistantService } from '../assistant/assistant-service.js';
 import { SystemClock } from '../assistant/clock.js';
 import { RandomIdGenerator } from '../assistant/ids.js';
-import { LlamaCppAssistantInference } from '../assistant/inference/client.js';
+import { DefaultAssistantInferenceClient } from '../assistant/inference/client.js';
 import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
 import { StatusServerAssistantConfigWriter } from './assistant-config-writer.js';
 import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.js';
@@ -230,7 +230,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
 
   // Build the shared mutable context.
-  const engineService = new StatusEngineService();
+  const engineService = options.engineService ?? new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
   const ctx: ServerContext = {
     configPath,
@@ -316,7 +316,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         runtimeRoot: getRuntimeRoot(),
         clock: new SystemClock(),
         ids: new RandomIdGenerator(),
-        inference: new LlamaCppAssistantInference(initialConfig, ctx.appliedModelPresetState),
+        inference: new DefaultAssistantInferenceClient(initialConfig, ctx.appliedModelPresetState),
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
         residencyGate: new StatusServerResidencyGate(

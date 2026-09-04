@@ -22,12 +22,6 @@ export type ChatPromptContext = {
   deletable: false;
 };
 
-function readRepoRoot(session: ChatSession): string {
-  return typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-    ? session.planRepoRoot.trim()
-    : process.cwd();
-}
-
 function formatSection(title: string, content: string): string {
   return [`## ${title}`, '', content.trim()].join('\n');
 }
@@ -74,7 +68,7 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession)
   }
   const preset = presets.requireById(presetId);
   const repoToolPreset = preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
-  const systemContext = new PresetSystemContextBuilder(readRepoRoot(session)).build(preset);
+  const systemContext = new PresetSystemContextBuilder(session.planRepoRoot).build(preset);
   const content = repoToolPreset
     ? buildRepoToolPromptContextContent(config, preset, systemContext, session.modelPreset.VisionEnabled === true)
     : buildDirectPromptContextContent(config, session, preset, systemContext);

@@ -128,6 +128,7 @@ export function useChatController(deps: {
     onSendRepoSearch: chatSessionsHook.sendRepoSearch,
     onSendRepoAgent: chatSessionsHook.sendRepoAgent,
     onSubmitRepoAgentDecision: chatSessionsHook.submitRepoAgentDecision,
+    onChangeRepoAgentApprovalMode: chatSessionsHook.setRepoAgentApprovalMode,
     onStopOperation: chatSessionsHook.stopOperation,
     onSendMessage: chatSessionsHook.sendMessage,
     onPendingImagesChange: (images: PendingImage[]) => {

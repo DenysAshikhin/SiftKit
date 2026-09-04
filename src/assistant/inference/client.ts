@@ -6,10 +6,10 @@ import {
 } from '../../config/index.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { buildUserContent } from '../../llm-protocol/image-attachments.js';
-import { LlamaCppClient, type LlamaCppChatOptions } from '../../llm-protocol/llama-cpp-client.js';
+import { InferenceClient, type InferenceChatOptions } from '../../llm-protocol/inference-client.js';
 import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
-import { buildLlamaJsonSchemaResponseFormat } from '../../providers/structured-output-schema.js';
-import type { LlamaCppContentPart, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import { buildInferenceJsonSchemaResponseFormat } from '../../providers/structured-output-schema.js';
+import type { InferenceContentPart, NormalizedInferenceChatResponse } from '../../llm-protocol/types.js';
 import type { AssistantInferenceRole } from './roles.js';
 
 interface AssistantInferenceRequestBase {
@@ -48,9 +48,9 @@ export interface AssistantInferenceClient {
   complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult>;
 }
 
-/** The narrow slice of `LlamaCppClient` the assistant uses, so tests can supply a recorder. */
+/** The narrow slice of `InferenceClient` the assistant uses, so tests can supply a recorder. */
 export interface AssistantChatBackend {
-  chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse>;
+  chat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse>;
 }
 
 /**
@@ -72,11 +72,11 @@ const ASSISTANT_IDLE_TIMEOUT_SECONDS = 120;
  * and always pins a JSON schema on the answer — for text and image roles alike (§20.1). Images
  * pass through the same admission the chat surface uses; nothing here re-implements those limits.
  */
-export class LlamaCppAssistantInference implements AssistantInferenceClient {
+export class DefaultAssistantInferenceClient implements AssistantInferenceClient {
   constructor(
     private readonly config: SiftConfig,
     private readonly presets: ActiveModelPresetSource,
-    private readonly backend: AssistantChatBackend = new LlamaCppClient(),
+    private readonly backend: AssistantChatBackend = new InferenceClient(),
   ) {}
 
   async complete(request: AssistantInferenceRequest): Promise<AssistantInferenceResult> {
@@ -93,7 +93,7 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
       tools: [],
       allowedToolNames: [],
       maxTokens: ASSISTANT_MAX_OUTPUT_TOKENS,
-      responseFormat: buildLlamaJsonSchemaResponseFormat({
+      responseFormat: buildInferenceJsonSchemaResponseFormat({
         name: request.responseSchemaName,
         schema: request.responseJsonSchema,
       }),
@@ -110,7 +110,7 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
 
   private buildUserMessage(
     request: AssistantInferenceRequest,
-  ): string | LlamaCppContentPart[] {
+  ): string | InferenceContentPart[] {
     if (request.kind === 'text') return request.userText;
     if (request.images.length === 0) {
       throw new Error('An image inference request must carry at least one image.');

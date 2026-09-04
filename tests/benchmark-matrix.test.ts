@@ -28,16 +28,16 @@ const MatrixRunSchema = z.custom<MatrixRun>((value) => typeof value === 'object'
 test('buildLaunchSignature produces pipe-separated string', () => {
   const target = MatrixTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
-    resolvedModelPath: 'C:\\models\\model.gguf',
+    resolvedModelPath: 'C:\\models\\model.exl3',
     contextSize: 128000,
     maxTokens: 4096,
     passReasoningArg: true,
     reasoning: 'off',
-    modelPath: 'C:\\models\\model.gguf',
+    modelPath: 'C:\\models\\model.exl3',
   });
   const sig = buildLaunchSignature(target);
   assert.match(sig, /start\.ps1/u);
-  assert.match(sig, /model\.gguf/u);
+  assert.match(sig, /model\.exl3/u);
   assert.match(sig, /128000/u);
   assert.match(sig, /4096/u);
   assert.match(sig, /off/u);
@@ -47,12 +47,12 @@ test('buildLaunchSignature produces pipe-separated string', () => {
 test('buildLaunchSignature uses script-controlled when passReasoningArg is false', () => {
   const target = MatrixTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
-    resolvedModelPath: 'C:\\models\\model.gguf',
+    resolvedModelPath: 'C:\\models\\model.exl3',
     contextSize: 64000,
     maxTokens: 2048,
     passReasoningArg: false,
     reasoning: 'on',
-    modelPath: 'C:\\models\\model.gguf',
+    modelPath: 'C:\\models\\model.exl3',
   });
   const sig = buildLaunchSignature(target);
   assert.match(sig, /script-controlled/u);
@@ -67,7 +67,7 @@ test('buildLauncherArgs produces correct PowerShell arguments', () => {
   });
   const target = MatrixLauncherTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
-    modelPath: 'C:\\models\\model.gguf',
+    modelPath: 'C:\\models\\model.exl3',
     contextSize: 128000,
     maxTokens: 4096,
     passReasoningArg: false,
@@ -87,7 +87,7 @@ test('buildLauncherArgs includes reasoning arg when passReasoningArg is true', (
   const manifest = MatrixManifestSchema.parse({ configUrl: 'http://localhost:4765/config' });
   const target = MatrixLauncherTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
-    modelPath: 'C:\\models\\model.gguf',
+    modelPath: 'C:\\models\\model.exl3',
     contextSize: 128000,
     maxTokens: 4096,
     passReasoningArg: true,
@@ -171,11 +171,13 @@ test('readMatrixManifest reads and resolves a manifest', () => {
     const fixtureRoot = path.join(tempRoot, 'fixtures');
     const resultsRoot = path.join(tempRoot, 'results');
     const startScript = path.join(tempRoot, 'start.ps1');
+    const stopScript = path.join(tempRoot, 'stop.ps1');
     fs.mkdirSync(fixtureRoot, { recursive: true });
     fs.mkdirSync(resultsRoot, { recursive: true });
     fs.writeFileSync(startScript, '# dummy start script', 'utf8');
-    fs.writeFileSync(path.join(tempRoot, 'baseline.gguf'), 'dummy', 'utf8');
-    fs.writeFileSync(path.join(tempRoot, 'test.gguf'), 'dummy', 'utf8');
+    fs.writeFileSync(stopScript, '# dummy stop script', 'utf8');
+    fs.writeFileSync(path.join(tempRoot, 'baseline.exl3'), 'dummy', 'utf8');
+    fs.writeFileSync(path.join(tempRoot, 'test.exl3'), 'dummy', 'utf8');
     fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
       { Name: 'test', File: 'source.txt', Question: 'test', Format: 'text', PolicyProfile: 'general' },
     ]), 'utf8');
@@ -186,10 +188,11 @@ test('readMatrixManifest reads and resolves a manifest', () => {
       fixtureRoot,
       configUrl: 'http://localhost:4765/config',
       startScript,
+      stopScript,
       resultsRoot,
       baseline: {
         modelId: 'baseline-model',
-        modelPath: path.join(tempRoot, 'baseline.gguf'),
+        modelPath: path.join(tempRoot, 'baseline.exl3'),
         contextSize: 128000,
         maxTokens: 4096,
         reasoning: 'off',
@@ -201,7 +204,7 @@ test('readMatrixManifest reads and resolves a manifest', () => {
           label: 'Test Run 1',
           enabled: true,
           modelId: 'test-model',
-          modelPath: path.join(tempRoot, 'test.gguf'),
+          modelPath: path.join(tempRoot, 'test.exl3'),
         },
       ],
     }), 'utf8');

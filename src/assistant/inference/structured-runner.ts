@@ -20,6 +20,8 @@ export interface StructuredImageRunRequest<T> extends StructuredRunRequest<T> {
   readonly images: readonly ImageDataUrl[];
 }
 
+const RAW_SAMPLE_LIMIT = 500;
+
 export type StructuredRunFailureCode = 'invalid_json' | 'schema_invalid';
 
 export type StructuredRunOutcome<T> =
@@ -36,6 +38,8 @@ export type StructuredRunOutcome<T> =
       readonly code: StructuredRunFailureCode;
       readonly message: string;
       readonly attempts: number;
+      /** The head of the rejected answer. Without it a rejection names no observable cause. */
+      readonly rawSample: string;
     };
 
 type ParseAttempt<T> =
@@ -94,7 +98,10 @@ export class StructuredOutputRunner {
         promptVersion: ROLE_PROMPT_VERSION[request.role], attempts: 2,
       };
     }
-    return { ok: false, code: secondParse.code, message: secondParse.message, attempts: 2 };
+    return {
+      ok: false, code: secondParse.code, message: secondParse.message, attempts: 2,
+      rawSample: second.text.slice(0, RAW_SAMPLE_LIMIT),
+    };
   }
 
   private buildRequest<T>(input: {

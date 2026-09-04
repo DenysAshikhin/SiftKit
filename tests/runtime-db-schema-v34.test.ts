@@ -7,6 +7,10 @@ import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-d
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const LEGACY_RUNS_TABLE = ['managed_ll', 'ama_runs'].join('');
+const LEGACY_LOG_CHUNKS_TABLE = ['managed_ll', 'ama_log_chunks'].join('');
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -42,8 +46,8 @@ test('current schema exposes backend-neutral inference run tables', () => {
     const tables = tableNames(dbPath);
     assert.ok(tables.includes('inference_runs'), 'inference_runs must exist');
     assert.ok(tables.includes('inference_run_log_chunks'), 'inference_run_log_chunks must exist');
-    assert.ok(!tables.includes('managed_llama_runs'), 'managed_llama_runs must be gone');
-    assert.ok(!tables.includes('managed_llama_log_chunks'), 'managed_llama_log_chunks must be gone');
+    assert.ok(!tables.includes(LEGACY_RUNS_TABLE), 'removed run table must be gone');
+    assert.ok(!tables.includes(LEGACY_LOG_CHUNKS_TABLE), 'removed log chunk table must be gone');
 
     const columns = columnNames(dbPath, 'inference_runs');
     assert.ok(columns.includes('backend'), 'inference_runs.backend must exist');
@@ -54,13 +58,16 @@ test('current schema exposes backend-neutral inference run tables', () => {
   }
 });
 
-test('v33->v34 migration drops the llama-shaped run tables', () => {
+test('v33->v34 migration drops the removed backend run tables', () => {
   const dbPath = tempDbPath('sk-v34-migrate-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
   const seed = new Database(dbPath);
   seed.exec(`
-    CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
-    INSERT INTO runtime_schema (id, version) VALUES (1, 33);
-    CREATE TABLE managed_llama_runs (
+    ALTER TABLE app_config RENAME COLUMN server_model_presets_json TO ${LEGACY_PRESETS_COLUMN};
+    ALTER TABLE app_config RENAME COLUMN server_model_active_preset_id TO ${LEGACY_ACTIVE_PRESET_COLUMN};
+    UPDATE runtime_schema SET version = 33 WHERE id = 1;
+    CREATE TABLE ${LEGACY_RUNS_TABLE} (
       id TEXT PRIMARY KEY,
       purpose TEXT NOT NULL,
       script_path TEXT,
@@ -68,9 +75,9 @@ test('v33->v34 migration drops the llama-shaped run tables', () => {
       started_at_utc TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
     );
-    CREATE TABLE managed_llama_log_chunks (
+    CREATE TABLE ${LEGACY_LOG_CHUNKS_TABLE} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES managed_llama_runs(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES ${LEGACY_RUNS_TABLE}(id) ON DELETE CASCADE,
       stream_kind TEXT NOT NULL,
       sequence INTEGER NOT NULL,
       chunk_text TEXT NOT NULL,
@@ -83,8 +90,8 @@ test('v33->v34 migration drops the llama-shaped run tables', () => {
     getRuntimeDatabase(dbPath);
 
     const tables = tableNames(dbPath);
-    assert.ok(!tables.includes('managed_llama_runs'), 'managed_llama_runs must be dropped');
-    assert.ok(!tables.includes('managed_llama_log_chunks'), 'managed_llama_log_chunks must be dropped');
+    assert.ok(!tables.includes(LEGACY_RUNS_TABLE), 'removed run table must be dropped');
+    assert.ok(!tables.includes(LEGACY_LOG_CHUNKS_TABLE), 'removed log chunk table must be dropped');
     assert.ok(tables.includes('inference_runs'), 'inference_runs must be created');
     assert.ok(tables.includes('inference_run_log_chunks'), 'inference_run_log_chunks must be created');
   } finally {

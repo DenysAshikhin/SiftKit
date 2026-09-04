@@ -12,7 +12,7 @@ import {
 import { parseArguments } from './args.js';
 import { invokeBenchmarkProcess } from './benchmark-runner.js';
 import { createMatrixInterruptSignal, withMatrixInterrupt } from './interrupt.js';
-import { buildLaunchSignature, restartLlamaForTarget } from './launcher.js';
+import { buildLaunchSignature, restartEngineForTarget } from './launcher.js';
 import { readMatrixManifest } from './manifest.js';
 import {
   repoRoot,
@@ -128,7 +128,7 @@ export async function runMatrixWithInterrupt(
 
   try {
     await withMatrixInterrupt(
-      restartLlamaForTarget(manifest, manifest.baseline, null),
+      restartEngineForTarget(manifest, manifest.baseline, null),
       interruptSignal.interrupted,
     );
     currentLaunchSignature = buildLaunchSignature(manifest.baseline);
@@ -165,7 +165,7 @@ export async function runMatrixWithInterrupt(
         const requiredLaunchSignature = buildLaunchSignature(run);
         if (currentLaunchSignature !== requiredLaunchSignature) {
           await withMatrixInterrupt(
-            restartLlamaForTarget(manifest, run, runRecord.id),
+            restartEngineForTarget(manifest, run, runRecord.id),
             interruptSignal.interrupted,
           );
           currentLaunchSignature = requiredLaunchSignature;
@@ -230,7 +230,7 @@ export async function runMatrixWithInterrupt(
   } finally {
     interruptSignal.dispose();
     try {
-      await restartLlamaForTarget(manifest, manifest.baseline, null);
+      await restartEngineForTarget(manifest, manifest.baseline, null);
       matrixIndex.baselineRestore.status = 'completed';
       updateBenchmarkMatrixSession({
         id: sessionRecord.id,

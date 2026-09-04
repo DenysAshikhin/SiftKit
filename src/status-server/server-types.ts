@@ -90,6 +90,7 @@ export type StartStatusServerOptions = {
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
   assistant?: AssistantRuntime | null;
+  engineService?: StatusEngineService;
 };
 
 /**

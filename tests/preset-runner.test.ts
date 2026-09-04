@@ -19,6 +19,7 @@ class CapturingEngineService extends StatusEngineService {
       transcriptPath: '',
       artifactPath: '',
       scorecard: buildScorecard({ runId: 'preset-runner-test', model: 'test-model', tasks: [] }),
+      turnRecords: [],
     });
   }
 }

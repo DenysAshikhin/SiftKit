@@ -121,17 +121,6 @@ export function SettingsTab(props: SettingsTabProps) {
             onChange={(event) => generalActions.setString('Version', event.target.value)}
           />
         ))}
-        {renderField('general', 'Backend', (
-          <div className="settings-live-nav-control">
-            <input value={selectedModelPreset?.Backend ?? ''} readOnly />
-            <button
-              type="button"
-              onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'model-presets' })}
-            >
-              Open Model Presets
-            </button>
-          </div>
-        ))}
         {renderField('general', 'Policy Mode', (
           <select
             value={dashboardConfig.PolicyMode}

@@ -1,3 +1,4 @@
+import { restoreLegacyPresetColumns } from './helpers/app-config-migration-fixture.js';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -34,6 +35,7 @@ test('v55 renames the persisted turn cap back to its honest name', () => {
         tool_call_limit, created_at_utc, compressed_into_summary, position
       ) VALUES ('session-1', 'tool-1', 'assistant', 'assistant_tool_call', 'read', 0, 0, 0, 0, 0, 0, 45, ?, 0, 0)
     `).run(timestamp);
+    restoreLegacyPresetColumns(database);
     database.prepare('UPDATE runtime_schema SET version = 54 WHERE id = 1').run();
     closeRuntimeDatabase();
 

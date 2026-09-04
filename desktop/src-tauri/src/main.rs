@@ -292,17 +292,17 @@ fn connect(state: &ShellState) -> Result<(), String> {
     Ok(())
 }
 
-fn observation_tick(paused: bool, input: &WindowsInputTracker) -> ObservationTick {
+/// `Err` once the input tracker has died: no fallback signal exists, and a shell that cannot
+/// report idleness must not keep heartbeating a guess.
+fn observation_tick(
+    paused: bool,
+    input: &WindowsInputTracker,
+) -> Result<ObservationTick, String> {
     let activity = WindowsActivityProvider;
     let notifications = WindowsNotificationProvider;
     let power = WindowsPowerStateProvider;
-    let idle = input.snapshot().unwrap_or_else(|error| {
-        // No fallback signal exists; a shell that cannot report idleness must not keep
-        // heartbeating a guess.
-        eprintln!("input tracker failed: {error}; shell exiting");
-        std::process::exit(1);
-    });
-    ObservationTick {
+    let idle = input.snapshot()?;
+    Ok(ObservationTick {
         now_epoch_seconds: now_epoch_seconds(),
         now_utc: iso8601_now(),
         paused,
@@ -312,11 +312,16 @@ fn observation_tick(paused: bool, input: &WindowsInputTracker) -> ObservationTic
         session_locked: activity.session_locked(),
         notification: notifications.read(),
         power: power.read(),
-    }
+    })
 }
 
+/// Returns only when the shell can no longer observe the desktop; the caller ends the process.
 #[allow(clippy::too_many_lines)]
-fn worker_loop(app: AppHandle, state: std::sync::Arc<ShellState>, input: WindowsInputTracker) {
+fn worker_loop(
+    app: AppHandle,
+    state: std::sync::Arc<ShellState>,
+    input: WindowsInputTracker,
+) -> Result<(), String> {
     let mut heartbeat = Heartbeat::new();
     let mut observation = ObservationConfig::default();
     let mut scheduler = CaptureScheduler::new(
@@ -407,7 +412,7 @@ fn worker_loop(app: AppHandle, state: std::sync::Arc<ShellState>, input: Windows
         let effective_paused = paused || daemon_paused;
 
         // Heartbeat + activity.
-        let tick = observation_tick(effective_paused, &input);
+        let tick = observation_tick(effective_paused, &input)?;
         let emissions = heartbeat.tick(&tick);
         {
             let client = state.client.lock().expect("client lock");
@@ -687,7 +692,12 @@ fn main() {
             let input = WindowsInputTracker::start()?;
             let worker_state = state.clone();
             let handle = app.handle().clone();
-            std::thread::spawn(move || worker_loop(handle, worker_state, input));
+            std::thread::spawn(move || {
+                if let Err(error) = worker_loop(handle.clone(), worker_state, input) {
+                    eprintln!("shell worker stopped: {error}");
+                    handle.exit(1);
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

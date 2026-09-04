@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeContextBarVisual, resolveContextBarVisual } from '../../src/lib/contextBar';
-import type { ContextUsage } from '../../src/types';
+import { resolveLiveContextUsage } from '../../src/lib/contextBar';
+import { sumLiveTokenDisplays } from '../../src/lib/format';
+import type { ChatStreamUsageEvent } from '@siftkit/contracts';
+import type { ChatMessage, ContextUsage } from '../../src/types';
 
 const USAGE: ContextUsage = {
   contextWindowTokens: 100,
@@ -19,175 +21,119 @@ const USAGE: ContextUsage = {
   estimatedTokenFallbackTokens: 0,
 };
 
-test('computeContextBarVisual clamps used > total to 100%', () => {
-  const result = computeContextBarVisual(150, 100);
-  assert.equal(result.ratio, 1);
-  assert.equal(result.percent, 100);
-  assert.match(result.titleText, /100\.0% used/);
+function liveMessage(overrides: {
+  id: string;
+  content: string;
+  role?: 'user' | 'assistant';
+  kind?: 'user_text' | 'assistant_answer';
+  outputTokensEstimate?: number;
+  outputTokensEstimated?: boolean;
+}): ChatMessage {
+  return {
+    role: 'assistant',
+    kind: 'assistant_answer',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-09-03T00:00:00.000Z',
+    sourceRunId: null,
+    ...overrides,
+  };
+}
+
+function usageFrame(promptTokens: number, charsPerToken = 4): ChatStreamUsageEvent {
+  return {
+    turn: 2,
+    maxTurns: 20,
+    record: {
+      turn: 2, promptTokens, thinkingTokens: 100, outputTokens: 0, toolTokens: 0,
+      generatedChars: 400, thinkingTokensEstimated: false, outputTokensEstimated: false,
+    },
+    totals: {
+      promptTokens, thinkingTokens: 100, outputTokens: 0, toolTokens: 0,
+      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
+    },
+    charsPerToken,
+  };
+}
+
+test('resolveLiveContextUsage mirrors the persisted total while idle', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: USAGE,
+    latestUsage: usageFrame(95),
+    streamedCharsSinceUsage: 40,
+    busy: false,
+  });
+  assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: true });
 });
 
-test('computeContextBarVisual clamps negative used to 0%', () => {
-  const result = computeContextBarVisual(-5, 100);
-  assert.equal(result.ratio, 0);
-  assert.equal(result.percent, 0);
+test('resolveLiveContextUsage holds the persisted total while a turn streams before the first usage frame', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: USAGE,
+    latestUsage: null,
+    streamedCharsSinceUsage: 40,
+    busy: true,
+  });
+  assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: true });
 });
 
-test('computeContextBarVisual returns 0% for zero total', () => {
-  const result = computeContextBarVisual(10, 0);
-  assert.equal(result.ratio, 0);
-  assert.equal(result.percent, 0);
-  assert.equal(result.fillColor, 'hsl(120, 70%, 45%)');
+test('resolveLiveContextUsage adds the calibrated streaming tail to the frame prompt count', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: USAGE,
+    latestUsage: usageFrame(60),
+    streamedCharsSinceUsage: 8,
+    busy: true,
+  });
+  assert.deepEqual(result, { usedTokens: 62, contextWindowTokens: 100, ratio: 0.62, exact: false });
 });
 
-test('computeContextBarVisual ramps hue from green at 0 to red at 1', () => {
-  assert.equal(computeContextBarVisual(0, 100).fillColor, 'hsl(120, 70%, 45%)');
-  assert.equal(computeContextBarVisual(50, 100).fillColor, 'hsl(60, 70%, 45%)');
-  assert.equal(computeContextBarVisual(100, 100).fillColor, 'hsl(0, 70%, 45%)');
+test('the in-flight tail converges to the exact count at the turn boundary', () => {
+  const usage = usageFrame(5000);
+  const contextUsage: ContextUsage = { ...USAGE, contextWindowTokens: 155_000, totalUsedTokens: 4000 };
+  const mid = resolveLiveContextUsage({
+    contextUsage, latestUsage: usage, streamedCharsSinceUsage: 800, busy: true,
+  });
+  assert.equal(mid?.usedTokens, 5200);
+  assert.equal(mid?.exact, false);
+
+  const atBoundary = resolveLiveContextUsage({
+    contextUsage, latestUsage: usage, streamedCharsSinceUsage: 0, busy: true,
+  });
+  assert.equal(atBoundary?.usedTokens, 5000);
+  assert.equal(atBoundary?.exact, true);
 });
 
-test('computeContextBarVisual title text contains used/total and percent with one decimal', () => {
-  const result = computeContextBarVisual(2500, 10000);
-  assert.match(result.titleText, /2,500/);
-  assert.match(result.titleText, /10,000/);
-  assert.match(result.titleText, /25\.0% used/);
+test('resolveLiveContextUsage hides the bar without usage', () => {
+  assert.equal(resolveLiveContextUsage({
+    contextUsage: null, latestUsage: usageFrame(50), streamedCharsSinceUsage: 0, busy: true,
+  }), null);
+  assert.equal(resolveLiveContextUsage({
+    contextUsage: { ...USAGE, contextWindowTokens: 0 },
+    latestUsage: null,
+    streamedCharsSinceUsage: 0,
+    busy: false,
+  }), null);
 });
 
-test('resolveContextBarVisual uses persisted total usage when not busy', () => {
-  const result = resolveContextBarVisual(USAGE, 999, 80, false);
-  assert.equal(result?.percent, 20);
+test('resolveLiveContextUsage clamps the ratio to 1 when usage exceeds the window', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: { ...USAGE, totalUsedTokens: 150 },
+    latestUsage: null,
+    streamedCharsSinceUsage: 0,
+    busy: false,
+  });
+  assert.equal(result?.ratio, 1);
 });
 
-test('resolveContextBarVisual includes persisted tool usage when not busy', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    chatUsedTokens: 20,
-    toolUsedTokens: 40,
-    imageUsedTokens: 0,
-    totalUsedTokens: 60,
-    usedTokens: 60,
-    remainingTokens: 40,
-  }, 999, 80, false);
-
-  assert.equal(result?.percent, 60);
-  assert.equal(result?.sections.find((section) => section.kind === 'used')?.tokenCount, 60);
-});
-
-test('resolveContextBarVisual keeps the bar visible for fallback estimates without numeric labels', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    totalUsedTokens: 60,
-    usedTokens: 60,
-    estimatedTokenFallbackTokens: 60,
-  }, 999, null, false);
-
-  assert.equal(result?.percent, 60);
-  assert.match(result?.titleText || '', /token count unavailable/u);
-  assert.equal(result?.sections.find((section) => section.kind === 'used')?.tokenCount, 60);
-  assert.match(result?.sections.find((section) => section.kind === 'used')?.titleText || '', /token count unavailable/u);
-  assert.doesNotMatch(result?.titleText || '', /60 \/ 100/u);
-});
-
-test('resolveContextBarVisual can show exact live prompt tokens when persisted usage is estimated', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    totalUsedTokens: 60,
-    usedTokens: 60,
-    estimatedTokenFallbackTokens: 60,
-  }, 999, 30, true);
-
-  assert.equal(result?.percent, 30);
-  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
-});
-
-test('resolveContextBarVisual prefers the live prompt token count while busy when it exceeds persisted usage', () => {
-  const result = resolveContextBarVisual(USAGE, 999, 70, true);
-  assert.equal(result?.percent, 70);
-});
-
-test('resolveContextBarVisual keeps persisted usage when the live prompt count is lower', () => {
-  const result = resolveContextBarVisual(USAGE, 999, 5, true);
-  assert.equal(result?.percent, 20);
-});
-
-test('resolveContextBarVisual uses persisted usage while busy when no live prompt count is present', () => {
-  const result = resolveContextBarVisual(USAGE, 999, null, true);
-  assert.equal(result?.percent, 20);
-});
-
-test('resolveContextBarVisual draws from the session window during a fresh-session stream before usage exists', () => {
-  const result = resolveContextBarVisual(null, 200, 50, true);
-  assert.equal(result?.percent, 25);
-});
-
-test('resolveContextBarVisual returns null for a fresh session at rest with no usage', () => {
-  assert.equal(resolveContextBarVisual(null, 200, null, false), null);
-  assert.equal(resolveContextBarVisual(null, 200, 50, false), null);
-});
-
-test('resolveContextBarVisual returns null when busy with no usable live prompt count and no usage', () => {
-  assert.equal(resolveContextBarVisual(null, 200, 0, true), null);
-  assert.equal(resolveContextBarVisual(null, 200, Number.NaN, true), null);
-  assert.equal(resolveContextBarVisual(null, 200, Number.POSITIVE_INFINITY, true), null);
-});
-
-test('resolveContextBarVisual returns null when the resolved window is non-positive', () => {
-  assert.equal(resolveContextBarVisual({ ...USAGE, contextWindowTokens: 0 }, 0, 10, true), null);
-  assert.equal(resolveContextBarVisual(null, 0, 10, true), null);
-});
-
-test('resolveContextBarVisual returns ordered reserve and usage sections', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    contextWindowTokens: 100,
-    chatUsedTokens: 20,
-    totalUsedTokens: 20,
-    remainingTokens: 80,
-    providerOverheadTokens: 5,
-    warnThresholdTokens: 10,
-  }, 999, null, false);
-
-  assert.deepEqual(result?.sections.map((section) => section.kind), [
-    'provider-overhead',
-    'used',
-    'free',
-    'warn',
+test('sumLiveTokenDisplays totals live bubbles and is exact only when every bubble is', () => {
+  const provisional = sumLiveTokenDisplays([
+    liveMessage({ id: 'u', role: 'user', kind: 'user_text', content: '12345678' }),
+    liveMessage({ id: 'a', content: '1234' }),
   ]);
-  assert.equal(result?.sections[0]?.percent, 5);
-  assert.equal(result?.sections[1]?.percent, 20);
-  assert.equal(result?.sections[3]?.percent, 10);
-});
-
-test('resolveContextBarVisual lets used context take precedence over the warn band when crowded', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    contextWindowTokens: 100,
-    chatUsedTokens: 90,
-    totalUsedTokens: 90,
-    remainingTokens: 10,
-    providerOverheadTokens: 20,
-    warnThresholdTokens: 30,
-  }, 999, null, false);
-
-  const totalPercent = result?.sections.reduce((sum, section) => sum + section.percent, 0);
-  assert.equal(totalPercent, 100);
-  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 80);
-  assert.equal(result?.sections.find((section) => section.kind === 'warn'), undefined);
-  assert.equal(result?.sections.find((section) => section.kind === 'free'), undefined);
-});
-
-test('resolveContextBarVisual omits zero-token reserve sections', () => {
-  const result = resolveContextBarVisual({
-    ...USAGE,
-    providerOverheadTokens: 0,
-    warnThresholdTokens: 0,
-  }, 999, null, false);
-
-  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
-});
-
-test('resolveContextBarVisual omits reserve sections during a fresh live stream before usage exists', () => {
-  const result = resolveContextBarVisual(null, 1000, 250, true);
-
-  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
-  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 25);
+  assert.deepEqual(provisional, { tokenCount: 0, exact: true });
+  const exact = sumLiveTokenDisplays([
+    liveMessage({ id: 'a', content: 'done', outputTokensEstimate: 3, outputTokensEstimated: false }),
+  ]);
+  assert.deepEqual(exact, { tokenCount: 3, exact: true });
+  assert.deepEqual(sumLiveTokenDisplays([]), { tokenCount: 0, exact: true });
 });

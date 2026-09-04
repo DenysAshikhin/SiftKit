@@ -6,13 +6,13 @@ export const STABLE_CHUNK_BUDGET_METRICS = {
   inputTokensTotal: 1000,
 };
 
-interface StubLlamaTarget {
+interface StubInferenceTarget {
   baseUrl: string;
   host: string;
   port: number;
 }
 
-function getStubLlamaBaseUrl(): StubLlamaTarget {
+function getStubInferenceBaseUrl(): StubInferenceTarget {
   const configuredUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL || process.env.SIFTKIT_STATUS_BACKEND_URL;
   if (!configuredUrl || !configuredUrl.trim()) {
     throw new Error('Fixture60 repro tests require SIFTKIT_CONFIG_SERVICE_URL or SIFTKIT_STATUS_BACKEND_URL.');
@@ -28,14 +28,14 @@ function getStubLlamaBaseUrl(): StubLlamaTarget {
 
 export async function saveFixture60ChunkingConfig(): Promise<void> {
   const config = await loadConfig({ ensure: true });
-  const stubLlama = getStubLlamaBaseUrl();
+  const stubInference = getStubInferenceBaseUrl();
   const basePreset = config.Server.ModelPresets.Presets[0];
   config.Server.ModelPresets.ActivePresetId = 'default';
   config.Server.ModelPresets.Presets = [{
     ...basePreset,
     id: 'default',
     label: 'Default',
-    BaseUrl: stubLlama.baseUrl,
+    BaseUrl: stubInference.baseUrl,
     NumCtx: 12_000,
   }];
   await saveConfig(config);

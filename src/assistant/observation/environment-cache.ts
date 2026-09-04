@@ -6,8 +6,10 @@ import type {
   QuestionEnvironmentState, QuestionEnvironmentStateProvider,
 } from '../questions/environment-state.js';
 
-/** Shell-reported seconds since the last physical mouse and keyboard input, respectively. */
-export type DesktopInputIdle = { readonly mouse: number; readonly keyboard: number };
+/** The two shell-reported input signals, named as on the wire. */
+export type DesktopInputIdle = Pick<
+  EnvironmentStateDto, 'secondsSinceMouseInput' | 'secondsSinceKeyboardInput'
+>;
 
 function localTimeOf(epochMs: number): string {
   const now = new Date(epochMs);
@@ -50,7 +52,10 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
     const fresh = this.fresh();
     return fresh === null
       ? null
-      : { mouse: fresh.secondsSinceMouseInput, keyboard: fresh.secondsSinceKeyboardInput };
+      : {
+        secondsSinceMouseInput: fresh.secondsSinceMouseInput,
+        secondsSinceKeyboardInput: fresh.secondsSinceKeyboardInput,
+      };
   }
 
   ingest(state: EnvironmentStateDto): void {

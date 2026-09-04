@@ -1,6 +1,5 @@
 // Shared runtime test infrastructure barrel. Typed re-export surface for the
-// ~30 runtime test files. Server-harness primitives live here; managed-llama
-// fixture writers live in ./helpers/managed-llama-fixtures.ts.
+// ~30 runtime test files. Server-harness primitives and engine fixtures live here.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -73,7 +72,7 @@ import { parseOptionalSummaryProvider } from '../src/summary/types.js';
 import { buildSummaryPrompt } from '../src/summary/prompt.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getSummaryDecision } from '../src/summary/decision.js';
-import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
+import { planTokenAwareInferenceChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
 import { buildSummaryPlannerToolDefinitions } from '../src/planner-protocol/summary-tools.js';
 import { runCommand } from './helpers/run-command-for-test.js';
 import { runBenchmarkSuite } from '../bench/benchmark/index.js';
@@ -87,10 +86,10 @@ import {
   runMatrixWithInterrupt,
 } from '../bench/benchmark-matrix/index.js';
 import {
-  countLlamaCppTokens,
-  listLlamaCppModels,
-  generateLlamaCppResponse,
-} from '../src/providers/llama-cpp.js';
+  countInferenceTokens,
+  listInferenceModels,
+  generateInferenceResponse,
+} from '../src/providers/inference.js';
 import {
   buildIdleMetricsLogMessage,
   buildStatusRequestLogBody,
@@ -115,7 +114,7 @@ interface RuntimeStatusResponse {
   metrics: Metrics;
 }
 
-interface LlamaModelsResponse {
+interface InferenceModelsResponse {
   data: { id: string }[];
 }
 
@@ -165,8 +164,8 @@ function applyManagedScriptConfig(
 const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
 const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
 const EXISTING_SERVER_CONFIG_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL;
-const RUN_LIVE_LLAMA_TOKENIZE_TESTS = process.env.SIFTKIT_RUN_LIVE_LLAMA_TOKENIZE_TESTS === '1';
-const LIVE_LLAMA_BASE_URL = process.env.SIFTKIT_LIVE_LLAMA_BASE_URL?.trim() || 'http://127.0.0.1:8097';
+const RUN_LIVE_INFERENCE_TOKENIZE_TESTS = process.env.SIFTKIT_RUN_LIVE_INFERENCE_TOKENIZE_TESTS === '1';
+const LIVE_INFERENCE_BASE_URL = process.env.SIFTKIT_LIVE_INFERENCE_BASE_URL?.trim() || 'http://127.0.0.1:8097';
 const LIVE_CONFIG_SERVICE_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL?.trim() || 'http://127.0.0.1:4765/config';
 const FAST_LEASE_WAIT_MS = 350;
 
@@ -674,8 +673,8 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           provider: parseOptionalSummaryProvider(typeof parsed.provider === 'string' ? parsed.provider : undefined),
           model: typeof parsed.model === 'string' ? parsed.model : undefined,
           promptPrefix: typeof parsed.promptPrefix === 'string' ? parsed.promptPrefix : undefined,
-          llamaCppMaxTokens: Number.isFinite(Number(parsed.llamaCppMaxTokens))
-            ? Number(parsed.llamaCppMaxTokens)
+          inferenceMaxTokens: Number.isFinite(Number(parsed.inferenceMaxTokens))
+            ? Number(parsed.inferenceMaxTokens)
             : undefined,
           sourceKind: parsed.sourceKind === 'command-output' ? 'command-output' : 'standalone',
           commandExitCode: Number.isFinite(Number(parsed.commandExitCode)) ? Number(parsed.commandExitCode) : undefined,
@@ -1024,7 +1023,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
     'SIFTKIT_STATUS_HOST',
     'SIFTKIT_IDLE_SUMMARY_DB_PATH',
     'SIFTKIT_IDLE_SUMMARY_DELAY_MS',
-    'SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS',
+    'SIFTKIT_ENGINE_STARTUP_GRACE_DELAY_MS',
     'SIFTKIT_HEALTHCHECK_ATTEMPTS',
     'SIFTKIT_HEALTHCHECK_TIMEOUT_MS',
     'SIFTKIT_HEALTHCHECK_BACKOFF_MS',
@@ -1034,7 +1033,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   process.env.sift_kit_status = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   process.env.SIFTKIT_STATUS_PATH = process.env.sift_kit_status;
   process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
-  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
+  process.env.SIFTKIT_ENGINE_STARTUP_GRACE_DELAY_MS = '0';
   delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;
   delete process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -1550,19 +1549,19 @@ export {
   getChunkThresholdCharacters, getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
-  summarizeRequest, buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
+  summarizeRequest, buildSummaryPrompt, getSummaryDecision, planTokenAwareInferenceChunks,
   createEmptyPresetSystemContext,
   getPlannerPromptBudget, buildSummaryPlannerToolDefinitions,
   runCommand, runBenchmarkSuite,
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,
-  countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse,
+  countInferenceTokens, listInferenceModels, generateInferenceResponse,
   buildIdleMetricsLogMessage, buildStatusRequestLogBody, formatElapsed,
   getIdleSummarySnapshotsPath, startStatusServer,
   runDebugRequest, runFixture60MalformedJsonRepro,
   // Local helpers
   TEST_USE_EXISTING_SERVER, EXISTING_SERVER_STATUS_URL, EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS, LIVE_LLAMA_BASE_URL, LIVE_CONFIG_SERVICE_URL,
+  RUN_LIVE_INFERENCE_TOKENIZE_TESTS, LIVE_INFERENCE_BASE_URL, LIVE_CONFIG_SERVICE_URL,
   FAST_LEASE_WAIT_MS,
   deriveServiceUrl, getDefaultConfig, clone, getChatRequestText, setPresetBaseUrl,
   mergeConfig, extractPromptSection, buildOversizedTransitionsInput,
@@ -1580,4 +1579,4 @@ export {
   listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };
 
-export type { RuntimeStatusResponse, LlamaModelsResponse, HealthCheckResponse, StatusPostAck };
+export type { RuntimeStatusResponse, InferenceModelsResponse, HealthCheckResponse, StatusPostAck };

@@ -52,8 +52,58 @@ export const ChatStreamToolEventSchema = z.discriminatedUnion('kind', [
 ]);
 export type ChatStreamToolEvent = z.infer<typeof ChatStreamToolEventSchema>;
 
+export const ChatTurnTokenRecordSchema = z.object({
+  turn: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  generatedChars: z.number().int().nonnegative(),
+  thinkingTokensEstimated: z.boolean(),
+  outputTokensEstimated: z.boolean(),
+});
+export type ChatTurnTokenRecord = z.infer<typeof ChatTurnTokenRecordSchema>;
+
+export const ChatTurnTokenTotalsSchema = z.object({
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  thinkingTokensEstimatedCount: z.number().int().nonnegative(),
+  outputTokensEstimatedCount: z.number().int().nonnegative(),
+});
+export type ChatTurnTokenTotals = z.infer<typeof ChatTurnTokenTotalsSchema>;
+
+export const ChatStreamUsageEventSchema = z.object({
+  turn: z.number().int().nonnegative(),
+  maxTurns: z.number().int().positive(),
+  record: ChatTurnTokenRecordSchema,
+  totals: ChatTurnTokenTotalsSchema,
+  charsPerToken: z.number().positive(),
+});
+export type ChatStreamUsageEvent = z.infer<typeof ChatStreamUsageEventSchema>;
+
+export const ToolCallStatusSchema = z.enum(['running', 'done', 'stopped']);
+export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
+
+export const ChatTranscriptRoleSchema = z.enum(['user', 'assistant']);
+export type ChatTranscriptRole = z.infer<typeof ChatTranscriptRoleSchema>;
+
+export const ChatTranscriptMessageKindSchema = z.enum([
+  'user_text',
+  'assistant_answer',
+  'assistant_thinking',
+  'assistant_tool_call',
+  'assistant_narration',
+  'assistant_progress',
+  'tool_image',
+  'compaction_summary',
+  'repo_agent_approval',
+]);
+export type ChatTranscriptMessageKind = z.infer<typeof ChatTranscriptMessageKindSchema>;
+
 const ChatMessageBaseSchema = z.object({
-  id: z.string(), role: z.enum(['user', 'assistant']),
+  id: z.string(), role: ChatTranscriptRoleSchema,
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),
@@ -63,11 +113,11 @@ const ChatMessageBaseSchema = z.object({
   thinkingStartedAtUtc: z.string().nullable().optional(), thinkingEndedAtUtc: z.string().nullable().optional(),
   answerStartedAtUtc: z.string().nullable().optional(), answerEndedAtUtc: z.string().nullable().optional(),
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
-  associatedToolTokens: z.number().nullable().optional(), thinkingContent: z.string().nullable().optional(),
+  thinkingContent: z.string().nullable().optional(),
   toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
-  toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
+  toolCallOutput: z.string().nullable().optional(), toolCallStatus: ToolCallStatusSchema.optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
   createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
@@ -75,7 +125,7 @@ const ChatMessageBaseSchema = z.object({
   removedImageCount: z.number().int().nonnegative().optional(),
 });
 
-export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
+const ChatToolCallFields = {
   role: z.literal('assistant'),
   kind: z.literal('assistant_tool_call'),
   toolCallCommand: z.string().trim().min(1),
@@ -84,9 +134,21 @@ export const ChatToolCallMessageSchema = ChatMessageBaseSchema.extend({
   toolCallTurn: z.number().int().positive(),
   toolCallMaxTurns: z.number().int().positive(),
   toolCallExitCode: z.number().int().nullable(),
-  toolCallStatus: z.enum(['running', 'done']),
+} as const;
+
+export const ChatTranscriptToolCallMessageSchema = ChatMessageBaseSchema.extend({
+  ...ChatToolCallFields,
+  toolCallStatus: ToolCallStatusSchema,
 });
-export type ChatToolCallMessage = z.infer<typeof ChatToolCallMessageSchema>;
+export type ChatTranscriptToolCallMessage = z.infer<typeof ChatTranscriptToolCallMessageSchema>;
+
+const PersistedToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
+  toolCallStatus: z.enum(['done', 'stopped']),
+});
+
+const ReplayableToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
+  toolCallStatus: z.literal('done'),
+});
 
 export const ChatRepoAgentApprovalMessageSchema = ChatMessageBaseSchema.extend({
   role: z.literal('user'),
@@ -98,7 +160,7 @@ export const ChatRepoAgentApprovalMessageSchema = ChatMessageBaseSchema.extend({
 });
 export type ChatRepoAgentApprovalMessage = z.infer<typeof ChatRepoAgentApprovalMessageSchema>;
 
-const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
+const ChatTranscriptNonToolMessageSchema = ChatMessageBaseSchema.extend({
   kind: z.enum([
     'user_text',
     'assistant_answer',
@@ -108,25 +170,39 @@ const PersistedChatNonToolMessageSchema = ChatMessageBaseSchema.extend({
   ]),
 });
 
-const LiveOnlyChatMessageSchema = ChatMessageBaseSchema.extend({
+const ChatTranscriptStreamTextMessageSchema = ChatMessageBaseSchema.extend({
   role: z.literal('assistant'),
   kind: z.enum(['assistant_narration', 'assistant_progress']),
 });
 
-export const PersistedChatMessageSchema = z.discriminatedUnion('kind', [
-  ChatToolCallMessageSchema,
+export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
+  ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
-  PersistedChatNonToolMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+  ChatTranscriptStreamTextMessageSchema,
 ]);
-export type PersistedChatMessage = z.infer<typeof PersistedChatMessageSchema>;
+export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
-export const LiveChatMessageSchema = z.discriminatedUnion('kind', [
-  ChatToolCallMessageSchema,
+export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
+  PersistedToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
-  PersistedChatNonToolMessageSchema,
-  LiveOnlyChatMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+  ChatTranscriptStreamTextMessageSchema,
 ]);
-export type LiveChatMessage = z.infer<typeof LiveChatMessageSchema>;
+export type PersistedChatTranscriptMessage = z.infer<typeof PersistedChatTranscriptMessageSchema>;
+
+export const ReplayableChatMessageSchema = z.discriminatedUnion('kind', [
+  ReplayableToolCallMessageSchema,
+  ChatRepoAgentApprovalMessageSchema,
+  ChatTranscriptNonToolMessageSchema,
+]);
+export type ReplayableChatMessage = z.infer<typeof ReplayableChatMessageSchema>;
+
+export function isReplayableChatMessage(
+  message: ChatTranscriptMessage,
+): message is ReplayableChatMessage {
+  return ReplayableChatMessageSchema.safeParse(message).success;
+}
 
 export const ChatPromptContextSchema = z.object({
   id: z.string(), role: z.literal('system'), kind: z.literal('system_context'),
@@ -139,9 +215,9 @@ export const ChatSessionSchema = z.object({
   modelPreset: ModelRuntimePresetSchema.optional(),
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
-  mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
+  mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
-  messages: z.array(PersistedChatMessageSchema), promptContext: ChatPromptContextSchema.optional(),
+  messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
 
@@ -181,11 +257,16 @@ export const RepoAgentDecisionSchema = z.discriminatedUnion('decision', [
 ]);
 export type RepoAgentDecision = z.infer<typeof RepoAgentDecisionSchema>;
 
+export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
+export const DEFAULT_APPROVAL_MODE = 'auto' satisfies ApprovalMode;
+export const APPROVAL_MODE_ERROR = `approval must be one of: ${ApprovalModeSchema.options.join(', ')}.`;
+
 export const ChatRepoAgentStreamRequestSchema = z.strictObject({
   content: z.string().trim().min(1),
   images: z.array(ImageDataUrlSchema).optional(),
   repoRoot: z.string().trim().min(1).optional(),
-  approval: z.enum(['interactive', 'auto', 'off']).optional(),
+  approval: ApprovalModeSchema,
   maxTurns: z.number().int().positive().optional(),
   operationId: z.string().uuid(),
 });
@@ -232,11 +313,33 @@ export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
 
 const ChatStreamApprovalWithoutRunIdSchema = ChatStreamApprovalSchema.omit({ runId: true });
 export const ActiveChatRepoAgentResponseSchema = z.discriminatedUnion('status', [
-  z.strictObject({ runId: z.string().uuid(), status: z.literal('running') }),
+  z.strictObject({ runId: z.string().uuid(), status: z.literal('running'), approvalMode: ApprovalModeSchema }),
   z.strictObject({
     runId: z.string().uuid(),
     status: z.literal('approval_required'),
+    approvalMode: ApprovalModeSchema,
     approval: ChatStreamApprovalWithoutRunIdSchema,
   }),
 ]);
 export type ActiveChatRepoAgentResponse = z.infer<typeof ActiveChatRepoAgentResponseSchema>;
+
+export const ChatRepoAgentApprovalModeRequestSchema = z.strictObject({ approval: ApprovalModeSchema });
+export type ChatRepoAgentApprovalModeRequest = z.infer<typeof ChatRepoAgentApprovalModeRequestSchema>;
+export const ChatRepoAgentDecideResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  decidedAtUtc: z.string().datetime(),
+});
+export type ChatRepoAgentDecideResponse = z.infer<typeof ChatRepoAgentDecideResponseSchema>;
+
+export const ChatRepoAgentApprovalModeResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  approval: ApprovalModeSchema,
+  /** Set when switching to `off` released a parked approval; the client mirrors it as an approve decision. */
+  released: z.strictObject({
+    approvalId: z.string().uuid(),
+    decidedAtUtc: z.string().datetime(),
+  }).nullable(),
+});
+export type ChatRepoAgentApprovalModeResponse = z.infer<typeof ChatRepoAgentApprovalModeResponseSchema>;

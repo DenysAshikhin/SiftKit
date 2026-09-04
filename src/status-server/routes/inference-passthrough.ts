@@ -7,12 +7,14 @@ import {
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
-import type { ModelRuntimePreset } from '../../config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../../config/types.js';
 import { getConfiguredModel } from '../../config/getters.js';
 import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
+import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.js';
 import { getActiveModelPreset, readConfig } from '../config-store.js';
 import { serverLogger } from '../server-logger.js';
@@ -28,7 +30,6 @@ import type { ServerContext } from '../server-types.js';
 
 const CHAT_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
-const LLAMA_TOKENIZE_PATH = '/tokenize';
 const EXL3_TOKENIZE_PATH = '/v1/token/encode';
 const CHAT_TIMEOUT_MS = 600_000;
 const TOKENIZE_TIMEOUT_MS = 60_000;
@@ -40,7 +41,6 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
 function isInferencePath(pathname: string): boolean {
   return pathname === MODELS_PATH
     || pathname === CHAT_PATH
-    || pathname === LLAMA_TOKENIZE_PATH
     || pathname === EXL3_TOKENIZE_PATH;
 }
 
@@ -87,18 +87,25 @@ function validateChatBody(bodyText: string): number {
   return parsed.messages.length;
 }
 
-function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string {
+function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config: SiftConfig): string {
   const parsed = parseJsonValueText(bodyText);
   if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
     throw new Error('Expected a JSON object with a messages array.');
   }
   const defaults = buildPresetRequestDefaults(preset);
   parsed.model = preset.Model ?? preset.id;
-  // The preset is authoritative for sampling; a caller may only lower max_tokens.
-  const callerMaxTokens = typeof parsed.max_tokens === 'number' && parsed.max_tokens >= 1
-    ? parsed.max_tokens
-    : defaults.maxTokens;
-  parsed.max_tokens = Math.min(callerMaxTokens, defaults.maxTokens);
+  // The preset is authoritative for sampling; a caller may only lower the ceiling the
+  // context leaves once this prompt is accounted for. A passthrough caller supplies no
+  // measured count, so the prompt is priced with the local estimate.
+  parsed.max_tokens = resolveGenerationTokenLimit({
+    totalContextTokens: preset.NumCtx,
+    promptTokenCount: estimateTokenCount(config, JSON.stringify(parsed.messages)),
+    operationMaxTokens: typeof parsed.max_tokens === 'number'
+      && Number.isInteger(parsed.max_tokens)
+      && parsed.max_tokens >= 1
+      ? parsed.max_tokens
+      : undefined,
+  });
   parsed.temperature = defaults.temperature;
   parsed.top_p = defaults.topP;
   parsed.top_k = defaults.topK;
@@ -107,17 +114,14 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string
   applyThinkingSettings(parsed, preset);
   const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
   parsed[compatibility.repetitionPenaltyKey] = defaults.repetitionPenalty;
-  // removedFields drops keys the *caller* sent that this backend cannot take; SiftKit never adds them.
-  for (const field of compatibility.removedFields) delete parsed[field];
   return JSON.stringify(parsed);
 }
 
-function readTokenizeText(bodyText: string, requestPath: string): string {
+function readTokenizeText(bodyText: string): string {
   const parsed = parseJsonValueText(bodyText);
   if (!isJsonObject(parsed)) throw new Error('Expected a JSON object.');
-  const key = requestPath === LLAMA_TOKENIZE_PATH ? 'content' : 'text';
-  const text = parsed[key];
-  if (typeof text !== 'string') throw new Error(`Expected '${key}' to be a string.`);
+  const text = parsed.text;
+  if (typeof text !== 'string') throw new Error("Expected 'text' to be a string.");
   return text;
 }
 
@@ -163,19 +167,15 @@ async function proxyTokenizeRequest(
   req: IncomingMessage,
   res: ServerResponse,
   baseUrl: string,
-  preset: ModelRuntimePreset,
-  requestPath: string,
   requestText: string,
 ): Promise<void> {
-  const upstreamPath = preset.Backend === 'exl3' ? EXL3_TOKENIZE_PATH : LLAMA_TOKENIZE_PATH;
-  const upstreamBody = preset.Backend === 'exl3' ? { text: requestText } : { content: requestText };
-  const response = await fetch(new URL(upstreamPath, `${baseUrl.replace(/\/$/u, '')}/`), {
+  const response = await fetch(new URL(EXL3_TOKENIZE_PATH, `${baseUrl.replace(/\/$/u, '')}/`), {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
     },
-    body: JSON.stringify(upstreamBody),
+    body: JSON.stringify({ text: requestText }),
     signal: AbortSignal.timeout(TOKENIZE_TIMEOUT_MS),
   });
   const responseText = await response.text();
@@ -186,16 +186,6 @@ async function proxyTokenizeRequest(
   }
   const parsed = parseJsonValueText(responseText);
   const tokens = getTokenArray(parsed);
-  if (requestPath === LLAMA_TOKENIZE_PATH) {
-    const count = isJsonObject(parsed) && typeof parsed.count === 'number'
-      ? parsed.count
-      : isJsonObject(parsed) && typeof parsed.length === 'number'
-        ? parsed.length
-        : tokens?.length;
-    if (count === undefined) throw new Error('Upstream tokenization response did not contain a token count.');
-    sendJson(res, 200, { count });
-    return;
-  }
   if (!tokens) throw new Error('Upstream tokenization response did not contain a tokens array.');
   sendJson(res, 200, { tokens, length: tokens.length });
 }
@@ -217,7 +207,7 @@ class WorkloadEndpoint implements RouteEndpoint {
     try {
       bodyText = await readBody(req);
       if (match.pathname === CHAT_PATH) chatMessageCount = validateChatBody(bodyText);
-      else requestText = readTokenizeText(bodyText, match.pathname);
+      else requestText = readTokenizeText(bodyText);
     } catch (error) {
       sendBodyReadError(res, toError(error), { error: error instanceof Error ? error.message : String(error) });
       return;
@@ -234,7 +224,7 @@ class WorkloadEndpoint implements RouteEndpoint {
         return;
       }
       if (match.pathname === CHAT_PATH) {
-        const translatedBody = translateChatBody(bodyText, currentPreset);
+        const translatedBody = translateChatBody(bodyText, currentPreset, currentConfig);
         serverLogger.event({
           scope: 'proxy',
           id: '',
@@ -244,7 +234,7 @@ class WorkloadEndpoint implements RouteEndpoint {
         });
         await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translatedBody);
       } else if (requestText !== null) {
-        await proxyTokenizeRequest(req, res, baseUrl, currentPreset, match.pathname, requestText);
+        await proxyTokenizeRequest(req, res, baseUrl, requestText);
       }
       ctx.idleSummary.pending = true;
     } catch (error) {
@@ -259,7 +249,6 @@ class WorkloadEndpoint implements RouteEndpoint {
 const ROUTES = new RouteTable([
   { method: 'GET', path: MODELS_PATH, endpoint: new ModelsEndpoint() },
   { method: 'POST', path: CHAT_PATH, endpoint: new WorkloadEndpoint() },
-  { method: 'POST', path: LLAMA_TOKENIZE_PATH, endpoint: new WorkloadEndpoint() },
   { method: 'POST', path: EXL3_TOKENIZE_PATH, endpoint: new WorkloadEndpoint() },
 ]);
 

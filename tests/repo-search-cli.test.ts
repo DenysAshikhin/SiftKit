@@ -64,6 +64,7 @@ function writeMockRepoSearchResponse(res: http.ServerResponse, finalOutput = 'Fo
     transcriptPath: 'C:\\tmp\\repo-search.jsonl',
     artifactPath: 'C:\\tmp\\repo-search.json',
     scorecard: buildMockScorecard(finalOutput),
+    turnRecords: [],
   };
   writeSseResult(res, result, [{ kind: 'llm_start', turn: 1, maxTurns: 24, promptTokenCount: 10 }]);
 }

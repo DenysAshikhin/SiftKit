@@ -38,11 +38,10 @@ test('background-work decisions persist across a database reopen', () => {
   const clock = new FixedClock(START);
   const database = getRuntimeDatabase(databasePath);
   enqueuePendingJob(new JobStore(database, clock, new SequentialIdGenerator()));
-  new BackgroundWorkDecisionStore(database, clock).record(
-    LOCAL_OWNER_ID,
-    'mouse_idle_below_threshold',
-    { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
-  );
+  new BackgroundWorkDecisionStore(database, clock).record(LOCAL_OWNER_ID, {
+    reason: 'mouse_idle_below_threshold',
+    details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
+  });
   closeRuntimeDatabase();
 
   const reopened = getRuntimeDatabase(databasePath);
@@ -68,16 +67,21 @@ test('background-work decision history retains only the newest 100 entries', () 
   const store = new BackgroundWorkDecisionStore(database, clock);
 
   for (let index = 0; index < 101; index += 1) {
-    store.record(LOCAL_OWNER_ID, 'mouse_idle_below_threshold', {
-      mouseIdleSeconds: index,
+    store.record(LOCAL_OWNER_ID, {
+      reason: 'mouse_idle_below_threshold',
+      details: { mouseIdleSeconds: index, requiredIdleSeconds: 180 },
     });
     clock.advanceSeconds(1);
   }
 
   const items = store.list(LOCAL_OWNER_ID);
   assert.equal(items.length, 100);
-  assert.equal(items[0]?.details.mouseIdleSeconds, 100);
-  assert.equal(items.at(-1)?.details.mouseIdleSeconds, 1);
+  const newest = items[0];
+  const oldest = items.at(-1);
+  assert.ok(newest?.reason === 'mouse_idle_below_threshold');
+  assert.ok(oldest?.reason === 'mouse_idle_below_threshold');
+  assert.equal(newest.details.mouseIdleSeconds, 100);
+  assert.equal(oldest.details.mouseIdleSeconds, 1);
 });
 
 test('background-work decisions are not written when nothing is pending', () => {
@@ -88,7 +92,7 @@ test('background-work decisions are not written when nothing is pending', () => 
   const clock = new FixedClock(START);
   const store = new BackgroundWorkDecisionStore(database, clock);
 
-  store.record(LOCAL_OWNER_ID, 'server_busy', {});
+  store.record(LOCAL_OWNER_ID, { reason: 'server_busy', details: {} });
 
   assert.deepEqual(store.list(LOCAL_OWNER_ID), []);
 });

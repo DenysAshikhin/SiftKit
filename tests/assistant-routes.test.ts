@@ -57,6 +57,23 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
     assert.equal((await requestJson(`${baseUrl}/assistant/graph/assertions/missing/confirm`, {
       method: 'POST', headers, body: JSON.stringify({ reason: 'confirm' }),
     })).statusCode, 404);
+    // The claim-owner route is registered and authenticated like every other mutation; an unknown
+    // node is a 404 rather than a route miss, which is what proves the pattern matched.
+    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
+      method: 'POST', headers, body: JSON.stringify({ reason: 'this is me' }),
+    })).statusCode, 404);
+    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
+      method: 'POST', body: JSON.stringify({ reason: 'this is me' }),
+    })).statusCode, 401);
+    const cleanupPreview = await requestJson(`${baseUrl}/assistant/cleanup/preview`, { headers });
+    assert.equal(cleanupPreview.statusCode, 200);
+    assert.equal(typeof cleanupPreview.body.previewToken, 'string');
+    // A token that is not even well-formed is a bad request; staleness is what raises a 409.
+    assert.equal((await requestJson(`${baseUrl}/assistant/cleanup`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ previewToken: 'not-a-token', reclassifyScreenshots: false }),
+    })).statusCode, 400);
+    assert.equal((await requestJson(`${baseUrl}/assistant/cleanup/preview`)).statusCode, 401);
     for (const route of [
       '/assistant/capture/start', '/assistant/ingest/raw',
       '/assistant/export', '/assistant/backup', '/assistant/not-a-route',
@@ -74,6 +91,12 @@ test('assistant HTTP surface bootstraps locally, enforces bearer auth, and serve
     const status = await requestJson(`${baseUrl}/assistant/status`, { headers });
     assert.equal(status.body.enabled, false);
     assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes`, { headers })).statusCode, 409);
+    assert.equal((await requestJson(`${baseUrl}/assistant/graph/nodes/missing/claim-owner`, {
+      method: 'POST', headers, body: JSON.stringify({ reason: 'this is me' }),
+    })).statusCode, 409);
+    assert.equal(
+      (await requestJson(`${baseUrl}/assistant/cleanup/preview`, { headers })).statusCode, 409,
+    );
     assert.equal((await requestJson(`${baseUrl}/assistant/config`, {
       method: 'PATCH', headers, body: '{',
     })).statusCode, 400);

@@ -1,12 +1,11 @@
 import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
-  getActiveModelPreset,
   getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
-import { computeResponseReserveTokens } from '../lib/response-reserve.js';
-import { countLlamaCppTokens } from '../providers/llama-cpp.js';
+import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
+import { countInferenceTokens } from '../providers/inference.js';
 import { buildSummaryPrompt } from './prompt.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
 import type {
@@ -18,11 +17,9 @@ import type {
   SummarySourceKind,
 } from './types.js';
 
-export const LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
+export const INFERENCE_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
 export const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
 export const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
-
-let nextLlamaCppSlotId = 0;
 
 export function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   if (chunkSize <= 0) {
@@ -69,10 +66,10 @@ export async function countPromptTokensForChunk(options: {
     phase: options.phase,
     chunkContext: options.chunkContext,
   });
-  return countLlamaCppTokens(options.config, prompt);
+  return countInferenceTokens(options.config, prompt);
 }
 
-export async function planTokenAwareLlamaCppChunks(options: {
+export async function planTokenAwareInferenceChunks(options: {
   question: string;
   inputText: string;
   format: 'text' | 'json';
@@ -97,7 +94,7 @@ export async function planTokenAwareLlamaCppChunks(options: {
   let offset = 0;
   while (offset < options.inputText.length) {
     const remainingLength = options.inputText.length - offset;
-    const targetSlackTokens = Math.min(LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE, effectivePromptLimit);
+    const targetSlackTokens = Math.min(INFERENCE_PROMPT_TOKEN_TARGET_TOLERANCE, effectivePromptLimit);
     let candidateLength = Math.min(options.chunkThreshold, remainingLength);
     let acceptedChunk: string | null = null;
     let acceptedLength = 0;
@@ -206,24 +203,15 @@ export function shouldRetryWithSmallerChunks(options: {
     return false;
   }
 
-  return /llama\.cpp generate failed with HTTP 400\b/iu.test(options.error.message);
-}
-
-export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getActiveModelPreset(config).ParallelSlots;
-  const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
-  const slotId = nextLlamaCppSlotId % slotCount;
-  nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
-  return slotId;
+  return /inference generate failed with HTTP 400\b/iu.test(options.error.message);
 }
 
 export function getPlannerPromptBudget(config: SiftConfig): PlannerPromptBudget {
-  const numCtxTokens = getConfiguredEngineNumCtx(config);
-  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens: numCtxTokens, config });
+  const budget = resolveContextTokenBudget({ totalContextTokens: getConfiguredEngineNumCtx(config) });
   return {
-    numCtxTokens,
-    responseReserveTokens,
-    plannerStopLineTokens: Math.max(numCtxTokens - responseReserveTokens, 0),
+    numCtxTokens: budget.totalContextTokens,
+    compactionReserveTokens: budget.compactionReserveTokens,
+    plannerStopLineTokens: budget.maxPromptTokens,
   };
 }
 
@@ -234,10 +222,9 @@ export function estimatePromptTokenCount(config: SiftConfig, text: string): numb
   );
 }
 
-export function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number {
+export function getInferenceChunkThresholdCharacters(config: SiftConfig): number {
   const reserveChars = Math.ceil(
-    computeResponseReserveTokens({ totalContextTokens: getConfiguredEngineNumCtx(config), config })
-    * getEffectiveInputCharactersPerContextToken(config)
+    getPlannerPromptBudget(config).compactionReserveTokens * getEffectiveInputCharactersPerContextToken(config)
   );
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
 }

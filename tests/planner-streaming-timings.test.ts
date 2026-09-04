@@ -10,7 +10,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 type FakeInferenceServer = { baseUrl: string; lastBody: () => string; close: () => Promise<void> };
 
 // Fake OpenAI-compatible SSE server shaped like TabbyAPI: chunks carry deltas only, never a
-// llama.cpp `timings` object, so generation duration must come from the client's own clock.
+// The streaming response omits timing metadata, so generation duration must come from the client's own clock.
 function startFakeInferenceServer(): Promise<FakeInferenceServer> {
   return new Promise((resolve) => {
     let lastBody = '';
@@ -78,7 +78,7 @@ test('streaming planner turn measures generation duration on the client clock', 
   }
 });
 
-test('streaming planner request body sets stream and carries no llama.cpp timing flag', async () => {
+test('streaming planner request body sets stream and carries no backend-specific timing flag', async () => {
   const fake = await startFakeInferenceServer();
   try {
     await runStreamingPlanner(fake.baseUrl);

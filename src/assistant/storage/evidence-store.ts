@@ -199,6 +199,20 @@ export class EvidenceStore {
     return fs.readFileSync(this.resolveBlobPath(blob.storage_uri));
   }
 
+  /** Rewrites one record's classification. The audited cleanup path is its only caller. */
+  setSensitivity(evidenceId: string, sensitivity: Sensitivity): EvidenceRow {
+    this.database
+      .prepare('UPDATE evidence_records SET sensitivity = ? WHERE id = ?')
+      .run(sensitivity, evidenceId);
+    return this.requireEvidence(evidenceId);
+  }
+
+  /** Whether this evidence still has pixels to read: retention may have deleted them. */
+  hasReadableBlob(evidence: EvidenceRow): boolean {
+    if (evidence.blob_id === null) return false;
+    return this.requireBlob(evidence.blob_id).deleted_at_utc === null;
+  }
+
   readBlobBytes(blobId: string): Buffer {
     const blob = this.requireBlob(blobId);
     if (blob.deleted_at_utc !== null) {

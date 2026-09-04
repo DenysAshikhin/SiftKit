@@ -2,6 +2,7 @@ import http from 'node:http';
 import { SseFrameParser, type SseFrame } from '../../src/lib/sse-frame-parser.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import { toError } from '../../src/lib/errors.js';
+import { OperationStreamErrorSchema, type OperationStreamError } from '../../src/lib/operation-stream.js';
 import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
 import { asObject } from './dashboard-http.js';
 import { testHttpAgent } from './http-agent.js';
@@ -120,3 +121,14 @@ export function writeSseResult(
   res.write(`event: result\ndata: ${JSON.stringify(payload)}\n\n`);
   res.end();
 }
+
+/** A terminal error frame's payload, built from the schema both ends actually parse. */
+export function buildOperationStreamErrorPayload(message: string, errorName = 'Error'): OperationStreamError {
+  return OperationStreamErrorSchema.parse({
+    error: message,
+    errorName,
+    diagnosticId: 'diag-test',
+    diagnostic: { name: errorName, message },
+  });
+}
+

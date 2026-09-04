@@ -8,6 +8,8 @@ import type { RunRecord, RunDetailResponse } from '../src/types';
 function makeRun(overrides: Partial<RunRecord>): RunRecord {
   return {
     id: 'run_1', kind: 'repo_search', status: 'completed',
+    operationType: null, operationPresetId: null, modelPresetId: null,
+    operationPresetJson: null, modelPresetJson: null,
     startedAtUtc: '2026-07-19T11:42:07Z', finishedAtUtc: '2026-07-19T11:44:21Z',
     title: 'Locate EXL3 preset controls', model: null, backend: null,
     inputTokens: null, outputTokens: null, thinkingTokens: null,

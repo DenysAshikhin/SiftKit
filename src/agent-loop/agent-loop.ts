@@ -1,4 +1,4 @@
-import type { LlamaCppChatMessage, LlamaCppToolDefinition } from '../llm-protocol/types.js';
+import type { InferenceChatMessage, InferenceToolDefinition } from '../llm-protocol/types.js';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,
@@ -14,8 +14,8 @@ export interface AgentLoopModelClient {
   chat(options: {
     turnNumber: number;
     preparedTurn: AgentLoopPreparedTurn;
-    messages: LlamaCppChatMessage[];
-    tools: LlamaCppToolDefinition[];
+    messages: InferenceChatMessage[];
+    tools: InferenceToolDefinition[];
     allowedToolNames: string[];
   }): Promise<AgentLoopModelResponse>;
 }

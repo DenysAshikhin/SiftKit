@@ -71,6 +71,7 @@ function detailProps(overrides: Partial<DetailProps> = {}): DetailProps {
     onPreviewForgetTopic: async () => {},
     onConfirmForgetTopic: async () => {},
     onFetchEvidencePixels: async () => new Blob(),
+    onClaimOwner: async () => {},
     ...overrides,
   };
 }

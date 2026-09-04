@@ -1,8 +1,5 @@
+import { ApprovalModeSchema, DEFAULT_APPROVAL_MODE, type ApprovalMode } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
-import {
-  ApprovalModeSchema,
-  type ApprovalMode,
-} from '../repo-search/engine/approval-gate.js';
 
 export const RepoAgentStartInvocationSchema = z.object({
   kind: z.literal('start'),
@@ -76,7 +73,7 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
   const taskTokens: string[] = [];
   let model: string | undefined;
   let logFile: string | undefined;
-  let approval: ApprovalMode = 'auto';
+  let approval: ApprovalMode = DEFAULT_APPROVAL_MODE;
   let progress = false;
   const images: string[] = [];
 

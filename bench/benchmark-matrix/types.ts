@@ -9,7 +9,7 @@ export const RawMatrixManifestSchema = z.object({
   promptPrefixFile: z.string().nullable().optional(),
   requestTimeoutSeconds: z.number().nullable().optional(),
   startScript: z.string(),
-  stopScript: z.string().nullable().optional(),
+  stopScript: z.string(),
   resultsRoot: z.string(),
   baseline: z.object({
     modelId: z.string(),
@@ -59,7 +59,7 @@ export type ResolvedMatrixManifest = {
   promptPrefixFile: string | null;
   requestTimeoutSeconds: number;
   startScript: string;
-  stopScript: string | null;
+  stopScript: string;
   resultsRoot: string;
   baseline: ResolvedMatrixTarget;
   enabledRuns: ResolvedMatrixTarget[];

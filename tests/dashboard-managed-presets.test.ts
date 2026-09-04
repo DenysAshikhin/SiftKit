@@ -85,6 +85,12 @@ function createConfig(): DashboardConfig {
   };
 }
 
+test('dashboard defaults omit model response MaxTokens', () => {
+  const preset = createPreset();
+  assert.equal(Object.hasOwn(preset, 'MaxTokens'), false);
+  assert.equal(Object.hasOwn(createConfig().Runtime.Engine, 'MaxTokens'), false);
+});
+
 function normalizeSingleModelPreset(
   preset: Partial<DashboardModelRuntimePreset>,
 ): DashboardConfig {

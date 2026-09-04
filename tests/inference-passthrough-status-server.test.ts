@@ -272,7 +272,7 @@ function readForwardedRequest(response: JsonResponse): JsonObject {
   return asObject(response.body.forwardedRequest);
 }
 
-test('chat passthrough forces preset samplers and lets callers only lower max_tokens', async () => {
+test('chat passthrough forces preset samplers and caps max_tokens from NumCtx', async () => {
   await withPassthroughChatServer({
     Temperature: 0.6,
     TopP: 0.8,
@@ -280,7 +280,7 @@ test('chat passthrough forces preset samplers and lets callers only lower max_to
     MinP: 0.03,
     PresencePenalty: 0.9,
     RepetitionPenalty: 1.15,
-    MaxTokens: 15_000,
+    NumCtx: 155_000,
     Reasoning: 'off',
   }, async (postChat) => {
     const overreaching = readForwardedRequest(await postChat({
@@ -301,8 +301,7 @@ test('chat passthrough forces preset samplers and lets callers only lower max_to
     assert.equal(overreaching.presence_penalty, 0.9);
     assert.equal(overreaching.repetition_penalty, 1.15);
     assert.equal(overreaching.model, 'managed-sampler-model');
-    // min(caller 99999, preset 15000)
-    assert.equal(overreaching.max_tokens, 15_000);
+    assert.equal(overreaching.max_tokens, 99_999);
     // The preset has reasoning off, so the caller cannot turn thinking on.
     assert.deepEqual(overreaching.chat_template_kwargs, { enable_thinking: false });
 
@@ -312,10 +311,22 @@ test('chat passthrough forces preset samplers and lets callers only lower max_to
     }));
     assert.equal(modest.max_tokens, 128);
 
+    // No caller cap: the prompt budget minus the (estimated) prompt itself, so the
+    // request can never claim generation room the prompt already occupies.
     const unspecified = readForwardedRequest(await postChat({
       messages: [{ role: 'user', content: 'hi' }],
     }));
-    assert.equal(unspecified.max_tokens, 15_000);
+    const unspecifiedMaxTokens = Number(unspecified.max_tokens);
+    assert.ok(unspecifiedMaxTokens < 155_000, `max_tokens=${unspecifiedMaxTokens}`);
+    assert.ok(unspecifiedMaxTokens > 154_000, `max_tokens=${unspecifiedMaxTokens}`);
+
+    const excessive = readForwardedRequest(
+      await postChat({
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 200_000,
+      }),
+    );
+    assert.equal(excessive.max_tokens, unspecifiedMaxTokens);
   });
 });
 
@@ -354,7 +365,7 @@ test('chat passthrough replaces a caller reasoning effort with the preset one', 
   });
 });
 
-test('tokenize passthrough proxies POST /tokenize to the managed engine', async () => {
+test('tokenize passthrough exposes only the EXL3 token endpoint', async () => {
   // The fake engine tokenizes at 4 characters per token.
   await withPassthroughServer({
     tempPrefix: 'siftkit-inference-passthrough-tokenize-',
@@ -362,9 +373,11 @@ test('tokenize passthrough proxies POST /tokenize to the managed engine', async 
     launcher: { tokenizeCharsPerToken: 4 },
   }, async ({ baseUrl }) => {
     // 16 characters at 4 chars/token => 4 tokens.
-    const response = await requestJsonPost(`${baseUrl}/tokenize`, { content: 'abcdefghijklmnop' });
+    const response = await requestJsonPost(`${baseUrl}/v1/token/encode`, { text: 'abcdefghijklmnop' });
+    const removedRoute = await requestJsonPost(`${baseUrl}/tokenize`, { content: 'abcdefghijklmnop' });
 
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.count, 4);
+    assert.equal(response.body.length, 4);
+    assert.equal(removedRoute.statusCode, 404);
   });
 });

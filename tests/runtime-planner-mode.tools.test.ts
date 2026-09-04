@@ -10,7 +10,7 @@ import {
   getEffectiveInputCharactersPerContextToken,
 } from '../src/config/index.js';
 import { summarizeRequest } from '../src/summary.js';
-import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
+import { generateInferenceResponse } from '../src/providers/inference.js';
 import { executePlannerTool } from '../src/summary/planner/tools.js';
 import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import {
@@ -293,12 +293,12 @@ test('json_get reports missing paths explicitly', () => {
   assert.match(result.text, /path not found/u);
 });
 
-test('llama.cpp provider preserves planner tool actions from empty-content tool_calls responses', async () => {
+test('inference provider preserves planner tool actions from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      const summary = await generateLlamaCppResponse({
+      const summary = await generateInferenceResponse({
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
@@ -345,12 +345,12 @@ test('llama.cpp provider preserves planner tool actions from empty-content tool_
   });
 });
 
-test('llama.cpp provider preserves planner tool batches from empty-content tool_calls responses', async () => {
+test('inference provider preserves planner tool batches from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      const summary = await generateLlamaCppResponse({
+      const summary = await generateInferenceResponse({
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',

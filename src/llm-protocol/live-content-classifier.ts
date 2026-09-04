@@ -1,4 +1,4 @@
-import { LlamaCppToolCallParser } from './tool-call-parser.js';
+import { InferenceToolCallParser } from './tool-call-parser.js';
 import type { LiveContentClassification, LiveContentResult } from './types.js';
 
 export type LiveContentSnapshot = {
@@ -25,7 +25,7 @@ export function completeLiveContent(
 }
 
 export class LiveContentClassifier {
-  private readonly parser = new LlamaCppToolCallParser();
+  private readonly parser = new InferenceToolCallParser();
   private rawText = '';
   private nativeToolBoundary: number | null = null;
 

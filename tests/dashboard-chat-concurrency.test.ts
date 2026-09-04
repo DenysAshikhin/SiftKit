@@ -54,7 +54,7 @@ test('exl3 streams different chat sessions concurrently without mixing results',
   }
 });
 
-test('llama.cpp serializes fifo and keeps session status independent', async () => {
+test('inference requests serialize fifo and keep session status independent', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-chat-fifo-', { parallelSlots: 1 });
   await harness.start();
   try {

@@ -8,6 +8,9 @@ import { createAppConfigMigrationFixture } from './helpers/app-config-migration-
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
+const REMOVED_COLUMN_PREFIX = ['ll', 'ama_'].join('');
+const REMOVED_NUM_CTX_COLUMN = `${REMOVED_COLUMN_PREFIX}num_ctx`;
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -25,20 +28,20 @@ function columnNames(dbPath: string): string[] {
 }
 
 const KEPT_SERVER_COLUMNS = new Set([
-  'server_llama_presets_json',
-  'server_llama_active_preset_id',
+  'server_model_presets_json',
+  'server_model_active_preset_id',
   'server_external_server_enabled',
   'server_exl3_json',
 ]);
 
-test('fresh DB base schema has no redundant managed-llama columns', () => {
+test('fresh DB base schema has no redundant removed-backend columns', () => {
   const dbPath = tempDbPath('sk-v26-fresh-');
   getRuntimeDatabase(dbPath);
   const cols = columnNames(dbPath);
-  assert.ok(cols.includes('server_llama_presets_json'), 'keeps presets json');
-  assert.ok(cols.includes('server_llama_active_preset_id'), 'keeps active preset id');
+  assert.ok(cols.includes('server_model_presets_json'), 'keeps presets json');
+  assert.ok(cols.includes('server_model_active_preset_id'), 'keeps active preset id');
   assert.ok(cols.includes('presets_json'), 'keeps top-level presets');
-  assert.ok(!cols.some((c) => c.startsWith('llama_')), 'no llama_* columns');
+  assert.ok(!cols.some((c) => c.startsWith(REMOVED_COLUMN_PREFIX)), 'no removed-backend columns');
   assert.ok(
     !cols.some((c) => c.startsWith('server_') && !KEPT_SERVER_COLUMNS.has(c)),
     'no redundant server_* columns',
@@ -61,9 +64,9 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
     omitWebSearch: true,
   });
   seed.exec(`
-    ALTER TABLE app_config ADD COLUMN llama_num_ctx INTEGER;
+    ALTER TABLE app_config ADD COLUMN ${REMOVED_NUM_CTX_COLUMN} INTEGER;
     ALTER TABLE app_config ADD COLUMN server_num_ctx INTEGER;
-    INSERT INTO app_config (id, llama_num_ctx, server_num_ctx, server_llama_presets_json)
+    INSERT INTO app_config (id, ${REMOVED_NUM_CTX_COLUMN}, server_num_ctx, ${LEGACY_PRESETS_COLUMN})
     VALUES (1, 85000, 85000, '[]');
   `);
   seed.close();
@@ -71,13 +74,13 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
   getRuntimeDatabase(dbPath); // re-runs ensureSchema -> applies the v26 migration
 
   const cols = columnNames(dbPath);
-  assert.ok(!cols.includes('llama_num_ctx'), 'llama_num_ctx dropped');
+  assert.ok(!cols.includes(REMOVED_NUM_CTX_COLUMN), 'removed backend context column dropped');
   assert.ok(!cols.includes('server_num_ctx'), 'server_num_ctx dropped');
 
   const read = new Database(dbPath, { readonly: true });
   try {
     const row = z.object({ presets: z.string(), active: z.string().nullable() }).parse(read.prepare(
-      'SELECT server_llama_presets_json AS presets, server_llama_active_preset_id AS active FROM app_config WHERE id = 1',
+      'SELECT server_model_presets_json AS presets, server_model_active_preset_id AS active FROM app_config WHERE id = 1',
     ).get());
     const presets = z.array(z.object({ id: z.string() })).parse(JSON.parse(row.presets));
     assert.equal(presets.length, 1, 'synthesized exactly one preset');

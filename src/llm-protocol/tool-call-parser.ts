@@ -1,5 +1,5 @@
 import type { MutableJsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import type { LlamaCppToolCall } from './types.js';
+import type { InferenceToolCall } from './types.js';
 
 const TOOL_CALL_OPEN_TAG = '<tool_call>';
 const TOOL_CALL_CLOSE_TAG = '</tool_call>';
@@ -64,7 +64,7 @@ function getTrailingOpenTagPrefixLength(text: string, regions: readonly CodeRegi
 }
 
 export type TextToolCallScan = {
-  calls: LlamaCppToolCall[];
+  calls: InferenceToolCall[];
   /** True when the opener tag appears outside markdown code — evidence of a textual tool-call attempt. */
   sawBareMarkup: boolean;
 };
@@ -106,15 +106,26 @@ type ParsedReplayCommand = {
 /**
  * Persisted tool commands replay as the tool call that produced them. Native tools persist the
  * synthetic `<tool> key=<json>` form built by buildRepoToolRequestedCommand. Kept in step with
- * EXPOSED_REPO_TOOL_NAMES in repo-search/planner-protocol.ts —
+ * INTERACTIVE_REPO_TOOL_NAMES in planner-protocol/repo-search.ts —
  * importing it here would close an import cycle.
  */
-const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch']);
+const REPLAY_NATIVE_TOOL_NAMES = new Set<string>([
+  'read',
+  'grep',
+  'find',
+  'ls',
+  'git',
+  'web_search',
+  'web_fetch',
+  'write',
+  'edit',
+  'run',
+]);
 const REPLAY_ARGUMENT_PATTERN = /([A-Za-z][A-Za-z0-9_]*)=("(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/gu;
 
-export class LlamaCppToolCallParser {
-  parseFromChoice(choice: RawChoice): LlamaCppToolCall[] {
-    const calls: LlamaCppToolCall[] = [];
+export class InferenceToolCallParser {
+  parseFromChoice(choice: RawChoice): InferenceToolCall[] {
+    const calls: InferenceToolCall[] = [];
     for (const raw of choice.message?.tool_calls || []) {
       const parsed = this.parseToolCall(raw);
       if (parsed) calls.push(parsed);
@@ -135,7 +146,7 @@ export class LlamaCppToolCallParser {
    */
   scanFromText(text: string): TextToolCallScan {
     const codeRegions = scanMarkdownCode(text).regions;
-    const calls: LlamaCppToolCall[] = [];
+    const calls: InferenceToolCall[] = [];
     for (const blockMatch of text.matchAll(QWEN_TOOL_CALL_PATTERN)) {
       if (typeof blockMatch.index !== 'number' || isInsideCodeRegion(codeRegions, blockMatch.index)) continue;
       const functionMatch = QWEN_FUNCTION_PATTERN.exec(blockMatch[1] || '');
@@ -186,7 +197,7 @@ export class LlamaCppToolCallParser {
     return { classification: 'narration', narrationText: text };
   }
 
-  parseToolCall(raw: RawToolCall): LlamaCppToolCall | null {
+  parseToolCall(raw: RawToolCall): InferenceToolCall | null {
     const name = typeof raw.function?.name === 'string' ? raw.function.name.trim() : '';
     if (!name) return null;
     return {
@@ -199,7 +210,7 @@ export class LlamaCppToolCallParser {
     };
   }
 
-  private parseLegacyFunctionCall(raw: RawFunctionCall | undefined): LlamaCppToolCall | null {
+  private parseLegacyFunctionCall(raw: RawFunctionCall | undefined): InferenceToolCall | null {
     const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
     if (!name) return null;
     return {
@@ -233,7 +244,7 @@ function decodeXmlText(value: string): string {
     .replace(/&amp;/gu, '&');
 }
 
-export function buildReplayToolCall(input: ReplayToolCallInput): LlamaCppToolCall {
+export function buildReplayToolCall(input: ReplayToolCallInput): InferenceToolCall {
   const parsed = parseReplayCommand(input.command);
   if (!parsed) {
     throw new Error(`Cannot replay unknown persisted tool command: ${input.command.trim()}`);

@@ -1,5 +1,6 @@
 import { z } from '../../lib/zod.js';
 import { JsonValueSchema } from '../../lib/json-types.js';
+import { StreamStopSchema } from '../../llm-protocol/types.js';
 import { RejectionKindSchema } from '../engine/task-loop-support.js';
 
 /** Newest turns are kept; older ones age out so the file stays small enough to rewrite constantly. */
@@ -67,6 +68,7 @@ export const LiveRunTurnSchema = z.object({
   promptCacheTokens: z.number().nullable(),
   completionTokens: z.number().nullable(),
   thinkingTokens: z.number().nullable(),
+  stop: StreamStopSchema.nullable(),
   providerRequests: z.array(LiveRunProviderRequestSchema),
   approval: LiveRunApprovalSchema.nullable(),
   tool: LiveRunToolSchema.nullable(),
@@ -169,6 +171,7 @@ export const TurnModelResponseEventSchema = z.object({
   thinkingTokens: OptionalNumber,
   promptCacheTokens: OptionalNumber,
   promptEvalTokens: OptionalNumber,
+  stop: StreamStopSchema,
 });
 
 export const TurnCommandStartEventSchema = z.object({

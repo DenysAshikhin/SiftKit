@@ -9,7 +9,7 @@ import {
 } from '../planner-protocol/summary-tools.js';
 
 /**
- * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see
+ * Summary provider identity. NOT the inference engine axis (see
  * getActiveInferenceBackend): 'real' means the real, fully-capable provider
  * (chunking, planner, slots) and is what the downstream summary gates compare
  * against; 'mock' is the test double. The two axes are unrelated, so this type is
@@ -78,7 +78,7 @@ export type SummaryRequest = {
   debugCommand?: string | null;
   requestTimeoutSeconds?: number;
   allowedPlannerTools?: SummaryPlannerToolName[];
-  llamaCppMaxTokens?: number;
+  inferenceMaxTokens?: number;
   timing?: SummaryTimingInput;
   statusBackendUrl?: string | null;
   config?: SiftConfig;
@@ -121,7 +121,7 @@ export type StructuredModelDecision = {
 
 export type PlannerPromptBudget = {
   numCtxTokens: number;
-  responseReserveTokens: number;
+  compactionReserveTokens: number;
   plannerStopLineTokens: number;
 };
 

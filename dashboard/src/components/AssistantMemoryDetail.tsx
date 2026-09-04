@@ -79,11 +79,22 @@ export function AssistantMemoryDetail(props: {
   onPreviewForgetTopic(topicKey: string): Promise<void>;
   onConfirmForgetTopic(topicKey: string, previewToken: string, addPolicy: boolean): Promise<void>;
   onFetchEvidencePixels(id: string): Promise<Blob>;
+  onClaimOwner(id: string, reason: string): Promise<void>;
 }) {
   const [reason, setReason] = React.useState('User review in Memory Inspector');
   const [correction, setCorrection] = React.useState('');
   const [blockTopic, setBlockTopic] = React.useState(false);
   const selected = props.selected;
+
+  /** Confirms before merging: it rewrites who a body of facts is about. */
+  async function claimAsOwner(displayName: string, nodeId: string): Promise<void> {
+    const confirmed = window.confirm(
+      `Merge “${displayName}” into your own person node? Its facts and aliases move onto you.`,
+    );
+    if (!confirmed) return;
+    await props.onClaimOwner(nodeId, reason);
+  }
+
   if (selected === null) return <p className="hint">Select a memory result to inspect it.</p>;
   if (selected.kind === 'projection') {
     const projection = selected.value;
@@ -135,11 +146,41 @@ export function AssistantMemoryDetail(props: {
     );
   }
   if (selected.kind === 'node') {
+    const node = selected.value;
+    // Screenshot OCR reads the owner's name off a title bar several ways, and each spelling
+    // becomes its own person whose facts no projection ever reads. Only the owner may say two
+    // people are one: the merge service refuses the same request from the assistant.
+    const claimable = node.type === 'person' && !node.isOwner && node.status === 'active';
     return (
       <article className="assistant-detail-card">
-        <span className="bdg">{selected.value.type}</span>
-        <h3>{selected.value.displayName}</h3>
-        <p>{selected.value.description ?? 'Sensitive descriptive content is withheld.'}</p>
+        <span className="bdg">{node.type}</span>
+        {node.isOwner ? <span className="bdg">you</span> : null}
+        <h3>{node.displayName}</h3>
+        <p>{node.description ?? 'Sensitive descriptive content is withheld.'}</p>
+        {node.aliases.length > 0 ? (
+          <p className="hint">Also known as {node.aliases.join(', ')}</p>
+        ) : null}
+        {claimable ? (
+          <>
+            <label className="assistant-detail-field">
+              <span>Reason</span>
+              <input value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>
+            <div className="assistant-card-actions wrap">
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => { void claimAsOwner(node.displayName, node.id); }}
+              >
+                This is me
+              </button>
+            </div>
+            <p className="hint">
+              Moves every fact and alias on “{node.displayName}” onto your own node and marks this
+              one merged. Reversible from the merge log.
+            </p>
+          </>
+        ) : null}
         <h4>Bounded neighborhood</h4>
         <p>{selected.neighborhood.nodeIds.length} nodes · {selected.neighborhood.assertionIds.length} assertions</p>
         {selected.neighborhood.truncatedBy.length > 0 ? (

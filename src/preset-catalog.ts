@@ -64,7 +64,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
   {
     id: 'chat',
     label: 'Chat',
-    description: 'Default web chat preset for direct local llama.cpp conversation.',
+    description: 'Default web chat preset for direct local inference conversation.',
     presetKind: 'chat',
     operationMode: 'summary',
     promptPrefix: 'general, coder friendly assistant',

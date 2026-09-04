@@ -1,9 +1,9 @@
 import { extractContentText } from './llm-protocol/image-attachments.js';
-import type { LlamaCppContentPart } from './llm-protocol/types.js';
+import type { InferenceContentPart } from './llm-protocol/types.js';
 
 type RetainableMessage = {
   role: string;
-  content?: string | LlamaCppContentPart[];
+  content?: string | InferenceContentPart[];
   imagePathKey?: string;
 };
 

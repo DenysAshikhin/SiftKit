@@ -190,7 +190,7 @@ function parseLine(line: string): ParsedEvent | null {
     if (!Number.isFinite(ts)) return null;
     const kv = parseKv(message);
 
-    if (label === 'llama-cpp') {
+    if (label === 'inference') {
       if (message.startsWith('tokenize start')) {
         return { timestampMs: ts, kind: 'tokenize_start', chars: Number(kv.chars) || 0, raw: line };
       }
@@ -755,7 +755,7 @@ async function main(): Promise<void> {
 
   sections.push('## Notes');
   sections.push('');
-  sections.push('- "Iteration" = one `llama-cpp generate start` / `generate done` pair from the trace log.');
+  sections.push('- "Iteration" = one `inference generate start` / `generate done` pair from the trace log.');
   sections.push('- "Gap between provider calls" = wall-clock from one `generate done` to the next `generate start` (includes tool execution, tokenize calls, status notifies).');
   sections.push('- "Post-iter tokenize" = tokenize calls counted between this iteration\'s `generate done` and the next iteration\'s `generate start` — the per-iteration overhead.');
   sections.push('- "Residual" = wall − total LLM generate − total tokenize. If large, the bottleneck is something other than tokenize (likely tool exec or status-backend POSTs).');

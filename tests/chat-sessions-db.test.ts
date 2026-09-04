@@ -1,3 +1,4 @@
+import { restoreLegacyPresetColumns } from './helpers/app-config-migration-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,9 +11,10 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
-import { PersistedChatMessageSchema } from '@siftkit/contracts';
+import { PersistedChatTranscriptMessageSchema } from '@siftkit/contracts';
 import {
   appendChatMessagesWithUsage,
+  appendChatStoppedTurn,
   buildChatHistoryMessages,
   buildCompactionSummaryRow,
   condenseChatSession,
@@ -29,10 +31,43 @@ const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
 const COMPACTION_FIXTURE_TIMESTAMP = '2026-08-20T00:00:00.000Z';
 
+test('appendChatStoppedTurn persists exactly one ordered final turn', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-stopped-turn-writer-');
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const session: ChatSession = {
+    id: 'stopped-writer',
+    title: 'Stopped writer',
+    modelPresetId: 'default',
+    modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
+    planRepoRoot: 'C:/repo',
+    presetId: 'chat',
+    mode: 'chat',
+    createdAtUtc,
+    updatedAtUtc: createdAtUtc,
+    messages: [],
+  };
+  saveChatSession(runtimeRoot, session);
+
+  appendChatStoppedTurn(runtimeRoot, session, {
+    content: 'inspect it',
+    images: [],
+    imageMeta: [],
+    approvalMessages: [],
+    transcriptMessages: [PersistedChatTranscriptMessageSchema.parse({
+      id: 'stopped-answer', role: 'assistant', kind: 'assistant_answer', content: '*Stopped by user.*',
+      inputTokensEstimate: 0, outputTokensEstimate: 5, thinkingTokens: 0,
+      createdAtUtc, sourceRunId: 'run-1',
+    })],
+  });
+
+  const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+  assert.deepEqual(loaded?.messages?.map((message) => message.kind), ['user_text', 'assistant_answer']);
+});
+
 type NonToolChatMessage = Exclude<ChatMessage, { kind: 'assistant_tool_call' }>;
 
 function compactionMessage(overrides: Partial<NonToolChatMessage> & { id: string }): ChatMessage {
-  return PersistedChatMessageSchema.parse({
+  return PersistedChatTranscriptMessageSchema.parse({
     content: '',
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
@@ -208,6 +243,7 @@ test('v49 normalizes persisted image-only user token metadata', () => {
         }],
       }],
     });
+    restoreLegacyPresetColumns(getRuntimeDatabase(databasePath));
     getRuntimeDatabase(databasePath)
       .prepare('UPDATE runtime_schema SET version = 48 WHERE id = 1')
       .run();
@@ -241,7 +277,6 @@ test('chat sessions round-trip the full model preset snapshot', () => {
         Model: 'snap-model',
         NumCtx: 12_345,
         Temperature: 0.5,
-        MaxTokens: 777,
         Reasoning: 'on',
       }),
       presetId: 'chat',
@@ -257,7 +292,6 @@ test('chat sessions round-trip the full model preset snapshot', () => {
     assert.equal(loaded?.modelPreset.Model, 'snap-model');
     assert.equal(loaded?.modelPreset.NumCtx, 12_345);
     assert.equal(loaded?.modelPreset.Temperature, 0.5);
-    assert.equal(loaded?.modelPreset.MaxTokens, 777);
     assert.equal(loaded?.modelPreset.Reasoning, 'on');
   });
 });
@@ -489,7 +523,6 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         answerEndedAtUtc: '2026-01-01T00:00:05.000Z',
         speculativeAcceptedTokens: 6,
         speculativeGeneratedTokens: 8,
-        associatedToolTokens: 9,
         thinkingContent: 'thinking',
         toolCallCommand: 'rg -n Dict src',
         toolCallActivityKind: 'search',
@@ -530,6 +563,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       title: 'Delete Me',
       modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
+      planRepoRoot: 'C:/repo',
       presetId: 'chat',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
@@ -552,6 +586,7 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
         title: 'Missing preset',
         modelPresetId: 'preset-a',
         modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
+        planRepoRoot: 'C:/repo',
         mode: 'plan',
         createdAtUtc: new Date().toISOString(),
         updatedAtUtc: new Date().toISOString(),
@@ -613,7 +648,7 @@ test('a compacted turn persists a summary row and flags everything before it', (
       'second question',
       'second answer',
       {},
-      { turns: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
+      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
     );
 
     const kinds = updated.messages.map((message) => message.kind);
@@ -638,7 +673,7 @@ test('a turn without compaction leaves the earlier messages in context', () => {
       compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
     ]);
 
-    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [] });
+    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [], turnRecords: [] });
 
     assert.equal(updated.messages.some((message) => message.kind === 'compaction_summary'), false);
     assert.equal(updated.messages.every((message) => message.compressedIntoSummary !== true), true);
@@ -660,7 +695,7 @@ test('a second compaction supersedes the first summary row', () => {
       'third question',
       'third answer',
       {},
-      { turns: [], compactionSummary: 'SECOND SUMMARY' },
+      { turns: [], turnRecords: [], compactionSummary: 'SECOND SUMMARY' },
     );
 
     const summaryRows = updated.messages.filter((message) => message.kind === 'compaction_summary');
@@ -767,12 +802,92 @@ test('both persistence paths write the same compaction summary row shape', () =>
       'next question',
       'next answer',
       {},
-      { turns: [], compactionSummary: 'SUMMARY TEXT' },
+      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY TEXT' },
     );
 
     const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');
     assert.ok(summaryRow);
     const canonical = buildCompactionSummaryRow('SUMMARY TEXT', summaryRow.createdAtUtc);
     assert.deepEqual({ ...summaryRow, id: '' }, { ...canonical, id: '' });
+  });
+});
+
+test('stopped transcript segments round-trip through the chat database', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-stopped-transcript';
+    const savedAt = new Date().toISOString();
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Stopped transcript',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      createdAtUtc: savedAt,
+      updatedAtUtc: savedAt,
+      messages: [
+        {
+          id: 'stopped-user', role: 'user', kind: 'user_text', content: 'do the thing',
+          inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0,
+          createdAtUtc: savedAt, sourceRunId: null,
+        },
+        {
+          id: 'stopped-narration', role: 'assistant', kind: 'assistant_narration', content: 'Inspecting files.',
+          inputTokensEstimate: 0, outputTokensEstimate: 2, thinkingTokens: 0,
+          createdAtUtc: savedAt, sourceRunId: null,
+        },
+        {
+          id: 'stopped-progress', role: 'assistant', kind: 'assistant_progress', content: 'Step 2 of 5',
+          inputTokensEstimate: 0, outputTokensEstimate: 2, thinkingTokens: 0,
+          createdAtUtc: savedAt, sourceRunId: null,
+        },
+        {
+          id: 'stopped-tool', role: 'assistant', kind: 'assistant_tool_call', content: 'read path="index.ts"',
+          inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+          toolCallCommand: 'read path="index.ts"',
+          toolCallActivityKind: 'read',
+          toolCallActivitySubject: { kind: 'file', value: 'index.ts' },
+          toolCallTurn: 1,
+          toolCallMaxTurns: 2,
+          toolCallExitCode: null,
+          toolCallStatus: 'stopped',
+          createdAtUtc: savedAt,
+          sourceRunId: null,
+        },
+        {
+          id: 'stopped-answer', role: 'assistant', kind: 'assistant_answer', content: 'partial\n\n*Stopped by user.*',
+          inputTokensEstimate: 0, outputTokensEstimate: 3, thinkingTokens: 0,
+          createdAtUtc: savedAt, sourceRunId: null,
+        },
+      ],
+    });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.deepEqual(
+      (loaded?.messages ?? []).map((message) => message.kind),
+      ['user_text', 'assistant_narration', 'assistant_progress', 'assistant_tool_call', 'assistant_answer'],
+    );
+    const toolMessage = (loaded?.messages ?? []).find((message) => message.kind === 'assistant_tool_call');
+    assert.equal(toolMessage?.toolCallStatus, 'stopped');
+
+    getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))
+      .prepare(`UPDATE chat_messages SET role = 'system' WHERE id = 'stopped-user'`)
+      .run();
+    assert.throws(
+      () => readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)),
+      /user|assistant/u,
+    );
+    getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))
+      .prepare(`UPDATE chat_messages SET role = 'user' WHERE id = 'stopped-user'`)
+      .run();
+    getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))
+      .prepare(`UPDATE chat_messages SET kind = 'assistant_bogus' WHERE id = 'stopped-user'`)
+      .run();
+    assert.throws(
+      () => readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)),
+      /Invalid option/u,
+    );
   });
 });

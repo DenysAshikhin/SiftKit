@@ -6,7 +6,7 @@ import {
   SIFT_MAX_IMAGE_BYTES,
   type ImageMime,
 } from '@siftkit/contracts';
-import type { LlamaCppContentPart } from './types.js';
+import type { InferenceContentPart } from './types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { admitImageBuffer, type AdmittedImage } from './image-admission.js';
@@ -94,10 +94,10 @@ export class ImageAttachmentReader {
 export function buildUserContent(
   text: string,
   imageUris: readonly string[],
-): string | LlamaCppContentPart[] {
+): string | InferenceContentPart[] {
   if (imageUris.length === 0) return text;
 
-  const parts: LlamaCppContentPart[] = [];
+  const parts: InferenceContentPart[] = [];
   if (text.length > 0) {
     parts.push({ type: 'text', text });
   }
@@ -108,7 +108,7 @@ export function buildUserContent(
 }
 
 // ── Content schema ──────────────────────────────────────────────────────
-// Runtime shape of `LlamaCppContentPart` for IO boundaries that persist or replay
+// Runtime shape of `InferenceContentPart` for IO boundaries that persist or replay
 // message content. Kept here so the part shape has one definition.
 
 export const ContentPartSchema = z.object({
@@ -124,7 +124,7 @@ export const MessageContentSchema = z.union([z.string(), z.array(ContentPartSche
 // produces. Every reader that needs the prose or the image count goes through these
 // so the part shape is decoded in exactly one place.
 
-export function extractContentText(content: string | LlamaCppContentPart[] | undefined): string {
+export function extractContentText(content: string | InferenceContentPart[] | undefined): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
@@ -133,7 +133,7 @@ export function extractContentText(content: string | LlamaCppContentPart[] | und
     .join(' ');
 }
 
-export function countContentImages(content: string | LlamaCppContentPart[] | undefined): number {
+export function countContentImages(content: string | InferenceContentPart[] | undefined): number {
   if (!Array.isArray(content)) return 0;
   return content.filter((part) => part.type === 'image_url').length;
 }

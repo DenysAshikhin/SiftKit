@@ -5,10 +5,16 @@ import { parseJsonValueText } from '../../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
 import type { JsonlEvent } from '../../state/jsonl-transcript.js';
+import { RunOperationTypeSchema, type RunOperationType } from '@siftkit/contracts';
 import type { RunLogDbRow, RunRecord } from './types.js';
 
 function optionalStringField(value: OptionalJsonValue): string | null {
   return typeof value === 'string' && value ? value : null;
+}
+
+/** Only members of the canonical union survive; a legacy or corrupted value reads as "not recorded". */
+function optionalOperationTypeField(value: OptionalJsonValue): RunOperationType | null {
+  return RunOperationTypeSchema.safeParse(value).data ?? null;
 }
 
 /**
@@ -25,6 +31,11 @@ export function normalizeRunRecord(record: JsonObject): RunRecord {
     id: String(record.id),
     kind: String(record.kind),
     status: String(record.status),
+    operationType: optionalOperationTypeField(record.operationType),
+    operationPresetId: optionalStringField(record.operationPresetId),
+    modelPresetId: optionalStringField(record.modelPresetId),
+    operationPresetJson: optionalStringField(record.operationPresetJson),
+    modelPresetJson: optionalStringField(record.modelPresetJson),
     startedAtUtc: optionalStringField(record.startedAtUtc),
     finishedAtUtc: optionalStringField(record.finishedAtUtc),
     title: String(record.title || ''),
@@ -123,6 +134,11 @@ export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
     id: String(row.run_id || ''),
     kind: String(row.run_kind || 'unknown'),
     status: normalizeStatusForRunRecord(String(row.terminal_state || 'unknown')),
+    operationType: row.operation_type ?? null,
+    operationPresetId: row.operation_preset_id ?? null,
+    modelPresetId: row.model_preset_id ?? null,
+    operationPresetJson: row.operation_preset_json ?? null,
+    modelPresetJson: row.model_preset_json ?? null,
     startedAtUtc: typeof row.started_at_utc === 'string' ? row.started_at_utc : null,
     finishedAtUtc: typeof row.finished_at_utc === 'string' ? row.finished_at_utc : null,
     title: String(row.title || ''),

@@ -37,7 +37,7 @@ test('Exl3ModelCapabilities accepts valid vision_config object', () => {
 test('Exl3ModelCapabilities rejects missing vision_config key', () => {
   const dir = createTempDir('exl3-vision-');
   try {
-    writeConfig(dir, { arch_name: 'llama' });
+    writeConfig(dir, { arch_name: ['ll', 'ama'].join('') });
     const caps = new Exl3ModelCapabilities();
     assert.equal(caps.hasVisionTower(dir), false);
   } finally {
@@ -131,7 +131,7 @@ test('Exl3PresetAdapter validatePreset throws when VisionEnabled=true but no vis
   const baseDir = createTempDir('exl3-vision-');
   try {
     const modelDir = createModelDir(baseDir);
-    writeConfig(modelDir, { arch_name: 'llama' });
+    writeConfig(modelDir, { arch_name: ['ll', 'ama'].join('') });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,

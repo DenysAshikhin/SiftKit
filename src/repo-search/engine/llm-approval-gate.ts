@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errors.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
@@ -45,7 +46,7 @@ export function buildApprovalVerdictQuestion(
 /**
  * Decorator over the human ApprovalGate: asks the model itself for an
  * approve/deny/unsure verdict via an ephemeral request (the transcript is never
- * mutated, preserving the llama-cpp prompt-cache prefix). `unsure` and verdict
+ * mutated, preserving the inference prompt-cache prefix). `unsure` and verdict
  * failures fall through to the wrapped human gate.
  */
 export class LlmApprovalGate {
@@ -86,21 +87,33 @@ export class LlmApprovalGate {
     question: string,
     pendingMessages: ChatMessage[],
   ): Promise<ApprovalVerdictAttempt> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
-        if (response.toolCalls.length > 0) {
-          return { kind: 'failure', reason: FORBIDDEN_TOOL_CALL_REASON };
-        }
-        return {
-          kind: 'verdict',
-          value: ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || ''))),
-        };
-      } catch {
-        // Inference failure or schema mismatch: retry once, then escalate to the human gate.
-      }
+    try {
+      return await this.requestVerdictOnce(question, pendingMessages);
+    } catch {
+      // Inference failure or schema mismatch: retry once before escalating.
     }
-    return { kind: 'failure', reason: 'verdict call failed' };
+    try {
+      return await this.requestVerdictOnce(question, pendingMessages);
+    } catch (error) {
+      // Escalate to the human gate with the cause collapsed onto one line so the
+      // progress log says why.
+      const cause = getErrorMessage(error).replace(/\s+/gu, ' ').trim().slice(0, 200);
+      return { kind: 'failure', reason: `verdict call failed: ${cause}` };
+    }
+  }
+
+  private async requestVerdictOnce(
+    question: string,
+    pendingMessages: ChatMessage[],
+  ): Promise<ApprovalVerdictAttempt> {
+    const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
+    if (response.toolCalls.length > 0) {
+      return { kind: 'failure', reason: FORBIDDEN_TOOL_CALL_REASON };
+    }
+    return {
+      kind: 'verdict',
+      value: ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || ''))),
+    };
   }
 
   private emitVerdict(input: ApprovalRequestInput, verdict: string, reason: string): void {

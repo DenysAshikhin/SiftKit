@@ -12,7 +12,7 @@ const BenchmarkRestoreStatusSchema = z.enum(['pending', 'completed', 'failed']);
 export type BenchmarkRestoreStatus = z.infer<typeof BenchmarkRestoreStatusSchema>;
 const BenchmarkAttemptStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'cancelled', 'skipped']);
 export type BenchmarkAttemptStatus = z.infer<typeof BenchmarkAttemptStatusSchema>;
-const BenchmarkLogStreamKindSchema = z.enum(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama']);
+const BenchmarkLogStreamKindSchema = z.enum(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_engine']);
 export type BenchmarkLogStreamKind = z.infer<typeof BenchmarkLogStreamKindSchema>;
 
 const BenchmarkMaxSequenceRowSchema = z.object({ max_sequence: z.number().nullable() });
@@ -132,7 +132,7 @@ export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
     seededKey: 'spec-log-delta-source',
     title: 'Trace speculative log deltas',
     taskKind: 'repo-search',
-    prompt: 'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
+    prompt: 'trace the managed-engine log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
   },
   {
     seededKey: 'repo-search-telemetry-path',
@@ -144,7 +144,7 @@ export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
     seededKey: 'canonical-spec-metrics-flow',
     title: 'Trace canonical spec metrics',
     taskKind: 'repo-search',
-    prompt: 'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
+    prompt: 'trace the canonical speculative metrics flow end to end: find where managed engine logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
   },
   {
     seededKey: 'dynamic-output-token-cap',
@@ -162,13 +162,13 @@ export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
     seededKey: 'spec-benchmark-restart-lifecycle',
     title: 'Trace restart lifecycle',
     taskKind: 'repo-search',
-    prompt: 'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed llama run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
+    prompt: 'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed engine run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
   },
   {
     seededKey: 'spec-metrics-log-delta-verification',
     title: 'Verify spec metrics source',
     taskKind: 'repo-search',
-    prompt: 'verify that speculativeAcceptedTokens and speculativeGeneratedTokens in the spec benchmark come only from managed-llama log deltas; return exact file:line anchors for parse, delta, and output paths',
+    prompt: 'verify that speculativeAcceptedTokens and speculativeGeneratedTokens in the spec benchmark come only from managed-engine log deltas; return exact file:line anchors for parse, delta, and output paths',
   },
   {
     seededKey: 'repo-search-budget-tool-output-limit',
@@ -177,10 +177,10 @@ export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
     prompt: 'trace the repo-search prompt-budget and tool-output-limit path end to end: find where remaining token allowance is computed, where per tool call allowance is enforced, and where the "requested output would consume" failure text is emitted; return exact file:line anchors grouped by budget calculation, enforcement, and error reporting',
   },
   {
-    seededKey: 'managed-llama-degraded-lifecycle',
-    title: 'Trace managed llama lifecycle',
+    seededKey: 'managed-engine-degraded-lifecycle',
+    title: 'Trace managed engine lifecycle',
     taskKind: 'repo-search',
-    prompt: 'trace the managed llama restart/degraded-mode lifecycle end to end: find where llama_stop and llama_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface',
+    prompt: 'trace the managed engine restart/degraded-mode lifecycle end to end: find where engine_stop and engine_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface',
   },
 ];
 
@@ -525,7 +525,7 @@ export function createBenchmarkSessionPlan(options: {
     throw new Error('Expected repetitions between 1 and 100.');
   }
   if (options.managedPresets.length === 0) {
-    throw new Error('Expected at least one managed llama preset.');
+    throw new Error('Expected at least one managed engine preset.');
   }
   const specOverrides = options.specOverrides.length > 0 ? options.specOverrides : [{ label: 'Current spec settings' }];
   const prompts = questionPresetIds.map((id) => {
@@ -879,7 +879,7 @@ export function readBenchmarkLogTextByStream(options: {
     orchestrator: '',
     attempt_stdout: '',
     attempt_stderr: '',
-    managed_llama: '',
+    managed_engine: '',
   };
   if (!sessionId) {
     return output;

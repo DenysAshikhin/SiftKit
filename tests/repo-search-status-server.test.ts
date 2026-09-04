@@ -113,9 +113,9 @@ test('status server stays responsive while repo-search is running', async () => 
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 2,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: "done" },
@@ -226,9 +226,9 @@ test('repo-search abandons stale running status after acquiring the model lock',
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { content: "done" },
         ],
@@ -296,9 +296,9 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         body: {
           prompt: 'hold model queue',
           repoRoot: process.cwd(),
-          model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          model: 'Qwen3.5-35B-A3B-EXL3',
           maxTurns: 2,
-          availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+          availableModels: ['Qwen3.5-35B-A3B-EXL3'],
           mockResponses: [
             { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
             { content: "done" },
@@ -315,9 +315,9 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         body: {
           prompt: 'queued behind active',
           repoRoot: process.cwd(),
-          model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          model: 'Qwen3.5-35B-A3B-EXL3',
           maxTurns: 1,
-          availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+          availableModels: ['Qwen3.5-35B-A3B-EXL3'],
           mockResponses: [{ content: "queued" }],
           mockCommandResults: {},
         },
@@ -1207,9 +1207,9 @@ test('repo-search endpoint reloads executor module per request', async () => {
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: 'Terminal synthesis answer: src/example.ts:1.' },

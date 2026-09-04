@@ -6,7 +6,7 @@ import { buildRepoToolRequestedCommand } from '../../src/repo-search/engine/repo
 import { buildAssistantToolCallMessage } from '../../src/tool-call-messages.js';
 import type { RedTeamCase } from './corpus.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../../src/repo-search/planner-protocol.js';
-import { toProtocolTools } from '../../src/providers/llama-cpp.js';
+import { toProtocolTools } from '../../src/providers/inference.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../../src/planner-protocol/repo-search.js';
 
 const TRANSCRIPT_PREFIX: AutoApprovalReplayPayload['messages'] = [

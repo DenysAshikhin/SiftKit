@@ -722,7 +722,7 @@ test('getInferenceStatusPath returns a path string', () => {
   }
 });
 
-test('saveConfig preserves managed llama external server settings on the active preset', async () => {
+test('saveConfig preserves external inference server settings on the active preset', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
     const preset = config.Server.ModelPresets.Presets[0];

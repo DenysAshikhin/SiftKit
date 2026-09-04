@@ -20,7 +20,7 @@ import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../r
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
-import type { ApprovalGate, ApprovalMode } from './approval-gate.js';
+import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
 // ---------------------------------------------------------------------------
@@ -143,20 +143,6 @@ export function applyToolOutputRepetitionGuard(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Slot allocation
-// ---------------------------------------------------------------------------
-
-let nextLlamaCppSlotId = 0;
-
-export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getActiveModelPreset(config).ParallelSlots;
-  const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
-  const slotId = nextLlamaCppSlotId % slotCount;
-  nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
-  return slotId;
-}
-
-// ---------------------------------------------------------------------------
 // Task definitions
 // ---------------------------------------------------------------------------
 
@@ -268,7 +254,6 @@ export type RunTaskLoopOptions = {
   logger?: JsonLogger | null;
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
-  approvalMode?: ApprovalMode;
   timingRecorder?: TemporaryTimingRecorder | null;
 };
 

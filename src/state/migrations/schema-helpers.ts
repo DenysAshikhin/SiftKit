@@ -91,7 +91,7 @@ export function ensureInferenceRunAndBenchmarkMatrixSchema(database: RuntimeData
     CREATE TABLE IF NOT EXISTS inference_runs (
       id TEXT PRIMARY KEY,
       backend TEXT NOT NULL
-        CHECK (backend IN ('llama', 'exl3')),
+        CHECK (backend IN ('exl3')),
       purpose TEXT NOT NULL,
       entrypoint_path TEXT,
       base_url TEXT,
@@ -304,7 +304,7 @@ export function ensureDashboardBenchmarkSchema(database: RuntimeDatabase): void 
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
       attempt_id TEXT REFERENCES benchmark_attempts(id) ON DELETE CASCADE,
-      stream_kind TEXT NOT NULL CHECK (stream_kind IN ('orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama')),
+      stream_kind TEXT NOT NULL CHECK (stream_kind IN ('orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_engine')),
       sequence INTEGER NOT NULL,
       chunk_text TEXT NOT NULL,
       created_at_utc TEXT NOT NULL,

@@ -297,11 +297,6 @@ export class MemoryMutationService {
   }
 
   private enqueueProjectionMaintenance(ownerId: string): void {
-    this.graph.jobs.enqueueSuperseding({
-      ownerId,
-      jobType: 'projection_maintenance',
-      payload: { reason: 'graph_changed' },
-      idempotencyKey: `projection_maintenance:${this.graph.graphVersion}`,
-    }, this.projectionPriority);
+    this.graph.enqueueProjectionMaintenance(ownerId, this.projectionPriority);
   }
 }

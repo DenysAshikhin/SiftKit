@@ -18,8 +18,8 @@ import type {
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
 import { NativePlannerResponseError, NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
-import type { LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
-import { toProtocolTools } from '../../providers/llama-cpp.js';
+import type { InferenceToolDefinition, NormalizedInferenceChatResponse } from '../../llm-protocol/types.js';
+import { toProtocolTools } from '../../providers/inference.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
   PLANNER_REASONING_BUDGET_MESSAGE,
@@ -61,7 +61,6 @@ import { ProgressReporter } from './progress-reporter.js';
 import { PromptPreparer, type PreparedTurnBudget } from './prompt-preparer.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
-  allocateLlamaCppSlotId,
   buildAssistantReplayMessage,
   buildToolLimitReachedSummary,
   buildWebToolsForTaskLoop,
@@ -84,6 +83,7 @@ import { TerminalSynthesizer } from './terminal-synthesizer.js';
 import { ToolActionProcessor } from './tool-action-processor.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
+import type { TurnTokenRecord } from './turn-token-record.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor } from './transcript-compactor.js';
@@ -93,6 +93,7 @@ import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.j
 import type { ImageTokenBudget } from '@siftkit/contracts';
 import type { ApprovalRequester } from './approval-gate.js';
 import { LlmApprovalGate } from './llm-approval-gate.js';
+import { ModeSwitchedApprovalRequester } from './approval-mode-requester.js';
 import type { RepoSearchLoopKind } from '../task-kind.js';
 
 export {
@@ -164,11 +165,10 @@ export class TaskLoop {
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerBudgetMessageOverride: string | null;
   private readonly plannerToolDefinitions: readonly PlannerToolDefinition[];
-  private readonly plannerProtocolTools: readonly LlamaCppToolDefinition[];
+  private readonly plannerProtocolTools: readonly InferenceToolDefinition[];
   private readonly allowedPlannerToolNames: string[];
   private readonly chatWebGroundingEnabled: boolean;
   private readonly chatWebGroundingPolicy: ChatGroundingPolicy;
-  private readonly slotId: number;
   private readonly ignorePolicy: IgnorePolicy;
   private readonly successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
   private readonly mutatedPaths = new Set<string>();
@@ -218,9 +218,9 @@ export class TaskLoop {
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
     this.budget = new TurnBudget({
-      totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredEngineNumCtx(options.config) : 32000))),
+      totalContextTokens: options.totalContextTokens
+        || (options.config ? getConfiguredEngineNumCtx(options.config) : 32_000),
       maxTurns: this.maxTurns,
-      config: options.config,
     });
     this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
@@ -247,7 +247,6 @@ export class TaskLoop {
       enabled: this.chatWebGroundingEnabled,
       retainedWebToolCalls: options.retainedWebToolCalls,
     });
-    this.slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
     this.ignorePolicy = buildIgnorePolicy(options.repoRoot);
 
     const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
@@ -286,7 +285,7 @@ export class TaskLoop {
         model: String(options.model || ''),
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         totalContextTokens: this.budget.totalContextTokens,
-        responseReserveTokens: this.budget.responseReserveTokens,
+        compactionReserveTokens: this.budget.compactionReserveTokens,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         mockResponses: options.mockResponses,
         tokenUsage: this.tokenUsage,
@@ -346,19 +345,20 @@ export class TaskLoop {
   }
 
   private buildApprovalRequester(options: RunTaskLoopOptions): ApprovalRequester | null {
-    if (options.approvalMode !== 'auto') {
-      return options.approvalGate ?? null;
-    }
     if (!options.approvalGate) {
-      throw new Error('approvalMode "auto" requires an approvalGate for escalation.');
+      return null;
     }
-    return new LlmApprovalGate({
-      requestId: options.approvalGate.getRequestId(),
-      humanGate: options.approvalGate,
-      verdictRequester: this,
-      progressWriter: options.progressWriter ?? new SilentProgressWriter(),
-      logger: options.logger ?? null,
-    });
+    return new ModeSwitchedApprovalRequester(
+      options.approvalGate,
+      options.approvalGate,
+      new LlmApprovalGate({
+        requestId: options.approvalGate.getRequestId(),
+        humanGate: options.approvalGate,
+        verdictRequester: this,
+        progressWriter: options.progressWriter ?? new SilentProgressWriter(),
+        logger: options.logger ?? null,
+      }),
+    );
   }
 
   /**
@@ -429,7 +429,7 @@ export class TaskLoop {
         serializeProtocolMessages(this.transcript.getMessages(), this.plannerThinking.reasoningContentEnabled),
         this.plannerThinking,
         this.plannerProtocolTools,
-        this.slotId,
+        overflow.promptTokenCount,
       );
     }
     this.options.logger?.write({
@@ -439,13 +439,13 @@ export class TaskLoop {
       promptTokenCount: overflow.promptTokenCount,
       maxPromptBudget: overflow.maxPromptBudget,
       overflowTokens: overflow.overflowTokens,
-      maxOutputTokens: overflow.maxOutputTokens,
     });
     return {
       outcome: 'stop',
       turnNumber: turn,
       promptTokenCount: overflow.promptTokenCount,
-      maxOutputTokens: overflow.maxOutputTokens,
+      // A stopped turn issues no planner request, so it has no generation limit.
+      maxOutputTokens: 0,
       messages: toProtocolChatMessages(this.transcript.getMessages()),
       toolDefinitions: [...this.plannerProtocolTools],
       inForcedFinishMode,
@@ -463,7 +463,6 @@ export class TaskLoop {
           kind: 'new_epoch',
           flags: this.plannerThinking,
           tools: this.plannerProtocolTools,
-          slotId: this.slotId,
         };
     const prepared = await this.promptPreparer.prepareTurn(
       turn,
@@ -502,7 +501,8 @@ export class TaskLoop {
       this.mockResponseIndex = response.nextMockResponseIndex;
     }
 
-    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount);
+    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount, turn);
+    this.progress.usageForTurn(turn, this.tokenUsage.turnRecords());
     // Emitted after the response is tallied so the line closing a turn already counts that turn's thinking.
     this.progress.llmEnd(turn, prepared.promptTokenCount, this.tokenUsage.snapshot().thinkingTokens);
 
@@ -517,6 +517,7 @@ export class TaskLoop {
       thinkingTokensEstimated: resolvedTokens.thinkingTokensEstimated,
       promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
+      stop: response.stop,
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     });
 
@@ -624,7 +625,7 @@ export class TaskLoop {
     response: PlannerActionResponse,
     resolvedTokens: ResolvedResponseTokens,
     promptTokenCount: number,
-  ): NormalizedLlamaCppChatResponse {
+  ): NormalizedInferenceChatResponse {
     return {
       text: response.text,
       rawText: response.rawText,
@@ -657,7 +658,7 @@ export class TaskLoop {
   }
 
   private async requestPlanner(turn: number, prepared: { promptTokenCount: number; maxOutputTokens: number }): Promise<PlannerActionResponse> {
-    const providerSpan = this.options.timingRecorder?.start('repo.llama.request', {
+    const providerSpan = this.options.timingRecorder?.start('repo.inference.request', {
       taskId: this.task.id,
       turn,
       promptTokenCount: prepared.promptTokenCount,
@@ -675,14 +676,13 @@ export class TaskLoop {
         serializedMessages,
         this.plannerThinking,
         this.plannerProtocolTools,
-        this.slotId,
+        prepared.promptTokenCount,
       );
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,
         baseUrl: this.options.baseUrl,
         model: this.options.model,
         messages: serializedMessages,
-        slotId: this.slotId,
         timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
         maxTokens: prepared.maxOutputTokens,
         ...this.plannerThinking,
@@ -714,7 +714,7 @@ export class TaskLoop {
   }
 
   private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
     this.counters.invalidResponses += 1;
     const invalidActionMessage = error instanceof NativePlannerToolCallError
       ? error.message
@@ -759,7 +759,7 @@ export class TaskLoop {
   }
 
   private handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
       finalOutput: action.text,
@@ -857,5 +857,9 @@ export class TaskLoop {
       toolStats: this.toolStats.snapshot(),
       readOverlapSummary: this.readWindows.summary(),
     };
+  }
+
+  turnTokenRecords(): readonly TurnTokenRecord[] {
+    return this.tokenUsage.turnRecords();
   }
 }

@@ -1,3 +1,4 @@
+import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -37,9 +38,10 @@ const zeroRetention = ModelRuntimePresetSchema.parse({
   VisionImageRetention: 0,
 });
 
+const isolatedRuntime = new IsolatedRuntime();
 const deadEndpoints = new DeadEndpointEnv();
-before(() => { deadEndpoints.apply(); });
-after(() => { deadEndpoints.restore(); });
+before(() => { isolatedRuntime.start(); deadEndpoints.apply(); });
+after(async () => { await isolatedRuntime.close(); deadEndpoints.restore(); });
 
 async function withModelServer(
   responseContent: string,
@@ -477,4 +479,3 @@ test('the repo-agent runner refuses an image when the preset has no vision', asy
     rmSync(dir, { recursive: true, force: true });
   }
 });
-

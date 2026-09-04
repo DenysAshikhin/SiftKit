@@ -11,7 +11,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/types.js';
-import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.js';
 import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 
@@ -50,7 +50,7 @@ function buildStreamingConfig(): SiftConfig {
   });
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
-    throw new Error('default config must include a managed llama preset');
+    throw new Error('default config must include an inference preset');
   }
   preset.id = 'p1';
   preset.label = 'p1';
@@ -65,7 +65,7 @@ function buildStreamingConfig(): SiftConfig {
 
 const streamingConfig = buildStreamingConfig();
 
-test('llama streaming client assembles reasoning, content, timings, and native tool chunks', async () => {
+test('inference streaming client assembles reasoning, content, timings, and native tool chunks', async () => {
   const thinkingUpdates: string[] = [];
   const contentUpdates: LiveContentSnapshot[] = [];
   const http = new StreamingHttpClient([
@@ -84,7 +84,7 @@ test('llama streaming client assembles reasoning, content, timings, and native t
     { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"x"}' } }] } }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -128,7 +128,7 @@ test('streaming client requests include_usage and captures a final usage-only ch
     },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -146,13 +146,13 @@ test('streaming client requests include_usage and captures a final usage-only ch
   assert.equal(response.usage.promptEvalTokens, 811);
 });
 
-test('llama streaming client does not reinterpret JSON in reasoning as an action', async () => {
+test('inference streaming client does not reinterpret JSON in reasoning as an action', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { reasoning: 'prefix {"action":"finish","output":"done"} suffix' } }] },
     { choices: [{ delta: { content: 'final answer' } }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -166,12 +166,12 @@ test('llama streaming client does not reinterpret JSON in reasoning as an action
   assert.deepEqual(response.stop, CLEAN_STREAM_STOP);
 });
 
-test('llama streaming client separates malformed raw control text from safe narration', async () => {
+test('inference streaming client separates malformed raw control text from safe narration', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { content: 'Visible prefix <tool_call><function=>broken' } }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -187,11 +187,11 @@ test('llama streaming client separates malformed raw control text from safe narr
   assert.deepEqual(response.toolCalls, []);
 });
 
-test('llama streaming client converts transient HTTP stream errors', async () => {
+test('inference streaming client converts transient HTTP stream errors', async () => {
   const http = new StreamingHttpClient([], new HttpResponseError(503, 'loading model'));
 
   await assert.rejects(
-    () => new LlamaCppClient(http).chat({
+    () => new InferenceClient(http).chat({
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -206,7 +206,7 @@ test('llama streaming client converts transient HTTP stream errors', async () =>
   );
 });
 
-test('llama streaming client covers empty packets, thinking fallback, and malformed tool chunks', async () => {
+test('inference streaming client covers empty packets, thinking fallback, and malformed tool chunks', async () => {
   const repeatedArgTags = `prefix ${'</arg_value>'.repeat(48)}`;
   const http = new StreamingHttpClient([
     {},
@@ -228,7 +228,7 @@ test('llama streaming client covers empty packets, thinking fallback, and malfor
     { choices: [{ delta: { content: ' trailing content' } }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -248,9 +248,9 @@ test('llama streaming client covers empty packets, thinking fallback, and malfor
   assert.deepEqual(response.stop, CLEAN_STREAM_STOP);
 });
 
-test('llama streaming client rejects an empty stream as degenerate', async () => {
+test('inference streaming client rejects an empty stream as degenerate', async () => {
   await assert.rejects(
-    () => new LlamaCppClient(new StreamingHttpClient([])).chat({
+    () => new InferenceClient(new StreamingHttpClient([])).chat({
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -262,7 +262,7 @@ test('llama streaming client rejects an empty stream as degenerate', async () =>
   );
 });
 
-test('llama streaming client wraps non-error stream failures', async () => {
+test('inference streaming client wraps non-error stream failures', async () => {
   class StringThrowingStreamingClient extends StreamingHttpClient {
     override async *streamSse(): AsyncGenerator<SseFrame> {
       throw 'stream failed';
@@ -270,7 +270,7 @@ test('llama streaming client wraps non-error stream failures', async () => {
   }
 
   await assert.rejects(
-    () => new LlamaCppClient(new StringThrowingStreamingClient([])).chat({
+    () => new InferenceClient(new StringThrowingStreamingClient([])).chat({
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -282,13 +282,13 @@ test('llama streaming client wraps non-error stream failures', async () => {
   );
 });
 
-test('llama streaming client captures the backend eos_reason from the final frame', async () => {
+test('inference streaming client captures the backend eos_reason from the final frame', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { content: 'answer' } }] },
     { choices: [{ delta: {}, finish_reason: 'stop', eos_reason: 'loop_detected' }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -300,13 +300,13 @@ test('llama streaming client captures the backend eos_reason from the final fram
   assert.equal(response.stop.backendEosReason, 'loop_detected');
 });
 
-test('llama streaming client omits backendEosReason when no frame carries eos_reason', async () => {
+test('inference streaming client omits backendEosReason when no frame carries eos_reason', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { content: 'answer' } }] },
     { choices: [{ delta: {}, finish_reason: 'stop' }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -318,13 +318,13 @@ test('llama streaming client omits backendEosReason when no frame carries eos_re
   assert.equal(response.stop.backendEosReason, null);
 });
 
-test('llama streaming client captures a max-token finish_reason from the final frame', async () => {
+test('inference streaming client captures a max-token finish_reason from the final frame', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { content: 'answer' } }] },
     { choices: [{ delta: {}, finish_reason: 'length' }] },
   ]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],

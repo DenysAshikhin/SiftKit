@@ -113,7 +113,7 @@ function getManagedPresetInputs(config: SiftConfig, selectedIds: string[]): Benc
   return selectedIds.map((id) => {
     const preset = presets.find((entry) => entry.id === id);
     if (!preset) {
-      throw new Error(`Managed llama preset not found: ${id}`);
+      throw new Error(`Managed engine preset not found: ${id}`);
     }
     return {
       ...preset,
@@ -578,7 +578,7 @@ class RunLogsDeleteEndpoint implements RouteEndpoint {
   }
 }
 
-class ManagedLlamaRunsEndpoint implements RouteEndpoint {
+class ManagedRunsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
     req: IncomingMessage,
@@ -595,7 +595,7 @@ class ManagedLlamaRunsEndpoint implements RouteEndpoint {
   }
 }
 
-class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
+class ManagedRunDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
     req: IncomingMessage,
@@ -603,10 +603,10 @@ class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
+    const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-runs\//u, ''));
     const run = readInferenceRun(runId);
     if (!run) {
-      sendJson(res, 404, { error: 'Managed llama run not found.' });
+      sendJson(res, 404, { error: 'Managed engine run not found.' });
       return;
     }
     const logTextByStream = readInferenceRunLogTextByStream(runId);
@@ -615,7 +615,7 @@ class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
   }
 }
 
-class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
+class ManagedRunDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
     req: IncomingMessage,
@@ -623,7 +623,7 @@ class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
+    const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-runs\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteInferenceRun(runId), id: runId });
     return;
   }
@@ -889,9 +889,9 @@ const DASHBOARD_ROUTES = new RouteTable([
   { method: 'PUT', path: /^\/dashboard\/benchmark\/attempts\/([^/]+)\/grade$/u, endpoint: new BenchmarkAttemptGradeEndpoint() },
   { method: 'POST', path: '/dashboard/admin/run-logs/preview', endpoint: new RunLogsPreviewEndpoint() },
   { method: 'DELETE', path: '/dashboard/admin/run-logs', endpoint: new RunLogsDeleteEndpoint() },
-  { method: 'GET', path: '/dashboard/admin/managed-llama/runs', endpoint: new ManagedLlamaRunsEndpoint() },
-  { method: 'GET', path: /^\/dashboard\/admin\/managed-llama\/runs\/([^/]+)$/u, endpoint: new ManagedLlamaRunDetailEndpoint() },
-  { method: 'DELETE', path: /^\/dashboard\/admin\/managed-llama\/runs\/([^/]+)$/u, endpoint: new ManagedLlamaRunDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/managed-runs', endpoint: new ManagedRunsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/managed-runs\/([^/]+)$/u, endpoint: new ManagedRunDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/managed-runs\/([^/]+)$/u, endpoint: new ManagedRunDeleteEndpoint() },
   { method: 'GET', path: '/dashboard/admin/benchmark-matrix/sessions', endpoint: new BenchmarkMatrixSessionsEndpoint() },
   { method: 'GET', path: /^\/dashboard\/admin\/benchmark-matrix\/sessions\/([^/]+)$/u, endpoint: new BenchmarkMatrixSessionDetailEndpoint() },
   { method: 'DELETE', path: /^\/dashboard\/admin\/benchmark-matrix\/sessions\/([^/]+)$/u, endpoint: new BenchmarkMatrixSessionDeleteEndpoint() },

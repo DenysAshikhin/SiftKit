@@ -1,5 +1,5 @@
 import { getActiveInferenceBackend, getConfigPath, getConfiguredModel, loadConfig } from '../config/index.js';
-import { getLlamaCppProviderStatus, listLlamaCppModels } from '../providers/llama-cpp.js';
+import { getInferenceProviderStatus, listInferenceModels } from '../providers/inference.js';
 import { formatPsList } from './args.js';
 
 export type TestResult = {
@@ -11,8 +11,8 @@ export type TestResult = {
   EvalResultsPath: string | undefined;
   Backend: string;
   Model: string | null;
-  LlamaCppBaseUrl: string | null;
-  LlamaCppReachable: boolean;
+  InferenceBaseUrl: string | null;
+  InferenceReachable: boolean;
   AvailableModels: string[];
   ModelPresent: boolean | null;
   EffectiveNumCtx: number | null;
@@ -36,8 +36,8 @@ export async function buildTestResult(): Promise<TestResult> {
     modelError = error instanceof Error ? error.message : String(error);
   }
   const engine = getActiveInferenceBackend(config);
-  const providerStatus = await getLlamaCppProviderStatus(config);
-  const models = providerStatus.Reachable ? await listLlamaCppModels(config) : [];
+  const providerStatus = await getInferenceProviderStatus(config);
+  const models = providerStatus.Reachable ? await listInferenceModels(config) : [];
   const modelPresent = model === null || models.length === 0 ? null : models.includes(model);
   const issues: string[] = [];
 
@@ -63,8 +63,8 @@ export async function buildTestResult(): Promise<TestResult> {
     EvalResultsPath: config.Paths?.EvalResults,
     Backend: engine,
     Model: model,
-    LlamaCppBaseUrl: providerStatus.BaseUrl,
-    LlamaCppReachable: providerStatus.Reachable,
+    InferenceBaseUrl: providerStatus.BaseUrl,
+    InferenceReachable: providerStatus.Reachable,
     AvailableModels: models,
     ModelPresent: modelPresent,
     EffectiveNumCtx: config.Effective?.NumCtx ?? null,

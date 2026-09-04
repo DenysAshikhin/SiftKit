@@ -14,17 +14,17 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
-import type { LlamaCppToolCall, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse, StreamStop } from '../../llm-protocol/types.js';
+import type { InferenceToolCall, InferenceToolDefinition, NormalizedInferenceChatResponse, StreamStop } from '../../llm-protocol/types.js';
 import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
 import {
-  countLlamaCppTokens,
-  generateLlamaCppChatResponse,
+  countInferenceTokens,
+  generateInferenceChatResponse,
   toProtocolMessages,
   toProtocolTools,
-  type CountLlamaCppTokensOptions,
-  type LlamaCppGenerateResult,
-  type LlamaCppChatMessage,
-} from '../../providers/llama-cpp.js';
+  type CountInferenceTokensOptions,
+  type InferenceGenerateResult,
+  type InferenceChatMessage,
+} from '../../providers/inference.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getErrorMessage, toError } from '../../lib/errors.js';
 import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
@@ -92,7 +92,7 @@ const PLANNER_DUPLICATE_FORCE_THRESHOLD = 5;
 // each invalid reply is fed back with corrective guidance before retrying.
 const MAX_PLANNER_INVALID_RESPONSES = 4;
 
-function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): CountLlamaCppTokensOptions | undefined {
+function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): CountInferenceTokensOptions | undefined {
   const timeoutSeconds = Number(requestTimeoutSeconds);
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
     return undefined;
@@ -113,7 +113,6 @@ function normalizeAgentLoopSummaryClassification(value: string | undefined): Sum
 
 export type InvokePlannerModeOptions = {
   requestId: string;
-  slotId: number | null;
   question: string;
   inputText: string;
   images: readonly string[];
@@ -129,6 +128,7 @@ export type InvokePlannerModeOptions = {
   additionalPromptPrefix: string;
   systemContext: PresetSystemContext;
   allowedTools?: PlannerToolName[];
+  operationMaxTokens?: number;
   requestTimeoutSeconds?: number;
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -192,13 +192,13 @@ export class SummaryPlannerRequestContext {
 }
 
 type SummaryPlannerTranscriptStateInput = {
-  messages: LlamaCppChatMessage[];
+  messages: InferenceChatMessage[];
   toolResults: SummaryPlannerToolResultRecord[];
   inputText: string;
 };
 
 export class SummaryPlannerTranscriptState {
-  readonly messages: LlamaCppChatMessage[];
+  readonly messages: InferenceChatMessage[];
   readonly toolResults: SummaryPlannerToolResultRecord[];
   readonly inputLines: string[];
   readonly readLinesReturnedRanges: Array<{ start: number; end: number }> = [];
@@ -228,9 +228,9 @@ type SummaryPlannerProviderResponse = {
   text: string;
   rawText: string;
   narrationText: string;
-  classification: NormalizedLlamaCppChatResponse['classification'];
+  classification: NormalizedInferenceChatResponse['classification'];
   reasoningText: string | null;
-  toolCalls: LlamaCppToolCall[];
+  toolCalls: InferenceToolCall[];
   inputTokens: number | null;
   outputCharacterCount: number | null;
   outputTokens: number | null;
@@ -284,11 +284,11 @@ function getSummaryPlannerModelData(context: AgentLoopResponseContext): SummaryP
 class SummaryPlannerToolOutputTokenCounter {
   constructor(
     private readonly config: SiftConfig,
-    private readonly tokenizeOptions: CountLlamaCppTokensOptions | undefined,
+    private readonly tokenizeOptions: CountInferenceTokensOptions | undefined,
   ) {}
 
   async countToolOutputTokens(textToCount: string): Promise<number> {
-    const tokenCountRaw = await countLlamaCppTokens(this.config, textToCount, this.tokenizeOptions);
+    const tokenCountRaw = await countInferenceTokens(this.config, textToCount, this.tokenizeOptions);
     return tokenCountRaw ?? estimatePromptTokenCount(this.config, textToCount);
   }
 }
@@ -296,8 +296,8 @@ class SummaryPlannerToolOutputTokenCounter {
 export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private prompt = '';
   private promptTokenCount = 0;
-  private readonly tokenizeOptions: CountLlamaCppTokensOptions | undefined;
-  private readonly protocolToolDefinitions: readonly LlamaCppToolDefinition[];
+  private readonly tokenizeOptions: CountInferenceTokensOptions | undefined;
+  private readonly protocolToolDefinitions: readonly InferenceToolDefinition[];
 
   static computeReadLinesRange(input: {
     startLine: number;
@@ -345,7 +345,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private get debugRecorder(): SummaryPlannerDebugRecorder {
     return this.requestContext.debugRecorder;
   }
-  private get messages(): LlamaCppChatMessage[] {
+  private get messages(): InferenceChatMessage[] {
     return this.transcriptState.messages;
   }
   private get toolResults(): SummaryPlannerToolResultRecord[] {
@@ -385,7 +385,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       promptChars: this.prompt.length,
     });
     this.promptTokenCount =
-      (await countLlamaCppTokens(this.options.config, this.prompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, this.prompt);
+      (await countInferenceTokens(this.options.config, this.prompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, this.prompt);
     promptTokenSpan?.end({ promptTokenCount: this.promptTokenCount });
     this.debugRecorder.record({
       kind: 'planner_prompt',
@@ -455,7 +455,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return null;
   }
 
-  private toNormalizedResponse(response: SummaryPlannerProviderResponse): NormalizedLlamaCppChatResponse {
+  private toNormalizedResponse(response: SummaryPlannerProviderResponse): NormalizedInferenceChatResponse {
     return {
       text: response.text,
       rawText: response.rawText,
@@ -526,24 +526,24 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     let promptCacheTokens: number | null = null;
     let promptEvalTokens: number | null = null;
     try {
-      const llamaSpan = this.options.timingRecorder?.start('summary.planner.llama.request', {
+      const inferenceSpan = this.options.timingRecorder?.start('summary.planner.inference.request', {
         promptTokenCount,
         toolDefinitionCount: this.toolDefinitions.length,
       });
-      let response: LlamaCppGenerateResult;
+      let response: InferenceGenerateResult;
       try {
-        response = await generateLlamaCppChatResponse({
+        response = await generateInferenceChatResponse({
           config: this.options.config,
           model: this.options.model,
           messages: this.messages,
           // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
           idleTimeoutSeconds: this.options.requestTimeoutSeconds ?? 600,
-          slotId: this.options.slotId ?? undefined,
-          cachePrompt: true,
           tools: this.toolDefinitions,
+          promptTokenCount,
+          operationMaxTokens: this.options.operationMaxTokens,
         });
       } finally {
-        llamaSpan?.end();
+        inferenceSpan?.end();
       }
       inputTokens = getProcessedPromptTokens(
         response.usage?.promptTokens ?? null,
@@ -888,7 +888,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptChars: forcedPrompt.length,
       });
       const forcedPromptTokenCount =
-        (await countLlamaCppTokens(this.options.config, forcedPrompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
+        (await countInferenceTokens(this.options.config, forcedPrompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
       forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
       const forcedResponse = await this.requestProviderAction({
         promptText: forcedPrompt,
@@ -1144,7 +1144,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       inputChars: rawFormattedResultText.length,
     });
     const rawResultTokenCount =
-      (await countLlamaCppTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)) ??
+      (await countInferenceTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)) ??
       estimatePromptTokenCount(this.options.config, rawFormattedResultText);
     rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
     return rawResultTokenCount;
@@ -1160,7 +1160,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolName: toolAction.toolName,
       inputChars: formattedResultText.length,
     });
-    const formattedTokenCountRaw = await countLlamaCppTokens(this.options.config, formattedResultText, this.tokenizeOptions);
+    const formattedTokenCountRaw = await countInferenceTokens(this.options.config, formattedResultText, this.tokenizeOptions);
     formattedTokenSpan?.end({
       tokenCount: formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText),
     });
@@ -1204,7 +1204,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolName: effectiveToolAction.toolName,
       inputChars: promptResultText.length,
     });
-    const fitTokenCountRaw = await countLlamaCppTokens(this.options.config, promptResultText, this.tokenizeOptions);
+    const fitTokenCountRaw = await countInferenceTokens(this.options.config, promptResultText, this.tokenizeOptions);
     fitTokenSpan?.end({ tokenCount: fitTokenCountRaw ?? -1 });
     return {
       promptResultText,
@@ -1401,7 +1401,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     allowsUnsupportedInput(options.sourceKind),
   );
   const toolResults: SummaryPlannerToolResultRecord[] = [];
-  const messages: LlamaCppChatMessage[] = [
+  const messages: InferenceChatMessage[] = [
     {
       role: 'system',
       content: buildPlannerSystemPrompt({

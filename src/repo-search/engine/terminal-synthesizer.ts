@@ -1,12 +1,12 @@
 import type { SiftConfig } from '../../config/index.js';
-import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import { resolveFinalGenerationTokenLimit } from '../../lib/context-token-budget.js';
 import {
   appendPlannerInstruction,
   requestTerminalSynthesis,
   type ChatMessage,
   type ExecutingPlannerRequest,
 } from '../planner-protocol.js';
-import { preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { countPlannerPromptTokens } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
 import { buildTerminalSynthesisInstruction } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
@@ -43,19 +43,19 @@ export class TerminalSynthesizer {
       input.messages,
       buildTerminalSynthesisInstruction(input.reason),
     );
-    const preflight = await preflightPlannerPromptBudget({
+    // The synthesis prompt is measured only to fit its generation into the physical
+    // remainder of the window; no prompt limit applies to a terminal answer.
+    const measurement = await countPlannerPromptTokens({
       config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
       prompt: renderWirePrompt({
         messages: terminalMessages,
         tools: input.executing.tools,
         includeReasoningContent: input.executing.flags.reasoningContentEnabled,
       }),
-      totalContextTokens: this.options.totalContextTokens,
-      responseReserveTokens: 0,
     });
-    const synthesisPromptTokenCount = preflight.promptTokenCount;
-    const synthesisMaxTokens = getDynamicMaxOutputTokens({
-      config: this.options.config,
+    const synthesisPromptTokenCount = measurement.promptTokenCount;
+    // Nothing is compacted after a terminal answer, so it may spend the compaction reserve.
+    const synthesisMaxTokens = resolveFinalGenerationTokenLimit({
       totalContextTokens: this.options.totalContextTokens,
       promptTokenCount: synthesisPromptTokenCount,
     });
@@ -70,6 +70,9 @@ export class TerminalSynthesizer {
     let finalOutput = '';
     let lastErrorMessage = '';
     let successAttempt = 0;
+    // Terminal synthesis runs after the loop's last turn, so it is its own turn: the
+    // synthesis call must not merge into the last loop turn's record.
+    const synthesisTurn = input.turnsUsed + 1;
     for (let attempt = 1; attempt <= MAX_SYNTHESIS_ATTEMPTS; attempt += 1) {
       try {
         const synthesisResponse = await requestTerminalSynthesis({
@@ -90,8 +93,9 @@ export class TerminalSynthesizer {
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
-        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount);
-        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
+        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount, synthesisTurn);
+        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, synthesisTurn, resolved.completionTokensEstimated);
+        this.options.progress.usageForTurn(synthesisTurn, this.options.tokenUsage.turnRecords());
 
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {

@@ -1,3 +1,4 @@
+import { ModelKvCacheQuantizationSchema, ModelPresetFieldSchema } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue, isJsonObject } from '../../lib/json-types.js';
@@ -27,6 +28,20 @@ const IdleActionMigrationConfigRowSchema = z.object({ presets_json: z.string() }
 const IdleActionMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string().nullable() });
 const IdleActionMigrationBenchmarkSessionRowSchema = z.object({ id: z.string(), original_config_json: z.string() });
 const IdleActionMigrationBenchmarkCaseRowSchema = z.object({ id: z.string(), managed_preset_json: z.string() });
+const MaxTokensMigrationConfigRowSchema = z.object({ presets_json: z.string() });
+const MaxTokensMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string() });
+const MaxTokensMigrationMetadataRowSchema = z.object({ value: z.string() });
+const PerRowTokensMigrationAnswerRowSchema = z.object({
+  session_id: z.string(),
+  id: z.string(),
+  thinking_tokens: z.number(),
+  position: z.number(),
+});
+const PerRowTokensMigrationThinkingRowSchema = z.object({ id: z.string() });
+const PerRowTokensMigrationThinkingCountRowSchema = z.object({ thinkingRowCount: z.number() });
+
+const EXL3_PRESET_KEYS: ReadonlySet<string> = new Set(['id', 'label', 'Backend', ...ModelPresetFieldSchema.options]);
+const V63_KV_CACHE_QUANTIZATION_FALLBACK = 'f16';
 
 const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
   'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
@@ -275,6 +290,53 @@ export function migrateRunLogsBackendToEngineIds(database: RuntimeDatabase): voi
   `).run();
 }
 
+const RUN_LOGS_IDENTITY_COLUMNS = [
+  'operation_type',
+  'operation_preset_id',
+  'model_preset_id',
+  'operation_preset_json',
+  'model_preset_json',
+] as const;
+
+/**
+ * v57: `run_logs` gains canonical operation identity (`operation_type`, operation/model preset
+ * ids and snapshots) beside the coarse `run_kind` grouping. Only what the stored `run_kind`
+ * proves is backfilled: `summary_request`, `plan`, `chat` and `repo_search` map to their
+ * operation. `repo_search` cannot distinguish a historical repo-agent run from a repo-search
+ * run, so the row keeps the legacy reading and the boundary is documented rather than guessed.
+ * `failed_request`, `request_abandoned` and `unknown` have no operation and stay null, as do
+ * every preset identity: no pre-v57 row recorded them. Auxiliary `.siftkit/repo-agent/runs`
+ * directories are deliberately not consulted; they are not durable database history.
+ *
+ * `run_logs` DDL is applied lazily by `ensureRunLogsTable`, which runs after migrations have
+ * finished and whose CREATE TABLE already carries these columns. This migration therefore owns
+ * the column additions for a pre-existing table and does nothing when the table is absent, so
+ * it stays frozen no matter how that DDL changes later.
+ */
+export function migrateRunLogsOperationIdentity(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'run_logs')) {
+    return;
+  }
+  // Deliberately no CHECK: SQLite does not validate an added column's CHECK against existing
+  // rows, so the operation-type union is enforced in Zod at the parse boundary instead.
+  for (const column of RUN_LOGS_IDENTITY_COLUMNS) {
+    if (!tableHasColumn(database, 'run_logs', column)) {
+      database.exec(`ALTER TABLE run_logs ADD COLUMN ${column} TEXT;`);
+    }
+  }
+  database.prepare(`
+    UPDATE run_logs
+    SET operation_type = CASE run_kind
+      WHEN 'summary_request' THEN 'summary'
+      WHEN 'plan' THEN 'plan'
+      WHEN 'chat' THEN 'chat'
+      WHEN 'repo_search' THEN 'repo-search'
+      ELSE NULL
+    END
+    WHERE operation_type IS NULL
+  `).run();
+}
+
 export function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;
@@ -406,7 +468,7 @@ function migratePresetArray(text: string, source: string): { presets: JsonObject
 
 function migrateConfigSnapshot(text: string, source: string): { json: string; changed: boolean } {
   const config = requireMigrationObject(parseMigrationJson(text, source), source);
-  // Snapshots that predate Server.ModelPresets (e.g. Server.LlamaCpp) carry no presets to
+  // Snapshots that predate Server.ModelPresets (e.g. Server.Inference) carry no presets to
   // migrate; they stay untouched and normalization rejects them loudly if they are ever reused.
   if (!Object.hasOwn(config, 'Server')) {
     return { json: text, changed: false };
@@ -551,4 +613,185 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
     }
   });
   migrate();
+}
+
+function stripPresetMaxTokens(value: JsonValue, source: string): JsonObject {
+  const preset = requireMigrationObject(value, source);
+  const { MaxTokens: _MaxTokens, ...remaining } = preset;
+  return remaining;
+}
+
+function stripPresetArrayMaxTokens(text: string, source: string): JsonObject[] {
+  const parsed = parseMigrationJson(text, source);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Cannot migrate ${source}: expected a JSON array of preset objects.`);
+  }
+  return parsed.map((preset, index) => stripPresetMaxTokens(preset, `${source}[${index}]`));
+}
+
+/** v59: removes the retired response cap from every active execution snapshot. */
+export function migrateActiveStateRemoveMaxTokens(database: RuntimeDatabase): void {
+  const rawConfigRow = database.prepare(
+    'SELECT server_llama_presets_json AS presets_json FROM app_config WHERE id = 1',
+  ).get();
+  const configRow = rawConfigRow == null ? null : MaxTokensMigrationConfigRowSchema.parse(rawConfigRow);
+  const presets = configRow === null
+    ? null
+    : stripPresetArrayMaxTokens(configRow.presets_json, 'app_config.server_llama_presets_json');
+
+  const sessions = z.array(MaxTokensMigrationSessionRowSchema).parse(database.prepare(`
+    SELECT id, model_preset_json
+    FROM chat_sessions
+    WHERE model_preset_json IS NOT NULL
+    ORDER BY id
+  `).all());
+  const migratedSessions = sessions.map((session) => {
+    const source = `chat_sessions[${session.id}].model_preset_json`;
+    return {
+      id: session.id,
+      modelPresetJson: JSON.stringify(
+        stripPresetMaxTokens(parseMigrationJson(session.model_preset_json, source), source),
+      ),
+    };
+  });
+
+  const rawLaunchRow = database.prepare(
+    "SELECT value FROM runtime_metadata WHERE key = 'runtime_llama_launch_snapshot'",
+  ).get();
+  const launchRow = rawLaunchRow == null ? null : MaxTokensMigrationMetadataRowSchema.parse(rawLaunchRow);
+  let migratedLaunchJson: string | null = null;
+  if (launchRow !== null) {
+    const launchSource = 'runtime_metadata.runtime_llama_launch_snapshot';
+    const launch = requireMigrationObject(parseMigrationJson(launchRow.value, launchSource), launchSource);
+    migratedLaunchJson = JSON.stringify({
+      ...launch,
+      LlamaCpp: stripPresetMaxTokens(JsonValueSchema.parse(launch.LlamaCpp), `${launchSource}.LlamaCpp`),
+    });
+  }
+
+  database.transaction(() => {
+    if (presets !== null) {
+      database.prepare(`
+        UPDATE app_config
+        SET server_llama_presets_json = ?
+        WHERE id = 1
+      `).run(JSON.stringify(presets));
+    }
+    const updateSession = database.prepare(`
+      UPDATE chat_sessions
+      SET model_preset_json = ?
+      WHERE id = ?
+    `);
+    for (const session of migratedSessions) {
+      updateSession.run(session.modelPresetJson, session.id);
+    }
+    if (migratedLaunchJson !== null) {
+      database.prepare(`
+        UPDATE runtime_metadata
+        SET value = ?
+        WHERE key = 'runtime_llama_launch_snapshot'
+      `).run(migratedLaunchJson);
+    }
+  })();
+}
+
+/**
+ * Per-row token accounting: the answer row no longer carries a run-wide thinking aggregate,
+ * and tool tokens are read from the tool rows that own them instead of a denormalized column.
+ */
+export function migrateChatMessagesToPerRowTokens(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'chat_messages')) {
+    return;
+  }
+  if (tableHasColumn(database, 'chat_messages', 'associated_tool_tokens')) {
+    const answerRows = z.array(PerRowTokensMigrationAnswerRowSchema).parse(database.prepare(`
+      SELECT session_id, id, thinking_tokens, position
+      FROM chat_messages
+      WHERE kind = 'assistant_answer' AND thinking_tokens > 0
+    `).all());
+    const findLatestThinking = database.prepare(`
+      SELECT id FROM chat_messages
+      WHERE session_id = ? AND kind = 'assistant_thinking' AND position < ?
+      ORDER BY position DESC LIMIT 1
+    `);
+    const countThinking = database.prepare(`
+      SELECT COUNT(*) AS thinkingRowCount FROM chat_messages
+      WHERE session_id = ? AND kind = 'assistant_thinking' AND position < ?
+    `);
+    const setThinking = database.prepare('UPDATE chat_messages SET thinking_tokens = ? WHERE id = ?');
+    for (const answer of answerRows) {
+      const counted = PerRowTokensMigrationThinkingCountRowSchema.parse(
+        countThinking.get(answer.session_id, answer.position),
+      );
+      // Exactly one surviving thinking row means retention pruned the rest, so that row must
+      // absorb the aggregate or the tokens are lost. More than one means the step rows are
+      // already complete and the aggregate is pure duplication.
+      if (counted.thinkingRowCount === 1) {
+        const latest = PerRowTokensMigrationThinkingRowSchema.parse(
+          findLatestThinking.get(answer.session_id, answer.position),
+        );
+        setThinking.run(answer.thinking_tokens, latest.id);
+      }
+      setThinking.run(0, answer.id);
+    }
+    database.exec('ALTER TABLE chat_messages DROP COLUMN associated_tool_tokens;');
+  }
+}
+
+/**
+ * v63: llama.cpp support is gone. The preset columns lose their llama name, presets that targeted
+ * the llama backend are dropped (their launch settings mean nothing to exl3), llama-only fields are
+ * stripped from the exl3 presets that remain, and rows only a llama engine could have produced
+ * (llama-backed run logs and inference runs, managed-llama benchmark logs, the llama launch
+ * snapshot) are purged rather than left behind under constraints the code no longer knows.
+ */
+export function migrateRuntimeToExl3Only(database: RuntimeDatabase): void {
+  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
+    database.exec(`
+      ALTER TABLE app_config RENAME COLUMN server_llama_presets_json TO server_model_presets_json;
+      ALTER TABLE app_config RENAME COLUMN server_llama_active_preset_id TO server_model_active_preset_id;
+    `);
+  }
+  const rawRow = tableHasColumn(database, 'app_config', 'server_model_presets_json')
+    ? database.prepare(`
+      SELECT server_model_presets_json AS presets_json, server_model_active_preset_id AS active_preset_id
+      FROM app_config
+      WHERE id = 1
+    `).get()
+    : undefined;
+  if (rawRow != null) {
+    const row = ChatModelPresetMigrationConfigRowSchema.parse(rawRow);
+    const presets = z.array(JsonObjectSchema).parse(parseJsonValueText(row.presets_json));
+    const kept = presets.filter((preset) => preset.Backend !== 'llama').map(toExl3Preset);
+    const keptIds = kept.map((preset) => preset.id).filter((id): id is string => typeof id === 'string');
+    const activePresetId = row.active_preset_id !== null && keptIds.includes(row.active_preset_id)
+      ? row.active_preset_id
+      : keptIds[0] ?? null;
+    database.prepare(`
+      UPDATE app_config
+      SET server_model_presets_json = ?, server_model_active_preset_id = ?
+      WHERE id = 1
+    `).run(JSON.stringify(kept), activePresetId);
+  }
+  if (tableHasColumn(database, 'run_logs', 'backend')) {
+    database.prepare("DELETE FROM run_logs WHERE backend = 'llama'").run();
+  }
+  if (tableExists(database, 'inference_runs')) {
+    database.prepare("DELETE FROM inference_runs WHERE backend = 'llama'").run();
+  }
+  if (tableExists(database, 'benchmark_logs')) {
+    database.prepare("DELETE FROM benchmark_logs WHERE stream_kind = 'managed_llama'").run();
+  }
+  if (tableExists(database, 'runtime_metadata')) {
+    database.prepare("DELETE FROM runtime_metadata WHERE key = 'runtime_llama_launch_snapshot'").run();
+  }
+}
+
+function toExl3Preset(preset: JsonObject): JsonObject {
+  const kept = Object.fromEntries(Object.entries(preset).filter(([key]) => EXL3_PRESET_KEYS.has(key)));
+  const kvCacheQuantization = ModelKvCacheQuantizationSchema.safeParse(kept.KvCacheQuantization);
+  return {
+    ...kept,
+    KvCacheQuantization: kvCacheQuantization.success ? kvCacheQuantization.data : V63_KV_CACHE_QUANTIZATION_FALLBACK,
+  };
 }

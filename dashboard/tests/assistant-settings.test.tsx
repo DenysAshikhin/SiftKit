@@ -39,6 +39,7 @@ test('loads pending proof and memory history and saves notes with its in-memory 
         id: 'candidate-1', status: 'pending', proposedStatement: 'Prefers concise answers',
         rationale: 'Repeated explicit requests', confidence: 0.82, sensitivity: 'personal',
         evidenceId: 'evidence-1', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
+        hold: null,
       }] });
       if (input === '/assistant/history') return json({ items: [{
         id: 'mutation-1', operation: 'add', targetType: 'assertion', targetId: 'assertion-1',
@@ -270,4 +271,99 @@ test('configuration shows persisted background-work decisions newest-first', { c
   screen.getByText(/941 pending captures/u);
   screen.getByText(/mouseIdleSeconds: 12/u);
   screen.getByText(/requiredIdleSeconds: 180/u);
+});
+
+test('an identity hold offers both answers and posts the chosen one', { concurrency: false }, async () => {
+  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: string, init?: RequestInit) => {
+      calls.push({ url: input, init });
+      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
+      if (input === '/assistant/validation') return json({ items: [{
+        id: 'candidate-2', status: 'needs_confirmation', proposedStatement: 'denyz USES Tauri',
+        rationale: 'A screenshot showed denyz in Tauri', confidence: 0.7, sensitivity: 'personal',
+        evidenceId: 'evidence-2', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
+        hold: { kind: 'possible_owner_alias', name: 'denyz' },
+      }] });
+      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
+      if (input.endsWith('/resolve-identity')) return json({ ok: true, graphVersion: 2, outcome: 'promoted' });
+      throw new Error(`Unexpected request: ${input}`);
+    },
+  });
+
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
+  await screen.findByText(/is close to one of your own names/u);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, that is me' }));
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+  });
+
+  const call = calls.find((entry) => entry.url.endsWith('/resolve-identity'));
+  assert.equal(call?.init?.method, 'POST');
+  assert.equal(call?.init?.body, JSON.stringify({ isOwner: true }));
+  assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
+});
+
+test('a plain candidate shows no identity question', { concurrency: false }, async () => {
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: string) => {
+      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
+      if (input === '/assistant/validation') return json({ items: [{
+        id: 'candidate-3', status: 'pending', proposedStatement: 'the user USES Tauri',
+        rationale: 'A screenshot showed Tauri', confidence: 0.7, sensitivity: 'personal',
+        evidenceId: 'evidence-3', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
+        hold: null,
+      }] });
+      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
+      throw new Error(`Unexpected request: ${input}`);
+    },
+  });
+
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
+  await screen.findByText('the user USES Tauri');
+
+  assert.equal(screen.queryByRole('button', { name: 'Yes, that is me' }), null);
+});
+
+test('an identity answer that does not promote keeps the card and says why', { concurrency: false }, async () => {
+  const held = {
+    id: 'candidate-4', status: 'needs_confirmation', proposedStatement: 'denyz USES Tauri',
+    rationale: 'A screenshot showed denyz in Tauri', confidence: 0.7, sensitivity: 'personal',
+    evidenceId: 'evidence-4', userNotes: '', createdAtUtc: '2026-08-10T10:00:00.000Z',
+    hold: { kind: 'possible_owner_alias', name: 'denyz' },
+  };
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: string) => {
+      if (input === '/assistant/auth/bootstrap') return json({ token: 'session-secret' });
+      if (input === '/assistant/desktop/state') return json(desktopStateBody(true, 0));
+      if (input === '/assistant/validation') return json({ items: [held] });
+      if (input === '/assistant/history') return json({ items: [] });
+      if (input === '/assistant/background-decisions') return json({ items: [] });
+      if (input === '/assistant/captures/pending') return json({ captures: [] });
+      if (input.endsWith('/resolve-identity')) return json({ ok: true, graphVersion: 2, outcome: 'rejected' });
+      throw new Error(`Unexpected request: ${input}`);
+    },
+  });
+
+  render(<AssistantSettings assistant={DEFAULT_ASSISTANT_CONFIG} onChange={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pending validation' }));
+  await screen.findByText(/is close to one of your own names/u);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'No, someone else' }));
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+  });
+
+  screen.getByText('denyz USES Tauri');
+  screen.getByText(/could not be written/u);
 });

@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS candidate_assertions (
     status TEXT NOT NULL CHECK (
         status IN ('pending', 'accepted', 'rejected', 'needs_confirmation', 'superseded')),
     rejection_reason TEXT,
+    hold_json TEXT,
     user_notes TEXT NOT NULL DEFAULT '',
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL
@@ -451,7 +452,8 @@ CREATE TABLE IF NOT EXISTS assistant_activity_events (
     process_name TEXT,
     normalized_title TEXT,
     fullscreen INTEGER NOT NULL CHECK (fullscreen IN (0, 1)),
-    idle_seconds INTEGER NOT NULL CHECK (idle_seconds >= 0),
+    mouse_idle_seconds INTEGER NOT NULL CHECK (mouse_idle_seconds >= 0),
+    keyboard_idle_seconds INTEGER NOT NULL CHECK (keyboard_idle_seconds >= 0),
     session_locked INTEGER NOT NULL CHECK (session_locked IN (0, 1)),
     session_id TEXT
 );

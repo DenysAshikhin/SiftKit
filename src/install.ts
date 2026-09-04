@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { getActiveInferenceBackend, getConfigPath, getConfiguredEngineBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
 import { findNearestSiftKitRepoRoot, moduleDirname } from './lib/paths.js';
-import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
+import { getInferenceProviderStatus, listInferenceModels } from './providers/inference.js';
 
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
@@ -75,8 +75,8 @@ export type InstallSiftKitResult = {
   EvalResultsPath: string;
   Backend: string;
   Model: string | null;
-  LlamaCppBaseUrl: string | null;
-  LlamaCppReachable: boolean;
+  InferenceBaseUrl: string | null;
+  InferenceReachable: boolean;
   AvailableModels: string[];
 };
 
@@ -89,9 +89,9 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
   let models: string[] = [];
   let providerReachable = false;
   try {
-    const providerStatus = await getLlamaCppProviderStatus(config);
+    const providerStatus = await getInferenceProviderStatus(config);
     providerReachable = Boolean(providerStatus.Reachable);
-    models = providerReachable ? await listLlamaCppModels(config) : [];
+    models = providerReachable ? await listInferenceModels(config) : [];
   } catch {
     models = [];
   }
@@ -104,8 +104,8 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
     EvalResultsPath: paths.EvalResults,
     Backend: engine,
     Model: getConfiguredModel(config),
-    LlamaCppBaseUrl: getConfiguredEngineBaseUrl(config),
-    LlamaCppReachable: providerReachable,
+    InferenceBaseUrl: getConfiguredEngineBaseUrl(config),
+    InferenceReachable: providerReachable,
     AvailableModels: models,
   };
 }

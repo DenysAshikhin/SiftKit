@@ -389,9 +389,9 @@ test('real status server PUT /config persists the preset ModelPath as the dashbo
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
-        const row = z.object({ server_llama_presets_json: z.string().nullish() })
-          .parse(database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get());
-        const presets = JSON.parse(row.server_llama_presets_json || '[]');
+        const row = z.object({ server_model_presets_json: z.string().nullish() })
+          .parse(database.prepare('SELECT server_model_presets_json FROM app_config WHERE id = 1').get());
+        const presets = JSON.parse(row.server_model_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
         assert.equal(presets[0].ModelPath, dashboardModelPath);
       } finally {
@@ -404,4 +404,3 @@ test('real status server PUT /config persists the preset ModelPath as the dashbo
     });
   });
 });
-

@@ -43,6 +43,15 @@ export const demoteEndpoint = assistantRoute(async ({ service, req, res, match }
   sendJson(res, 200, success(service));
 });
 
+/**
+ * The owner claiming a duplicate `person` node as themselves. Only reachable from this control
+ * surface: `NodeMergeService` refuses the same merge when the assistant proposes it.
+ */
+export const claimOwnerEndpoint = assistantRoute(async ({ service, req, res, match }) => {
+  const request = await body(req, AssistantMutationRequestSchema);
+  sendJson(res, 200, await service.claimNodeAsOwner(id(match), request.reason));
+});
+
 export const deleteAssertionEndpoint = assistantRoute(async ({ service, req, res, match }) => {
   const request = await body(req, AssistantDestructiveRequestSchema);
   const assertionId = id(match);

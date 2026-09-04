@@ -4,21 +4,21 @@ import assert from 'node:assert/strict';
 import {
   ASSISTANT_INFERENCE_ROLES, UNTRUSTED_CONTENT_PREAMBLE, buildRoleSystemPrompt,
 } from '../src/assistant/inference/roles.js';
-import { LlamaCppAssistantInference } from '../src/assistant/inference/client.js';
+import { DefaultAssistantInferenceClient } from '../src/assistant/inference/client.js';
 import type {
   AssistantChatBackend, AssistantTextInferenceRequest,
 } from '../src/assistant/inference/client.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import type { LlamaCppChatOptions } from '../src/llm-protocol/llama-cpp-client.js';
-import { CLEAN_STREAM_STOP, type LlamaCppContentPart, type NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import type { InferenceChatOptions } from '../src/llm-protocol/inference-client.js';
+import { CLEAN_STREAM_STOP, type InferenceContentPart, type NormalizedInferenceChatResponse } from '../src/llm-protocol/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
   + 'FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-/** The default preset is a text-only llama preset; image roles need a vision-capable one. */
+/** The default preset is text-only; image roles need a vision-capable preset. */
 function presetConfig(overrides: Partial<ModelRuntimePreset>): SiftConfig {
   const base = mockSiftConfig({});
   const presets = base.Server.ModelPresets.Presets.map((preset) => (
@@ -38,23 +38,23 @@ function visionConfig(): SiftConfig {
 }
 
 /** Production supplies `AppliedModelPresetState`; a test starts it on the config's own preset. */
-function buildClient(config: SiftConfig, backend: AssistantChatBackend): LlamaCppAssistantInference {
-  return new LlamaCppAssistantInference(
+function buildClient(config: SiftConfig, backend: AssistantChatBackend): DefaultAssistantInferenceClient {
+  return new DefaultAssistantInferenceClient(
     config, new AppliedModelPresetState(getActiveModelPreset(config)), backend,
   );
 }
 
-function contentParts(content: string | LlamaCppContentPart[] | null | undefined): LlamaCppContentPart[] {
+function contentParts(content: string | InferenceContentPart[] | null | undefined): InferenceContentPart[] {
   if (!Array.isArray(content)) throw new Error('expected multimodal content parts');
   return content;
 }
 
 class RecordingBackend implements AssistantChatBackend {
-  readonly requests: LlamaCppChatOptions[] = [];
+  readonly requests: InferenceChatOptions[] = [];
 
   constructor(private readonly responseText: string) {}
 
-  async chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
+  async chat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
     this.requests.push(options);
     return {
       text: this.responseText,
@@ -202,7 +202,7 @@ test('image admission follows the applied preset, not the config the client was 
   const textOnly = presetConfig({ Backend: 'exl3', VisionEnabled: false });
   const applied = new AppliedModelPresetState(getActiveModelPreset(textOnly));
   const backend = new RecordingBackend('{"statements":[]}');
-  const client = new LlamaCppAssistantInference(textOnly, applied, backend);
+  const client = new DefaultAssistantInferenceClient(textOnly, applied, backend);
   const request = {
     kind: 'image',
     role: 'image_extraction',

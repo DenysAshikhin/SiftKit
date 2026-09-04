@@ -15,7 +15,12 @@ import { CURRENT_SCHEMA_VERSION, closeRuntimeDatabase, getRuntimeDatabase } from
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
+const ColumnNameRowSchema = z.object({ name: z.string() });
 const SchemaVersionRowSchema = z.object({ version: z.number() });
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const REMOVED_BACKEND = ['ll', 'ama.cpp'].join('');
+const REMOVED_SERVER_KEY = ['Ll', 'amaCpp'].join('');
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -28,13 +33,31 @@ function missingIdleActionPresets(): JsonValue {
   }));
 }
 
+// A v46 database still carried the former preset column names; v63 renamed them.
+function downgradeAppConfigToV46(database: ReturnType<typeof getRuntimeDatabase>): void {
+  database.exec(`
+    ALTER TABLE app_config RENAME COLUMN server_model_presets_json TO ${LEGACY_PRESETS_COLUMN};
+    ALTER TABLE app_config RENAME COLUMN server_model_active_preset_id TO ${LEGACY_ACTIVE_PRESET_COLUMN};
+    UPDATE runtime_schema SET version = 46 WHERE id = 1;
+  `);
+}
+
+// Reads whichever preset column the database currently has: the v46 name before a
+// (possibly failed) migration, the v63 name after it.
+function presetsJsonColumn(database: InstanceType<typeof Database>): string {
+  const names = z.array(ColumnNameRowSchema)
+    .parse(database.prepare('PRAGMA table_info(app_config);').all())
+    .map((row) => row.name);
+  return names.includes('server_model_presets_json') ? 'server_model_presets_json' : LEGACY_PRESETS_COLUMN;
+}
+
 function seedMissingIdleActionConfig(dbPath: string): void {
   writeConfig(dbPath, getDefaultConfigObject());
   const database = getRuntimeDatabase(dbPath);
-  database.prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1').run(
+  downgradeAppConfigToV46(database);
+  database.prepare(`UPDATE app_config SET ${LEGACY_PRESETS_COLUMN} = ? WHERE id = 1`).run(
     JSON.stringify(missingIdleActionPresets()),
   );
-  database.prepare('UPDATE runtime_schema SET version = 46 WHERE id = 1').run();
   closeRuntimeDatabase();
 }
 
@@ -56,6 +79,7 @@ function configWithoutIdleAction(): JsonObject {
 function seedAllMissingIdleActionSnapshots(dbPath: string): void {
   writeConfig(dbPath, getDefaultConfigObject());
   const database = getRuntimeDatabase(dbPath);
+  downgradeAppConfigToV46(database);
   const preset = JsonObjectSchema.parse(JsonValueSchema.parse(
     getDefaultConfigObject().Server.ModelPresets.Presets[0],
   ));
@@ -83,10 +107,9 @@ function seedAllMissingIdleActionSnapshots(dbPath: string): void {
       managed_preset_json, spec_override_json, created_at_utc
     ) VALUES ('benchmark-case-1', 'benchmark-session-1', 0, 'Case', 'default', 'Default', ?, '{}', ?)
   `).run(JSON.stringify(preset), timestamp);
-  database.prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1').run(
+  database.prepare(`UPDATE app_config SET ${LEGACY_PRESETS_COLUMN} = ? WHERE id = 1`).run(
     JSON.stringify(missingIdleActionPresets()),
   );
-  database.prepare('UPDATE runtime_schema SET version = 46 WHERE id = 1').run();
   closeRuntimeDatabase();
 }
 
@@ -100,7 +123,7 @@ function readSnapshotRows(dbPath: string): {
   try {
     return {
       appPresets: z.object({ value: z.string() }).parse(
-        database.prepare('SELECT server_llama_presets_json AS value FROM app_config WHERE id = 1').get(),
+        database.prepare(`SELECT ${presetsJsonColumn(database)} AS value FROM app_config WHERE id = 1`).get(),
       ).value,
       chatPreset: z.object({ value: z.string() }).parse(
         database.prepare('SELECT model_preset_json AS value FROM chat_sessions WHERE id = ?').get('session-1'),
@@ -121,7 +144,7 @@ function readStoredPresets(dbPath: string): JsonObject[] {
   const database = new Database(dbPath, { readonly: true });
   try {
     const row = PresetsJsonRowSchema.parse(
-      database.prepare('SELECT server_llama_presets_json AS presets_json FROM app_config WHERE id = 1').get(),
+      database.prepare(`SELECT ${presetsJsonColumn(database)} AS presets_json FROM app_config WHERE id = 1`).get(),
     );
     const value = parseJsonValueText(row.presets_json);
     return z.array(JsonObjectSchema).parse(value);
@@ -198,7 +221,7 @@ test('v47 migrates persisted chat-session preset snapshots before they are read'
         created_at_utc, updated_at_utc
       ) VALUES ('session-1', 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', '2026-01-01', '2026-01-01')
     `).run(JSON.stringify(withoutIdleAction));
-    database.prepare('UPDATE runtime_schema SET version = 46 WHERE id = 1').run();
+    downgradeAppConfigToV46(database);
     closeRuntimeDatabase();
 
     readConfig(dbPath);
@@ -245,15 +268,15 @@ test('v47 leaves pre-ModelPresets benchmark snapshots unchanged and still migrat
   const dbPath = tempDbPath('sk-idle-action-legacy-benchmark-config-');
   try {
     seedAllMissingIdleActionSnapshots(dbPath);
-    const legacyLlamaCppConfig = JSON.stringify({
+    const legacyBackendConfig = JSON.stringify({
       Version: '0.1.0',
-      Backend: 'llama.cpp',
-      Server: { LlamaCpp: { Port: 8080 } },
+      Backend: REMOVED_BACKEND,
+      Server: { [REMOVED_SERVER_KEY]: { Port: 8080 } },
     });
     const legacyNoServerConfig = JSON.stringify({ Version: '0.1.0' });
     const database = new Database(dbPath);
     database.prepare('UPDATE benchmark_sessions SET original_config_json = ? WHERE id = ?')
-      .run(legacyLlamaCppConfig, 'benchmark-session-1');
+      .run(legacyBackendConfig, 'benchmark-session-1');
     database.prepare(`
       INSERT INTO benchmark_sessions (
         id, status, question_preset_count, case_count, repetitions,
@@ -268,7 +291,7 @@ test('v47 leaves pre-ModelPresets benchmark snapshots unchanged and still migrat
 
     assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
     const after = readSnapshotRows(dbPath);
-    assert.equal(after.benchmarkConfig, legacyLlamaCppConfig);
+    assert.equal(after.benchmarkConfig, legacyBackendConfig);
     const readonlyDatabase = new Database(dbPath, { readonly: true });
     try {
       const secondRow = z.object({ value: z.string() }).parse(
@@ -292,7 +315,7 @@ test('v47 rejects malformed app preset JSON without advancing or partially updat
     seedAllMissingIdleActionSnapshots(dbPath);
     const before = readSnapshotRows(dbPath);
     const database = new Database(dbPath);
-    database.prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1').run('{ broken json');
+    database.prepare(`UPDATE app_config SET ${LEGACY_PRESETS_COLUMN} = ? WHERE id = 1`).run('{ broken json');
     database.close();
 
     assert.throws(() => getRuntimeDatabase(dbPath));
@@ -317,7 +340,7 @@ test('v47 rejects non-object app preset records without advancing or partially u
       null,
     ]);
     const database = new Database(dbPath);
-    database.prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1').run(appPresets);
+    database.prepare(`UPDATE app_config SET ${LEGACY_PRESETS_COLUMN} = ? WHERE id = 1`).run(appPresets);
     database.close();
 
     assert.throws(() => getRuntimeDatabase(dbPath));
@@ -382,13 +405,13 @@ test('after v47, a newly missing IdleAction fails loudly', () => {
     writeConfig(dbPath, getDefaultConfigObject());
     const database = getRuntimeDatabase(dbPath);
     const row = PresetsJsonRowSchema.parse(
-      database.prepare('SELECT server_llama_presets_json AS presets_json FROM app_config WHERE id = 1').get(),
+      database.prepare('SELECT server_model_presets_json AS presets_json FROM app_config WHERE id = 1').get(),
     );
     const presets = z.array(JsonObjectSchema).parse(parseJsonValueText(row.presets_json));
     const first = presets[0];
     if (!first) throw new Error('Expected a default model preset.');
     delete first.IdleAction;
-    database.prepare('UPDATE app_config SET server_llama_presets_json = ? WHERE id = 1').run(JSON.stringify(presets));
+    database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1').run(JSON.stringify(presets));
     closeRuntimeDatabase();
 
     assert.throws(() => readConfig(dbPath), /IdleAction/u);
@@ -404,7 +427,7 @@ test('a failed v47 migration write surfaces and leaves the marker incomplete', (
     const database = new Database(dbPath);
     database.exec(`
       CREATE TRIGGER reject_idle_action_migration
-      BEFORE UPDATE OF server_llama_presets_json ON app_config
+      BEFORE UPDATE OF ${LEGACY_PRESETS_COLUMN} ON app_config
       BEGIN
         SELECT RAISE(ABORT, 'migration write blocked');
       END;

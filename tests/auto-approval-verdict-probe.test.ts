@@ -20,7 +20,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import { CLEAN_STREAM_STOP, type LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.js';
 
 const messages: ChatMessage[] = [
   { role: 'system', content: 'Work only inside C:\\repo.' },
@@ -73,7 +73,7 @@ const replayTools = [{
       additionalProperties: false,
     },
   },
-}] satisfies readonly LlamaCppToolDefinition[];
+}] satisfies readonly InferenceToolDefinition[];
 
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
   readonly requests: ChatMessage[][] = [];
@@ -84,7 +84,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
     requestMessages: ChatMessage[],
     pendingMessages: ChatMessage[],
     question: string,
-    _tools: readonly LlamaCppToolDefinition[],
+    _tools: readonly InferenceToolDefinition[],
   ): Promise<PlannerActionResponse> {
     this.requests.push([...requestMessages, ...pendingMessages, { role: 'user', content: question }]);
     return Promise.resolve({
@@ -128,7 +128,6 @@ test('configured verdict replay uses the exact persisted tool schema', async () 
       config,
       baseUrl,
       model: 'mock-model',
-      slotId: 0,
       timeoutMs: 5_000,
       thinking: {
         thinkingEnabled: false,
@@ -302,7 +301,7 @@ test('reports a failed verdict after exactly one retry', async () => {
 
   assert.equal(client.requests.length, 2);
   assert.equal(result.verdict, 'unsure');
-  assert.equal(result.reason, 'verdict call failed');
+  assert.match(result.reason, /^verdict call failed: /u);
 });
 
 test('rejects an approval-exempt read-only action instead of inventing a verdict', async () => {

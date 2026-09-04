@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { filterModelInventory } from '../src/providers/llama-cpp.js';
+import { filterModelInventory } from '../src/providers/inference.js';
 
 test('filterModelInventory keeps only preset-backed model names', () => {
   assert.deepEqual(

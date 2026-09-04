@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { TestContext } from 'node:test';
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
+import type { StatusEngineService } from '../../src/status-server/engine-service.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
 import { getConfigPath } from '../../src/config/index.js';
 import { writeConfig } from '../../src/status-server/config-store.js';
@@ -12,6 +13,7 @@ import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboar
 import { createManagedTempDir } from './temp-dirs.js';
 
 export type StreamedOperationHarness = { baseUrl: string; close: () => Promise<void> };
+export type StreamedOperationHarnessOptions = { engineService?: StatusEngineService };
 
 const MODEL_REQUEST_OWNER_TIMEOUT_MS = 2_000;
 const MODEL_REQUEST_OWNER_POLL_INTERVAL_MS = 10;
@@ -40,7 +42,11 @@ export async function waitForActiveModelRequestOwner(baseUrl: string): Promise<s
  * that never runs leaves every later test in the file executing from a deleted temp directory.
  * `t.after` runs regardless of how the test ended.
  */
-export async function startHarness(namePrefix: string, t: TestContext): Promise<StreamedOperationHarness> {
+export async function startHarness(
+  namePrefix: string,
+  t: TestContext,
+  options: StreamedOperationHarnessOptions = {},
+): Promise<StreamedOperationHarness> {
   const tempRoot = createManagedTempDir(namePrefix);
   const previousCwd = process.cwd();
   fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'siftkit', version: '0.1.0' }), 'utf8');
@@ -61,7 +67,11 @@ export async function startHarness(namePrefix: string, t: TestContext): Promise<
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
   writeConfig(getConfigPath(), getDefaultServerConfig());
-  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
+  const server = startStatusServer({
+    disableManagedEngineStartup: true,
+    terminalMetadataIdleDelayMs: 50,
+    engineService: options.engineService,
+  });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = `${baseUrl}/config`;

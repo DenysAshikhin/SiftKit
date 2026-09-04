@@ -6,6 +6,7 @@ import {
   type RunLogGroup,
   type RunLogKind,
 } from './dashboard-runs.js';
+import { UNRECORDED_RUN_IDENTITY } from './dashboard-runs/run-identity.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { serverLogger } from './server-logger.js';
 import { parseStatusMetadata } from './status-file.js';
@@ -89,6 +90,9 @@ export function persistStatusRunLog(
     requestId: job.requestId,
     runKind: identity.runKind,
     runGroup: identity.runGroup,
+    // The status file reports a collapsed task kind (repo-agent arrives as repo-search) and no
+    // preset, so this write must not claim an identity the engine persistence will contradict.
+    ...UNRECORDED_RUN_IDENTITY,
     terminalState,
     startedAtUtc: job.startedAtUtc,
     finishedAtUtc: job.finishedAtUtc,

@@ -1,3 +1,4 @@
+import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 
@@ -10,9 +11,10 @@ import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
 // The deterministic path still posts terminal status; nothing here asserts on it.
+const isolatedRuntime = new IsolatedRuntime();
 const deadEndpoints = new DeadEndpointEnv();
-before(() => { deadEndpoints.apply(); });
-after(() => { deadEndpoints.restore(); });
+before(() => { isolatedRuntime.start(); deadEndpoints.apply(); });
+after(async () => { await isolatedRuntime.close(); deadEndpoints.restore(); });
 
 test('SummaryRequestRunner accepts an image-only request', async () => {
   const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];

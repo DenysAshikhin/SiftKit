@@ -478,6 +478,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     BaseUrl: getNullableTrimmedString(input.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
     ModelPath: getNullableTrimmedString(input.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
     NumCtx: getFinitePositiveInteger(input.NumCtx, Number(defaults.NumCtx ?? 150_000)),
+    NcpuMoe: getFiniteNonNegativeInteger(input.NcpuMoe, defaults.NcpuMoe),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_ENGINE_UBATCH_SIZE)),
     CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_ENGINE_CACHE_RAM)),
@@ -489,7 +490,6 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.KvCacheQuantization,
       defaults.KvCacheQuantization ?? SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,
     ),
-    MaxTokens: getFinitePositiveInteger(input.MaxTokens, Number(defaults.MaxTokens ?? 15_000)),
     Temperature: getFiniteNumber(input.Temperature, Number(defaults.Temperature ?? 0.7)),
     TopP: getFiniteNumber(input.TopP, Number(defaults.TopP ?? 0.8)),
     TopK: getFiniteInteger(input.TopK, Number(defaults.TopK ?? 20)),
@@ -553,7 +553,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   const merged = getRecord(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), input ?? {}));
   delete merged.Backend;
   delete merged.Paths;
-  delete merged.Ollama;
   delete merged.Model;
 
   const runtime = getRecord(merged.Runtime);

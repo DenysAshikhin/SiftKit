@@ -158,6 +158,9 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="NumCtx">
             <input type="number" value={preset.NumCtx} onChange={(event) => modelPresetActions.setInteger('NumCtx', parseIntegerInput(event.target.value, preset.NumCtx))} />
           </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="NcpuMoe" label="NcpuMoe">
+            <input type="number" min={0} value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
+          </ModelPresetControl>
           <ModelPresetControl preset={preset} field="ParallelSlots" label="ParallelSlots">
             <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
           </ModelPresetControl>
@@ -185,9 +188,6 @@ export function ModelPresetsSection({
 
       {group('sampling', (
         <>
-          <SettingsSectionField sectionId="model-presets" label="MaxTokens">
-            <input type="number" value={preset.MaxTokens} onChange={(event) => modelPresetActions.setInteger('MaxTokens', parseIntegerInput(event.target.value, preset.MaxTokens))} />
-          </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Temperature">
             <input type="number" step="0.01" value={preset.Temperature} onChange={(event) => modelPresetActions.setFloat('Temperature', parseFloatInput(event.target.value, preset.Temperature))} />
           </SettingsSectionField>

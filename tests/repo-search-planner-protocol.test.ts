@@ -1,3 +1,4 @@
+import { getActiveModelPreset } from '../src/config/getters.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -12,7 +13,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
+import { toProtocolTools } from '../src/providers/inference.js';
 import {
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
@@ -441,7 +442,7 @@ test('requestRepoSearchPlannerProtocolAction carries a non-loop backend eos_reas
   );
 });
 
-test('requestRepoSearchPlannerProtocolAction uses llama timings from the final streaming chunk when usage is absent', async () => {
+test('requestRepoSearchPlannerProtocolAction ignores removed legacy timings when usage is absent', async () => {
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -476,9 +477,9 @@ test('requestRepoSearchPlannerProtocolAction uses llama timings from the final s
         maxTokens: 512,
       });
 
-      assert.equal(result.promptEvalTokens, 10);
-      assert.equal(result.promptEvalDurationMs, 30.5);
-      assert.equal(result.generationDurationMs, 18.75);
+      assert.equal(result.promptEvalTokens, null);
+      assert.ok((result.promptEvalDurationMs ?? -1) >= 0);
+      assert.ok((result.generationDurationMs ?? -1) >= 0);
     },
   );
 });
@@ -670,7 +671,6 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
     MinP: 0.05,
     PresencePenalty: 0.7,
     RepetitionPenalty: 1.1,
-    MaxTokens: 4000,
   });
 
   const captured = await captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
@@ -711,7 +711,7 @@ test('derived planner requests reject every cache-contract divergence before log
       const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
       const history: ChatMessage[] = [{ role: 'user', content: 'same request' }];
       const messages = serializeProtocolMessages(history, true);
-      const cachePrefix = captureExecutingPlannerRequest(messages, flags, tools, 2);
+      const cachePrefix = captureExecutingPlannerRequest(messages, flags, tools, 1_000);
       const logger: JsonLogger = {
             path: 'test',
             write(event) {
@@ -732,28 +732,24 @@ test('derived planner requests reject every cache-contract divergence before log
       } as const;
       const cases: Array<{ options: PlannerDerivedRequestOptions; error: RegExp }> = [
         {
-          options: { ...common, messages: [{ role: 'user', content: 'different' }], slotId: 2, ...flags, tools },
+          options: { ...common, messages: [{ role: 'user', content: 'different' }], ...flags, tools },
           error: /approval_verdict prompt-cache contract violated: message 0 diverged/u,
         },
         {
-          options: { ...common, messages, slotId: 2, ...flags, tools: [] },
+          options: { ...common, messages, ...flags, tools: [] },
           error: /approval_verdict prompt-cache contract violated: tools diverged/u,
         },
         {
-          options: { ...common, messages, slotId: 2, ...flags, thinkingEnabled: false, tools },
+          options: { ...common, messages, ...flags, thinkingEnabled: false, tools },
           error: /approval_verdict prompt-cache contract violated: thinkingEnabled diverged/u,
         },
         {
-          options: { ...common, messages, slotId: 2, ...flags, reasoningContentEnabled: false, tools },
+          options: { ...common, messages, ...flags, reasoningContentEnabled: false, tools },
           error: /approval_verdict prompt-cache contract violated: reasoningContentEnabled diverged/u,
         },
         {
-          options: { ...common, messages, slotId: 2, ...flags, preserveThinking: false, tools },
+          options: { ...common, messages, ...flags, preserveThinking: false, tools },
           error: /approval_verdict prompt-cache contract violated: preserveThinking diverged/u,
-        },
-        {
-          options: { ...common, messages, slotId: 1, ...flags, tools },
-          error: /approval_verdict prompt-cache contract violated: slot expected 2, received 1/u,
         },
       ];
 
@@ -770,25 +766,139 @@ test('derived planner requests reject every cache-contract divergence before log
   assert.equal(loggerEvents.some((event) => event.kind === 'provider_request_start'), false);
 });
 
-test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxTokens', async () => {
-  const config = buildTestConfig({ MaxTokens: 300 });
+test('requestApprovalVerdict uses the dedicated non-thinking operation cap', async () => {
+  const captured = await captureChatRequestBody((baseUrl) => {
+    const config = buildTestConfig({ BaseUrl: baseUrl });
+    getActiveModelPreset(config).BaseUrl = baseUrl;
+    return requestApprovalVerdict({
+      config,
+      baseUrl,
+      model: 'test-model',
+      transcriptMessages: [],
+      pendingMessages: [],
+      question: 'ok?',
+      executing: captureExecutingPlannerRequest(
+        [],
+        {
+          thinkingEnabled: false,
+          reasoningContentEnabled: false,
+          preserveThinking: false,
+        },
+        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+        1_000,
+      ),
+      timeoutMs: 5000,
+    });
+  }, '{"verdict":"approve","reason":"ok"}');
 
-  const captured = await captureChatRequestBody((baseUrl) => requestApprovalVerdict({
-    config,
-    baseUrl,
-    model: 'test-model',
-    transcriptMessages: [],
-    pendingMessages: [],
-    question: 'ok?',
-    executing: captureExecutingPlannerRequest([], {
-      thinkingEnabled: false,
-      reasoningContentEnabled: false,
-      preserveThinking: false,
-    }, toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])), 2),
-    timeoutMs: 5000,
-  }), '{"verdict":"approve","reason":"ok"}');
+  assert.equal(captured.max_tokens, 512);
+});
 
-  assert.equal(captured.max_tokens, 300);
+test('approval verdict generation shrinks to what the executing prompt leaves in the budget', async () => {
+  const captured = await captureChatRequestBody((baseUrl) => {
+    const config = buildTestConfig({ BaseUrl: baseUrl, NumCtx: 155_000 });
+    getActiveModelPreset(config).BaseUrl = baseUrl;
+    getActiveModelPreset(config).NumCtx = 155_000;
+    return requestApprovalVerdict({
+      config,
+      baseUrl,
+      model: 'test-model',
+      transcriptMessages: [],
+      pendingMessages: [],
+      question: 'ok?',
+      // Measured at 154,950 of a 155,000-token window: only the remainder minus the
+      // appended question is left for the verdict, well under its 512-token cap.
+      executing: captureExecutingPlannerRequest(
+        [],
+        {
+          thinkingEnabled: false,
+          reasoningContentEnabled: false,
+          preserveThinking: false,
+        },
+        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+        154_950,
+      ),
+      timeoutMs: 5000,
+    });
+  }, '{"verdict":"approve","reason":"ok"}');
+
+  const maxTokens = Number(captured.max_tokens);
+  assert.ok(maxTokens >= 1 && maxTokens < 50, `max_tokens=${maxTokens}`);
+});
+
+test('requestApprovalVerdict uses the dedicated thinking operation cap', async () => {
+  const captured = await captureChatRequestBody((baseUrl) => {
+    const config = buildTestConfig({ BaseUrl: baseUrl });
+    getActiveModelPreset(config).BaseUrl = baseUrl;
+    return requestApprovalVerdict({
+      config,
+      baseUrl,
+      model: 'test-model',
+      transcriptMessages: [],
+      pendingMessages: [],
+      question: 'ok?',
+      executing: captureExecutingPlannerRequest(
+        [],
+        {
+          thinkingEnabled: true,
+          reasoningContentEnabled: true,
+          preserveThinking: true,
+        },
+        toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['run'])),
+        1_000,
+      ),
+      timeoutMs: 5000,
+    });
+  }, '{"verdict":"approve","reason":"ok"}');
+
+  assert.equal(captured.max_tokens, 1_536);
+});
+
+test('approval verdicts extend the measured executing prompt without network tokenization', async () => {
+  let tokenizeRequestCount = 0;
+  await withServer(
+    (req, res) => {
+      if (req.url === '/v1/token/encode') {
+        tokenizeRequestCount += 1;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: 10 }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    },
+    async (baseUrl) => {
+      const config = buildTestConfig({ BaseUrl: baseUrl });
+      getActiveModelPreset(config).BaseUrl = baseUrl;
+      await requestApprovalVerdict({
+        config,
+        baseUrl,
+        model: 'test-model',
+        transcriptMessages: [],
+        pendingMessages: [],
+        question: 'ok?',
+        executing: captureExecutingPlannerRequest([], {
+          thinkingEnabled: false,
+          reasoningContentEnabled: false,
+          preserveThinking: false,
+        }, [], 1_000),
+        timeoutMs: 5000,
+        mockResponses: [{ content: '{"verdict":"approve","reason":"ok"}' }],
+      });
+    },
+  );
+
+  assert.equal(tokenizeRequestCount, 0);
+});
+
+test('captureExecutingPlannerRequest rejects a prompt token count that is not a non-negative integer', () => {
+  const flags = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
+  for (const promptTokenCount of [-1, 1.5, Number.NaN]) {
+    assert.throws(
+      () => captureExecutingPlannerRequest([], flags, [], promptTokenCount),
+      /promptTokenCount must be a non-negative integer/u,
+    );
+  }
 });
 
 test('context compaction branches from an actual preceding planner request', async () => {
@@ -844,7 +954,6 @@ test('context compaction branches from an actual preceding planner request', asy
         baseUrl,
         model: 'mock-model',
         messages: serializedPlanner,
-        slotId: 2,
         timeoutMs: 5000,
         maxTokens: 512,
         ...flags,
@@ -852,7 +961,7 @@ test('context compaction branches from an actual preceding planner request', asy
         responseSchema: null,
         tools,
       });
-      const executing = captureExecutingPlannerRequest(serializedPlanner, flags, tools, 2);
+      const executing = captureExecutingPlannerRequest(serializedPlanner, flags, tools, 1_000);
       const response = await requestContextCompactionSummary({
         config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
@@ -899,7 +1008,7 @@ test('context compaction rejects a branch that diverges from its executing plann
       };
       const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
       const executingMessages = serializeProtocolMessages([{ role: 'system', content: 'original' }], false);
-      const executing = captureExecutingPlannerRequest(executingMessages, flags, tools, 2);
+      const executing = captureExecutingPlannerRequest(executingMessages, flags, tools, 1_000);
 
       await assert.rejects(
         requestContextCompactionSummary({
@@ -934,7 +1043,7 @@ test('first compaction request explicitly starts a new cache epoch', async () =>
     model: 'mock-model',
     messages: [{ role: 'system', content: 'system' }],
     instruction: 'summarize now',
-    cacheOrigin: { kind: 'new_epoch', flags, tools, slotId: 2 },
+    cacheOrigin: { kind: 'new_epoch', flags, tools },
     timeoutMs: 5000,
     maxTokens: 512,
     reasoningBudgetTokens: 342,

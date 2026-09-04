@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import {
   MIN_EXPECTED_TOKENS_PER_SECOND,
   assertDeadlineFitsBudget,
@@ -43,7 +43,7 @@ class EndlessStreamHttpClient {
 }
 
 test('a stream exceeding its total deadline is aborted', async () => {
-  const client = new LlamaCppClient(new EndlessStreamHttpClient());
+  const client = new InferenceClient(new EndlessStreamHttpClient());
 
   await assert.rejects(
     client.chat({
@@ -62,7 +62,7 @@ test('a stream exceeding its total deadline is aborted', async () => {
 });
 
 test('a maxTokens budget larger than the deadline is rejected up front', async () => {
-  const client = new LlamaCppClient(new EndlessStreamHttpClient());
+  const client = new InferenceClient(new EndlessStreamHttpClient());
 
   await assert.rejects(
     client.chat({

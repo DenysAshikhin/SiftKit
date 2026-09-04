@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { groupMessagesIntoTurns, normalizeMessageKind, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
+import { groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../../src/lib/chatTurns';
 import { ChatMessageSchema, type ChatMessage } from '../../src/types';
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
@@ -13,7 +13,6 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
-    associatedToolTokens: 0,
     createdAtUtc: '2026-06-04T00:00:00.000Z',
     sourceRunId: null,
     ...overrides,
@@ -32,12 +31,6 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
   }
   return ChatMessageSchema.parse(candidate);
 }
-
-test('normalizeMessageKind returns the required message discriminant', () => {
-  assert.equal(normalizeMessageKind(message({ kind: 'assistant_answer', role: 'assistant' })), 'assistant_answer');
-  assert.equal(normalizeMessageKind(message({ kind: 'user_text', role: 'user' })), 'user_text');
-  assert.equal(normalizeMessageKind(message({ kind: 'assistant_thinking' })), 'assistant_thinking');
-});
 
 test('groups a settled run turn: steps are thinking+tool, main is the answer', () => {
   const messages = [

@@ -1,6 +1,6 @@
 import { parseJsonText, parseJsonValueText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
-import { isExplicitBasis } from '../domain/enums.js';
+import { isExplicitBasis, type ActorType } from '../domain/enums.js';
 import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.js';
 import { searchTextForAssertion } from '../storage/assertion-search-text.js';
 import type { AssertionStore } from '../storage/assertion-store.js';
@@ -8,6 +8,7 @@ import type { AuditStore } from '../storage/audit-store.js';
 import type { NodeStore } from '../storage/node-store.js';
 import type { PolicyStore } from '../storage/policy-store.js';
 import type { AssertionRow } from '../storage/rows.js';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.js';
 
 export type MergeBlockCode =
@@ -22,13 +23,28 @@ export type MergeBlockCode =
   | 'owner_identity_collapse';
 
 export type MergeOutcome =
-  | { readonly kind: 'merged'; readonly mergeId: string; readonly targetNodeId: string }
+  | {
+    readonly kind: 'merged';
+    readonly mergeId: string;
+    readonly targetNodeId: string;
+    /** Distinct assertions that now reference the target instead of the source. */
+    readonly movedAssertionCount: number;
+    /** Assertions retired as the weaker half of a collision, on whichever side they sat. */
+    readonly retiredAssertionCount: number;
+  }
   | { readonly kind: 'blocked'; readonly code: MergeBlockCode; readonly message: string };
+
+/**
+ * Who asked for this merge. The owner guard turns on it: the assistant must never decide two
+ * people are one, but the owner consolidating misread spellings of their own name is routine.
+ */
+export type MergeActorType = Extract<ActorType, 'user' | 'assistant_proposal'>;
 
 export interface MergeRequest {
   readonly ownerId: string;
   readonly sourceNodeId: string;
   readonly targetNodeId: string;
+  readonly actorType: MergeActorType;
   readonly basis: string;
   readonly reason: string;
 }
@@ -38,9 +54,6 @@ export interface UnmergeRequest {
   readonly mergeId: string;
   readonly reason: string;
 }
-
-/** The canonical key of the assistant owner. Never merged with a third party. */
-const OWNER_CANONICAL_KEY = 'person:self';
 
 const MergePayloadSchema = z.object({
   sourceNodeId: z.string(),
@@ -153,14 +166,22 @@ export class NodeMergeService {
         reversible: true,
       });
       this.audit.recordMutation({
-        ownerId: request.ownerId, actorType: 'user', actorRef: request.ownerId,
+        ownerId: request.ownerId, actorType: request.actorType, actorRef: request.ownerId,
         operation: 'merge_node', targetType: 'graph_nodes', targetId: request.sourceNodeId,
         before: payload, after: { mergeId: mergeRow.id, targetNodeId: request.targetNodeId },
         reason: request.reason,
       });
       this.audit.incrementGraphVersion();
       transaction.commit();
-      return { kind: 'merged', mergeId: mergeRow.id, targetNodeId: request.targetNodeId };
+      return {
+        kind: 'merged',
+        mergeId: mergeRow.id,
+        targetNodeId: request.targetNodeId,
+        movedAssertionCount: new Set(
+          payload.movedAssertions.map((moved) => moved.assertionId),
+        ).size,
+        retiredAssertionCount: payload.retiredAssertionIds.length,
+      };
     } catch (error) {
       return transaction.rollbackAfter(error);
     }
@@ -232,12 +253,13 @@ export class NodeMergeService {
     if (this.policies.isMergeBlocked(request.ownerId, source.id, target.id)) {
       return block('do_not_merge_policy', 'A do_not_merge_node policy covers this pair.');
     }
-    if (
-      source.canonical_key === OWNER_CANONICAL_KEY || target.canonical_key === OWNER_CANONICAL_KEY
-    ) {
+    if (source.canonical_key === OWNER_PERSON_CANONICAL_KEY) {
+      return block('owner_identity_collapse', 'The owner node is never merged into another node.');
+    }
+    if (target.canonical_key === OWNER_PERSON_CANONICAL_KEY && request.actorType !== 'user') {
       return block(
         'owner_identity_collapse',
-        'The assistant owner is never merged with another person.',
+        'Only the owner may merge a node into the owner identity.',
       );
     }
     if (

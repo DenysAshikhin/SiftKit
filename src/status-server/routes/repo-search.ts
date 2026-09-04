@@ -79,17 +79,16 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
       : undefined;
-    const approvalMode = interactive ? 'interactive' : 'off';
-    const approvalOn = approvalMode !== 'off';
     const allowedTools = interactive
       ? [...INTERACTIVE_REPO_TOOL_NAMES]
       : sanitizeNonInteractiveAllowedTools(requestedAllowedTools);
     const progressWriter = new LoggedRepoSearchSseProgressWriter(stream, admission.requestId);
-    const approvalGate = approvalOn
+    const approvalGate = interactive
       ? new ApprovalGate({
         requestId: admission.requestId,
         progressWriter,
         abortSignal: stream.abortSignal,
+        mode: 'interactive',
         bypassReadOnlyTools: false,
       })
       : undefined;
@@ -118,7 +117,6 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         abortSignal: stream.abortSignal,
         progressWriter,
         approvalGate,
-        approvalMode,
       });
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
       return result;

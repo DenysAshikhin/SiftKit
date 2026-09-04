@@ -1,5 +1,5 @@
 /**
- * Shared helpers for provider communication: used by llama-cpp provider,
+ * Shared helpers for provider communication: used by the inference provider,
  * repo-search planner protocol, and future provider integrations.
  */
 import { sleep } from './time.js';
@@ -249,27 +249,20 @@ export function getProcessedPromptTokens(
 }
 
 /**
- * Extract prompt token usage from a provider response body. Handles
- * llama.cpp `usage`, `timings`, and `__verbose.timings` fields as well as
- * OpenAI-style `prompt_tokens_details` / `input_tokens_details`.
+ * Extract prompt token usage from an OpenAI-compatible provider response body.
  */
 export function getPromptUsageFromResponseBody(body: JsonValue): PromptUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
   const usage = JsonRecordReader.asObject(record.usage) ?? {};
-  const timings = JsonRecordReader.asObject(record.timings) ?? {};
-  const verbose = JsonRecordReader.asObject(record.__verbose) ?? {};
-  const verboseTimings = JsonRecordReader.asObject(verbose.timings) ?? {};
   const promptTokenDetails = JsonRecordReader.asObject(usage.prompt_tokens_details) ?? {};
   const inputTokenDetails = JsonRecordReader.asObject(usage.input_tokens_details) ?? {};
 
   const promptTokens = getUsageNumber(usage.prompt_tokens);
-  const promptCacheTokens = getUsageNumber(timings.cache_n)
-    ?? getUsageNumber(verboseTimings.cache_n)
-    ?? getUsageNumber(promptTokenDetails.cached_tokens)
+  const promptCacheTokens = getUsageNumber(promptTokenDetails.cached_tokens)
     ?? getUsageNumber(inputTokenDetails.cached_tokens);
-  const promptEvalTokens = getUsageNumber(timings.prompt_n)
-    ?? getUsageNumber(verboseTimings.prompt_n)
-    ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
+  const promptEvalTokens = promptTokens !== null && promptCacheTokens !== null
+    ? Math.max(promptTokens - promptCacheTokens, 0)
+    : null;
 
   return { promptTokens, promptCacheTokens, promptEvalTokens };
 }
@@ -280,25 +273,12 @@ function secondsToMs(seconds: number | null): number | null {
 
 export function getTimingUsageFromResponseBody(body: JsonValue): TimingUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
-  const timings = JsonRecordReader.asObject(record.timings) ?? {};
-  const verbose = JsonRecordReader.asObject(record.__verbose) ?? {};
-  const verboseTimings = JsonRecordReader.asObject(verbose.timings) ?? {};
-  // llama.cpp reports under `timings` in milliseconds; TabbyAPI reports under
-  // `usage` in seconds (prompt_time/completion_time) with *_tokens_per_sec rates.
   const usage = JsonRecordReader.asObject(record.usage) ?? {};
   return {
-    promptEvalDurationMs: getUsageNumber(timings.prompt_ms)
-      ?? getUsageNumber(verboseTimings.prompt_ms)
-      ?? secondsToMs(getUsageNumber(usage.prompt_time)),
-    generationDurationMs: getUsageNumber(timings.predicted_ms)
-      ?? getUsageNumber(verboseTimings.predicted_ms)
-      ?? secondsToMs(getUsageNumber(usage.completion_time)),
-    promptTokensPerSecond: getUsageNumber(timings.prompt_per_second)
-      ?? getUsageNumber(verboseTimings.prompt_per_second)
-      ?? getUsageNumber(usage.prompt_tokens_per_sec),
-    generationTokensPerSecond: getUsageNumber(timings.predicted_per_second)
-      ?? getUsageNumber(verboseTimings.predicted_per_second)
-      ?? getUsageNumber(usage.completion_tokens_per_sec),
+    promptEvalDurationMs: secondsToMs(getUsageNumber(usage.prompt_time)),
+    generationDurationMs: secondsToMs(getUsageNumber(usage.completion_time)),
+    promptTokensPerSecond: getUsageNumber(usage.prompt_tokens_per_sec),
+    generationTokensPerSecond: getUsageNumber(usage.completion_tokens_per_sec),
   };
 }
 
@@ -309,9 +289,7 @@ export type SpeculativeUsage = {
 
 /**
  * Per-request speculative-decoding stats. TabbyAPI reports accepted/rejected
- * draft tokens under OpenAI's `usage.completion_tokens_details`; llama.cpp
- * exposes no per-request equivalent (its stats are scraped from the managed
- * server log instead), so both fields stay null there.
+ * draft tokens under OpenAI's `usage.completion_tokens_details`.
  */
 export function getSpeculativeUsageFromResponseBody(body: JsonValue): SpeculativeUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
@@ -354,16 +332,10 @@ function getThinkingTokensFromUsage(usage: JsonObject): number | null {
 export function getCompletionUsageFromResponseBody(body: JsonValue): CompletionUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
   const usage = JsonRecordReader.asObject(record.usage) ?? {};
-  const timings = JsonRecordReader.asObject(record.timings) ?? {};
-  const verboseBody = JsonRecordReader.asObject(record.__verbose) ?? {};
-  const verboseTimings = JsonRecordReader.asObject(verboseBody.timings) ?? {};
   return {
     completionTokens: getNormalizedCompletionTokens(
       getUsageNumber(usage.completion_tokens)
-      ?? getUsageNumber(usage.output_tokens)
-      ?? getUsageNumber(timings.predicted_n)
-      ?? getUsageNumber(verboseTimings.predicted_n)
-      ?? getUsageNumber(verboseBody.tokens_predicted),
+      ?? getUsageNumber(usage.output_tokens),
       getThinkingTokensFromUsage(usage),
     ),
     thinkingTokens: getThinkingTokensFromUsage(usage),

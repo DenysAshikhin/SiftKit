@@ -87,7 +87,7 @@ test('inference run flush queue logs each run under its own backend scope', asyn
       lines.join('\n'),
     );
     assert.equal(
-      lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}`)),
+      lines.some((line) => line.includes(`inference ${run.id.slice(0, 8)}`)),
       false,
       lines.join('\n'),
     );
@@ -187,7 +187,7 @@ test('inference run flush queue does not log repeated active-request drain waits
     const lines = capture.lines;
 
     assert.equal(
-      lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}  flush_done`)),
+      lines.some((line) => line.includes(`inference ${run.id.slice(0, 8)}  flush_done`)),
       false,
       lines.join('\n'),
     );

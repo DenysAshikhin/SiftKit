@@ -11,14 +11,12 @@ import {
 } from '../lib/http-client.js';
 import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
 import { AGENT_RUN_ID_HEADER, readNestedAgentRunId } from '../lib/agent-run-marker.js';
-import { parseJsonObjectText, parseJsonText } from '../lib/json.js';
+import { parseJsonText } from '../lib/json.js';
 import {
-  OPERATION_STREAM_EVENTS,
-  OperationStreamErrorSchema,
-  type ModelRequestQueueDiagnostics,
-  type OperationStreamError,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  StatusServerOperationError,
+  streamOperationResult,
 } from '../lib/operation-stream.js';
-import type { ErrorDiagnostic } from '../lib/error-diagnostics.js';
 import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
 import {
@@ -93,7 +91,6 @@ const AssistantOkSchema = z.object({ ok: z.literal(true) }).strict();
 const ZIP_CONTENT_TYPE = 'application/zip';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
-const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REPO_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 const StatusServerApiClientOptionsSchema = z.strictObject({
@@ -102,20 +99,6 @@ const StatusServerApiClientOptionsSchema = z.strictObject({
 export type StatusServerApiClientOptions = z.infer<
   typeof StatusServerApiClientOptionsSchema
 >;
-
-export class StatusServerOperationError extends Error {
-  public readonly diagnosticId: string;
-  public readonly diagnostic: ErrorDiagnostic;
-  public readonly modelRequests: ModelRequestQueueDiagnostics | undefined;
-
-  constructor(payload: OperationStreamError) {
-    super(payload.error);
-    this.name = payload.errorName;
-    this.diagnosticId = payload.diagnosticId;
-    this.diagnostic = payload.diagnostic;
-    this.modelRequests = payload.modelRequests;
-  }
-}
 
 export class StatusServerApiClient {
   private readonly client: HttpClient;
@@ -470,41 +453,35 @@ export class StatusServerApiClient {
     const startedAt = Date.now();
     try {
       const nestedAgentRunId = readNestedAgentRunId();
-      for await (const frame of this.client.streamSse({
+      const stream = streamOperationResult(this.client, {
         ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
         url: this.getServiceUrl(pathname),
         body,
         idleTimeoutMs,
-      })) {
-        if (frame.event === OPERATION_STREAM_EVENTS.progress) {
-          const progressEvent = parseJsonObjectText(frame.data);
-          if (progressEvent.kind === 'approval_request') {
-            if (!approvalPrompter) {
-              throw new Error('Received approval_request on a non-interactive run.');
-            }
-            // The frame crossed the wire, so it is parsed back into its declared shape here.
-            const approval = ApprovalRequestProgressEventSchema.parse(progressEvent);
-            const decision = await approvalPrompter.promptDecision(approval);
-            await this.submitApproval(approval, decision);
-            continue;
-          }
-          renderer.render(progressEvent);
-          continue;
-        }
-        if (frame.event === OPERATION_STREAM_EVENTS.error) {
-          const payload = OperationStreamErrorSchema.parse(parseJsonObjectText(frame.data));
-          throw new StatusServerOperationError(payload);
-        }
-        if (frame.event === OPERATION_STREAM_EVENTS.result) {
+      }, schema);
+      for (;;) {
+        const next = await stream.next();
+        if (next.done) {
           logHttpClientBoundary(
             task,
             'caller_response_received',
             `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
           );
-          return parseJsonText(frame.data, schema);
+          return next.value;
         }
+        const progressEvent = next.value;
+        if (progressEvent.kind === 'approval_request') {
+          if (!approvalPrompter) {
+            throw new Error('Received approval_request on a non-interactive run.');
+          }
+          // The frame crossed the wire, so it is parsed back into its declared shape here.
+          const approval = ApprovalRequestProgressEventSchema.parse(progressEvent);
+          const decision = await approvalPrompter.promptDecision(approval);
+          await this.submitApproval(approval, decision);
+          continue;
+        }
+        renderer.render(progressEvent);
       }
-      throw new Error('Operation stream ended before a result frame.');
     } catch (error) {
       throw this.normalizeError(toError(error));
     }

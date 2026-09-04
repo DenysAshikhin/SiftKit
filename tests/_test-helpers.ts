@@ -347,6 +347,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         requestId: 'stub-repo-search',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
+        turnRecords: [],
         scorecard: buildMockScorecard('stub repo-search output'),
       });
       return;
@@ -381,7 +382,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       res.end(JSON.stringify({ data: [{ id: modelId }] }));
       return;
     }
-    // llama.cpp tokenizes at /tokenize with {content}; TabbyAPI/exl3 at /v1/token/encode
+    // The supported inference API tokenizes at /v1/token/encode with {text}.
     // with {text}. Both engines answer the same stub token count.
     if (req.method === 'POST' && (req.url === '/tokenize' || req.url === '/v1/token/encode')) {
       const bodyText = await readBody(req);
@@ -516,7 +517,7 @@ export async function withTestEnvAndServer(
   const modelPresets = asObject(server.ModelPresets);
   server.ModelPresets = modelPresets;
   modelPresets.ActivePresetId = 'default';
-  // Normalized, not a literal: a preset missing MaxTokens/samplers is a shape the config
+  // Normalized, not a literal: a preset missing samplers is a shape the config
   // store never produces, and the engine reads those fields on every request.
   modelPresets.Presets = normalizeModelRuntimePresetArray([{
     id: 'default',

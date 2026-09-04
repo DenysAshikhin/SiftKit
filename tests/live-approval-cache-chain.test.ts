@@ -1,42 +1,36 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
-import {
-  getActiveModelPreset,
-  getConfiguredEngineBaseUrl,
-  loadConfig,
-} from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import {
   ApprovalVerdictSchema,
   buildApprovalVerdictJsonSchema,
 } from '../src/repo-search/approval-verdict.js';
 import { isApprovalExemptReadOnlyTool } from '../src/repo-search/engine/approval-gate.js';
-import { allocateLlamaCppSlotId } from '../src/repo-search/engine/task-loop-support.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
-  resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
   type ChatMessage,
   type ExecutingPlannerRequest,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
-import { toProtocolTools } from '../src/providers/llama-cpp.js';
+import {
+  buildLiveContextTranscript,
+  LIVE_PLANNER_MAX_TOKENS,
+  LIVE_REQUEST_TIMEOUT_MS,
+  LIVE_TEST_TIMEOUT_MS,
+  loadLivePlannerFixture,
+} from './helpers/live-planner-fixture.js';
 
 const LIVE_CACHE_CHAIN_ENABLED = process.env.SIFTKIT_TEST_LIVE_APPROVAL_CACHE_CHAIN === '1';
 const MIN_LARGE_CONTEXT_TOKENS = 32_768;
 const CACHE_RETENTION_FRACTION = 0.9;
 const CONTEXT_LINE_COUNT = 2_600;
 const LARGE_TOOL_CONTENT_BYTES = 2_048;
-const LIVE_REQUEST_TIMEOUT_MS = 300_000;
-const LIVE_TEST_TIMEOUT_MS = 600_000;
-const PLANNER_MAX_TOKENS = 4_096;
 const LIVE_STEP_RESPONSE_SCHEMA = buildApprovalVerdictJsonSchema();
 
 type CacheRecord = {
@@ -46,11 +40,6 @@ type CacheRecord = {
   promptEvalDurationMs: number | null;
   verdict?: 'approve';
 };
-
-function requireConfiguredString(value: string | null | undefined, message: string): string {
-  if (!value) throw new Error(message);
-  return value;
-}
 
 function toCacheRecord(
   label: string,
@@ -72,57 +61,29 @@ test('live provider retains the large prefix through two approvals and an exempt
     ? false
     : 'set SIFTKIT_TEST_LIVE_APPROVAL_CACHE_CHAIN=1 and use an existing local status/model server',
 }, async () => {
-  const config = await loadConfig({ ensure: true });
-  const preset = getActiveModelPreset(config);
-  const model = requireConfiguredString(
-    preset.Model,
-    `active preset ${preset.id} has no configured model`,
-  );
-  const baseUrl = requireConfiguredString(
-    getConfiguredEngineBaseUrl(config),
-    `active preset ${preset.id} has no configured base URL`,
-  );
-  const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(
-    INTERACTIVE_REPO_TOOL_NAMES,
-    preset.VisionEnabled === true,
-  ));
-  const slotId = allocateLlamaCppSlotId(config);
-  const runNonce = randomUUID();
+  const { config, model, baseUrl, tools } = await loadLivePlannerFixture();
   const thinking = {
     thinkingEnabled: false,
     reasoningContentEnabled: false,
     preserveThinking: false,
   } satisfies PlannerThinkingFlags;
-  const transcript: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `Cache-chain run ${runNonce}. Maintain this context and return only the requested JSON.`,
-    },
-    {
-      role: 'user',
-      content: Array.from(
-        { length: CONTEXT_LINE_COUNT },
-        (_, index) => `Context line ${index}: parser cache approval schema tool replay deterministic evidence.`,
-      ).join('\n'),
-    },
-    {
-      role: 'user',
-      content: 'Return {"verdict":"approve","reason":"cache probe"}. Do not call tools.',
-    },
-  ];
+  const transcript = buildLiveContextTranscript({
+    runLabel: 'Cache-chain',
+    lineCount: CONTEXT_LINE_COUNT,
+    request: 'Return {"verdict":"approve","reason":"cache probe"}. Do not call tools.',
+  });
   const records: CacheRecord[] = [];
 
   async function requestPlanner(label: string): Promise<ExecutingPlannerRequest> {
     const messages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
-    const executing = captureExecutingPlannerRequest(messages, thinking, tools, slotId);
+    const executing = captureExecutingPlannerRequest(messages, thinking, tools, 1_000);
     const response = await requestRepoSearchPlannerProtocolAction({
       config,
       baseUrl,
       model,
       messages,
-      slotId,
       timeoutMs: LIVE_REQUEST_TIMEOUT_MS,
-      maxTokens: PLANNER_MAX_TOKENS,
+      maxTokens: LIVE_PLANNER_MAX_TOKENS,
       ...thinking,
       stage: 'planner_action',
       tools,

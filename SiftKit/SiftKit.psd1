@@ -27,7 +27,7 @@
     AliasesToExport = @()
     PrivateData = @{
         PSData = @{
-            Tags = @('codex', 'llama.cpp', 'powershell', 'summarization')
+            Tags = @('codex', 'exllamav3', 'powershell', 'summarization')
             ProjectUri = 'https://github.com/denys/SiftKit'
         }
     }

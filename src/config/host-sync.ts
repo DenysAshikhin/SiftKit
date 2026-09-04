@@ -23,7 +23,7 @@ const HOST_SETTINGS_TTL_MS = 60_000;
 type HostPresetSettings = Pick<ModelRuntimePreset,
   'Model' | 'NumCtx' | 'Reasoning' | 'ReasoningEffort' | 'ReasoningContent' | 'PreserveThinking'
   | 'MaintainPerStepThinking'
-  | 'MaxTokens' | 'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty'>;
+  | 'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty'>;
 
 // A host can swap presets while this process runs, so the snapshot expires
 // instead of pinning the first answer for the process lifetime.
@@ -62,7 +62,6 @@ async function fetchHostPresetSettings(baseUrl: string): Promise<HostPresetSetti
     ReasoningContent: hostPreset.ReasoningContent,
     PreserveThinking: hostPreset.PreserveThinking,
     MaintainPerStepThinking: hostPreset.MaintainPerStepThinking,
-    MaxTokens: hostPreset.MaxTokens,
     Temperature: hostPreset.Temperature,
     TopP: hostPreset.TopP,
     TopK: hostPreset.TopK,

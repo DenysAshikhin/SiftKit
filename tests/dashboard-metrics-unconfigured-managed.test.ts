@@ -36,7 +36,6 @@ test('dashboard metrics timeseries loads when the managed engine is unconfigured
     getActiveModelPreset(config).MinP = 0;
     getActiveModelPreset(config).PresencePenalty = 0;
     getActiveModelPreset(config).RepetitionPenalty = 0;
-    getActiveModelPreset(config).MaxTokens = 0;
     getActiveModelPreset(config).ParallelSlots = 0;
     writeConfig(runtimeDbPath, config);
 

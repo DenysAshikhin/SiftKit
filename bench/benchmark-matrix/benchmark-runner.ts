@@ -42,7 +42,8 @@ export async function invokeBenchmarkProcess(
   const result = await spawnAndWait({
     filePath: nodeExe,
     args,
-    cwd: repoRoot,
+    // Runtime storage belongs to the matrix caller, even when the code lives elsewhere.
+    cwd: process.cwd(),
     env: {
       ...process.env,
       SIFTKIT_CONFIG_SERVICE_URL: manifest.configUrl,

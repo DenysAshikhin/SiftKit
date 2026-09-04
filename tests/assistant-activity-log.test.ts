@@ -48,7 +48,8 @@ test('activity ingestion writes a row and keeps same-application events in one s
 
     assert.equal(first.application_id, 'app:code');
     assert.equal(first.normalized_title, 'SiftKit - Visual Studio Code');
-    assert.equal(first.idle_seconds, 3);
+    assert.equal(first.mouse_idle_seconds, 9);
+    assert.equal(first.keyboard_idle_seconds, 3);
     assert.equal(first.session_locked, false);
     assert.notEqual(first.session_id, null);
     assert.equal(second.session_id, first.session_id);

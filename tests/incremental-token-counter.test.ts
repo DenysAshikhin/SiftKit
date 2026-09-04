@@ -10,7 +10,7 @@ import type { InferenceBackendId } from '../src/config/types.js';
 import type { SiftConfig } from '../src/config/index.js';
 import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
-import type { LlamaCppToolDefinition } from '../src/llm-protocol/types.js';
+import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import { asRuntimeSiftConfig } from './helpers/mock-config.js';
 
@@ -70,7 +70,7 @@ test('an identical text returns the cached count without tokenizing', async () =
     await counter.count(config, 'alpha beta');
     const result = await counter.count(config, 'alpha beta');
     assert.equal(result.tokenCount, 'alpha beta'.length);
-    assert.equal(result.llamaTokenCount, null);
+    assert.equal(result.inferenceTokenCount, null);
     assert.deepEqual(seen, ['alpha beta']);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });
 });
@@ -143,9 +143,9 @@ test('no config uses the estimate without caching', async () => {
 const GREP_TOOL = {
   type: 'function',
   function: { name: 'grep', description: 'search the repository', parameters: { type: 'object' } },
-} satisfies LlamaCppToolDefinition;
+} satisfies InferenceToolDefinition;
 
-const PREFLIGHT_BUDGET = { totalContextTokens: 9_000, responseReserveTokens: 1_000 };
+const PREFLIGHT_BUDGET = { maxPromptTokens: 8_000 };
 
 test('preflight counts tool schemas as part of the prompt', async () => {
   const seen: string[] = [];
@@ -228,15 +228,13 @@ test('a delta-derived count near the budget forces one exact recount', async () 
     await preflightPlannerPromptBudget({
       config,
       prompt: firstPrompt,
-      totalContextTokens: 3000,
-      responseReserveTokens: 0,
+      maxPromptTokens: 3000,
       promptTokenCounter,
     });
     const second = await preflightPlannerPromptBudget({
       config,
       prompt: secondPrompt,
-      totalContextTokens: 3000,
-      responseReserveTokens: 0,
+      maxPromptTokens: 3000,
       promptTokenCounter,
     });
     assert.equal(second.promptTokenCount, secondPrompt.text.length);
@@ -255,14 +253,12 @@ test('preflight without counters keeps the one-shot behavior', async () => {
     await preflightPlannerPromptBudget({
       config,
       prompt: firstPrompt,
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     await preflightPlannerPromptBudget({
       config,
       prompt: secondPrompt,
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.deepEqual(seen, [firstPrompt.text, secondPrompt.text]);
   }, { tokenizeTokenCount: trackingTokenizer(seen) });

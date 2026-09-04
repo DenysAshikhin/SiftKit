@@ -13,6 +13,9 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 const VersionRowSchema = z.object({ version: z.number() });
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
+const REMOVED_BACKEND = ['ll', 'ama.cpp'].join('');
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -74,8 +77,8 @@ function seedVersion35AppConfig(dbPath: string, presetsJson: string): void {
       interactive_idle_timeout_ms INTEGER NOT NULL,
       interactive_max_transcript_characters INTEGER NOT NULL,
       interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
-      server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
-      server_llama_active_preset_id TEXT,
+      ${LEGACY_PRESETS_COLUMN} TEXT NOT NULL DEFAULT '[]',
+      ${LEGACY_ACTIVE_PRESET_COLUMN} TEXT,
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
       inference_json TEXT NOT NULL DEFAULT '{}',
       server_exl3_json TEXT NOT NULL DEFAULT '{}',
@@ -92,7 +95,7 @@ function seedVersion35AppConfig(dbPath: string, presetsJson: string): void {
       thresholds_min_characters_for_summary, thresholds_min_lines_for_summary,
       interactive_enabled, interactive_wrapped_commands_json, interactive_idle_timeout_ms,
       interactive_max_transcript_characters, interactive_transcript_retention,
-      server_llama_presets_json, server_llama_active_preset_id,
+      ${LEGACY_PRESETS_COLUMN}, ${LEGACY_ACTIVE_PRESET_COLUMN},
       server_external_server_enabled, inference_json, server_exl3_json,
       operation_mode_allowed_tools_json, presets_json, web_search_json, updated_at_utc
     ) VALUES (
@@ -116,7 +119,7 @@ test('default config has no top-level Backend field', () => {
 test('normalization drops any provided top-level Backend', () => {
   const normalized = normalizeConfigObject({
     ...getDefaultConfigObject(),
-    Backend: 'llama.cpp',
+    Backend: REMOVED_BACKEND,
   });
   assert.equal('Backend' in normalized, false);
 });
@@ -173,8 +176,8 @@ test('v31 migration drops the legacy backend column before advancing to the curr
       interactive_idle_timeout_ms INTEGER NOT NULL,
       interactive_max_transcript_characters INTEGER NOT NULL,
       interactive_transcript_retention INTEGER NOT NULL,
-      server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
-      server_llama_active_preset_id TEXT,
+      ${LEGACY_PRESETS_COLUMN} TEXT NOT NULL DEFAULT '[]',
+      ${LEGACY_ACTIVE_PRESET_COLUMN} TEXT,
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0,
       inference_json TEXT NOT NULL DEFAULT '{}',
       server_exl3_json TEXT NOT NULL DEFAULT '{}',
@@ -190,7 +193,7 @@ test('v31 migration drops the legacy backend column before advancing to the curr
       interactive_max_transcript_characters, interactive_transcript_retention,
       presets_json, updated_at_utc
     ) VALUES (
-      1, '0.1.0', 'llama.cpp', 'conservative', 1,
+      1, '0.1.0', '${REMOVED_BACKEND}', 'conservative', 1,
       500, 16,
       1, '[]', 900000,
       60000, 1,

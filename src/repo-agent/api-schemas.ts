@@ -4,10 +4,10 @@ import {
   RepoAgentApproveDecisionSchema,
   RepoAgentDecisionSchema,
   RepoAgentDenyDecisionSchema,
+  ApprovalModeSchema,
 } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
-import { ApprovalModeSchema } from '../repo-search/engine/approval-gate.js';
 import { RepoSearchMockCommandResultSchema } from '../repo-search/types.js';
 import { RepoAgentRunIdSchema } from './run-schemas.js';
 import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js';
@@ -15,7 +15,7 @@ import { MockPlannerResponsesSchema } from '../planner-protocol/mock-response.js
 export const RepoAgentStartRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1),
   repoRoot: z.string().min(1).optional(),
-  approval: ApprovalModeSchema.optional(),
+  approval: ApprovalModeSchema,
   model: z.string().min(1).nullable().optional(),
   logFile: z.string().min(1).optional(),
   images: z.array(ImageDataUrlSchema).optional(),

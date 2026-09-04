@@ -578,3 +578,121 @@ test('budget notice still reaches the model when a batch collapses onto a duplic
   assert.equal(last?.role, 'user');
   assert.match(String(last?.content ?? ''), /2 tool-call turns remaining \(3\/5 used\)/u);
 });
+
+// A tool whose result cannot be represented in the transcript must not run: no approval
+// request, no start event, no side effect — only an aligned budget rejection.
+test('a zero-capacity tool is rejected before approval and before execution', async () => {
+  let approvalRequestCount = 0;
+  const approvalGate: ApprovalRequester = {
+    request(): Promise<{ kind: 'approve' }> {
+      approvalRequestCount += 1;
+      return Promise.resolve({ kind: 'approve' });
+    },
+  };
+  const root = createManagedTempDir('siftkit-zero-capacity-');
+  const command = buildRepoToolRequestedCommand('run', { command: 'Write-Output should-not-run' });
+  const { processor, commands, counters, budget, events, transcript } = makeProcessor(
+    root,
+    ['run'],
+    'repo-search',
+    approvalGate,
+    { [command]: { exitCode: 0, stdout: 'should-not-run', stderr: '' } },
+  );
+
+  await processor.executeBatch(
+    1,
+    [{ kind: 'tool', callId: 'zero_capacity', toolName: 'run', args: { command: 'Write-Output should-not-run' } }],
+    '',
+    budget.maxPromptTokens,
+    false,
+  );
+
+  assert.equal(approvalRequestCount, 0);
+  assert.equal(events.some((event) => event.kind === 'turn_command_start'), false);
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0]?.safe, false);
+  assert.equal(commands[0]?.exitCode, null);
+  assert.match(commands[0]?.reason ?? '', /context budget exhausted/u);
+  assert.match(commands[0]?.reason ?? '', /prompt_tokens=\d+ max_prompt_tokens=\d+ remaining_tool_tokens=0/u);
+  assert.match(commands[0]?.output ?? '', /tool was not executed/u);
+  assert.match(JSON.stringify(transcript.getMessages()), /Reissue the action after compaction/u);
+  assert.equal(counters.rejectedCalls, 1);
+  assert.equal(counters.invalidResponses, 0);
+  const resultEvent = events.find((event) => event.kind === 'turn_command_result');
+  assert.equal(resultEvent?.rejectionKind, 'budget');
+  assert.equal(resultEvent?.exitCode, null);
+});
+
+test('every action of a zero-capacity batch is rejected without execution, in order', async () => {
+  let approvalRequestCount = 0;
+  const approvalGate: ApprovalRequester = {
+    request(): Promise<{ kind: 'approve' }> {
+      approvalRequestCount += 1;
+      return Promise.resolve({ kind: 'approve' });
+    },
+  };
+  const root = createManagedTempDir('siftkit-zero-capacity-batch-');
+  const commandTexts = ['Write-Output one', 'Write-Output two', 'Write-Output three'];
+  const mockCommandResults = Object.fromEntries(commandTexts.map((text) => [
+    buildRepoToolRequestedCommand('run', { command: text }),
+    { exitCode: 0, stdout: text, stderr: '' },
+  ]));
+  const { processor, commands, budget, events } = makeProcessor(
+    root,
+    ['run'],
+    'repo-search',
+    approvalGate,
+    mockCommandResults,
+  );
+
+  await processor.executeBatch(
+    1,
+    commandTexts.map((text, index) => ({
+      kind: 'tool' as const,
+      callId: `zero_capacity_${index}`,
+      toolName: 'run',
+      args: { command: text },
+    })),
+    '',
+    budget.maxPromptTokens,
+    false,
+  );
+
+  assert.equal(approvalRequestCount, 0);
+  assert.equal(events.some((event) => event.kind === 'turn_command_start'), false);
+  assert.equal(commands.length, 3);
+  assert.deepEqual(
+    commands.map((entry) => entry.command),
+    commandTexts.map((text) => buildRepoToolRequestedCommand('run', { command: text })),
+  );
+  for (const entry of commands) {
+    assert.equal(entry.safe, false);
+    assert.equal(entry.exitCode, null);
+    assert.match(entry.reason ?? '', /context budget exhausted/u);
+  }
+});
+
+test('a tool with one token of capacity still executes', async () => {
+  const root = createManagedTempDir('siftkit-one-token-capacity-');
+  const command = buildRepoToolRequestedCommand('run', { command: 'Write-Output runs' });
+  const { processor, commands, budget, events } = makeProcessor(
+    root,
+    ['run'],
+    'repo-search',
+    null,
+    { [command]: { exitCode: 0, stdout: 'runs', stderr: '' } },
+  );
+
+  await processor.executeBatch(
+    1,
+    [{ kind: 'tool', callId: 'one_token', toolName: 'run', args: { command: 'Write-Output runs' } }],
+    '',
+    budget.maxPromptTokens - 1,
+    false,
+  );
+
+  assert.equal(events.some((event) => event.kind === 'turn_command_start'), true);
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0]?.safe, true);
+  assert.equal(commands[0]?.exitCode, 0);
+});

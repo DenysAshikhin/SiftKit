@@ -6,6 +6,7 @@ import {
   AssistantConfigPatchRequestSchema,
   AssistantConfirmTokenRequestSchema,
   AssistantExportRequestSchema,
+  AssistantGraphCleanupRequestSchema,
   AssistantRestoreConfirmRequestSchema,
   KeyMaterialDtoSchema,
 } from '@siftkit/contracts';
@@ -70,6 +71,18 @@ export const factoryResetEndpoint = assistantRoute(async ({ service, req, res })
   await service.factoryReset(request.previewToken);
   sendJson(res, 200, { ok: true });
 }, { requireEnabled: false });
+
+export const graphCleanupPreviewEndpoint = assistantRoute(({ service, res }) => {
+  sendJson(res, 200, service.previewGraphCleanup());
+});
+
+export const graphCleanupEndpoint = assistantRoute(async ({ service, req, res }) => {
+  const request = await body(req, AssistantGraphCleanupRequestSchema);
+  // `cleanUpGraph` serializes itself against drains; do not wrap it again here.
+  sendJson(res, 200, await service.cleanUpGraph(
+    request.previewToken, { reclassifyScreenshots: request.reclassifyScreenshots },
+  ));
+});
 
 export const exportEndpoint = assistantRoute(async ({ service, req, res }) => {
   const request = await body(req, AssistantExportRequestSchema);

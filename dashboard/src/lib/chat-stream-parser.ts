@@ -5,11 +5,13 @@ import {
   ChatStreamProgressSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
+  ChatStreamUsageEventSchema,
   type ChatSessionResponse,
   type ChatStreamApproval,
   type ChatStreamProgress,
   type ChatStreamTextDelta,
   type ChatStreamToolEvent,
+  type ChatStreamUsageEvent,
 } from '@siftkit/contracts';
 
 export type { ChatStreamToolEvent } from '@siftkit/contracts';
@@ -23,6 +25,7 @@ export type ChatStreamEvent =
   | { kind: 'approval'; approval: ChatStreamApproval }
   | { kind: 'answer'; delta: ChatStreamTextDelta }
   | { kind: 'done'; payload: ChatSessionResponse }
+  | { kind: 'usage'; usage: ChatStreamUsageEvent }
   | { kind: 'error'; message: string };
 
 type ParsedPacket = { eventName: string; data: JsonValue } | null;
@@ -82,6 +85,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     }
     case 'error':
       return { kind: 'error', message: String(record.error ?? 'stream error') };
+    case 'usage': {
+      const result = ChatStreamUsageEventSchema.safeParse(record);
+      return result.success ? { kind: 'usage', usage: result.data } : null;
+    }
     default:
       return null;
   }

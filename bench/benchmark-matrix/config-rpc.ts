@@ -1,10 +1,10 @@
 import { httpClient } from '../../src/lib/http-client.js';
 import { isJsonObject, type OptionalJsonValue } from '../../src/lib/json-types.js';
 import { sleep } from '../../src/lib/time.js';
-import { LlamaCppClient } from '../../src/llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../../src/llm-protocol/inference-client.js';
 import { ConfigRecordSchema, type ConfigRecord } from './types.js';
 
-const llamaCppClient = new LlamaCppClient();
+const inferenceClient = new InferenceClient();
 
 export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
   return httpClient.requestJson({
@@ -34,11 +34,11 @@ export function getActivePresetBaseUrl(config: ConfigRecord): OptionalJsonValue 
   return active?.BaseUrl;
 }
 
-export async function getLlamaModels(baseUrl: string): Promise<string[]> {
-  return llamaCppClient.listModelsAtBaseUrl(baseUrl, 10_000);
+export async function getInferenceModels(baseUrl: string): Promise<string[]> {
+  return inferenceClient.listModelsAtBaseUrl(baseUrl, 10_000);
 }
 
-export async function waitForLlamaReadiness(
+export async function waitForEngineReadiness(
   baseUrl: string,
   expectedModelId: string,
   timeoutSeconds = 180,
@@ -48,12 +48,12 @@ export async function waitForLlamaReadiness(
 
   while (Date.now() < deadline) {
     try {
-      const models = await getLlamaModels(baseUrl);
+      const models = await getInferenceModels(baseUrl);
       if (models.includes(expectedModelId)) {
         return models;
       }
 
-      lastError = `llama-server is reachable but expected model '${expectedModelId}' is not loaded. Available models: ${models.length > 0 ? models.join(', ') : '<none>'}`;
+      lastError = `Inference engine is reachable but expected model '${expectedModelId}' is not loaded. Available models: ${models.length > 0 ? models.join(', ') : '<none>'}`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
@@ -61,5 +61,5 @@ export async function waitForLlamaReadiness(
     await sleep(2_000);
   }
 
-  throw new Error(`Timed out waiting for llama-server at ${baseUrl} to load model '${expectedModelId}'. Last error: ${lastError}`);
+  throw new Error(`Timed out waiting for the inference engine at ${baseUrl} to load model '${expectedModelId}'. Last error: ${lastError}`);
 }

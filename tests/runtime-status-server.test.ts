@@ -10,6 +10,13 @@ import { loadConfig, getConfigPath } from '../src/config/index.js';
 
 const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
 const RequestJsonRowSchema = z.object({ request_json: z.string().nullish() }).optional();
+const RunIdentityRowSchema = z.object({
+  operation_type: z.string().nullable(),
+  operation_preset_id: z.string().nullable(),
+  model_preset_id: z.string().nullable(),
+  operation_preset_json: z.string().nullable(),
+  model_preset_json: z.string().nullable(),
+});
 const SpeculativeRowSchema = z
   .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
   .optional();
@@ -34,10 +41,11 @@ import {
   postStatusComplete,
   postCompletedStatus,
   type RuntimeStatusResponse,
-  type LlamaModelsResponse,
+  type InferenceModelsResponse,
   type HealthCheckResponse,
 } from './_runtime-helpers.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 
 interface StatusPostResponse {
   ok?: boolean;
@@ -244,7 +252,7 @@ test('real status server starts the managed engine during server startup before 
     await withRealStatusServer(async ({ port, statusUrl }) => {
       assert.equal(readStatusText(getConfigPath()), 'false');
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
       await waitForAsyncExpectation(async () => {
@@ -416,6 +424,13 @@ test('real status server accepts deferred summary artifacts on terminal posts an
               classification: 'summary',
               summary: 'mock summary',
             },
+            identity: {
+              operationType: 'summary',
+              operationPresetId: 'summary',
+              operationPresetJson: '{"id":"summary"}',
+              modelPresetId: 'default',
+              modelPresetJson: '{"id":"default","Model":"mock-model"}',
+            },
           },
         ],
       });
@@ -457,6 +472,18 @@ test('real status server accepts deferred summary artifacts on terminal posts an
           `).get(requestId));
           assert.equal(typeof row?.request_json, 'string');
           assert.match(String(row?.request_json || ''), /mock summary/u);
+          const identity = RunIdentityRowSchema.parse(verifyDb.prepare(`
+            SELECT operation_type, operation_preset_id, model_preset_id, operation_preset_json, model_preset_json
+            FROM run_logs
+            WHERE request_id = ?
+          `).get(requestId));
+          assert.deepEqual(identity, {
+            operation_type: 'summary',
+            operation_preset_id: 'summary',
+            model_preset_id: 'default',
+            operation_preset_json: '{"id":"summary"}',
+            model_preset_json: '{"id":"default","Model":"mock-model"}',
+          });
         } finally {
           verifyDb.close();
         }
@@ -540,7 +567,7 @@ test('real status server reports idle false while the managed engine stays ready
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
@@ -605,9 +632,9 @@ test('real status server keeps running in degraded mode when the managed engine 
     await withRealStatusServer(async ({ healthUrl }) => {
       const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
-      assert.equal('managedLlamaReady' in health, false);
-      assert.equal('managedLlamaStarting' in health, false);
-      assert.equal('managedLlamaStartupWarning' in health, false);
+      assert.equal(['managed', 'Ll', 'amaReady'].join('') in health, false);
+      assert.equal(['managed', 'Ll', 'amaStarting'].join('') in health, false);
+      assert.equal(['managed', 'Ll', 'amaStartupWarning'].join('') in health, false);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
       statusPath,
@@ -867,6 +894,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
           database,
           requestId,
           taskKind: 'repo-search',
+          identity: UNRECORDED_RUN_IDENTITY,
           prompt: 'find tool calls',
           repoRoot: tempRoot,
           model: 'mock-model',

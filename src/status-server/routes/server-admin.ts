@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
+import { InferenceClient } from '../../llm-protocol/inference-client.js';
 import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonValueText } from '../../lib/json.js';
@@ -37,7 +37,7 @@ import { readGpuMemory } from '../gpu-memory.js';
 import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 
-const llamaCppClient = new LlamaCppClient();
+const inferenceClient = new InferenceClient();
 
 export function isStrictConfigPayload(value: OptionalJsonValue): boolean {
   const record = JsonRecordReader.asObject(value);
@@ -131,7 +131,7 @@ export class StatusReadEndpoint implements RouteEndpoint {
   }
 }
 
-export class LlamaCppConfigTestEndpoint implements RouteEndpoint {
+export class EngineConfigTestEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
     req: IncomingMessage,
@@ -163,7 +163,7 @@ export class LlamaCppConfigTestEndpoint implements RouteEndpoint {
       ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
       : 2_000;
     try {
-      const response = await llamaCppClient.probeModelsAtBaseUrl(baseUrl, timeoutMs);
+      const response = await inferenceClient.probeModelsAtBaseUrl(baseUrl, timeoutMs);
       sendJson(res, 200, {
         ok: response.statusCode > 0 && response.statusCode < 400,
         statusCode: response.statusCode,

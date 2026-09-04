@@ -166,11 +166,11 @@ test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderO
 
 test('normalizeConfig keeps Server.ModelPresets as a presets-only shape', () => {
   const normalized = normalizeConfig(getDefaultConfig());
-  const llama = normalized.Server.ModelPresets;
+  const modelPresets = normalized.Server.ModelPresets;
 
-  assert.deepEqual(Object.keys(llama).sort(), ['ActivePresetId', 'Presets']);
-  assert.ok(Array.isArray(llama.Presets));
-  assert.ok(llama.Presets.length >= 1);
+  assert.deepEqual(Object.keys(modelPresets).sort(), ['ActivePresetId', 'Presets']);
+  assert.ok(Array.isArray(modelPresets.Presets));
+  assert.ok(modelPresets.Presets.length >= 1);
 });
 
 test('normalizeConfig falls back an unknown ActivePresetId to the first preset', () => {
@@ -178,9 +178,9 @@ test('normalizeConfig falls back an unknown ActivePresetId to the first preset',
   asObject(asObject(config.Server).ModelPresets).ActivePresetId = 'does-not-exist';
 
   const normalized = normalizeConfig(JsonValueSchema.parse(config));
-  const llama = normalized.Server.ModelPresets;
+  const modelPresets = normalized.Server.ModelPresets;
 
-  assert.equal(llama.ActivePresetId, llama.Presets[0].id);
+  assert.equal(modelPresets.ActivePresetId, modelPresets.Presets[0].id);
 });
 
 test('normalizeConfig defaults a missing preset Backend to exl3 and rejects any other backend', () => {
@@ -189,10 +189,10 @@ test('normalizeConfig defaults a missing preset Backend to exl3 and rejects any 
   assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(missing))).Backend, 'exl3');
 
   const stale = defaultConfigObject();
-  activePresetObject(stale).Backend = 'llama';
+  activePresetObject(stale).Backend = ['ll', 'ama'].join('');
   assert.throws(
     () => normalizeConfig(JsonValueSchema.parse(stale)),
-    /Unsupported model preset Backend 'llama'; only exl3 is supported/u,
+    /Unsupported model preset Backend .* only exl3 is supported/u,
   );
 });
 

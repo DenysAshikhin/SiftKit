@@ -18,6 +18,7 @@ import {
   getAssistantPendingCaptures,
   getAssistantValidation,
   removeAssistantValidationCandidate,
+  resolveAssistantCandidateIdentity,
   saveAssistantValidationNotes,
 } from '../../assistant-api.js';
 import { ImageLightbox } from '../../components/ImageLightbox.js';
@@ -412,6 +413,29 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     }
   }
 
+  /**
+   * Answers the identity hold. Only a promotion removes the card: a rejection or a second hold
+   * leaves the candidate in the queue, so the list is reloaded and the reason shown.
+   */
+  async function resolveIdentity(
+    candidate: AssistantValidationCandidateDto, isOwner: boolean,
+  ): Promise<void> {
+    if (token === null) return;
+    try {
+      const result = await resolveAssistantCandidateIdentity(token, candidate.id, isOwner);
+      if (result.outcome === 'promoted') {
+        setValidation((items) => items.filter((item) => item.id !== candidate.id));
+        return;
+      }
+      setValidation(await getAssistantValidation(token));
+      setError(result.outcome === 'rejected'
+        ? `“${candidate.proposedStatement}” could not be written and stays in the queue.`
+        : `“${candidate.proposedStatement}” raised another question and stays in the queue.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   async function removeCandidate(candidate: AssistantValidationCandidateDto): Promise<void> {
     if (token === null || !window.confirm(`Remove “${candidate.proposedStatement}” from validation?`)) return;
     try {
@@ -491,6 +515,30 @@ export function AssistantSettings(props: AssistantSettingsProps) {
               </div>
               <p>{candidate.rationale}</p>
               <p className="hint">Proof: {candidate.evidenceId ?? 'No evidence reference'} · {candidate.sensitivity}</p>
+              {candidate.hold?.kind === 'possible_owner_alias' ? (
+                  <div className="assistant-identity-question">
+                    <p>
+                      “{candidate.hold.name}” is close to one of your own names. Is that you?
+                      Nothing is written until you answer.
+                    </p>
+                    <div className="assistant-card-actions">
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => { void resolveIdentity(candidate, true); }}
+                      >
+                        Yes, that is me
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => { void resolveIdentity(candidate, false); }}
+                      >
+                        No, someone else
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               <label>
                 <span className="assistant-notes-label">Your notes</span>
                 <textarea

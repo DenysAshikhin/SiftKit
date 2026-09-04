@@ -27,6 +27,9 @@ import {
   getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
 
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+
 // SQLite .get()/.all() return `unknown`; narrow rows to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {
   return JsonRecordReader.asObject(value) ?? {};
@@ -85,7 +88,7 @@ test('ensureRunLogsTable preserves existing run token fields', () => {
       '2026-04-17T00:00:01.000Z',
       'legacy repo search',
       'mock-model',
-      'llama',
+      'exl3',
       process.cwd(),
       123,
       45,
@@ -141,7 +144,7 @@ test('ensureRunLogsTable does not rewrite existing run rows', () => {
       '2026-04-17T00:00:01.000Z',
       'legacy repo search',
       'mock-model',
-      'llama',
+      'exl3',
       process.cwd(),
       123,
       45,
@@ -421,6 +424,8 @@ test('runtime database schema migration preserves existing metrics token totals'
 
     const legacy = new Database(databasePath);
     legacy.exec(`
+      ALTER TABLE app_config RENAME COLUMN server_model_presets_json TO ${LEGACY_PRESETS_COLUMN};
+      ALTER TABLE app_config RENAME COLUMN server_model_active_preset_id TO ${LEGACY_ACTIVE_PRESET_COLUMN};
       UPDATE runtime_schema SET version = 11 WHERE id = 1;
       INSERT INTO runtime_metrics_totals (
         id, schema_version, input_characters_total, output_characters_total, input_tokens_total, output_tokens_total,

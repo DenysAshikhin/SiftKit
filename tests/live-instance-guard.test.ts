@@ -116,12 +116,12 @@ test('guard fails a process that contacts the default status port despite a swal
   assert.match(result.stderr, new RegExp(`live SiftKit status server on port ${SIFT_DEFAULT_STATUS_PORT}`, 'u'));
 });
 
-test('guard fails a process that contacts the default llama port', () => {
+test('guard fails a process that contacts the default inference port', () => {
   const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_ENGINE_PORT, 'http'), { preloadGuard: true });
 
   assertChildFinished(result);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, new RegExp(`live SiftKit llama.cpp server on port ${SIFT_DEFAULT_ENGINE_PORT}`, 'u'));
+  assert.match(result.stderr, new RegExp(`live SiftKit inference server on port ${SIFT_DEFAULT_ENGINE_PORT}`, 'u'));
 });
 
 test('guard throws at the call site so a caller that does not swallow sees the reason', () => {
@@ -230,7 +230,7 @@ test('the suite guards the default status port for every child it spawns', () =>
   assert.match(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 
-test('the suite guards the default llama port for every child it spawns', () => {
+test('the suite guards the default inference port for every child it spawns', () => {
   const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_ENGINE_PORT, 'http'));
 
   assertChildFinished(result);

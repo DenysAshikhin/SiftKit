@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostEngineRuntimeSettings,
-  applyMaxTokensOverrideToConfig,
   applyModelOverrideToConfig,
   loadConfig,
   normalizeLoadedConfig,
@@ -33,9 +32,6 @@ import {
   getSummaryFailureContext,
   traceSummary,
 } from './artifacts.js';
-import {
-  allocateLlamaCppSlotId,
-} from './chunking.js';
 import { getSummaryDecision, getPolicyDecision } from './decision.js';
 import { SummaryProgressReporter } from './progress-reporter.js';
 import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.js';
@@ -52,6 +48,11 @@ import {
   type PresetSystemContext,
 } from '../preset-system-context.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import {
+  buildRunIdentity,
+  operationOnlyRunIdentity,
+  type RunIdentity,
+} from '../status-server/dashboard-runs/run-identity.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 
 type SummaryExecutionContext = {
@@ -110,6 +111,9 @@ export class SummaryRequestRunner {
   private readonly provider: SummaryProviderId;
   private readonly progress: SummaryProgressReporter;
   private model = 'unknown';
+  // Run identity for every artifact this request emits. The operation is known up front; the
+  // preset snapshots are filled in once the config loads and stay null if the run fails before.
+  private identity: RunIdentity = operationOnlyRunIdentity('summary');
 
   constructor(request: SummaryRequest) {
     this.request = request;
@@ -220,11 +224,10 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredEngineBaseUrl(this.config);
     getConfiguredEngineNumCtx(this.config);
-    // Host sync first, then caller overlays: an explicit --model/MaxTokens must win
-    // over whatever the host reports, and both must be visible to every getter below.
-    this.config = await this.applyHostLlamaSettings(this.config);
+    // Host sync first, then the explicit model overlay. Output limits are operation-scoped
+    // and flow to the provider without mutating this configuration.
+    this.config = await this.applyHostEngineSettings(this.config);
     this.config = applyModelOverrideToConfig(this.config, this.request.model);
-    this.config = applyMaxTokensOverrideToConfig(this.config, this.request.llamaCppMaxTokens);
     this.model = getConfiguredModel(this.config);
     this.progress.configDone(this.provider, this.model);
     const activeVisionPreset = getActiveModelPreset(this.config);
@@ -252,6 +255,11 @@ export class SummaryRequestRunner {
       characterCount: decision.CharacterCount,
     });
     this.progress.decisionDone(this.provider, decision.RawReviewRequired, decision.CharacterCount);
+    this.identity = buildRunIdentity({
+      operationType: 'summary',
+      operationPreset: preset,
+      modelPreset: activeVisionPreset,
+    });
     return {
       config: this.config,
       provider: this.provider,
@@ -265,7 +273,7 @@ export class SummaryRequestRunner {
     };
   }
 
-  private async applyHostLlamaSettings(config: SiftConfig): Promise<SiftConfig> {
+  private async applyHostEngineSettings(config: SiftConfig): Promise<SiftConfig> {
     const localNumCtx = getConfiguredEngineNumCtx(config);
     const hostConfig = await applyHostEngineRuntimeSettings(config);
     const effectiveNumCtx = getConfiguredEngineNumCtx(hostConfig);
@@ -325,7 +333,6 @@ export class SummaryRequestRunner {
       + `raw_review_required=${context.decision.RawReviewRequired} chars=${context.decision.CharacterCount} `
       + `lines=${context.decision.LineCount}`
     );
-    const slotId = context.provider === 'real' ? allocateLlamaCppSlotId(context.config) : null;
     traceSummary('invokeSummaryCore start');
     this.progress.coreStart(context.provider);
     const coreSpan = this.timingRecorder?.start('summary.core');
@@ -333,7 +340,6 @@ export class SummaryRequestRunner {
     try {
       summaryCore = await invokeSummaryCore({
         requestId: this.requestId,
-        slotId,
         question: this.request.question,
         inputText: this.inputText,
         images: context.images,
@@ -350,6 +356,7 @@ export class SummaryRequestRunner {
         additionalPromptPrefix: context.additionalPromptPrefix,
         systemContext: context.systemContext,
         allowedPlannerTools: this.request.allowedPlannerTools,
+        operationMaxTokens: this.request.inferenceMaxTokens,
         requestTimeoutSeconds: this.request.requestTimeoutSeconds,
         statusBackendUrl: this.request.statusBackendUrl,
         timingRecorder: this.timingRecorder,
@@ -400,6 +407,7 @@ export class SummaryRequestRunner {
           summary: result.Summary,
           providerError: result.ProviderError,
           error: null,
+          identity: this.identity,
         }),
       ],
     });
@@ -443,6 +451,7 @@ export class SummaryRequestRunner {
           classification: modelDecision.classification,
           rawReviewRequired: modelDecision.rawReviewRequired,
           providerError: null,
+          identity: this.identity,
         }),
         buildSummaryRequestArtifact({
           requestId: this.requestId,
@@ -457,6 +466,7 @@ export class SummaryRequestRunner {
           summary: modelDecision.output.trim(),
           providerError: null,
           error: null,
+          identity: this.identity,
         }),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null),
     });
@@ -527,6 +537,7 @@ export class SummaryRequestRunner {
         classification: 'command_failure',
         rawReviewRequired: true,
         providerError: getErrorMessage(error),
+        identity: this.identity,
       }),
       ...(/planner/iu.test(getErrorMessage(error))
         ? [buildFailedRequestArtifact({
@@ -536,6 +547,7 @@ export class SummaryRequestRunner {
           command: this.request.debugCommand ?? null,
           error: getErrorMessage(error),
           providerError: getErrorMessage(error),
+          identity: this.identity,
         })]
         : []),
     ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);

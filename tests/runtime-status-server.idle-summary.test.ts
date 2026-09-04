@@ -24,7 +24,7 @@ import {
   waitForAsyncExpectation,
   postCompletedStatus,
   type RuntimeStatusResponse,
-  type LlamaModelsResponse,
+  type InferenceModelsResponse,
 } from './_runtime-helpers.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
@@ -135,7 +135,7 @@ test('real status server leaves the managed engine running after the idle summar
       await withRealStatusServer(async (server) => {
       await requestJson(server.configUrl);
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
@@ -157,7 +157,7 @@ test('real status server leaves the managed engine running after the idle summar
       await waitForAsyncExpectation(async () => {
         assert.equal(readIdleSummarySnapshots(server.idleSummaryDbPath).length, 1);
       }, 5000);
-      const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+      const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
       assert.equal(models.data[0].id, 'managed-test-model');
       assert.equal(readStatusText(getConfigPath()), 'false');
     }, {
@@ -226,7 +226,7 @@ test('real status server close() stops the managed engine', async () => {
       const loadedConfig = await loadConfig({ ensure: true });
       assert.equal(loadedConfig.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<InferenceModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
     } finally {

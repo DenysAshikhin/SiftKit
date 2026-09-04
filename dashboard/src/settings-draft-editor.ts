@@ -41,11 +41,11 @@ export type ModelStringField = 'label';
 export type ModelNullableStringField = 'Model' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
 export type ModelIntegerField =
   | 'NumCtx'
+  | 'NcpuMoe'
   | 'ParallelSlots'
   | 'UBatchSize'
   | 'CacheRam'
   | 'CacheRecurrentRam'
-  | 'MaxTokens'
   | 'TopK'
   | 'SpeculativeDraftMax'
   | 'ReasoningBudget'

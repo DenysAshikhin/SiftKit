@@ -107,6 +107,7 @@ function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact)
     requestId: artifact.artifactRequestId,
     artifactType: artifact.artifactType,
     artifactPayload: artifact.artifactPayload,
+    identity: artifact.identity,
   });
 }
 
@@ -149,6 +150,23 @@ async function drainDeferredArtifacts(ctx: ServerContext): Promise<void> {
     if (ctx.deferredArtifactQueue.length > 0) {
       scheduleDeferredArtifactDrain(ctx);
     }
+  }
+}
+
+/**
+ * Persists everything still queued and resolves once the queue is empty. A reader that must
+ * see an operation's artifacts (benchmark metrics, for one) has to wait for the 25ms-deferred
+ * drain rather than race it and treat "not written yet" as "does not exist".
+ */
+export async function flushDeferredArtifacts(ctx: ServerContext): Promise<void> {
+  while (ctx.deferredArtifactQueue.length > 0 || ctx.deferredArtifactDrainRunning) {
+    if (ctx.deferredArtifactDrainRunning) {
+      // A drain already owns the queue and returns early for re-entrant callers, so yield the
+      // loop rather than spinning on a flag this call cannot clear.
+      await new Promise<void>((resolve) => { setImmediate(resolve); });
+      continue;
+    }
+    await drainDeferredArtifacts(ctx);
   }
 }
 

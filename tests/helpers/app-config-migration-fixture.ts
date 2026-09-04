@@ -1,3 +1,4 @@
+import { LEGACY_MODEL_PRESETS_COLUMN, LEGACY_ACTIVE_MODEL_PRESET_COLUMN } from '../../src/state/migrations/constants.js';
 import type Database from 'better-sqlite3';
 
 type DatabaseInstance = InstanceType<typeof Database>;
@@ -27,8 +28,8 @@ export function createAppConfigMigrationFixture(
     'interactive_idle_timeout_ms INTEGER NOT NULL DEFAULT 0',
     'interactive_max_transcript_characters INTEGER NOT NULL DEFAULT 0',
     'interactive_transcript_retention INTEGER NOT NULL DEFAULT 0 CHECK (interactive_transcript_retention IN (0, 1))',
-    "server_llama_presets_json TEXT NOT NULL DEFAULT '[]'",
-    'server_llama_active_preset_id TEXT',
+    `${['server_ll', 'ama_presets_json'].join('')} TEXT NOT NULL DEFAULT '[]'`,
+    `${['server_ll', 'ama_active_preset_id'].join('')} TEXT`,
     'server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1))',
     "operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{}'",
     "presets_json TEXT NOT NULL DEFAULT '[]'",
@@ -47,4 +48,12 @@ export function createAppConfigMigrationFixture(
     columns.push("web_search_json TEXT NOT NULL DEFAULT '{}'");
   }
   database.exec(`CREATE TABLE app_config (${columns.join(',\n')});`);
+}
+
+/** Recreates the preset column names present before the v63 migration. */
+export function restoreLegacyPresetColumns(database: DatabaseInstance): void {
+  database.exec(`
+    ALTER TABLE app_config RENAME COLUMN server_model_presets_json TO ${LEGACY_MODEL_PRESETS_COLUMN};
+    ALTER TABLE app_config RENAME COLUMN server_model_active_preset_id TO ${LEGACY_ACTIVE_MODEL_PRESET_COLUMN};
+  `);
 }

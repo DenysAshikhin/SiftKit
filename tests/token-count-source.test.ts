@@ -40,8 +40,7 @@ for (const engine of ['exl3'] as const) {
           tools: [],
           includeReasoningContent: false,
         }),
-        totalContextTokens: 128_000,
-        responseReserveTokens: 4_000,
+        maxPromptTokens: 124_000,
       });
       assert.equal(preflight.promptTokenCount, STUB_TOKEN_COUNT);
       assert.equal(preflight.tokenCountSource, engine);
@@ -57,7 +56,7 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
     const counted = await countTokensWithFallbackDetailed(config, PROMPT);
     assert.equal(counted.source, 'estimate');
     assert.equal(counted.tokenCount > 0, true);
-    assert.equal(counted.llamaTokenCount?.status, 'http_error');
+    assert.equal(counted.inferenceTokenCount?.status, 'http_error');
 
     const preflight = await preflightPlannerPromptBudget({
       config,
@@ -66,8 +65,7 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
         tools: [],
         includeReasoningContent: false,
       }),
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   });
@@ -76,7 +74,7 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
 test('a token count taken without a config reports the estimate source', async () => {
   const counted = await countTokensWithFallbackDetailed(undefined, PROMPT);
   assert.equal(counted.source, 'estimate');
-  assert.equal(counted.llamaTokenCount, null);
+  assert.equal(counted.inferenceTokenCount, null);
 });
 
 test('a tokenizer that refuses the wire prompt falls back to the estimate source', async () => {
@@ -90,8 +88,7 @@ test('a tokenizer that refuses the wire prompt falls back to the estimate source
         tools: [{ type: 'function', function: { name: 'grep', description: 'search', parameters: { type: 'object' } } }],
         includeReasoningContent: false,
       }),
-      totalContextTokens: 128_000,
-      responseReserveTokens: 4_000,
+      maxPromptTokens: 124_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   }, {

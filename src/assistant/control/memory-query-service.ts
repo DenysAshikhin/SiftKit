@@ -14,6 +14,7 @@ import { RELATION_TYPES } from '../domain/relation-types.js';
 import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
 import type { AssertionView } from '../projections/assertion-view.js';
 import type { AssertionRow, EvidenceRow, NodeRow, ProjectionRow } from '../storage/rows.js';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 
 export interface PageRequest {
   readonly limit: number;
@@ -79,6 +80,8 @@ export class MemoryQueryService {
         description: sensitive ? null : row.description,
         properties: sensitive ? { redacted: true } : parseJsonText(row.properties_json, JsonObjectSchema),
         aliases: sensitive ? [] : this.graph.nodes.listAliases(row.id).map((alias) => alias.alias),
+        isOwner: row.canonical_key === OWNER_PERSON_CANONICAL_KEY,
+        status: row.status,
       },
     };
   }

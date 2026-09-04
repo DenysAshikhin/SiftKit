@@ -9,12 +9,12 @@ import {
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
 } from '../../src/config/index.js';
-import { getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import { getSummaryDecision, planTokenAwareInferenceChunks } from '../../src/summary.js';
 import {
   DEFAULT_SUMMARY_PROVIDER,
 } from '../../src/summary/types.js';
 import type { SummaryClassification } from '../../src/planner-protocol/summary-tools.js';
-import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
+import { countInferenceTokens, generateInferenceResponse } from '../../src/providers/inference.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
@@ -27,8 +27,8 @@ import {
 } from '../benchmark/types.js';
 import { SummaryReproPromptBuilder } from './summary-prompt-builder.js';
 
-const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
-const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
+const INFERENCE_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
+const INFERENCE_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
 
 type ReproArgs = {
   fixtureIndex: number;
@@ -241,15 +241,15 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
-function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
+function getInferencePromptTokenReserve(config: SiftConfig): number {
   const reasoning = getActiveModelPreset(config).Reasoning;
   return reasoning === 'off'
-    ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
-    : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
+    ? INFERENCE_NON_THINKING_PROMPT_TOKEN_RESERVE
+    : INFERENCE_THINKING_PROMPT_TOKEN_RESERVE;
 }
 
-function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number {
-  const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * getEffectiveInputCharactersPerContextToken(config));
+function getInferenceChunkThresholdCharacters(config: SiftConfig): number {
+  const reserveChars = Math.ceil(getInferencePromptTokenReserve(config) * getEffectiveInputCharactersPerContextToken(config));
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
 }
 
@@ -356,7 +356,11 @@ export async function runFixture60MalformedJsonRepro(
     const backend = DEFAULT_SUMMARY_PROVIDER;
     const model = getConfiguredModel(config);
     const promptPrefix = getConfiguredPromptPrefix(config) ?? '';
-    const promptBuilder = new SummaryReproPromptBuilder(config, repoRoot, promptPrefix);
+    // The system context is loaded from the fixture tree, not the checkout: the chunk
+    // budget below sizes slices against NumCtx alone, so a repro that pulled in this
+    // repository's own context files would build prompts larger than the whole window
+    // and vary with whatever the checkout happens to contain.
+    const promptBuilder = new SummaryReproPromptBuilder(config, fixtureRoot, promptPrefix);
     const promptComposition = promptBuilder.getComposition();
     manifest.backend = backend;
     manifest.model = model;
@@ -373,10 +377,10 @@ export async function runFixture60MalformedJsonRepro(
       const fixtureManifestPath = path.join(fixtureOutputRoot, 'manifest.json');
       const riskLevel = workItem.fixture.PolicyProfile === 'risky-operation' ? 'risky' : 'informational';
       const decision = getSummaryDecision(workItem.inputText, workItem.fixture.Question, riskLevel, config);
-      const chunkThreshold = getLlamaCppChunkThresholdCharacters(config);
-      const effectivePromptLimit = getActiveModelPreset(config).NumCtx - getLlamaCppPromptTokenReserve(config);
+      const chunkThreshold = getInferenceChunkThresholdCharacters(config);
+      const effectivePromptLimit = getActiveModelPreset(config).NumCtx - getInferencePromptTokenReserve(config);
       const chunks = workItem.inputText.length > chunkThreshold
-        ? (await planTokenAwareLlamaCppChunks({
+        ? (await planTokenAwareInferenceChunks({
           question: workItem.fixture.Question,
           inputText: workItem.inputText,
           format: workItem.fixture.Format,
@@ -432,8 +436,8 @@ export async function runFixture60MalformedJsonRepro(
             chunkPath,
           },
         });
-        const promptTokenCount = await countLlamaCppTokens(config, prompt);
-        const response = await generateLlamaCppResponse({
+        const promptTokenCount = await countInferenceTokens(config, prompt);
+        const response = await generateInferenceResponse({
           config,
           model,
           prompt,

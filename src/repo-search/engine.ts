@@ -11,7 +11,7 @@ import {
 import { mergeToolTypeStats } from '../line-read-guidance.js';
 import { z } from '../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import { listLlamaCppModels } from '../providers/llama-cpp.js';
+import { listInferenceModels } from '../providers/inference.js';
 import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.js';
 import { throwIfAborted } from '../lib/abort.js';
 import { SilentProgressWriter, type ProgressWriter } from '../lib/progress-writer.js';
@@ -20,7 +20,8 @@ import {
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
 import { TaskResultSchema, taskPassed } from './engine/task-loop-support.js';
-import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
+import type { TurnTokenRecord } from './engine/turn-token-record.js';
+import type { ApprovalGate } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_MAX_TURNS,
@@ -156,9 +157,8 @@ export async function runRepoSearch(options: {
   logger?: JsonLogger | null;
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
-  approvalMode?: ApprovalMode;
   timingRecorder?: TemporaryTimingRecorder | null;
-}): Promise<Scorecard> {
+}): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
     throw new Error('runRepoSearch taskPrompt is required.');
@@ -190,7 +190,7 @@ export async function runRepoSearch(options: {
   });
   progressWriter.write({ kind: 'model_inventory_start', elapsedMs: 0 });
   const availableModels = options.availableModels
-    || (Array.isArray(options.mockResponses) ? [model] : await listLlamaCppModels(config));
+    || (Array.isArray(options.mockResponses) ? [model] : await listInferenceModels(config));
   inventorySpan?.end({ modelCount: availableModels.length });
   progressWriter.write({ kind: 'model_inventory_done', modelCount: availableModels.length, elapsedMs: 0 });
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
@@ -201,10 +201,11 @@ export async function runRepoSearch(options: {
   }];
 
   const tasks: TaskResult[] = [];
+  const turnRecords: TurnTokenRecord[] = [];
 
   for (const task of tasksToRun) {
     throwIfAborted(options.abortSignal);
-    const result = await runTaskLoop(task, {
+    const loop = new TaskLoop(task, {
       repoRoot,
       model,
       baseUrl,
@@ -229,13 +230,14 @@ export async function runRepoSearch(options: {
       logger: options.logger || null,
       progressWriter,
       approvalGate: options.approvalGate,
-      approvalMode: options.approvalMode,
       timingRecorder: options.timingRecorder || null,
     });
+    const result = await loop.run();
     tasks.push(result);
+    turnRecords.push(...loop.turnTokenRecords());
   }
 
   const scorecard = buildScorecard({ runId: randomUUID(), model, tasks });
   options.logger?.write({ kind: 'run_done', scorecard });
-  return scorecard;
+  return { scorecard, turnRecords };
 }

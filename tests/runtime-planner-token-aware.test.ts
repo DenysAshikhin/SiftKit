@@ -12,11 +12,11 @@ import {
   summarizeRequest,
   buildSummaryPrompt,
   getSummaryDecision,
-  planTokenAwareLlamaCppChunks,
+  planTokenAwareInferenceChunks,
   getPlannerPromptBudget,
-  countLlamaCppTokens,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
+  countInferenceTokens,
+  RUN_LIVE_INFERENCE_TOKENIZE_TESTS,
+  LIVE_INFERENCE_BASE_URL,
   LIVE_CONFIG_SERVICE_URL,
   getDefaultConfig,
   setPresetBaseUrl,
@@ -29,7 +29,7 @@ import {
 const SIFTKIT_REPO_ROOT = process.cwd();
 import type { SiftConfig } from '../src/config/types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
-import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 import type { SummaryPolicyProfile } from '../src/summary/types.js';
 
 interface FixtureManifestEntry {
@@ -76,7 +76,7 @@ function readLiveActivePreset(liveConfig: LiveConfigResponse | null): { BaseUrl?
   return presets.find((preset) => preset.id === modelPresets?.ActivePresetId) ?? presets[0] ?? {};
 }
 
-test('oversized llama.cpp summaries stay on planner status path without leaf chunk markers', async () => {
+test('oversized inference summaries stay on planner status path without leaf chunk markers', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -119,7 +119,7 @@ test('oversized llama.cpp summaries stay on planner status path without leaf chu
   });
 });
 
-test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave slack', async () => {
+test('token-aware inference chunk planning grows upward when prompt tokens leave slack', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = getDefaultConfig();
@@ -131,7 +131,7 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
       });
       const inputText = 'A'.repeat(5_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
-      const chunks = await planTokenAwareLlamaCppChunks({
+      const chunks = await planTokenAwareInferenceChunks({
         ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
@@ -162,7 +162,7 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
   });
 });
 
-test('token-aware llama.cpp chunk planning starts from the char-threshold guess before growing upward', async () => {
+test('token-aware inference chunk planning starts from the char-threshold guess before growing upward', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = getDefaultConfig();
@@ -186,7 +186,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
         sourceKind: 'standalone',
         phase: 'leaf',
       });
-      const chunks = await planTokenAwareLlamaCppChunks({
+      const chunks = await planTokenAwareInferenceChunks({
         ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
@@ -217,7 +217,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
   });
 });
 
-test('token-aware llama.cpp chunk planning shrinks after an overshooting growth probe and still stays above the initial guess', async () => {
+test('token-aware inference chunk planning shrinks after an overshooting growth probe and still stays above the initial guess', async () => {
   await withTempEnv(async () => {
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
@@ -245,7 +245,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunkThreshold = 1_000;
-      const chunks = await planTokenAwareLlamaCppChunks({
+      const chunks = await planTokenAwareInferenceChunks({
         ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
@@ -288,7 +288,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
   });
 });
 
-test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks are within 2000 tokens of the limit', async () => {
+test('token-aware inference chunk planning keeps adjusting until accepted chunks are within 2000 tokens of the limit', async () => {
   await withTempEnv(async () => {
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
@@ -315,7 +315,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
       });
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
-      const chunks = await planTokenAwareLlamaCppChunks({
+      const chunks = await planTokenAwareInferenceChunks({
         ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
@@ -342,7 +342,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
         sourceKind: 'standalone',
         phase: 'leaf',
       });
-      const promptTokenCount = await countLlamaCppTokens(config, prompt);
+      const promptTokenCount = await countInferenceTokens(config, prompt);
       const effectivePromptLimit = getPlannerPromptBudget(config).plannerStopLineTokens;
 
       assert.ok(promptTokenCount != null);
@@ -370,7 +370,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
   });
 });
 
-test('token-aware llama.cpp chunk planning leaves the shared response reserve when reasoning is on', async () => {
+test('token-aware inference chunk planning leaves the shared response reserve when reasoning is on', async () => {
   await withTempEnv(async () => {
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
@@ -397,7 +397,7 @@ test('token-aware llama.cpp chunk planning leaves the shared response reserve wh
       getActiveModelPreset(config).Reasoning = 'on';
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
-      const chunks = await planTokenAwareLlamaCppChunks({
+      const chunks = await planTokenAwareInferenceChunks({
         ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
@@ -424,7 +424,7 @@ test('token-aware llama.cpp chunk planning leaves the shared response reserve wh
         sourceKind: 'standalone',
         phase: 'leaf',
       });
-      const promptTokenCount = await countLlamaCppTokens(config, prompt);
+      const promptTokenCount = await countInferenceTokens(config, prompt);
       const effectivePromptLimit = getPlannerPromptBudget(config).plannerStopLineTokens;
 
       assert.ok(promptTokenCount != null);
@@ -457,7 +457,7 @@ test('token-aware llama.cpp chunk planning leaves the shared response reserve wh
 const aiCore60FixtureManifestPresent = fs.existsSync(
   path.resolve(SIFTKIT_REPO_ROOT, 'eval', 'fixtures', 'ai_core_60_tests', 'fixtures.json'),
 );
-test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
+test('live inference token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
   skip: aiCore60FixtureManifestPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
 }, async () => {
   const runFixtureCheck = async (config: SiftConfig) => {
@@ -472,7 +472,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   const riskLevel = fixture.PolicyProfile === 'risky-operation' ? 'risky' : 'informational';
   const decision = getSummaryDecision(inputText, fixture.Question, riskLevel, config);
   const chunkThreshold = getChunkThresholdCharacters(config);
-  const chunks = await planTokenAwareLlamaCppChunks({
+  const chunks = await planTokenAwareInferenceChunks({
     ...PROMPT_COMPOSITION,
     question: fixture.Question,
     inputText,
@@ -485,7 +485,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
     phase: 'leaf',
   });
 
-  assert.ok(chunks, 'Live llama tokenization must succeed for the chunk-planning test.');
+  assert.ok(chunks, 'Live inference tokenization must succeed for the chunk-planning test.');
   assert.ok(chunks.length > 1, 'Fixture 19 should split into multiple chunks.');
   assert.equal(chunks.join(''), inputText);
   assert.equal(chunks.reduce((total, chunk) => total + chunk.length, 0), inputText.length);
@@ -508,13 +508,13 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
       sourceKind: 'standalone',
       phase: 'leaf',
     });
-    const promptTokenCount = await countLlamaCppTokens(config, prompt);
+    const promptTokenCount = await countInferenceTokens(config, prompt);
     assert.ok(promptTokenCount != null, 'Each chunk prompt must be token-countable.');
     assert.ok(promptTokenCount <= effectivePromptLimit, `Chunk prompt token count ${promptTokenCount} exceeded ${effectivePromptLimit}.`);
   }
   };
 
-  if (RUN_LIVE_LLAMA_TOKENIZE_TESTS) {
+  if (RUN_LIVE_INFERENCE_TOKENIZE_TESTS) {
     let liveConfig: LiveConfigResponse | null = null;
     try {
       liveConfig = await requestJson<LiveConfigResponse>(LIVE_CONFIG_SERVICE_URL);
@@ -523,7 +523,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
     }
     const config = getDefaultConfig();
     const livePreset = readLiveActivePreset(liveConfig);
-    const liveBaseUrl = livePreset.BaseUrl || LIVE_LLAMA_BASE_URL;
+    const liveBaseUrl = livePreset.BaseUrl || LIVE_INFERENCE_BASE_URL;
     const liveNumCtx = Number(livePreset.NumCtx) || getActiveModelPreset(config).NumCtx;
     setPresetBaseUrl(config, liveBaseUrl);
     getActiveModelPreset(config).NumCtx = liveNumCtx;
@@ -543,7 +543,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   });
 });
 
-test('getPlannerPromptBudget subtracts the shared response reserve from a 190k context', () => {
+test('getPlannerPromptBudget subtracts the shared compaction reserve from a 190k context', () => {
   const config = getDefaultConfig();
   getActiveModelPreset(config).NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'off';
@@ -551,8 +551,8 @@ test('getPlannerPromptBudget subtracts the shared response reserve from a 190k c
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
-    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
+    compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - PROMPT_COMPACTION_RESERVE_TOKENS,
   });
 });
 
@@ -564,20 +564,8 @@ test('the planner budget no longer varies with Reasoning: thinking draws from th
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
-    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
-  });
-});
-
-test('a lower preset MaxTokens shrinks the planner reserve and frees prompt tokens', () => {
-  const config = getDefaultConfig();
-  getActiveModelPreset(config).NumCtx = 190000;
-  getActiveModelPreset(config).MaxTokens = 6000;
-
-  assert.deepEqual(getPlannerPromptBudget(config), {
-    numCtxTokens: 190000,
-    responseReserveTokens: 6000,
-    plannerStopLineTokens: 184000,
+    compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - PROMPT_COMPACTION_RESERVE_TOKENS,
   });
 });
 

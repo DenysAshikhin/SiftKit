@@ -13,7 +13,7 @@ import {
 import { asObject } from './helpers/dashboard-http.js';
 
 // TabbyAPI reports second-based timings and draft-token counters inside `usage`
-// (llama.cpp uses millisecond `timings` and no per-request draft stats). These
+// Some OpenAI-compatible engines use millisecond `timings` and no per-request draft stats. These
 // end-to-end tests pin the whole propagation chain for the TabbyAPI shape:
 // HTTP body -> provider/protocol usage -> scorecard/completion metrics ->
 // terminal status metadata. A field dropped at any single hop fails here.

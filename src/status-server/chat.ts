@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
-import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
-import type { ContextUsage, ImageMetadata, ReasoningEffort, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
+import { ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredEngineBaseUrl, getConfiguredEngineNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
-import { computeResponseReserveTokens } from '../lib/response-reserve.js';
+import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger } from '../repo-search/types.js';
@@ -18,7 +18,9 @@ import {
   writePromptCacheEpochReset,
 } from '../repo-search/engine/transcript-compactor.js';
 import { TokenUsageTracker } from '../repo-search/engine/token-usage.js';
-import { allocateLlamaCppSlotId, DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
+import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.js';
+import type { TurnTokenRecord } from '../repo-search/engine/turn-token-record.js';
+import { DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
@@ -28,7 +30,7 @@ import { buildPresetRequestDefaults } from '../inference-presets/preset-compatib
 import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 import {
   type ChatSession,
-  type ChatMessage as PersistedChatMessage,
+  type ChatMessage as PersistedChatTranscriptMessage,
   estimateTokenCount,
   getChatSessionPath,
   readChatSessionFromPath,
@@ -53,33 +55,22 @@ function trimText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function nonNegativeNumber(value: number | null | undefined): number | null {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
-}
-
-function getMessageContextTokenEstimate(message: PersistedChatMessage): number {
+/**
+ * Context usage reads the counts the engine measured and the row stores. Re-deriving them from
+ * the row's text would give the composer bar a different number than the turn badge shows.
+ */
+function getMessageContextTokenEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind === 'assistant_thinking') {
-    return estimateTokenCount(message.content);
+    return message.thinkingTokens;
   }
-  return estimateTokenCount(formatChatMessageForPrompt(message))
+  return message.inputTokensEstimate
+    + message.outputTokensEstimate
     + getMessageThinkingTokenEstimate(message)
     + sumImageTokens(message.imageMeta);
 }
 
-function getMessageThinkingTokenEstimate(message: PersistedChatMessage): number {
-  if (message.kind === 'assistant_thinking') {
-    return estimateTokenCount(message.content);
-  }
-  return estimateTokenCount(trimText(message.thinkingContent));
-}
-
-function formatChatMessageForPrompt(message: PersistedChatMessage): string {
-  if (message.kind === 'assistant_tool_call') {
-    const command = trimText(message.toolCallCommand) || trimText(message.content);
-    return command || trimText(message.content);
-  }
-  return appendRemovedImageNotice(String(message.content || ''), message.removedImageCount ?? 0);
+function getMessageThinkingTokenEstimate(message: PersistedChatTranscriptMessage): number {
+  return message.thinkingTokens;
 }
 
 /**
@@ -96,21 +87,14 @@ function appendRemovedImageNotice(content: string, removedImageCount: number): s
   return content ? `${content}\n${notice}` : notice;
 }
 
-function getMessageToolTokenEstimate(message: PersistedChatMessage): number {
+function getMessageToolTokenEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
-  const outputTokens = nonNegativeNumber(message.outputTokensEstimate);
-  const associatedToolTokens = nonNegativeNumber(message.associatedToolTokens);
-  const explicitTokens = Math.max(outputTokens ?? 0, associatedToolTokens ?? 0);
-  if (explicitTokens > 0 || outputTokens !== null || associatedToolTokens !== null) {
-    return explicitTokens;
-  }
-  const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
-  return output ? estimateTokenCount(output) : 0;
+  return message.outputTokensEstimate;
 }
 
-function getMessageToolTokenFallbackEstimate(message: PersistedChatMessage): number {
+function getMessageToolTokenFallbackEstimate(message: PersistedChatTranscriptMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
@@ -129,9 +113,12 @@ type ContextUsageTokenTotals = {
 };
 
 export function selectReplayableChatMessages(
-  messages: readonly PersistedChatMessage[],
-): PersistedChatMessage[] {
-  return messages.filter((message) => message.compressedIntoSummary !== true);
+  messages: readonly PersistedChatTranscriptMessage[],
+): ReplayableChatMessage[] {
+  return messages.filter((message): message is ReplayableChatMessage => (
+    message.compressedIntoSummary !== true
+    && isReplayableChatMessage(message)
+  ));
 }
 
 export type { ContextUsage } from '@siftkit/contracts';
@@ -220,13 +207,13 @@ class ContextUsageBuilder {
     const messages = selectReplayableChatMessages(
       Array.isArray(this.session.messages) ? this.session.messages : [],
     );
-    const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
-    const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);
-    const toolUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenEstimate(message), 0);
-    const imageUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + sumImageTokens(message.imageMeta), 0);
+    const messageTokens = messages.reduce((sum, message) => sum + getMessageContextTokenEstimate(message), 0);
+    const thinkingUsedTokens = messages.reduce((sum, message) => sum + getMessageThinkingTokenEstimate(message), 0);
+    const toolUsedTokens = messages.reduce((sum, message) => sum + getMessageToolTokenEstimate(message), 0);
+    const imageUsedTokens = messages.reduce((sum, message) => sum + sumImageTokens(message.imageMeta), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
-    const estimatedToolTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenFallbackEstimate(message), 0);
+    const estimatedToolTokens = messages.reduce((sum, message) => sum + getMessageToolTokenFallbackEstimate(message), 0);
     return {
       contextWindowTokens,
       chatUsedTokens,
@@ -261,7 +248,6 @@ class ContextUsageBuilder {
         preserve: shouldPreserveThinking(config, thinkingEnabled),
         effort: resolveReasoningEffort(config),
       },
-      llama: { cachePrompt: true },
     });
     return estimateTokenCount(JSON.stringify(request));
   }
@@ -382,7 +368,7 @@ function buildReplayToolCallId(messageId: string): string {
   return `chat_tool_${safe}`;
 }
 
-function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatMessage, reasoningContent: string): void {
+function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatTranscriptMessage, reasoningContent: string): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
   const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
   if (!command && !output) {
@@ -403,7 +389,7 @@ function appendReplayToolMessages(history: PlannerChatMessage[], message: Persis
 }
 
 export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebToolCall[] {
-  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const messages = selectReplayableChatMessages(Array.isArray(session.messages) ? session.messages : []);
   const retained: RetainedWebToolCall[] = [];
   for (const message of messages) {
     if (message.kind !== 'assistant_tool_call') {
@@ -442,10 +428,6 @@ export function buildChatSystemContent(_config: SiftConfig, _session: ChatSessio
 
 export type ChatUsage = {
   promptTokens: number | null;
-  completionTokens: number | null;
-  thinkingTokens: number | null;
-  outputTokensEstimated?: boolean;
-  thinkingTokensEstimated?: boolean;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   promptEvalDurationMs?: number | null;
@@ -483,6 +465,7 @@ export type PersistTurn = {
 
 type AppendChatOptions = {
   turns: PersistTurn[];
+  turnRecords: TurnTokenRecord[];
   maintainPerStepThinking?: boolean;
   inputTokens?: number | null;
   inputTokensEstimated?: boolean;
@@ -498,10 +481,6 @@ type AppendChatOptions = {
   answerEndedAtUtc?: string | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
-  outputTokens?: number | null;
-  outputTokensEstimated?: boolean;
-  thinkingTokens?: number | null;
-  thinkingTokensEstimated?: boolean;
   sourceRunId?: string | null;
   /** Raw summary text when this turn compacted; marks every earlier row as compacted. */
   compactionSummary?: string | null;
@@ -515,7 +494,7 @@ type AppendChatOptions = {
  * per-turn compaction and the manual condense — go through here so the rows they leave
  * behind stay indistinguishable to replay and to the transcript UI.
  */
-export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: string): PersistedChatMessage {
+export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: string): PersistedChatTranscriptMessage {
   return {
     id: randomUUID(),
     role: 'assistant',
@@ -533,13 +512,80 @@ export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: str
   };
 }
 
+export function buildChatUserMessage(
+  content: string,
+  images: string[],
+  imageMeta: ImageMetadata[],
+  createdAtUtc: string,
+): PersistedChatTranscriptMessage {
+  return PersistedChatTranscriptMessageSchema.parse({
+    id: randomUUID(),
+    role: 'user',
+    kind: 'user_text',
+    content,
+    inputTokensEstimate: estimateTokenCount(content),
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    inputTokensEstimated: true,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
+    createdAtUtc,
+    sourceRunId: null,
+    images,
+    imageMeta,
+  });
+}
+
+export type BuildChatStoppedTurnInput = {
+  content: string;
+  images: string[];
+  imageMeta: ImageMetadata[];
+  transcriptMessages: PersistedChatTranscriptMessage[];
+  approvalMessages: PersistedChatTranscriptMessage[];
+};
+
+export function buildChatSessionWithStoppedTurn(
+  session: ChatSession,
+  input: BuildChatStoppedTurnInput,
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
+  const now = new Date().toISOString();
+  const transcriptMessages = PersistedChatTranscriptMessageSchema.array().parse(input.transcriptMessages);
+  if (transcriptMessages.some((message) => message.role !== 'assistant')) {
+    throw new Error('Stopped chat transcript may contain only assistant messages.');
+  }
+  if (transcriptMessages.filter((message) => message.kind === 'assistant_answer').length > 1) {
+    throw new Error('Stopped chat transcript contains multiple answer rows.');
+  }
+  const approvalMessages = ChatRepoAgentApprovalMessageSchema.array().parse(input.approvalMessages);
+  return {
+    ...session,
+    updatedAtUtc: now,
+    messages: [
+      ...(session.messages ?? []),
+      buildChatUserMessage(input.content, input.images, input.imageMeta, now),
+      ...approvalMessages,
+      ...transcriptMessages,
+    ],
+  };
+}
+
+export function appendChatStoppedTurn(
+  runtimeRoot: string,
+  session: ChatSession,
+  input: BuildChatStoppedTurnInput,
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
+  const updated = buildChatSessionWithStoppedTurn(session, input);
+  saveChatSession(runtimeRoot, updated);
+  return updated;
+}
+
 export function buildChatSessionWithAppendedTurn(
   session: ChatSession,
   content: string,
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
-  options: AppendChatOptions = { turns: [] }
-): ChatSession & { messages: PersistedChatMessage[] } {
+  options: AppendChatOptions = { turns: [], turnRecords: [] }
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
   const now = new Date().toISOString();
   const compactionSummary = typeof options.compactionSummary === 'string' ? options.compactionSummary.trim() : '';
   // The run compacted against the replayed history, so the boundary is exactly
@@ -553,8 +599,6 @@ export function buildChatSessionWithAppendedTurn(
   }
   const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
   const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
-  const completionTokens = getChatUsageValue(usage.completionTokens);
-  const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
   const usagePromptEvalDurationMs = getChatUsageValue(usage.promptEvalDurationMs);
   const usageGenerationDurationMs = getChatUsageValue(usage.generationDurationMs);
   const usagePromptTokensPerSecond = getChatUsageValue(usage.promptTokensPerSecond);
@@ -562,40 +606,24 @@ export function buildChatSessionWithAppendedTurn(
   const explicitInputTokens = getChatUsageValue(options.inputTokens);
   const userTokens = explicitInputTokens ?? estimateTokenCount(content);
   const inputTokensEstimated = explicitInputTokens !== null ? options.inputTokensEstimated === true : true;
-  const explicitOutputTokens = getChatUsageValue(options.outputTokens);
-  const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
-  const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
-  const outputTokensEstimated = explicitOutputTokens !== null
-    ? options.outputTokensEstimated === true
-    : completionTokens !== null
-      ? usage.outputTokensEstimated === true
-      : true;
-  const thinkingTokens = explicitThinkingTokens ?? usageThinkingTokens ?? 0;
-  const thinkingTokensEstimated = explicitThinkingTokens !== null
-    ? options.thinkingTokensEstimated === true
-    : usageThinkingTokens !== null
-      ? usage.thinkingTokensEstimated === true
-      : true;
+  // Turn records are the only measured source of generated output. A caller that ran no engine
+  // turns at all — a provided assistant turn, or a run that failed before the engine produced a
+  // result — has nothing to attribute, so its answer text is estimated and marked as such.
+  const recordTotals = options.turnRecords.length > 0 ? foldTurnTokenRecords(options.turnRecords) : null;
+  const outputTokens = recordTotals?.outputTokens ?? estimateTokenCount(assistantContent);
+  const outputTokensEstimated = recordTotals === null || recordTotals.outputTokensEstimatedCount > 0;
+  // Per-step rows own thinking. The answer row owns only the answer, so no path can both
+  // aggregate onto the answer row and emit step rows for the same tokens.
+  const thinkingTokens = 0;
+  const thinkingTokensEstimated = false;
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
-    id: randomUUID(),
-    role: 'user',
-    kind: 'user_text',
-    content,
+    ...buildChatUserMessage(content, options.images ?? [], options.imageMeta ?? [], now),
     inputTokensEstimate: userTokens,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
     inputTokensEstimated,
-    outputTokensEstimated: false,
-    thinkingTokensEstimated: false,
-    createdAtUtc: now,
-    sourceRunId: null,
-    images: options.images ?? [],
-    imageMeta: options.imageMeta ?? [],
   });
   const turns = Array.isArray(options.turns) ? options.turns : [];
-  let associatedToolTokens = 0;
   for (const turn of turns) {
     const thinkingText = String(turn.thinkingText || '');
     if (thinkingText.trim()) {
@@ -639,7 +667,6 @@ export function buildChatSessionWithAppendedTurn(
         outputTokensEstimated: toolOutputTokensEstimated,
         thinkingTokensEstimated: false,
         promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
-        associatedToolTokens: toolOutputTokens,
         toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
         toolCallActivityKind: ToolActivityKindSchema.parse(toolMessage.toolCallActivityKind),
         toolCallActivitySubject: ToolActivitySubjectSchema.parse(toolMessage.toolCallActivitySubject),
@@ -676,7 +703,6 @@ export function buildChatSessionWithAppendedTurn(
             : [],
         });
       }
-      associatedToolTokens += toolOutputTokens;
     }
   }
   const assistantMessageId = randomUUID();
@@ -713,7 +739,6 @@ export function buildChatSessionWithAppendedTurn(
     answerEndedAtUtc: typeof options.answerEndedAtUtc === 'string' && options.answerEndedAtUtc.trim() ? options.answerEndedAtUtc : null,
     speculativeAcceptedTokens: Number.isFinite(Number(options.speculativeAcceptedTokens)) ? Number(options.speculativeAcceptedTokens) : null,
     speculativeGeneratedTokens: Number.isFinite(Number(options.speculativeGeneratedTokens)) ? Number(options.speculativeGeneratedTokens) : null,
-    associatedToolTokens,
     thinkingContent: '',
     createdAtUtc: now,
     sourceRunId,
@@ -721,7 +746,7 @@ export function buildChatSessionWithAppendedTurn(
   });
   const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
     .prunePersistedMessages(messages);
-  const updated: ChatSession & { messages: PersistedChatMessage[] } = {
+  const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = {
     ...session,
     updatedAtUtc: now,
     messages: retainedMessages,
@@ -735,8 +760,8 @@ export function appendChatMessagesWithUsage(
   content: string,
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
-  options: AppendChatOptions = { turns: [] },
-): ChatSession & { messages: PersistedChatMessage[] } {
+  options: AppendChatOptions = { turns: [], turnRecords: [] },
+): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
   const updated = buildChatSessionWithAppendedTurn(
     session,
     content,
@@ -763,38 +788,14 @@ export function buildRepoAgentResultMarkdown(result: RepoAgentRunResult): string
   }
 }
 
-export function appendChatRepoAgentMessages(
-  runtimeRoot: string,
-  sessionId: string,
-  input: {
-    content: string;
-    images: string[];
-    decisions: ChatRepoAgentDecisionRecord[];
-    result: RepoAgentRunResult;
-    turns: PersistTurn[];
-    maintainPerStepThinking: boolean;
-  },
-): ChatSession {
-  const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-  const session = readChatSessionFromPath(sessionPath);
-  if (!session) {
-    throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
-  }
-  const persisted = buildChatSessionWithAppendedTurn(
-    session,
-    input.content,
-    buildRepoAgentResultMarkdown(input.result),
-    {},
-    { turns: input.turns, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.result.runId, images: input.images },
-  );
-  const assistantMessage = persisted.messages[persisted.messages.length - 1];
-  if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
-    throw new Error(`Repo-agent persistence did not produce an assistant answer: ${sessionId}`);
-  }
-  const approvalMessages = input.decisions.map((decision): PersistedChatMessage => {
+function buildRepoAgentApprovalMessages(
+  decisions: ChatRepoAgentDecisionRecord[],
+  runId: string,
+): PersistedChatTranscriptMessage[] {
+  return decisions.map((decision) => {
     const reason = decision.decision.decision === 'deny' ? ` — ${decision.decision.reason}` : '';
     const content = `${decision.decision.decision} ${decision.approval.toolName}: ${decision.approval.command}${reason}`;
-    return {
+    return ChatRepoAgentApprovalMessageSchema.parse({
       id: randomUUID(),
       role: 'user',
       kind: 'repo_agent_approval',
@@ -806,21 +807,64 @@ export function appendChatRepoAgentMessages(
       outputTokensEstimated: false,
       thinkingTokensEstimated: false,
       createdAtUtc: decision.decidedAtUtc,
-      sourceRunId: input.result.runId,
+      sourceRunId: runId,
       approvalDecision: decision.decision.decision,
       approvalToolName: decision.approval.toolName,
       approvalCommand: decision.approval.command,
       approvalReason: decision.decision.decision === 'deny' ? decision.decision.reason : null,
-    };
+    });
   });
-  saveChatSession(runtimeRoot, {
+}
+
+export function appendChatRepoAgentMessages(
+  runtimeRoot: string,
+  sessionId: string,
+  input: {
+    content: string;
+    images: string[];
+    decisions: ChatRepoAgentDecisionRecord[];
+    result: RepoAgentRunResult;
+    turns: PersistTurn[];
+    turnRecords: TurnTokenRecord[];
+    stoppedMessages: PersistedChatTranscriptMessage[];
+    maintainPerStepThinking: boolean;
+  },
+): ChatSession {
+  const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+  const session = readChatSessionFromPath(sessionPath);
+  if (!session) {
+    throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
+  }
+  const approvalMessages = buildRepoAgentApprovalMessages(input.decisions, input.result.runId);
+  if (input.result.status === 'aborted') {
+    return appendChatStoppedTurn(runtimeRoot, session, {
+      content: input.content,
+      images: input.images,
+      imageMeta: [],
+      transcriptMessages: input.stoppedMessages,
+      approvalMessages,
+    });
+  }
+  const persisted = buildChatSessionWithAppendedTurn(
+    session,
+    input.content,
+    buildRepoAgentResultMarkdown(input.result),
+    {},
+    { turns: input.turns, turnRecords: input.turnRecords, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.result.runId, images: input.images },
+  );
+  const assistantMessage = persisted.messages[persisted.messages.length - 1];
+  if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
+    throw new Error(`Repo-agent persistence did not produce an assistant answer: ${sessionId}`);
+  }
+  const withApprovals = {
     ...persisted,
     messages: [
       ...persisted.messages.slice(0, -1),
       ...approvalMessages,
       assistantMessage,
     ],
-  });
+  };
+  saveChatSession(runtimeRoot, withApprovals);
   const authoritative = readChatSessionFromPath(sessionPath);
   if (!authoritative) {
     throw new Error(`Chat session disappeared after repo-agent persistence: ${sessionId}`);
@@ -839,24 +883,24 @@ export async function condenseChatSession(
   session: ChatSession,
   mockResponses: MockPlannerResponseInput[] | undefined,
   logger: JsonLogger | null,
-): Promise<ChatSession & { messages: PersistedChatMessage[] }> {
+): Promise<ChatSession & { messages: PersistedChatTranscriptMessage[] }> {
   const effectiveConfig = resolveChatSessionConfig(config, session);
   const history = buildChatHistoryMessages(effectiveConfig, session);
-  const slotId = allocateLlamaCppSlotId(effectiveConfig);
   const cacheOrigin = {
     kind: 'new_epoch',
     flags: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
     tools: [],
-    slotId,
   } as const;
-  const totalContextTokens = resolveChatSessionContextWindow(config, session);
+  const contextBudget = resolveContextTokenBudget({
+    totalContextTokens: resolveChatSessionContextWindow(config, session),
+  });
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,
     baseUrl: getConfiguredEngineBaseUrl(effectiveConfig),
     model: resolveChatSessionModel(config, session),
     timeoutMs: DEFAULT_TIMEOUT_MS,
-    totalContextTokens,
-    responseReserveTokens: computeResponseReserveTokens({ totalContextTokens, config: effectiveConfig }),
+    totalContextTokens: contextBudget.totalContextTokens,
+    compactionReserveTokens: contextBudget.compactionReserveTokens,
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
@@ -876,10 +920,10 @@ export async function condenseChatSession(
   });
 
   const now = new Date().toISOString();
-  const messages: PersistedChatMessage[] = (Array.isArray(session.messages) ? session.messages : [])
-    .map((message: PersistedChatMessage) => ({ ...message, compressedIntoSummary: true }));
+  const messages: PersistedChatTranscriptMessage[] = (Array.isArray(session.messages) ? session.messages : [])
+    .map((message: PersistedChatTranscriptMessage) => ({ ...message, compressedIntoSummary: true }));
   messages.push(buildCompactionSummaryRow(outcome.summaryText, now));
-  const updated: ChatSession & { messages: PersistedChatMessage[] } = { ...session, updatedAtUtc: now, messages };
+  const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = { ...session, updatedAtUtc: now, messages };
   saveChatSession(runtimeRoot, updated);
   writePromptCacheEpochReset(logger, {
     taskId: session.id,

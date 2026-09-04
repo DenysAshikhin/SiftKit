@@ -1,5 +1,5 @@
+import { ApprovalModeSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
-import { ApprovalModeSchema } from '../repo-search/engine/approval-gate.js';
 
 export const RepoAgentRunIdSchema = z.string().uuid();
 const RevisionSchema = z.number().int().nonnegative();

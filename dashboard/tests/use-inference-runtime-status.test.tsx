@@ -9,7 +9,7 @@ import { useInferenceRuntimeStatus } from '../src/hooks/useInferenceRuntimeStatu
 const STATUS = {
   activePresetId: 'active-id',
   activePresetLabel: 'Active runtime',
-  backend: 'llama',
+  backend: 'exl3',
   idleAction: 'unload',
   freezeSupported: true,
   processState: 'ready',

@@ -4,14 +4,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 
 import type {
-  LlamaCppChatMessage,
-  LlamaCppChatRequest,
-  LlamaCppToolDefinition,
-  NormalizedLlamaCppChatResponse,
+  InferenceChatMessage,
+  InferenceChatRequest,
+  InferenceToolDefinition,
+  NormalizedInferenceChatResponse,
 } from '../src/llm-protocol/types.js';
-import { CLEAN_STREAM_STOP, LLAMA_CPP_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
-import { buildReplayToolCall, LlamaCppToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
-import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
+import { CLEAN_STREAM_STOP, INFERENCE_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
+import { buildReplayToolCall, InferenceToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import { HttpResponseError, type FullJsonResponse, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
@@ -20,9 +20,9 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getActiveModelPreset } from '../src/config/index.js';
 
 test('llm protocol types model text, reasoning, and tool-call responses', () => {
-  assert.equal(LLAMA_CPP_PROTOCOL_FORMAT, 'openai-compatible');
+  assert.equal(INFERENCE_PROTOCOL_FORMAT, 'openai-compatible');
 
-  const message: LlamaCppChatMessage = {
+  const message: InferenceChatMessage = {
     role: 'assistant',
     content: 'answer',
     reasoning_content: 'thinking',
@@ -32,7 +32,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
       function: { name: 'grep', arguments: '{"pattern":"x"}' },
     }],
   };
-  const tool: LlamaCppToolDefinition = {
+  const tool: InferenceToolDefinition = {
     type: 'function',
     function: {
       name: 'grep',
@@ -40,7 +40,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
       parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] },
     },
   };
-  const request: LlamaCppChatRequest = {
+  const request: InferenceChatRequest = {
     model: 'local',
     messages: [{ role: 'user', content: 'find x' }],
     tools: [tool],
@@ -50,7 +50,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
       enable_thinking: true,
     },
   };
-  const response: NormalizedLlamaCppChatResponse = {
+  const response: NormalizedInferenceChatResponse = {
     text: 'answer',
     rawText: 'answer',
     narrationText: 'answer',
@@ -75,7 +75,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
 });
 
 test('tool-call parser normalizes message, choice, and legacy function calls', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
   const calls = parser.parseFromChoice({
     message: {
       tool_calls: [{
@@ -96,20 +96,29 @@ test('tool-call parser normalizes message, choice, and legacy function calls', (
   assert.equal(calls[0]?.function.arguments, '{"pattern":"AgentLoop"}');
 });
 
-test('replay tool-call helper emits real web tool protocol names and rejects unknown commands', () => {
-  const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search query="local llama"' });
+test('replay tool-call helper emits real tool protocol names and rejects unknown commands', () => {
+  const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search query="local inference"' });
   const fetchCall = buildReplayToolCall({ id: 'call_fetch', command: 'web_fetch url="https://example.test/page"' });
   const grepCall = buildReplayToolCall({ id: 'call_grep', command: 'grep pattern="name" path="package.json" limit=20' });
   const gitCall = buildReplayToolCall({ id: 'call_git', command: 'git operation="status"' });
+  const writeCall = buildReplayToolCall({ id: 'call_write', command: 'write path="note.txt" bytes=8 sha="abcd1234"' });
+  const editCall = buildReplayToolCall({ id: 'call_edit', command: 'edit path="note.txt" edits=2 sha="efgh5678"' });
+  const runCall = buildReplayToolCall({ id: 'call_run', command: 'run command="npm test" outputMode="full" timeoutMs=30000' });
 
   assert.equal(searchCall.function.name, 'web_search');
-  assert.equal(searchCall.function.arguments, '{"query":"local llama"}');
+  assert.equal(searchCall.function.arguments, '{"query":"local inference"}');
   assert.equal(fetchCall.function.name, 'web_fetch');
   assert.equal(fetchCall.function.arguments, '{"url":"https://example.test/page"}');
   assert.equal(grepCall.function.name, 'grep');
   assert.equal(grepCall.function.arguments, '{"pattern":"name","path":"package.json","limit":20}');
   assert.equal(gitCall.function.name, 'git');
   assert.equal(gitCall.function.arguments, '{"operation":"status"}');
+  assert.equal(writeCall.function.name, 'write');
+  assert.equal(writeCall.function.arguments, '{"path":"note.txt","bytes":8,"sha":"abcd1234"}');
+  assert.equal(editCall.function.name, 'edit');
+  assert.equal(editCall.function.arguments, '{"path":"note.txt","edits":2,"sha":"efgh5678"}');
+  assert.equal(runCall.function.name, 'run');
+  assert.equal(runCall.function.arguments, '{"command":"npm test","outputMode":"full","timeoutMs":30000}');
   assert.throws(
     () => buildReplayToolCall({ id: 'call_unknown', command: 'not-a-tool: x' }),
     /Cannot replay unknown persisted tool command/u,
@@ -210,7 +219,7 @@ function buildProtocolConfig(preserveThinking = false): SiftConfig {
   });
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
-    throw new Error('default config must include a managed llama preset');
+    throw new Error('default config must include an inference preset');
   }
   preset.id = 'p1';
   preset.label = 'p1';
@@ -227,7 +236,7 @@ const protocolConfig = buildProtocolConfig();
 
 test('client builds chat request with thinking kwargs and tools', async () => {
   const http = new CapturingHttpClient();
-  const client = new LlamaCppClient(http);
+  const client = new InferenceClient(http);
   await client.chat({
     config: protocolConfig,
     model: 'local',
@@ -254,8 +263,8 @@ test('client builds chat request with thinking kwargs and tools', async () => {
   assert.equal(body.tools[0].function.name, 'grep');
 });
 
-test('llama client covers token-count fallbacks, model fallbacks, and status errors', async () => {
-  const countClient = new LlamaCppClient(new CapturingHttpClient([
+test('inference client covers token-count fallbacks, model fallbacks, and status errors', async () => {
+  const countClient = new InferenceClient(new CapturingHttpClient([
     jsonResponse({ token_count: 7 }),
     jsonResponse({ n_tokens: 8 }),
     jsonResponse({ tokens: ['a', 'b', 'c'] }),
@@ -267,7 +276,7 @@ test('llama client covers token-count fallbacks, model fallbacks, and status err
   assert.equal((await countClient.countTokens(protocolConfig, 'c')).tokenCount, 3);
   assert.equal((await countClient.countTokens(protocolConfig, 'd')).tokenCount, 0);
 
-  const modelClient = new LlamaCppClient(new CapturingHttpClient([
+  const modelClient = new InferenceClient(new CapturingHttpClient([
     jsonResponse({ data: [{ id: '' }, { model: 'fallback-model' }] }),
     jsonResponse({ models: ['plain-model'] }),
     jsonResponse({ error: 'bad' }, 500, 'server exploded'),
@@ -277,35 +286,35 @@ test('llama client covers token-count fallbacks, model fallbacks, and status err
   assert.deepEqual(await modelClient.listModels(protocolConfig), ['plain-model']);
   await assert.rejects(() => modelClient.listModels(protocolConfig), /HTTP 500: server exploded/u);
 
-  const status = await new LlamaCppClient(new CapturingHttpClient([
+  const status = await new InferenceClient(new CapturingHttpClient([
     jsonResponse({ error: 'bad' }, 500, 'server exploded'),
   ])).getStatus(protocolConfig);
   assert.deepEqual(status, { ok: false, models: [], error: 'HTTP 500: server exploded' });
 });
 
-test('llama client accepts current object-valued model lists', async () => {
-  const client = new LlamaCppClient(new CapturingHttpClient([
+test('inference client accepts current object-valued model lists', async () => {
+  const client = new InferenceClient(new CapturingHttpClient([
     jsonResponse({
       models: [{
-        name: 'Qwen3.6-27B-IQ4_NL_mtp.gguf',
-        model: 'Qwen3.6-27B-IQ4_NL_mtp.gguf',
+        name: 'Qwen3.6-27B-EXL3',
+        model: 'Qwen3.6-27B-EXL3',
       }],
-      data: [{ id: 'Qwen3.6-27B-IQ4_NL_mtp.gguf' }],
+      data: [{ id: 'Qwen3.6-27B-EXL3' }],
     }),
     jsonResponse({
-      models: [{ name: 'fallback-name.gguf' }],
+      models: [{ name: 'fallback-name-exl3' }],
     }),
   ]));
 
   const current = await client.probeModelsAtBaseUrl('http://127.0.0.1:8097');
   assert.equal(current.statusCode, 200);
-  assert.deepEqual(current.models, ['Qwen3.6-27B-IQ4_NL_mtp.gguf']);
+  assert.deepEqual(current.models, ['Qwen3.6-27B-EXL3']);
 
   const fallback = await client.probeModelsAtBaseUrl('http://127.0.0.1:8097');
-  assert.deepEqual(fallback.models, ['fallback-name.gguf']);
+  assert.deepEqual(fallback.models, ['fallback-name-exl3']);
 });
 
-test('llama client covers streamed request and response normalization branches', async () => {
+test('inference client covers streamed request and response normalization branches', async () => {
   const http = new CapturingHttpClient([], [[
     JSON.stringify({
       choices: [{ delta: { content: 'fallback text', reasoning_content: 'reason trace' } }],
@@ -322,14 +331,12 @@ test('llama client covers streamed request and response normalization branches',
     }),
   ]]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 33,
-    cachePrompt: false,
-    slotId: 2,
     responseFormat: { type: 'json_object' },
     reasoningOverride: 'off',
     retry: false,
@@ -352,7 +359,7 @@ test('llama client covers streamed request and response normalization branches',
 });
 
 test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
   const { calls, sawBareMarkup } = parser.scanFromText(`
 <tool_call>
 <function=find_text>
@@ -362,7 +369,7 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
 </tool_call>
 <tool_call>
 <function=read_lines>
-<parameter=path>src/providers/llama-cpp.ts</parameter>
+<parameter=path>src/providers/inference.ts</parameter>
 </function>
 </tool_call>`);
 
@@ -377,7 +384,7 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
     max_results: 20,
   });
   assert.deepEqual(JSON.parse(secondArguments), {
-    path: 'src/providers/llama-cpp.ts',
+    path: 'src/providers/inference.ts',
   });
 });
 
@@ -387,7 +394,7 @@ test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
   config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new CapturingHttpClient([jsonResponse({ length: 50106, tokens: [1, 2] })]);
 
-  const response = await new LlamaCppClient(http).countTokens(config, 'large prompt');
+  const response = await new InferenceClient(http).countTokens(config, 'large prompt');
 
   assert.equal(response.tokenCount, 50106);
   assert.equal(http.requests[0]?.url, 'http://127.0.0.1:8098/v1/token/encode');
@@ -403,7 +410,7 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
       choices: [{ delta: { content: '<tool_call><function=grep><parameter=pattern>SelectedBackend</parameter></function></tool_call>' } }],
     }),
   ]]);
-  const tool: LlamaCppToolDefinition = {
+  const tool: InferenceToolDefinition = {
     type: 'function',
     function: {
       name: 'grep',
@@ -412,7 +419,7 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
     },
   };
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config,
     model: '3.6_27B',
     messages: [{ role: 'user', content: 'find it' }],
@@ -438,7 +445,7 @@ test('EXL3 chat requests are serialized for a single Tabby cache slot', async ()
   config.Server.ModelPresets.Presets[0].Backend = 'exl3';
   config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new BlockingHttpClient();
-  const client = new LlamaCppClient(http);
+  const client = new InferenceClient(http);
   const options = {
     config,
     model: '3.6_27B',
@@ -468,7 +475,7 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
     JSON.stringify({ choices: [{ delta: { content: 'EXL3 response' } }] }),
   ]]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config,
     baseUrl: 'http://127.0.0.1:8098',
     model: '3.6_27B',
@@ -485,7 +492,7 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
 });
 
 test('tool-call parser preserves unknown names and covers fallback ids, arguments, and replay values', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
 
   assert.deepEqual(parser.parseFromChoice({}), []);
   assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'not_allowed', arguments: '{}' } }), {
@@ -506,9 +513,9 @@ test('tool-call parser preserves unknown names and covers fallback ids, argument
     message: { function_call: { name: 'finish' } },
   })[0]?.function.arguments, '{}');
 
-  const quotedSearch = buildReplayToolCall({ id: 'quoted', command: 'web_search query="local llama"' });
+  const quotedSearch = buildReplayToolCall({ id: 'quoted', command: 'web_search query="local inference"' });
   const escapedRead = buildReplayToolCall({ id: 'escaped', command: 'read path="src/a b.ts" offset=1 limit=40' });
-  assert.equal(quotedSearch.function.arguments, '{"query":"local llama"}');
+  assert.equal(quotedSearch.function.arguments, '{"query":"local inference"}');
   assert.equal(escapedRead.function.arguments, '{"path":"src/a b.ts","offset":1,"limit":40}');
   // A native tool call with no parseable arguments is not replayable.
   assert.throws(
@@ -529,16 +536,16 @@ test('tool-call parser preserves unknown names and covers fallback ids, argument
   );
 });
 
-test('llama client covers chat HTTP errors and status success branches', async () => {
+test('inference client covers chat HTTP errors and status success branches', async () => {
   await assert.rejects(
-    () => new LlamaCppClient(new CapturingHttpClient([
+    () => new InferenceClient(new CapturingHttpClient([
       jsonResponse({ error: 'bad' }, 500, 'bad tokenize'),
     ])).countTokens(protocolConfig, 'x', { retryMaxWaitMs: 0 }),
     /HTTP 500: bad tokenize/u,
   );
 
   await assert.rejects(
-    () => new LlamaCppClient(new CapturingHttpClient([], [
+    () => new InferenceClient(new CapturingHttpClient([], [
       new HttpResponseError(500, 'bad chat'),
     ])).chat({
       config: protocolConfig,
@@ -552,16 +559,16 @@ test('llama client covers chat HTTP errors and status success branches', async (
     /HTTP 500: bad chat/u,
   );
 
-  const okStatus = await new LlamaCppClient(new CapturingHttpClient([
+  const okStatus = await new InferenceClient(new CapturingHttpClient([
     jsonResponse({ data: [{ id: 'local' }] }),
   ])).getStatus(protocolConfig);
   assert.deepEqual(okStatus, { ok: true, models: ['local'], error: null });
 
-  const stringFailureStatus = await new LlamaCppClient(new StringThrowingHttpClient()).getStatus(protocolConfig);
+  const stringFailureStatus = await new InferenceClient(new StringThrowingHttpClient()).getStatus(protocolConfig);
   assert.deepEqual(stringFailureStatus, { ok: false, models: [], error: 'string failure' });
 });
 
-test('llama client covers timing cache, top-level thinking tokens, and top-level tool calls', async () => {
+test('inference client covers usage cache, top-level thinking tokens, and top-level tool calls', async () => {
   const http = new CapturingHttpClient([], [[
     JSON.stringify({
       choices: [{
@@ -573,15 +580,15 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
       }],
       usage: {
         prompt_tokens: 9,
+        prompt_tokens_details: { cached_tokens: 3 },
         completion_tokens: 5,
         total_tokens: 14,
         reasoning_tokens: 2,
       },
-      timings: { cache_n: 3, prompt_n: 6 },
     }),
   ]]);
 
-  const response = await new LlamaCppClient(http).chat({
+  const response = await new InferenceClient(http).chat({
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -598,7 +605,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
   assert.equal(response.usage.totalTokens, 14);
 });
 
-test('llama client covers prompt-token cache fallback, empty response normalization, and disabled reasoning kwargs', async () => {
+test('inference client covers prompt-token cache fallback, empty response normalization, and disabled reasoning kwargs', async () => {
   const noReasoningConfig = buildProtocolConfig();
   noReasoningConfig.Server.ModelPresets.Presets[0].Reasoning = 'off';
   const http = new CapturingHttpClient([], [
@@ -613,7 +620,7 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     })],
     [JSON.stringify({ choices: [] })],
   ]);
-  const client = new LlamaCppClient(http);
+  const client = new InferenceClient(http);
 
   const response = await client.chat({
     config: noReasoningConfig,
@@ -648,11 +655,11 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
 test('chat requests send the active preset reasoning effort', async () => {
   const config = buildProtocolConfig();
   const preset = config.Server.ModelPresets.Presets[0];
-  if (!preset) throw new Error('default config must include a managed llama preset');
+  if (!preset) throw new Error('default config must include an inference preset');
   preset.ReasoningEffort = 'low';
 
   const http = new CapturingHttpClient();
-  await new LlamaCppClient(http).chat({
+  await new InferenceClient(http).chat({
     config,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -671,12 +678,12 @@ test('chat requests send the active preset reasoning effort', async () => {
 test('chat requests omit reasoning effort when the preset has reasoning off', async () => {
   const config = buildProtocolConfig();
   const preset = config.Server.ModelPresets.Presets[0];
-  if (!preset) throw new Error('default config must include a managed llama preset');
+  if (!preset) throw new Error('default config must include an inference preset');
   preset.Reasoning = 'off';
   preset.ReasoningEffort = 'low';
 
   const http = new CapturingHttpClient();
-  await new LlamaCppClient(http).chat({
+  await new InferenceClient(http).chat({
     config,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -690,7 +697,7 @@ test('chat requests omit reasoning effort when the preset has reasoning off', as
 });
 
 test('tool-call scan treats markup inside markdown code regions as a mention', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
   const { calls, sawBareMarkup } = parser.scanFromText([
     'The dialect looks like `<tool_call>` and a full example is:',
     '```',
@@ -707,7 +714,7 @@ test('tool-call scan treats markup inside markdown code regions as a mention', (
 });
 
 test('tool-call scan flags a bare unclosed opener as markup evidence', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
   const { calls, sawBareMarkup } = parser.scanFromText('Let me call <tool_call><function=git>');
 
   assert.deepEqual(calls, []);
@@ -715,7 +722,7 @@ test('tool-call scan flags a bare unclosed opener as markup evidence', () => {
 });
 
 test('tool-call scan preserves fenced content inside parameter values', () => {
-  const parser = new LlamaCppToolCallParser();
+  const parser = new InferenceToolCallParser();
   const { calls } = parser.scanFromText([
     '<tool_call>',
     '<function=write_file>',

@@ -69,11 +69,11 @@ function Get-TestStatusPath {
 function Get-DefaultServerConfig {
     @{
         Version = '0.1.0'
-        Backend = 'llama.cpp'
+        Backend = 'exl3'
         Model = 'qwen3.5-9b-instruct-q4_k_m'
         PolicyMode = 'conservative'
         RawLogRetention = $true
-        LlamaCpp = @{
+        Exl3 = @{
             BaseUrl = 'http://127.0.0.1:8080'
             NumCtx = 128000
             ModelPath = $null
@@ -83,7 +83,6 @@ function Get-DefaultServerConfig {
             MinP = 0.0
             PresencePenalty = 0.0
             RepetitionPenalty = 1.0
-            MaxTokens = 4096
             Threads = -1
             FlashAttention = $true
             ParallelSlots = 1
@@ -292,7 +291,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   const address = server.address();
-  config.LlamaCpp.BaseUrl = 'http://127.0.0.1:' + address.port;
+  config.Exl3.BaseUrl = 'http://127.0.0.1:' + address.port;
   process.stdout.write(JSON.stringify({ port: address.port, statusPath, configPath }) + '\n');
 });
 

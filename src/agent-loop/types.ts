@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import type { JsonObject, JsonValue, InferenceChatMessage, InferenceToolDefinition, NormalizedInferenceChatResponse } from '../llm-protocol/types.js';
 
 export type AgentLoopKind = 'repo-search' | 'chat' | 'summary-planner';
 
@@ -33,7 +33,7 @@ export type AgentLoopModelData = {
 
 export type AgentLoopModelContinueResponse = {
   outcome: 'continue';
-  response: NormalizedLlamaCppChatResponse;
+  response: NormalizedInferenceChatResponse;
   data: AgentLoopModelData | null;
 };
 
@@ -46,7 +46,7 @@ export type AgentLoopModelResponse = AgentLoopModelContinueResponse | AgentLoopM
 
 export type AgentLoopTurn = {
   turnNumber: number;
-  response: NormalizedLlamaCppChatResponse;
+  response: NormalizedInferenceChatResponse;
   actions: AgentLoopAction[];
   toolResults: AgentLoopToolResult[];
 };
@@ -68,8 +68,8 @@ export type AgentLoopPreparedTurn = {
   /** Tokens the rendered wire prompt occupies. Reported, displayed, persisted, and budgeted against. */
   promptTokenCount: number;
   maxOutputTokens: number;
-  messages: LlamaCppChatMessage[];
-  toolDefinitions: LlamaCppToolDefinition[];
+  messages: InferenceChatMessage[];
+  toolDefinitions: InferenceToolDefinition[];
   inForcedFinishMode: boolean;
 };
 
@@ -79,7 +79,7 @@ export type AgentLoopTurnContext = {
 };
 
 export type AgentLoopResponseContext = AgentLoopTurnContext & {
-  response: NormalizedLlamaCppChatResponse;
+  response: NormalizedInferenceChatResponse;
   modelData: AgentLoopModelData | null;
   turns: readonly AgentLoopTurn[];
 };

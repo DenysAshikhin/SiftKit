@@ -41,7 +41,11 @@ interface TerminalStatusPost {
     requestDurationMs: number;
     outputCharacterCount: number;
   };
-  deferredArtifacts: { artifactType: string }[];
+  deferredArtifacts: {
+    artifactType: string;
+    artifactPayload: { [key: string]: JsonValue };
+    identity: { [key: string]: JsonValue };
+  }[];
 }
 
 interface DelayedTerminalSummaryStatusServer {
@@ -346,7 +350,7 @@ test('summarizeRequest does not recurse forever when token-aware planning return
   });
 });
 
-test('summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers', async () => {
+test('summarizeRequest keeps oversized inference requests on the planner path without chunk leaf markers', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -491,7 +495,7 @@ test('saveConfig reports operation-specific context when the external server is 
   });
 });
 
-test('summary keeps oversized llama.cpp requests on planner mode when direct prompt limits would reject chunking', async () => {
+test('summary keeps oversized inference requests on planner mode when direct prompt limits would reject chunking', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -532,7 +536,7 @@ test('summary keeps oversized llama.cpp requests on planner mode when direct pro
   });
 });
 
-test('summary hands oversized llama.cpp requests to planner mode before tokenization-based chunking would start', async () => {
+test('summary hands oversized inference requests to planner mode before tokenization-based chunking would start', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -605,7 +609,7 @@ test('summary posts the preflight prompt token count in running status updates',
   });
 });
 
-test('summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present', async () => {
+test('summarizeRequest recovers malformed structured inference JSON when the expected fields are present', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const result = await summarizeRequest({
@@ -638,7 +642,7 @@ test('summarizeRequest recovers malformed structured llama.cpp JSON when the exp
   });
 });
 
-test('summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions', async () => {
+test('summarizeRequest enables per-request response_format json_schema for structured inference decisions', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -858,6 +862,12 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
       assert.ok(Array.isArray(terminalPost.deferredArtifacts));
       assert.equal(terminalPost.deferredArtifacts.length, 1);
       assert.equal(terminalPost.deferredArtifacts[0].artifactType, 'summary_request');
+      assert.equal(terminalPost.deferredArtifacts[0].artifactPayload.operationType, undefined);
+      assert.equal(terminalPost.deferredArtifacts[0].identity.operationType, 'summary');
+      assert.equal(terminalPost.deferredArtifacts[0].identity.operationPresetId, 'summary');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.operationPresetJson, 'string');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.modelPresetId, 'string');
+      assert.equal(typeof terminalPost.deferredArtifacts[0].identity.modelPresetJson, 'string');
 
       const immediateAfter = fs.readdirSync(requestLogsPath);
       const immediateAdded = immediateAfter.filter((entry) => !before.has(entry));
@@ -1020,16 +1030,18 @@ test('empty structured output retries once then fails, and subsequent requests s
   });
 });
 
-test('summary requests use the host model and the caller MaxTokens overlay', async () => {
+test('summary requests use the host model and only an explicit operation cap', async () => {
   await withTempEnv(async () => {
-    await withStubServer(async (server) => {
+    await withStubServer(
+      async (server) => {
       resetHostEngineSettingsCacheForTests();
       const stubBaseUrl = `http://127.0.0.1:${server.port}`;
       const hostPreset = server.state.config.Server.ModelPresets.Presets[0];
       if (!hostPreset) {
         throw new Error('Stub host config has no model preset.');
       }
-      hostPreset.Model = 'host-loaded-model.gguf';
+      hostPreset.Model = 'host-loaded-model.exl3';
+      hostPreset.NumCtx = 155_000;
       const config = mockConfig({
         Server: {
           ModelPresets: {
@@ -1041,12 +1053,11 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
               Model: 'stale-local-model',
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
-              MaxTokens: 9000,
               IdleAction: 'unload',
             }],
+            },
           },
-        },
-      });
+        });
 
       const result = await summarizeRequest({
         repoRoot: process.cwd(),
@@ -1056,14 +1067,33 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
         policyProfile: 'general',
         provider: 'real',
         config,
-        llamaCppMaxTokens: 321,
+        inferenceMaxTokens: 321,
       });
 
-      assert.equal(result.Model, 'host-loaded-model.gguf');
+      assert.equal(result.Model, 'host-loaded-model.exl3');
       const chatRequest = server.state.chatRequests[0];
       assert.ok(chatRequest);
-      assert.equal(chatRequest.model, 'host-loaded-model.gguf');
+      assert.equal(chatRequest.model, 'host-loaded-model.exl3');
       assert.equal(chatRequest.max_tokens, 321);
+
+        await summarizeRequest({
+          repoRoot: process.cwd(),
+          question: 'summarize this',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          provider: 'real',
+          config,
     });
+
+        const uncappedRequest = server.state.chatRequests[1];
+        assert.ok(uncappedRequest);
+        assert.equal(
+          uncappedRequest.max_tokens,
+          155_000 - Math.ceil(getChatRequestText(uncappedRequest).length / 4),
+        );
+      },
+      { tokenizeCharsPerToken: 4 },
+    );
   });
 });

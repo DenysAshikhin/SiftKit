@@ -4,11 +4,16 @@ import { parseJsonText } from '../../lib/json.js';
 import { tableExists, tableHasColumn } from './schema-introspection.js';
 import {
   migrateAppConfigIdleAction,
+  migrateActiveStateRemoveMaxTokens,
   migrateAppConfigRemoveGlobalStartupContext,
   migrateAppConfigToPresetSourceOfTruth,
+  migrateChatMessagesToPerRowTokens,
   migrateChatSessionsToModelPresetIdentity,
   migrateChatSessionsToModelPresetSnapshot,
   migrateRunLogsBackendToEngineIds,
+  migrateRunLogsOperationIdentity,
+
+  migrateRuntimeToExl3Only,
 } from './app-config-migrations.js';
 import {
   ASSISTANT_CORE_SCHEMA_SQL,
@@ -28,7 +33,11 @@ import {
   ensureRuntimeArtifactsSchema,
   ensureRuntimeErrorEventsSchema,
 } from './schema-helpers.js';
-import { DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON } from './constants.js';
+import {
+  BACKGROUND_WORK_DECISIONS_METADATA_KEY,
+  DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON,
+  REMOVED_COMBINED_INPUT_IDLE_REASON,
+} from './constants.js';
 
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -685,7 +694,7 @@ export const MIGRATIONS: readonly Migration[] = [
     // history entries with the removed reason cannot be re-expressed truthfully, so they go.
     version: 56,
     up: (database) => {
-      const key = 'assistant.background_work_decisions.v1';
+      const key = BACKGROUND_WORK_DECISIONS_METADATA_KEY;
       const row = database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(key);
       if (row === undefined || row === null) return;
       const histories = parseJsonText(
@@ -694,11 +703,114 @@ export const MIGRATIONS: readonly Migration[] = [
       );
       const kept = Object.fromEntries(
         Object.entries(histories).map(([ownerId, entries]) => [
-          ownerId, entries.filter((entry) => entry.reason !== 'input_idle_below_threshold'),
+          ownerId, entries.filter((entry) => entry.reason !== REMOVED_COMBINED_INPUT_IDLE_REASON),
         ]),
       );
       database.prepare('UPDATE runtime_metadata SET value = ? WHERE key = ?')
         .run(JSON.stringify(kept), key);
     },
+  },
+  {
+    // Run logs record the canonical operation and preset identity from here on; see the
+    // migration for exactly which historical values are backfilled and which stay null.
+    version: 57,
+    up: (database) => {
+      migrateRunLogsOperationIdentity(database);
+    },
+  },
+  {
+    // The activity event stores both input signals instead of their minimum under the old
+    // combined name. Rows written before the split carried one value; it seeds both columns.
+    version: 58,
+    up: (database) => {
+      if (!tableHasColumn(database, 'assistant_activity_events', 'idle_seconds')) return;
+      database.exec(`
+        ALTER TABLE assistant_activity_events RENAME COLUMN idle_seconds TO mouse_idle_seconds;
+        ALTER TABLE assistant_activity_events
+          ADD COLUMN keyboard_idle_seconds INTEGER NOT NULL DEFAULT 0
+          CHECK (keyboard_idle_seconds >= 0);
+        UPDATE assistant_activity_events SET keyboard_idle_seconds = mouse_idle_seconds;
+      `);
+    },
+  },
+  {
+    version: 59,
+    up: (database) => {
+      migrateActiveStateRemoveMaxTokens(database);
+    },
+  },
+  {
+    version: 60,
+    up: (database) => {
+      if (!tableHasColumn(database, 'chat_messages', 'kind')) {
+        throw new Error('Migration v60 requires chat_messages.kind.');
+      }
+      const invalidNullKindRoles = z.array(z.object({ role: z.string().nullable() })).parse(
+        database.prepare(`
+          SELECT DISTINCT role
+          FROM chat_messages
+          WHERE kind IS NULL
+            AND (role IS NULL OR role NOT IN ('user', 'assistant'))
+        `).all(),
+      );
+      if (invalidNullKindRoles.length > 0) {
+        throw new Error(`Migration v60 cannot backfill null chat message kinds for role ${invalidNullKindRoles[0]?.role}.`);
+      }
+      if (!tableHasColumn(database, 'chat_messages', 'tool_call_status')) {
+        database.exec(`
+          ALTER TABLE chat_messages
+            ADD COLUMN tool_call_status TEXT
+            CHECK (tool_call_status IN ('running', 'done', 'stopped'));
+        `);
+      }
+      database.exec(`
+        UPDATE chat_messages
+        SET kind = CASE role
+          WHEN 'user' THEN 'user_text'
+          WHEN 'assistant' THEN 'assistant_answer'
+        END
+        WHERE kind IS NULL;
+
+        UPDATE chat_messages
+        SET tool_call_status = 'done'
+        WHERE kind = 'assistant_tool_call'
+          AND tool_call_status IS NULL;
+      `);
+    },
+  },
+  {
+    version: 61,
+    up: (database) => {
+      if (!tableExists(database, 'candidate_assertions')) {
+        throw new Error('Migration v61 requires candidate_assertions.');
+      }
+      if (!tableHasColumn(database, 'candidate_assertions', 'hold_json')) {
+        database.exec('ALTER TABLE candidate_assertions ADD COLUMN hold_json TEXT;');
+      }
+      // Holds used to be encoded in `rejection_reason`: a topic name, or
+      // `possible_owner_alias:<name>` (21 characters before the name).
+      database.exec(`
+        UPDATE candidate_assertions
+        SET hold_json = CASE
+          WHEN rejection_reason LIKE 'possible_owner_alias:%'
+            THEN json_object('kind', 'possible_owner_alias', 'name', substr(rejection_reason, 22))
+          ELSE json_object('kind', 'topic', 'topic', rejection_reason)
+        END,
+        rejection_reason = NULL
+        WHERE status = 'needs_confirmation' AND rejection_reason IS NOT NULL AND hold_json IS NULL;
+      `);
+    },
+  },
+  {
+    version: 62,
+    up: (database) => {
+      migrateChatMessagesToPerRowTokens(database);
+    },
+  },
+  {
+    // llama.cpp support was removed: preset columns lose their llama name, llama presets and
+    // llama-only rows go. See migrateRuntimeToExl3Only.
+    version: 63,
+    up: migrateRuntimeToExl3Only,
   },
 ];

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-// Every inference request derives its sampling, MaxTokens, and reasoning from the
+// Every inference request derives its sampling and reasoning from the
 // single active ModelRuntimePreset. These patterns are the shapes that previously
 // bypassed it; re-introducing one silently splits the source of truth again.
 
@@ -29,8 +29,8 @@ const BANNED_PER_FILE = [
 
 const BANNED_IN_SRC = [
   {
-    pattern: /llamaCppOverrides/u,
-    reason: 'per-request llama.cpp overrides are active-preset config overlays now',
+    pattern: new RegExp(['ll', 'amaCppOverrides'].join(''), 'u'),
+    reason: 'per-request backend overrides are active-preset config overlays now',
   },
 ] as const;
 

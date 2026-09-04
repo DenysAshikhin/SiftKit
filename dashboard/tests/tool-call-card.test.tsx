@@ -38,7 +38,7 @@ test('running tool details use present tense and keep diagnostics collapsed', ()
   assert.match(markup, /PRIVATE_OUTPUT/u);
 });
 
-test('successful details omit success icons tokens and completion wording', () => {
+test('completed tool details use completed wording without an active ellipsis', () => {
   const markup = renderToStaticMarkup(
     <ToolCallCard message={msg({
       toolCallCommand: 'grep "SECRET_MARKER"',
@@ -49,12 +49,12 @@ test('successful details omit success icons tokens and completion wording', () =
       toolCallPromptTokenCount: 8200,
     })} />,
   );
-  assert.match(markup, /Searching code…/u);
-  assert.doesNotMatch(markup, /✓|8k tok|complete|Searched/u);
+  assert.match(markup, /Searched code/u);
+  assert.doesNotMatch(markup, /Searching code…|✓|8k tok/u);
   assert.match(markup, /command:.*SECRET_MARKER/u);
 });
 
-test('failed details use subtle failure copy and remain closed', () => {
+test('failed details use terminal failure copy and remain closed', () => {
   const markup = renderToStaticMarkup(
     <ToolCallCard message={msg({
       toolCallCommand: 'npm test -- chat-tab',
@@ -65,7 +65,20 @@ test('failed details use subtle failure copy and remain closed', () => {
     })} />,
   );
   assert.match(markup, /class="tbad"/u);
-  assert.match(markup, /Validating project… failed/u);
+  assert.match(markup, /Validating project — failed/u);
   assert.doesNotMatch(markup, /<details open>/u);
   assert.match(markup, /PRIVATE_FAILURE/u);
+});
+
+test('stopped tool details use terminal stopped wording without an active ellipsis', () => {
+  const markup = renderToStaticMarkup(
+    <ToolCallCard message={msg({
+      toolCallCommand: 'read path="src/a.ts"',
+      toolCallActivityKind: 'read',
+      toolCallActivitySubject: { kind: 'file', value: 'src/a.ts' },
+      toolCallStatus: 'stopped',
+    })} />,
+  );
+  assert.match(markup, /Reading file src\/a\.ts — stopped/u);
+  assert.doesNotMatch(markup, /src\/a\.ts…/u);
 });

@@ -12,7 +12,8 @@ import {
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 import { DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON } from './migrations/constants.js';
-import { tableExists, tableHasColumn } from './migrations/schema-introspection.js';
+import { tableExists } from './migrations/schema-introspection.js';
+import { detectEffectiveSchemaVersion } from './migrations/schema-version-detection.js';
 import {
   applyAssistantCoreSchema,
   applyAssistantDesktopSchema,
@@ -30,42 +31,11 @@ const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
-export const CURRENT_SCHEMA_VERSION = 56;
+export const CURRENT_SCHEMA_VERSION = 63;
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
-
-function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
-  if (storedVersion >= 13) {
-    return storedVersion;
-  }
-  if (
-    tableHasColumn(database, 'app_config', 'llama_ncpu_moe')
-    && tableHasColumn(database, 'app_config', 'server_ncpu_moe')
-  ) {
-    return 11;
-  }
-  if (tableHasColumn(database, 'app_config', 'server_reasoning_budget_message')) {
-    return 10;
-  }
-  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
-    return 9;
-  }
-  if (tableHasColumn(database, 'app_config', 'server_kv_cache_quant')) {
-    return 8;
-  }
-  if (tableHasColumn(database, 'app_config', 'server_reasoning_budget')) {
-    return 7;
-  }
-  if (tableHasColumn(database, 'app_config', 'operation_mode_allowed_tools_json')) {
-    return 5;
-  }
-  if (tableHasColumn(database, 'app_config', 'presets_json') || tableHasColumn(database, 'chat_sessions', 'preset_id')) {
-    return 4;
-  }
-  return storedVersion;
-}
 
 export function getSchemaVersion(database: RuntimeDatabase): number {
   database.exec(`
@@ -110,8 +80,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       interactive_idle_timeout_ms INTEGER NOT NULL,
       interactive_max_transcript_characters INTEGER NOT NULL,
       interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
-      server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
-      server_llama_active_preset_id TEXT,
+      server_model_presets_json TEXT NOT NULL DEFAULT '[]',
+      server_model_active_preset_id TEXT,
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
       inference_json TEXT NOT NULL DEFAULT '{}',
       server_exl3_json TEXT NOT NULL DEFAULT '{}',
@@ -186,7 +156,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
       id TEXT NOT NULL,
       role TEXT NOT NULL,
-      kind TEXT,
+      kind TEXT NOT NULL,
       content TEXT NOT NULL,
       input_tokens_estimate INTEGER NOT NULL,
       output_tokens_estimate INTEGER NOT NULL,
@@ -208,7 +178,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       answer_ended_at_utc TEXT,
       speculative_accepted_tokens INTEGER,
       speculative_generated_tokens INTEGER,
-      associated_tool_tokens INTEGER,
       thinking_content TEXT,
       tool_call_command TEXT,
       tool_call_activity_kind TEXT,
@@ -220,6 +189,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       tool_call_prompt_token_count INTEGER,
       tool_call_output_snippet TEXT,
       tool_call_output TEXT,
+      tool_call_status TEXT CHECK (tool_call_status IN ('running', 'done', 'stopped')),
       approval_decision TEXT,
       approval_tool_name TEXT,
       approval_command TEXT,

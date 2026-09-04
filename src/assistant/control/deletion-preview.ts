@@ -50,11 +50,28 @@ const FactoryResetPayloadSchema = z.object({
   totalRows: z.number().int().min(0),
 }).strict();
 
+const GraphCleanupCountsSchema = z.object({
+  orphanNodes: z.number().int().min(0),
+  resumableCaptures: z.number().int().min(0),
+  discardableCaptures: z.number().int().min(0),
+  reclassifiableEvidence: z.number().int().min(0),
+  reclassifiableAssertions: z.number().int().min(0),
+}).strict();
+export type GraphCleanupCounts = z.infer<typeof GraphCleanupCountsSchema>;
+
+const GraphCleanupPayloadSchema = z.object({
+  ownerId: z.string(),
+  operation: z.literal('graph_cleanup'),
+  graphVersion: z.number().int().min(0),
+  counts: GraphCleanupCountsSchema,
+});
+
 const PreviewPayloadSchema = z.discriminatedUnion('operation', [
   ForgetAssertionPayloadSchema,
   DeleteEvidencePayloadSchema,
   ForgetTopicPayloadSchema,
   FactoryResetPayloadSchema,
+  GraphCleanupPayloadSchema,
 ]);
 type PreviewPayload = z.infer<typeof PreviewPayloadSchema>;
 type ForgetAssertionPayload = z.infer<typeof ForgetAssertionPayloadSchema>;
@@ -188,6 +205,23 @@ export class DeletionPreviewService {
     if (payload.graphVersion !== this.graph.graphVersion) {
       throw new AssistantConflictError('Deletion preview is stale because the graph version changed.');
     }
+  }
+
+  /** Counts come from `GraphCleanupService`; the token records what the owner was shown. */
+  previewGraphCleanup(ownerId: string, counts: GraphCleanupCounts): string {
+    return this.sign(this.buildGraphCleanupPayload(ownerId, counts));
+  }
+
+  validateGraphCleanup(ownerId: string, previewToken: string, counts: GraphCleanupCounts): void {
+    const payload = this.verify(previewToken);
+    if (payload.operation !== 'graph_cleanup' || payload.ownerId !== ownerId) {
+      throw new AssistantConflictError('Deletion preview token does not authorize a cleanup.');
+    }
+    this.assertCurrent(payload, this.buildGraphCleanupPayload(ownerId, counts));
+  }
+
+  private buildGraphCleanupPayload(ownerId: string, counts: GraphCleanupCounts): PreviewPayload {
+    return { ownerId, operation: 'graph_cleanup', graphVersion: this.graph.graphVersion, counts };
   }
 
   /** The token is only as good as the state it described: rebuild and compare, never trust. */

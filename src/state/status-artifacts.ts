@@ -1,5 +1,6 @@
 import { z } from '../lib/zod.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
+import { RunIdentitySchema } from '../status-server/dashboard-runs/run-identity.js';
 import { getRuntimeArtifactUri } from './runtime-artifacts.js';
 
 /**
@@ -16,11 +17,17 @@ export type StatusArtifactType = (typeof STATUS_ARTIFACT_TYPES)[number];
 export const DeferredArtifactTypeSchema = z.enum(DEFERRED_ARTIFACT_TYPES);
 export const StatusArtifactTypeSchema = z.enum(STATUS_ARTIFACT_TYPES);
 
-export type DeferredArtifact = {
-  artifactType: DeferredArtifactType;
-  artifactRequestId: string;
-  artifactPayload: JsonObject;
-};
+/**
+ * Transport shape of a deferred artifact. `identity` is the run identity the producer ran under
+ * and is validated on receipt: an artifact without one is rejected, not read as "unrecorded".
+ */
+export const DeferredArtifactSchema = z.object({
+  artifactType: DeferredArtifactTypeSchema,
+  artifactRequestId: z.string().trim().min(1),
+  artifactPayload: JsonObjectSchema,
+  identity: RunIdentitySchema,
+});
+export type DeferredArtifact = z.infer<typeof DeferredArtifactSchema>;
 
 /** Runtime-artifact row id the status server persists each status artifact under. */
 export function getStatusArtifactId(artifactType: StatusArtifactType, requestId: string): string {

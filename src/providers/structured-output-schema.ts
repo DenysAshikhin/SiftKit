@@ -25,7 +25,7 @@ export function buildSummaryDecisionJsonSchema(options: { allowUnsupportedInput:
   };
 }
 
-export function buildLlamaJsonSchemaResponseFormat(options: { name: string; schema: JsonSchema }): {
+export function buildInferenceJsonSchemaResponseFormat(options: { name: string; schema: JsonSchema }): {
   type: 'json_schema';
   json_schema: { name: string; strict: boolean; schema: JsonSchema };
 } {

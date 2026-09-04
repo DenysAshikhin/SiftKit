@@ -57,10 +57,15 @@ test('dashboard benchmark preset store seeds built-in prompts and supports CRUD'
 });
 
 test('dashboard benchmark runner derives attempt metrics from dashboard run records', () => {
-  const metrics = buildBenchmarkAttemptMetrics({
+  const metrics = buildBenchmarkAttemptMetrics('run-1', { run: {
     id: 'run-1',
     kind: 'repo-search',
     status: 'completed',
+    operationType: null,
+    operationPresetId: null,
+    modelPresetId: null,
+    operationPresetJson: null,
+    modelPresetJson: null,
     startedAtUtc: '2026-05-13T00:00:00.000Z',
     finishedAtUtc: '2026-05-13T00:00:10.000Z',
     title: 'Benchmark run',
@@ -80,7 +85,7 @@ test('dashboard benchmark runner derives attempt metrics from dashboard run reco
     providerDurationMs: 9500,
     wallDurationMs: 10050,
     rawPaths: {},
-  });
+  } });
 
   assert.deepEqual(metrics, {
     durationMs: 10000,
@@ -92,6 +97,13 @@ test('dashboard benchmark runner derives attempt metrics from dashboard run reco
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
   });
+});
+
+test('dashboard benchmark metrics fail loudly instead of reporting an attempt with no run record', () => {
+  assert.throws(
+    () => buildBenchmarkAttemptMetrics('run-missing', null),
+    /no run record for run-missing/u,
+  );
 });
 
 test('dashboard benchmark session plan creates case-prompt-repeat attempts in order and stores grades/logs', () => {

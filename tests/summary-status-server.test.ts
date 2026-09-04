@@ -1,3 +1,4 @@
+import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,10 +26,10 @@ test('summary endpoint defaults model request timeout to 240 seconds', () => {
   assert.equal(parsed?.requestTimeoutSeconds, 240);
 });
 
-test('summary endpoint forwards promptPrefix and llamaCppMaxTokens to the summary engine', () => {
+test('summary endpoint forwards promptPrefix and inferenceMaxTokens to the summary engine', () => {
   const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'operations.js'), 'utf8');
   assert.match(routeText, /promptPrefix:\s*summaryRequest\.promptPrefix/u);
-  assert.match(routeText, /llamaCppMaxTokens:\s*summaryRequest\.llamaCppMaxTokens/u);
+  assert.match(routeText, /inferenceMaxTokens:\s*summaryRequest\.inferenceMaxTokens/u);
 });
 
 test('summary endpoint waits behind the model request queue', async () => {
@@ -291,8 +292,8 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
   }
 });
 
-test('terminal metadata waits for managed llama flush queue to drain first', async () => {
-  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-after-llama-flush-');
+test('terminal metadata waits for inference flush queue to drain first', async () => {
+  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-after-inference-flush-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -316,13 +317,13 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
   process.env.SIFTKIT_STATUS_PORT = '0';
 
   const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
-  let llamaFlushIdle = false;
-  let llamaFlushChecks = 0;
+  let inferenceFlushIdle = false;
+  let inferenceFlushChecks = 0;
   InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
-    if (!llamaFlushIdle) {
-      llamaFlushChecks += 1;
+    if (!inferenceFlushIdle) {
+      inferenceFlushChecks += 1;
     }
-    return llamaFlushIdle && originalIsIdle.call(this);
+    return inferenceFlushIdle && originalIsIdle.call(this);
   };
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
@@ -337,7 +338,7 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
         body: JSON.stringify({
           running: true,
           taskKind: 'summary',
-          requestId: 'metadata-after-llama-flush',
+          requestId: 'metadata-after-inference-flush',
           statusPath,
           rawInputCharacterCount: 100,
           promptCharacterCount: 200,
@@ -349,7 +350,7 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
         body: JSON.stringify({
           running: false,
           taskKind: 'summary',
-          requestId: 'metadata-after-llama-flush',
+          requestId: 'metadata-after-inference-flush',
           statusPath,
           terminalState: 'completed',
           deferredMetadata: {
@@ -358,11 +359,11 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
         }),
       });
       await waitForAsyncExpectation(() => {
-        assert.ok(llamaFlushChecks > 0, 'terminal metadata drain did not observe the busy flush queue');
+        assert.ok(inferenceFlushChecks > 0, 'terminal metadata drain did not observe the busy flush queue');
       });
       const waitingStatus = await requestJson(`${baseUrl}/status`);
       assert.equal(waitingStatus.body.status, 'true');
-      llamaFlushIdle = true;
+      inferenceFlushIdle = true;
       await waitForAsyncExpectation(async () => {
         const drainedStatus = await requestJson(`${baseUrl}/status`);
         assert.equal(drainedStatus.body.status, 'false');
@@ -754,7 +755,10 @@ test('command-output endpoint analyzes captured command output on the server', a
   }
 });
 
-test('summarizeRequest uses explicit config without requiring config service', async () => {
+test('summarizeRequest uses explicit config without requiring config service', async (context) => {
+  const isolatedRuntime = new IsolatedRuntime();
+  isolatedRuntime.start();
+  context.after(async () => { await isolatedRuntime.close(); });
   const envBackup: Record<string, string | undefined> = {
     SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
     SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,

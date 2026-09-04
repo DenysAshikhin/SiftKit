@@ -60,7 +60,6 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
     });
     const result = await invokeSummaryCore({
       requestId: 'summary-core-runner-test',
-      slotId: null,
       question: 'summarize this',
       inputText: 'Build output: all tests passed.',
       images: [],

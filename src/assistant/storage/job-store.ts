@@ -3,7 +3,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
-import type { JobStatus } from '../domain/enums.js';
+import { LIVE_JOB_STATUSES, type JobStatus } from '../domain/enums.js';
 import type { IdGenerator } from '../ids.js';
 import {
   AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
@@ -199,6 +199,13 @@ export class JobStore {
       SELECT * FROM assistant_jobs WHERE owner_id = ? AND status = ?
       ORDER BY priority DESC, created_at_utc ASC, id ASC
     `).all(ownerId, status));
+  }
+
+  /** Evidence ids with an extraction still queued, running, or paused. Payloads are parsed. */
+  listLiveImageExtractionEvidenceIds(ownerId: string): string[] {
+    return LIVE_JOB_STATUSES.flatMap((status) => this.listByStatus(ownerId, status))
+      .filter((job) => job.job_type === 'image_extraction')
+      .map((job) => this.readImageExtractionPayload(job).evidenceId);
   }
 
   countByStatus(ownerId: string, status: JobStatus): number {

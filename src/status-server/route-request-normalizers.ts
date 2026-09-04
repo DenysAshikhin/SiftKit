@@ -33,7 +33,7 @@ export type SummaryRouteRequest = {
   requestTimeoutSeconds: number;
   timing: SummaryTimingInput | undefined;
   promptPrefix: string | undefined;
-  llamaCppMaxTokens: number | undefined;
+  inferenceMaxTokens: number | undefined;
 };
 
 export type DashboardRunLogDeleteRequest =
@@ -113,9 +113,17 @@ export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest
   };
 }
 
-/** A caller-supplied output cap, applied downstream as an active-preset MaxTokens overlay. */
-function parseLlamaCppMaxTokens(reader: JsonRecordReader): number | undefined {
-  return reader.number('llamaCppMaxTokens') ?? undefined;
+/**
+ * A caller-supplied output cap, applied only to this summary operation. Anything
+ * other than a positive whole number of tokens is rejected here, so a bad request
+ * fails at the boundary rather than deep inside the provider call.
+ */
+function parseInferenceMaxTokens(reader: JsonRecordReader): number | null | undefined {
+  if (reader.value('inferenceMaxTokens') === undefined) {
+    return undefined;
+  }
+  const value = reader.number('inferenceMaxTokens');
+  return value !== null && Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | null {
@@ -123,13 +131,19 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   const question = reader.optionalString('question');
   const inputTextValue = reader.value('inputText');
   const inputText = typeof inputTextValue === 'string' ? inputTextValue : '';
-  const repoRoot = reader.optionalString('repoRoot');
+  // Defaulted to the server's cwd exactly as parseRepoSearchRequest does: the two sibling
+  // routes must agree on whether a server-internal caller has to supply a repo root.
+  const repoRoot = reader.optionalString('repoRoot') || process.cwd();
   const images = parseImageDataUrls(reader.value('images'));
-  if (!question || (!inputText.trim() && images.length === 0) || !repoRoot) {
+  if (!question || (!inputText.trim() && images.length === 0)) {
     return null;
   }
   const promptPrefixValue = reader.value('promptPrefix');
   const promptPrefix = typeof promptPrefixValue === 'string' ? promptPrefixValue : undefined;
+  const inferenceMaxTokens = parseInferenceMaxTokens(reader);
+  if (inferenceMaxTokens === null) {
+    return null;
+  }
   return {
     repoRoot,
     presetId: reader.optionalString('presetId'),
@@ -145,7 +159,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     requestTimeoutSeconds: reader.positiveNumber('requestTimeoutSeconds', DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
     timing: readSummaryTiming(reader.value('timing')),
     promptPrefix,
-    llamaCppMaxTokens: parseLlamaCppMaxTokens(reader),
+    inferenceMaxTokens,
   };
 }
 

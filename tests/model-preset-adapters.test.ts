@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ModelPresetSettingsSchema,
   ModelPresetFieldSchema,
   ModelRuntimePresetSchema,
   type ModelRuntimePreset,
@@ -23,6 +24,25 @@ function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRu
   if (!preset) throw new Error('Default model preset is missing');
   return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'exl3', ...overrides });
 }
+
+test('model preset contracts reject the removed MaxTokens field', () => {
+  const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  assert.ok(defaultPreset);
+  assert.equal(Object.hasOwn(defaultPreset, 'MaxTokens'), false);
+  assert.equal(ModelPresetFieldSchema.safeParse('MaxTokens').success, false);
+  assert.equal(
+    ModelPresetSettingsSchema.safeParse({ ...defaultPreset, MaxTokens: 512 })
+      .success,
+    true,
+  );
+  assert.equal(
+    Object.hasOwn(
+      ModelPresetSettingsSchema.parse({ ...defaultPreset, MaxTokens: 512 }),
+      'MaxTokens',
+    ),
+    false,
+  );
+});
 
 test('EXL3 adapter translates shared batching and MTP settings for managed Tabby', () => {
   const preset = createModelPreset({
@@ -62,7 +82,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'true',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
-    EXL3_QC_ATTN: '0',
+    TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -99,7 +119,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: 'false',
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
-    EXL3_QC_ATTN: '0',
+    TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -172,6 +192,31 @@ test('EXL3 adapter rejects vision offload when vision is disabled', () => {
   assert.throws(
     () => adapter.validatePreset(preset),
     /VisionOffload=true requires VisionEnabled=true/u,
+  );
+});
+
+test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    NcpuMoe: 12,
+  });
+
+  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS, '12');
+});
+
+test('EXL3 preset validation rejects a negative NcpuMoe', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    NcpuMoe: -1,
+  });
+
+  assert.throws(
+    () => adapter.validatePreset(preset),
+    /NcpuMoe=-1 must not be negative/u,
   );
 });
 
@@ -263,12 +308,13 @@ const PRESET_FIELD_EXPECTATIONS = {
   BaseUrl: ALWAYS,
   ModelPath: ALWAYS,
   NumCtx: ALWAYS,
+  NcpuMoe: MANAGED_ONLY,
   ParallelSlots: MANAGED_ONLY,
   UBatchSize: ALWAYS,
   CacheRam: MANAGED_ONLY,
   CacheRecurrentRam: MANAGED_ONLY,
   KvCacheQuantization: ALWAYS,
-  MaxTokens: ALWAYS,
+
   Temperature: ALWAYS,
   TopP: ALWAYS,
   TopK: ALWAYS,
@@ -312,12 +358,10 @@ test('EXL3 adapter returns common request defaults', () => {
     Backend: 'exl3',
     ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
     Reasoning: 'on',
-    MaxTokens: 73,
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
 
   assert.deepEqual(adapter.buildRequestDefaults(preset), {
-    maxTokens: 73,
     temperature: preset.Temperature,
     topP: preset.TopP,
     topK: preset.TopK,

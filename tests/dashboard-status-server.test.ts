@@ -38,6 +38,7 @@ import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp
 import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
+import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
@@ -87,7 +88,7 @@ function assembleTextDeltas(deltas: readonly ChatStreamTextDelta[]): string {
 // intentionally retained as E2E integration coverage: each drives a live status server over
 // real HTTP and exercises route↔store↔queue↔chat wiring (endpoint payload contracts, model
 // request queue serialization/FIFO/drop-on-disconnect, chat persistence + tool-evidence replay,
-// repo-search auto-append previews, llama-cpp reachability probing, start-script packaging) that
+// repo-search auto-append previews, engine reachability probing, start-script packaging) that
 // the coverage-attribution harness proved is not redundant with any sibling case (residual > 0
 // for all 25 — `candidates (residual <= 0): 0`). The unit-level decisions underneath are covered
 // directly in the config-store, model-request-queue, status-server-chat, route-request-normalizers,
@@ -184,8 +185,8 @@ async function startHostConfigServer(hostConfigBody: Dict): Promise<HostConfigSe
   };
 }
 
-test('config llama cpp test endpoint reports reachable external server', async () => {
-  const tempRoot = createManagedTempDir('siftkit-llama-test-route-');
+test('config engine test endpoint reports reachable external server', async () => {
+  const tempRoot = createManagedTempDir('siftkit-engine-test-route-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -213,7 +214,7 @@ test('config llama cpp test endpoint reports reachable external server', async (
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/config/llama-cpp/test`, {
+    const response = await requestJson(`${baseUrl}/config/engine/test`, {
       method: 'POST',
       body: JSON.stringify({ BaseUrl: `http://127.0.0.1:${remotePort}`, HealthcheckTimeoutMs: 1000 }),
     });
@@ -241,8 +242,8 @@ test('config llama cpp test endpoint reports reachable external server', async (
   }
 });
 
-test('config llama cpp test endpoint reports unreachable external server', async () => {
-  const tempRoot = createManagedTempDir('siftkit-llama-test-route-');
+test('config engine test endpoint reports unreachable external server', async () => {
+  const tempRoot = createManagedTempDir('siftkit-engine-test-route-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -258,7 +259,7 @@ test('config llama cpp test endpoint reports unreachable external server', async
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/config/llama-cpp/test`, {
+    const response = await requestJson(`${baseUrl}/config/engine/test`, {
       method: 'POST',
       body: JSON.stringify({ BaseUrl: `http://127.0.0.1:${unusedPort}`, HealthcheckTimeoutMs: 100 }),
     });
@@ -303,8 +304,8 @@ test('chat session creation uses pass-through host context window', async () => 
   const host = await startHostConfigServer(hostConfig);
   const config = getDefaultServerConfig();
   const serverConfig = d(config.Server);
-  const llamaServerConfig = d(serverConfig.ModelPresets);
-  const presets = asObjectArray(llamaServerConfig.Presets);
+  const modelPresetsConfig = d(serverConfig.ModelPresets);
+  const presets = asObjectArray(modelPresetsConfig.Presets);
   const activePreset = d(presets[0]);
   activePreset.ExternalServerEnabled = true;
   activePreset.BaseUrl = host.baseUrl;
@@ -379,7 +380,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
       modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
-      presetId: 'chat', mode: 'chat',
+      planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
@@ -389,7 +390,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
       modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
-      presetId: 'chat', mode: 'chat',
+      planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });
@@ -512,7 +513,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
           rawReviewRequired: false,
           providerError: null,
         },
-      });
+      }, operationOnlyRunIdentity('summary'));
       seeder.summaryRun({
         requestId: 'req-summary',
         question: 'Summarize build output',
@@ -540,7 +541,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         promptCacheTokens: 0,
         promptEvalTokens: 20,
         requestDurationMs: 1000,
-      });
+      }, operationOnlyRunIdentity('summary'));
       seeder.artifact('request_abandoned', 'req-abandoned', {
         requestId: 'req-abandoned',
         terminalState: 'failed',
@@ -548,7 +549,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         createdAtUtc: '2026-04-01T10:10:00.000Z',
         promptCharacterCount: 1200,
         outputTokensTotal: 12,
-      });
+      }, UNRECORDED_RUN_IDENTITY);
       seeder.repoSearchRun({
         requestId: 'req-repo',
         prompt: 'find failing test',
@@ -567,6 +568,12 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const health = await requestJson(`${baseUrl}/status`);
     assert.equal(health.statusCode, 200);
+
+    const managedRuns = await requestJson(`${baseUrl}/dashboard/admin/managed-runs`);
+    assert.equal(managedRuns.statusCode, 200);
+    const removedBackendSegment = ['ll', 'ama'].join('');
+    const removedManagedRunsRoute = await requestJson(`${baseUrl}/dashboard/admin/managed-${removedBackendSegment}/runs`);
+    assert.equal(removedManagedRunsRoute.statusCode, 404);
 
     const runsResponse = await requestJson(`${baseUrl}/dashboard/runs`);
     assert.equal(runsResponse.statusCode, 200);
@@ -627,7 +634,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       method: 'POST',
       body: JSON.stringify({
         title: 'Session A',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
         contextWindowTokens: 10000,
       }),
     });
@@ -673,7 +680,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         content: 'Add a mode toggle to the dashboard chat panel.',
         repoRoot: tempRoot,
         maxTurns: 2,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"dashboard","path":"."} }] },
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"/dashboard/chat/sessions","path":"siftKitStatus/index.js"} }] },
@@ -698,8 +705,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const planUsage = d(planMessage.body.contextUsage);
     const latestMessage = planMessages[planMessages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
-    assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
-    assert.equal(Number(planUsage.toolUsedTokens), Number(latestMessage.associatedToolTokens || 0));
+    const toolTokens = planMessages
+      .filter((message) => message.kind === 'assistant_tool_call')
+      .reduce((sum, message) => sum + Number(message.outputTokensEstimate || 0), 0);
+    assert.equal(toolTokens > 0, true);
+    assert.equal(Number(planUsage.toolUsedTokens), toolTokens);
     assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens) + Number(planUsage.toolUsedTokens));
     const repoSearch = d(planMessage.body.repoSearch);
     const repoScorecard = d(repoSearch.scorecard);
@@ -711,7 +721,10 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(Number(repoTotals.promptTokens || 0) > 0, true);
     assert.equal(latestMessage.sourceRunId, String(repoSearch.requestId));
     assert.equal(Number(latestMessage.outputTokensEstimate || 0), Number(repoTotals.outputTokens || 0));
-    assert.equal(Number(latestMessage.thinkingTokens || 0), Number(repoTotals.thinkingTokens || 0));
+    const thinkingTokens = planMessages
+      .filter((message) => message.kind === 'assistant_thinking')
+      .reduce((sum, message) => sum + Number(message.thinkingTokens || 0), 0);
+    assert.equal(thinkingTokens, Number(repoTotals.thinkingTokens || 0));
     const latestContent = String(latestMessage.content);
     assert.match(latestContent, /^# Implementation Plan/mu);
     assert.match(latestContent, /Critical Review/mu);
@@ -793,7 +806,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   }
 });
 
-test('dashboard chat message route uses the runtime BaseUrl for exact llama tokens', async () => {
+test('dashboard chat message route uses the runtime BaseUrl for exact inference tokens', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-chat-tokenize-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -822,17 +835,17 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
   const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
   const config = getDefaultServerConfig();
-  const serverLlama = config.Server.ModelPresets;
-  serverLlama.Presets = [{
-    ...serverLlama.Presets[0],
+  const modelPresets = config.Server.ModelPresets;
+  modelPresets.Presets = [{
+    ...modelPresets.Presets[0],
     id: 'default',
     label: 'Default',
     ExternalServerEnabled: false,
     BaseUrl: tokenizerBaseUrl,
   }];
-  serverLlama.ActivePresetId = 'default';
+  modelPresets.ActivePresetId = 'default';
   writeConfig(configPath, config);
-  writeRuntimeLaunchSnapshot(configPath, { Model: serverLlama.Presets[0]?.Model ?? null, Engine: {} });
+  writeRuntimeLaunchSnapshot(configPath, { Model: modelPresets.Presets[0]?.Model ?? null, Engine: {} });
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -843,7 +856,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
       method: 'POST',
       body: JSON.stringify({
         title: 'Tokenized chat session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     assert.equal(createSession.statusCode, 200);
@@ -1065,7 +1078,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       method: 'POST',
       body: JSON.stringify({
         title: 'Stream Session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -1073,7 +1086,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       method: 'POST',
       body: JSON.stringify({
         title: 'JSON Plan Session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const jsonSessionId = String(d(createJsonSession.body.session).id);
@@ -1081,7 +1094,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       content: 'Add API tests',
       repoRoot: tempRoot,
       maxTurns: 2,
-      availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+      availableModels: ['Qwen3.5-35B-A3B-EXL3'],
       mockResponses: [
         {
           thinking: 'inspect test coverage',
@@ -1177,7 +1190,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: tempRoot,
         maxTurns: 2,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           {
             thinking: 'inspect repository tests',
@@ -1285,7 +1298,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
   try {
     const planSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Image Plan Session', model: 'Qwen3.5-9B-Q8_0.gguf' }),
+      body: JSON.stringify({ title: 'Image Plan Session', model: 'Qwen3.5-9B-EXL3' }),
     });
     const planSessionId = String(d(planSessionResponse.body.session).id);
     const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`, {
@@ -1304,7 +1317,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
 
     const repoSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Image Repo Session', model: 'Qwen3.5-9B-Q8_0.gguf' }),
+      body: JSON.stringify({ title: 'Image Repo Session', model: 'Qwen3.5-9B-EXL3' }),
     });
     const repoSessionId = String(d(repoSessionResponse.body.session).id);
     const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
@@ -1343,7 +1356,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const capturedBodies: string[] = [];
-  const llamaServer = http.createServer((req, res) => {
+  const inferenceServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'image-chat-model' }] }));
@@ -1367,9 +1380,9 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
   const secondOversizedImage = toDataUrl('image/png', rasterBuffer('png', 1800, 1000));
   const sessionCap = 500_000;
@@ -1380,7 +1393,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   }
   snapshotPreset.Backend = 'exl3';
   snapshotPreset.ExternalServerEnabled = true;
-  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   snapshotPreset.Model = 'image-chat-model';
   snapshotPreset.VisionEnabled = true;
   snapshotPreset.VisionImageRetention = -1;
@@ -1497,7 +1510,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error?: Error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error?: Error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
@@ -1518,7 +1531,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const capturedBodies: string[] = [];
-  const llamaServer = http.createServer((req, res) => {
+  const inferenceServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'operation-image-model' }] }));
@@ -1542,9 +1555,9 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
   const sessionCap = 500_000;
   const laterActiveCap = 100_000;
@@ -1555,7 +1568,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   }
   snapshotPreset.Backend = 'exl3';
   snapshotPreset.ExternalServerEnabled = true;
-  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   snapshotPreset.Model = 'operation-image-model';
   snapshotPreset.VisionEnabled = true;
   snapshotPreset.VisionImageRetention = -1;
@@ -1676,7 +1689,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error?: Error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error?: Error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
@@ -1864,10 +1877,10 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
   const thinkingText = 't'.repeat(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2 + 17);
   const answerText = 'bounded answer';
   let thinkingSentAtMs = 0;
-  const llamaServer = http.createServer((request, response) => {
+  const inferenceServer = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ data: [{ id: 'chat-delta-model.gguf' }] }));
+      response.end(JSON.stringify({ data: [{ id: 'chat-delta-model-exl3' }] }));
       return;
     }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
@@ -1897,17 +1910,17 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const config = getDefaultServerConfig();
   const modelPreset = config.Server.ModelPresets.Presets[0];
   if (!modelPreset) {
     throw new Error('Default model preset is required.');
   }
-  modelPreset.Model = 'chat-delta-model.gguf';
-  modelPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  modelPreset.Model = 'chat-delta-model-exl3';
+  modelPreset.BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   modelPreset.NumCtx = 85_000;
   writeConfig(getConfigPath(), config);
 
@@ -1919,7 +1932,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
   try {
     const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Delta contract', model: 'chat-delta-model.gguf' }),
+      body: JSON.stringify({ title: 'Delta contract', model: 'chat-delta-model-exl3' }),
     });
     const sessionId = String(d(created.body.session).id);
     const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
@@ -1929,8 +1942,8 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
         content: 'Stream a bounded response.',
         operationId: CHAT_STREAM_OPERATION_ID,
         webSearchOverride: 'off',
-        availableModels: ['chat-delta-model.gguf'],
-        model: 'chat-delta-model.gguf',
+        availableModels: ['chat-delta-model-exl3'],
+        model: 'chat-delta-model-exl3',
       }),
     });
 
@@ -1970,7 +1983,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
@@ -2438,7 +2451,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
       method: 'POST',
       body: JSON.stringify({
         title: 'Locked session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
         contextWindowTokens: 10000,
       }),
     });
@@ -2450,10 +2463,10 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
       body: JSON.stringify({
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: "done" },
@@ -2512,7 +2525,7 @@ test('same session rejects a second request instead of entering the model FIFO',
       method: 'POST',
       body: JSON.stringify({
         title: 'FIFO session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -2522,10 +2535,10 @@ test('same session rejects a second request instead of entering the model FIFO',
       body: JSON.stringify({
         prompt: 'hold lock',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: "done" },
@@ -2600,29 +2613,32 @@ test('same session rejects a second request instead of entering the model FIFO',
 
 test('same session conflicts cover message plan and repo-search JSON and SSE routes', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-dashboard-session-conflicts-', { parallelSlots: 1 });
+  const activeRequestsAbort = new AbortController();
+  let lockHolder: Promise<SseResponse> | null = null;
   await harness.start();
   try {
-    const messageSessionId = await harness.createChatSession('Message owner', 'Qwen3.5-9B-Q8_0.gguf');
-    const planSessionId = await harness.createChatSession('Plan owner', 'Qwen3.5-9B-Q8_0.gguf');
-    const repoSearchSessionId = await harness.createChatSession('Repo owner', 'Qwen3.5-9B-Q8_0.gguf');
+    const lockSessionId = await harness.createChatSession('Lock owner', 'Qwen3.5-9B-EXL3');
+    const messageSessionId = await harness.createChatSession('Message owner', 'Qwen3.5-9B-EXL3');
+    const planSessionId = await harness.createChatSession('Plan owner', 'Qwen3.5-9B-EXL3');
+    const repoSearchSessionId = await harness.createChatSession('Repo owner', 'Qwen3.5-9B-EXL3');
     const baseUrl = harness.getBaseUrl();
-    const lockHolder = harness.holdModelLock('hold session-conflict matrix', 600);
-    await harness.waitForActiveRequests('repo_search');
+    lockHolder = harness.startChatStream(lockSessionId, 'hold session-conflict matrix');
+    await harness.waitForActiveRequests('dashboard_chat_stream');
 
     const activeMessage = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${messageSessionId}/messages`,
       JSON.stringify({ content: 'active message', assistantContent: 'done' }),
-      500,
+      activeRequestsAbort.signal,
     );
     const activePlan = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`,
       JSON.stringify({ content: 'active plan', repoRoot: process.cwd() }),
-      500,
+      activeRequestsAbort.signal,
     );
     const activeRepoSearch = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${repoSearchSessionId}/repo-search`,
       JSON.stringify({ content: 'active repo search', repoRoot: process.cwd() }),
-      500,
+      activeRequestsAbort.signal,
     );
     await harness.waitForQueuedRequest('dashboard_chat');
     await harness.waitForQueuedRequest('dashboard_plan');
@@ -2654,8 +2670,14 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
       }
     }
 
-    await Promise.all([lockHolder, activeMessage, activePlan, activeRepoSearch]);
+    activeRequestsAbort.abort();
+    await Promise.all([activeMessage, activePlan, activeRepoSearch]);
+    harness.releaseChatResponse('lock released');
+    await lockHolder;
   } finally {
+    activeRequestsAbort.abort();
+    harness.releaseChatResponse('cleanup');
+    await lockHolder?.catch(() => undefined);
     await harness.close();
   }
 });
@@ -2677,7 +2699,7 @@ test('queued model request is dropped when client disconnects before lock grant'
       method: 'POST',
       body: JSON.stringify({
         title: 'Disconnect queue session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -2688,10 +2710,10 @@ test('queued model request is dropped when client disconnects before lock grant'
       body: JSON.stringify({
         prompt: 'hold lock for disconnect test',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: "done" },
@@ -2709,7 +2731,7 @@ test('queued model request is dropped when client disconnects before lock grant'
         content: 'dropped-request',
         assistantContent: 'should-not-be-saved',
       }),
-      25,
+      AbortSignal.timeout(25),
     );
 
     const survivorResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -2754,7 +2776,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
     const baseUrl = harness.getBaseUrl();
     const sessionId = await harness.createChatSession(
       'Queued Plan session',
-      'Qwen3.5-9B-Q8_0.gguf',
+      'Qwen3.5-9B-EXL3',
     );
     const delayedRepoSearch = harness.holdModelLock(
       'hold lock while queued Plan loses its session',
@@ -2769,7 +2791,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
         content: 'plan after queued session deletion',
         repoRoot: process.cwd(),
         maxTurns: 1,
-        availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+        availableModels: ['Qwen3.5-9B-EXL3'],
         mockResponses: [{ content: "must not run" }],
         mockCommandResults: {},
       }),
@@ -2800,7 +2822,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
     const baseUrl = harness.getBaseUrl();
     const sessionId = await harness.createChatSession(
       'Queued Repo Search session',
-      'Qwen3.5-9B-Q8_0.gguf',
+      'Qwen3.5-9B-EXL3',
     );
     const createdSessionResponse = await requestJson(
       `${baseUrl}/dashboard/chat/sessions/${sessionId}`,
@@ -2820,11 +2842,11 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
         operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: process.cwd(),
         maxTurns: 1,
-        availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+        availableModels: ['Qwen3.5-9B-EXL3'],
         mockResponses: [{ content: "must not run" }],
         mockCommandResults: {},
       }),
-      250,
+      AbortSignal.timeout(250),
     );
     await harness.waitForQueuedRequest('dashboard_repo_search_stream');
     await disconnectedRepoSearch;
@@ -2861,7 +2883,7 @@ test('invalid model request is rejected without waiting for active model work', 
       method: 'POST',
       body: JSON.stringify({
         title: 'Validate-first session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -2872,10 +2894,10 @@ test('invalid model request is rejected without waiting for active model work', 
       body: JSON.stringify({
         prompt: 'hold lock for validation test',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"x","path":"src"} }] },
           { content: "done" },
@@ -2930,7 +2952,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
       method: 'POST',
       body: JSON.stringify({
         title: 'Plan Session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -3022,10 +3044,10 @@ test('chat completion replays prior tool evidence without hidden system context'
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRawBody = '';
-  const llamaServer = http.createServer((req, res) => {
+  const inferenceServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-Q8_0.gguf' }] }));
+      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-EXL3' }] }));
       return;
     }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -3049,15 +3071,15 @@ test('chat completion replays prior tool evidence without hidden system context'
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultServerConfig();
   const chatPreset = chatConfig.Server.ModelPresets.Presets;
-  chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
-  chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  chatPreset[0].Model = 'Qwen3.5-9B-EXL3';
+  chatPreset[0].BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   chatPreset[0].NumCtx = 85000;
   chatConfig.Presets = chatConfig.Presets.map((preset) => ({
     ...preset,
@@ -3075,7 +3097,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       method: 'POST',
       body: JSON.stringify({
         title: 'Tool Context Session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -3086,7 +3108,7 @@ test('chat completion replays prior tool evidence without hidden system context'
         content: 'audit release gaps',
         repoRoot: tempRoot,
         maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"name","path":"package.json"} }] },
           { content: "done" },
@@ -3163,7 +3185,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
@@ -3183,10 +3205,10 @@ test('non-streaming chat message runs against the session model preset snapshot'
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRawBody = '';
-  const llamaServer = http.createServer((req, res) => {
+  const inferenceServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'snapshot-model.gguf' }, { id: 'live-model.gguf' }] }));
+      res.end(JSON.stringify({ data: [{ id: 'snapshot-model-exl3' }, { id: 'live-model-exl3' }] }));
       return;
     }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -3210,15 +3232,15 @@ test('non-streaming chat message runs against the session model preset snapshot'
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const snapshotConfig = getDefaultServerConfig();
   const snapshotPreset = snapshotConfig.Server.ModelPresets.Presets[0];
-  snapshotPreset.Model = 'snapshot-model.gguf';
-  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.Model = 'snapshot-model-exl3';
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   snapshotPreset.NumCtx = 85000;
   snapshotPreset.Temperature = 0.31;
   writeConfig(getConfigPath(), snapshotConfig);
@@ -3245,7 +3267,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
     const basePreset = d(asObjectArray(modelPresets.Presets)[0]);
     modelPresets.Presets = [
       basePreset,
-      { ...basePreset, id: 'live', label: 'Live', Model: 'live-model.gguf', Temperature: 0.94 },
+      { ...basePreset, id: 'live', label: 'Live', Model: 'live-model-exl3', Temperature: 0.94 },
     ];
     modelPresets.ActivePresetId = 'live';
     const putResponse = await requestJson(`${baseUrl}/config?skip_ready=1`, {
@@ -3262,14 +3284,14 @@ test('non-streaming chat message runs against the session model preset snapshot'
     assert.equal(chatReply.statusCode, 200);
     assert.notEqual(capturedChatRawBody, '');
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
-    assert.equal(captured.model, 'snapshot-model.gguf');
+    assert.equal(captured.model, 'snapshot-model-exl3');
     assert.equal(captured.temperature, 0.31);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
@@ -3289,10 +3311,10 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRawBody = '';
-  const llamaServer = http.createServer((req, res) => {
+  const inferenceServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-Q8_0.gguf' }] }));
+      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-EXL3' }] }));
       return;
     }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -3315,15 +3337,15 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     });
   });
   await new Promise<void>((resolve, reject) => {
-    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    inferenceServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = getAddressInfo(llamaServer);
+  const inferenceAddress = getAddressInfo(inferenceServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultServerConfig();
   const chatPreset = chatConfig.Server.ModelPresets.Presets;
-  chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
-  chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  chatPreset[0].Model = 'Qwen3.5-9B-EXL3';
+  chatPreset[0].BaseUrl = `http://127.0.0.1:${inferenceAddress.port}`;
   chatPreset[0].NumCtx = 85000;
   writeConfig(getConfigPath(), chatConfig);
 
@@ -3337,7 +3359,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       method: 'POST',
       body: JSON.stringify({
         title: 'Delete Bubble Session',
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: 'Qwen3.5-9B-EXL3',
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
@@ -3350,7 +3372,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
         operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: tempRoot,
         maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
           { toolCalls: [{ name: "git", arguments: {"operation":"grep","pattern":"name","path":"package.json"} }] },
           { content: "done" },
@@ -3411,7 +3433,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await new Promise<void>((resolve, reject) => {
-      llamaServer.close((error) => (error ? reject(error) : resolve()));
+      inferenceServer.close((error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
 import { sleep } from '../../src/lib/time.js';
 import { getRequiredString } from './args.js';
-import { invokeConfigGet, getActivePresetBaseUrl, waitForLlamaReadiness } from './config-rpc.js';
+import { invokeConfigGet, getActivePresetBaseUrl, waitForEngineReadiness } from './config-rpc.js';
 import { spawnAndWait } from './process.js';
 import {
   powerShellExe,
@@ -92,33 +92,7 @@ export async function invokeStopScript(stopScriptPath: string, runId: string | n
   }
 }
 
-export async function forceStopLlamaServer(runId: string | null = null): Promise<void> {
-  const result = await spawnAndWait({
-    filePath: powerShellExe,
-    args: [
-      '-NoProfile',
-      '-ExecutionPolicy', 'Bypass',
-      '-Command',
-      "$existing = Get-Process 'llama-server' -ErrorAction SilentlyContinue; if ($existing) { $existing | Stop-Process -Force }; exit 0",
-    ],
-    cwd: repoRoot,
-    env: process.env,
-    onStdoutChunk(chunk: string) {
-      appendMatrixLog(runId, 'force_stop_stdout', chunk);
-    },
-    onStderrChunk(chunk: string) {
-      appendMatrixLog(runId, 'force_stop_stderr', chunk);
-    },
-  });
-
-  if (result.exitCode !== 0) {
-    throw new Error(`Force-stopping llama-server failed with exit code ${result.exitCode}.`);
-  }
-
-  await sleep(1_000);
-}
-
-export async function startLlamaLauncher(
+export async function startEngineLauncher(
   manifest: ResolvedMatrixManifest,
   target: ResolvedMatrixTarget,
   runId: string | null = null,
@@ -149,7 +123,7 @@ export async function startLlamaLauncher(
   const exited = child.exitCode !== null || child.signalCode !== null;
   if (exited) {
     const details = [stderr.trim(), stdout.trim()].filter(Boolean).join(' ').trim();
-    throw new Error(`Launcher process exited before llama-server became ready.${details ? ` ${details}` : ''}`);
+    throw new Error(`Launcher process exited before the inference engine became ready.${details ? ` ${details}` : ''}`);
   }
 
   return {
@@ -158,19 +132,15 @@ export async function startLlamaLauncher(
   };
 }
 
-export async function restartLlamaForTarget(
+export async function restartEngineForTarget(
   manifest: ResolvedMatrixManifest,
   target: ResolvedMatrixTarget,
   runId: string | null = null,
 ): Promise<void> {
-  process.stdout.write(`Restarting llama-server for [${target.id}] ${target.label}\n`);
-  if (manifest.stopScript) {
-    await invokeStopScript(manifest.stopScript, runId);
-  } else {
-    await forceStopLlamaServer(runId);
-  }
-  await startLlamaLauncher(manifest, target, runId);
+  process.stdout.write(`Restarting inference engine for [${target.id}] ${target.label}\n`);
+  await invokeStopScript(manifest.stopScript, runId);
+  await startEngineLauncher(manifest, target, runId);
   const config = await invokeConfigGet(manifest.configUrl);
   const baseUrl = getRequiredString(getActivePresetBaseUrl(config), 'active preset BaseUrl');
-  await waitForLlamaReadiness(baseUrl, target.modelId);
+  await waitForEngineReadiness(baseUrl, target.modelId);
 }

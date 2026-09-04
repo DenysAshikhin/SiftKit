@@ -15,7 +15,6 @@ import {
   ConfiguredApprovalVerdictModelClient,
 } from '../repo-search/approval-verdict-probe.js';
 import {
-  allocateLlamaCppSlotId,
   DEFAULT_TIMEOUT_MS,
   resolvePlannerThinkingFlags,
 } from '../repo-search/engine/task-loop-support.js';
@@ -53,7 +52,6 @@ export async function runAutoApprovalVerdictProbeCli(
         config,
         baseUrl: getConfiguredEngineBaseUrl(config),
         model,
-        slotId: allocateLlamaCppSlotId(config),
         timeoutMs: DEFAULT_TIMEOUT_MS,
         thinking: resolvePlannerThinkingFlags(config),
       }),

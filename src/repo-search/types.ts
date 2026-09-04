@@ -2,7 +2,7 @@ import { TokenCountSourceSchema } from './prompt-budget.js';
 import { ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
-import type { SiftConfig } from '../config/index.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/index.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 
 export type JsonLogger = {
@@ -10,7 +10,7 @@ export type JsonLogger = {
   write: (event: Record<string, JsonSerializable>) => void;
 };
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
-import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
+import type { ApprovalGate } from './engine/approval-gate.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
@@ -60,6 +60,36 @@ export const LlmStartProgressEventSchema = z.object({
   elapsedMs: z.number(),
 });
 export const LlmEndProgressEventSchema = LlmStartProgressEventSchema.extend({ kind: z.literal('llm_end') });
+
+export const TurnTokenRecordSchema = z.object({
+  turn: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  generatedChars: z.number().int().nonnegative(),
+  thinkingTokensEstimated: z.boolean(),
+  outputTokensEstimated: z.boolean(),
+});
+
+export const TurnTokenTotalsSchema = z.object({
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  thinkingTokensEstimatedCount: z.number().int().nonnegative(),
+  outputTokensEstimatedCount: z.number().int().nonnegative(),
+});
+
+export const UsageProgressEventSchema = z.object({
+  ...turnScopedFields,
+  kind: z.literal('usage'),
+  record: TurnTokenRecordSchema,
+  totals: TurnTokenTotalsSchema,
+  charsPerToken: z.number().positive(),
+  elapsedMs: z.number(),
+});
+
 export const ToolResultProgressEventSchema = z.object({
   ...turnScopedFields,
   kind: z.literal('tool_result'),
@@ -105,6 +135,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ ...taskScopedFields, kind: z.literal('preflight_done'), promptChars: z.number(), promptTokenCount: z.number() }),
   LlmStartProgressEventSchema,
   LlmEndProgressEventSchema,
+  UsageProgressEventSchema,
   z.object({ ...turnScopedFields, kind: z.literal('thinking'), thinkingText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
@@ -160,6 +191,13 @@ export type RepoSearchExecutionRequest = {
   statusBackendUrl?: string;
   config?: SiftConfig;
   model?: string;
+  /**
+   * Exact model preset the caller ran under, for the run log. Sessions carry their own snapshot,
+   * which can differ from the active global preset; session-less callers omit both and the run
+   * records the active preset of `config`.
+   */
+  modelPresetId?: string;
+  modelPreset?: ModelRuntimePreset;
   additionalPromptPrefix?: string;
   allowedTools?: string[];
   /**
@@ -179,7 +217,6 @@ export type RepoSearchExecutionRequest = {
   initialUserImages?: readonly string[];
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
-  approvalMode?: ApprovalMode;
   abortSignal?: AbortSignal;
 };
 
@@ -188,5 +225,6 @@ export const RepoSearchExecutionResultSchema = z.object({
   transcriptPath: z.string(),
   artifactPath: z.string(),
   scorecard: ScorecardSchema,
+  turnRecords: z.array(TurnTokenRecordSchema),
 });
 export type RepoSearchExecutionResult = z.infer<typeof RepoSearchExecutionResultSchema>;

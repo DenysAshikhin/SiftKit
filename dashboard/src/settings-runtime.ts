@@ -20,7 +20,6 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   config.Runtime.Engine.ModelPath = activePreset.ModelPath;
   config.Runtime.Engine.NumCtx = activePreset.NumCtx;
   config.Runtime.Engine.ParallelSlots = activePreset.ParallelSlots;
-  config.Runtime.Engine.MaxTokens = activePreset.MaxTokens;
   config.Runtime.Engine.Temperature = activePreset.Temperature;
   config.Runtime.Engine.TopP = activePreset.TopP;
   config.Runtime.Engine.TopK = activePreset.TopK;

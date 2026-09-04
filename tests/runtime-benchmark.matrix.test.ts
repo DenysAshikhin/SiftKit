@@ -25,10 +25,11 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
     const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
     const resultsRoot = path.join(tempRoot, 'bench-results');
     const scriptsRoot = path.join(tempRoot, 'scripts');
-    const model9bPath = path.join(scriptsRoot, 'Qwen3.5-9B-Q8_0.gguf');
-    const model35bPath = path.join(scriptsRoot, 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf');
+    const model9bPath = path.join(scriptsRoot, 'Qwen3.5-9B-EXL3');
+    const model35bPath = path.join(scriptsRoot, 'Qwen3.5-35B-A3B-EXL3');
     const start9bPath = path.join(scriptsRoot, 'Start-Qwen35-9B-Q8-200k.ps1');
     const start35bPath = path.join(scriptsRoot, 'Start-Qwen35-35B-4bit-150k.ps1');
+    const stopScriptPath = path.join(scriptsRoot, 'Stop-Engine.ps1');
     const promptPrefixPath = path.join(tempRoot, 'anchor_prompt_prefix.txt');
     const manifestPath = path.join(tempRoot, 'matrix.json');
 
@@ -39,6 +40,7 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
     fs.writeFileSync(model35bPath, '', 'utf8');
     fs.writeFileSync(start9bPath, '', 'utf8');
     fs.writeFileSync(start35bPath, '', 'utf8');
+    fs.writeFileSync(stopScriptPath, '', 'utf8');
     fs.writeFileSync(promptPrefixPath, 'Anchor prefix', 'utf8');
     fs.writeFileSync(manifestPath, JSON.stringify({
       fixtureRoot,
@@ -46,10 +48,11 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
       promptPrefixFile: promptPrefixPath,
       requestTimeoutSeconds: 45,
       startScript: start9bPath,
+      stopScript: stopScriptPath,
       resultsRoot,
       baseline: {
-        modelId: 'Qwen3.5-9B-Q8_0.gguf',
-        modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+        modelId: 'Qwen3.5-9B-EXL3',
+        modelPath: 'Qwen3.5-9B-EXL3',
         contextSize: 200000,
         maxTokens: 15000,
         reasoning: 'off',
@@ -61,8 +64,8 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
           id: '9b-script-owned',
           label: '9b script-owned',
           enabled: true,
-          modelId: 'Qwen3.5-9B-Q8_0.gguf',
-          modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+          modelId: 'Qwen3.5-9B-EXL3',
+          modelPath: 'Qwen3.5-9B-EXL3',
           reasoning: 'off',
           sampling: {
             temperature: 0.7,
@@ -78,8 +81,8 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
           id: '35b-script-owned',
           label: '35b script-owned',
           enabled: true,
-          modelId: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
-          modelPath: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          modelId: 'Qwen3.5-35B-A3B-EXL3',
+          modelPath: 'Qwen3.5-35B-A3B-EXL3',
           startScript: start35bPath,
           contextSize: 150000,
           maxTokens: 9000,
@@ -135,8 +138,9 @@ test('benchmark matrix defaults request timeout to 30 minutes when omitted', asy
     const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
     const resultsRoot = path.join(tempRoot, 'bench-results');
     const scriptsRoot = path.join(tempRoot, 'scripts');
-    const modelPath = path.join(scriptsRoot, 'Qwen3.5-9B-Q8_0.gguf');
+    const modelPath = path.join(scriptsRoot, 'Qwen3.5-9B-EXL3');
     const startScriptPath = path.join(scriptsRoot, 'Start-Qwen35-9B-Q8-200k.ps1');
+    const stopScriptPath = path.join(scriptsRoot, 'Stop-Engine.ps1');
     const manifestPath = path.join(tempRoot, 'matrix.json');
 
     fs.mkdirSync(fixtureRoot, { recursive: true });
@@ -144,14 +148,16 @@ test('benchmark matrix defaults request timeout to 30 minutes when omitted', asy
     fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
     fs.writeFileSync(modelPath, '', 'utf8');
     fs.writeFileSync(startScriptPath, '', 'utf8');
+    fs.writeFileSync(stopScriptPath, '', 'utf8');
     fs.writeFileSync(manifestPath, JSON.stringify({
       fixtureRoot,
       configUrl: 'http://127.0.0.1:4765/config',
       startScript: startScriptPath,
+      stopScript: stopScriptPath,
       resultsRoot,
       baseline: {
-        modelId: 'Qwen3.5-9B-Q8_0.gguf',
-        modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+        modelId: 'Qwen3.5-9B-EXL3',
+        modelPath: 'Qwen3.5-9B-EXL3',
         contextSize: 200000,
         maxTokens: 15000,
         reasoning: 'off',
@@ -163,8 +169,8 @@ test('benchmark matrix defaults request timeout to 30 minutes when omitted', asy
           id: 'default-timeout-run',
           label: 'default timeout run',
           enabled: true,
-          modelId: 'Qwen3.5-9B-Q8_0.gguf',
-          modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+          modelId: 'Qwen3.5-9B-EXL3',
+          modelPath: 'Qwen3.5-9B-EXL3',
           reasoning: 'off',
           sampling: {
             temperature: 0.7,
@@ -198,7 +204,9 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       const scriptsRoot = path.join(tempRoot, 'scripts');
       const startScriptPath = path.join(scriptsRoot, 'start.ps1');
       const stopScriptPath = path.join(scriptsRoot, 'stop.ps1');
-      const modelPath = path.join(scriptsRoot, `${server.state.config.Server.ModelPresets.Presets[0].Model}.gguf`);
+      const configuredModel = server.state.config.Server.ModelPresets.Presets[0].Model;
+      if (!configuredModel) throw new Error('Expected a configured model.');
+      const modelPath = path.join(scriptsRoot, configuredModel);
       const manifestPath = path.join(tempRoot, 'matrix.json');
 
       fs.mkdirSync(fixtureRoot, { recursive: true });
@@ -316,22 +324,25 @@ test('benchmark matrix launch signature changes for script and context changes b
     const scriptsRoot = path.join(tempRoot, 'scripts');
     const start9bPath = path.join(scriptsRoot, 'Start-Qwen35-9B-Q8-200k.ps1');
     const start35bPath = path.join(scriptsRoot, 'Start-Qwen35-35B-4bit-150k.ps1');
+    const stopScriptPath = path.join(scriptsRoot, 'Stop-Engine.ps1');
     const manifestPath = path.join(tempRoot, 'matrix.json');
 
     fs.mkdirSync(fixtureRoot, { recursive: true });
     fs.mkdirSync(scriptsRoot, { recursive: true });
     fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
-    fs.writeFileSync(path.join(scriptsRoot, 'Qwen3.5-9B-Q8_0.gguf'), '', 'utf8');
+    fs.writeFileSync(path.join(scriptsRoot, 'Qwen3.5-9B-EXL3'), '', 'utf8');
     fs.writeFileSync(start9bPath, '', 'utf8');
     fs.writeFileSync(start35bPath, '', 'utf8');
+    fs.writeFileSync(stopScriptPath, '', 'utf8');
     fs.writeFileSync(manifestPath, JSON.stringify({
       fixtureRoot,
       configUrl: 'http://127.0.0.1:4765/config',
       startScript: start9bPath,
+      stopScript: stopScriptPath,
       resultsRoot,
       baseline: {
-        modelId: 'Qwen3.5-9B-Q8_0.gguf',
-        modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+        modelId: 'Qwen3.5-9B-EXL3',
+        modelPath: 'Qwen3.5-9B-EXL3',
         contextSize: 200000,
         maxTokens: 15000,
         reasoning: 'off',
@@ -343,8 +354,8 @@ test('benchmark matrix launch signature changes for script and context changes b
           id: 'same-script',
           label: 'same-script',
           enabled: true,
-          modelId: 'Qwen3.5-9B-Q8_0.gguf',
-          modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+          modelId: 'Qwen3.5-9B-EXL3',
+          modelPath: 'Qwen3.5-9B-EXL3',
           reasoning: 'off',
           sampling: {
             temperature: 0.7,
@@ -382,21 +393,24 @@ test('benchmark matrix passes reasoning by default when the launcher supports it
     const resultsRoot = path.join(tempRoot, 'bench-results');
     const scriptsRoot = path.join(tempRoot, 'scripts');
     const startPath = path.join(scriptsRoot, 'Start-Qwen.ps1');
+    const stopScriptPath = path.join(scriptsRoot, 'Stop-Engine.ps1');
     const manifestPath = path.join(tempRoot, 'matrix.json');
 
     fs.mkdirSync(fixtureRoot, { recursive: true });
     fs.mkdirSync(scriptsRoot, { recursive: true });
     fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
-    fs.writeFileSync(path.join(scriptsRoot, 'model.gguf'), '', 'utf8');
+    fs.writeFileSync(path.join(scriptsRoot, 'model-exl3'), '', 'utf8');
     fs.writeFileSync(startPath, '', 'utf8');
+    fs.writeFileSync(stopScriptPath, '', 'utf8');
     fs.writeFileSync(manifestPath, JSON.stringify({
       fixtureRoot,
       configUrl: 'http://127.0.0.1:4765/config',
       startScript: startPath,
+      stopScript: stopScriptPath,
       resultsRoot,
       baseline: {
-        modelId: 'model.gguf',
-        modelPath: 'model.gguf',
+        modelId: 'model-exl3',
+        modelPath: 'model-exl3',
         contextSize: 200000,
         maxTokens: 15000,
         reasoning: 'off',
@@ -407,8 +421,8 @@ test('benchmark matrix passes reasoning by default when the launcher supports it
           id: 'thinking',
           label: 'thinking',
           enabled: true,
-          modelId: 'model.gguf',
-          modelPath: 'model.gguf',
+          modelId: 'model-exl3',
+          modelPath: 'model-exl3',
           reasoning: 'on',
           sampling: {
             temperature: 0.7,
@@ -435,7 +449,7 @@ test('benchmark matrix passes reasoning by default when the launcher supports it
   });
 });
 
-test('benchmark matrix prunes llama launcher logs older than 7 days', async () => {
+test('benchmark matrix prunes engine launcher logs older than 7 days', async () => {
   await withTempEnv(async (tempRoot) => {
     const resultsRoot = path.join(tempRoot, 'bench-results');
     const nestedDir = path.join(resultsRoot, 'session-a');

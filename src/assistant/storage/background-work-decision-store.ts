@@ -1,7 +1,7 @@
 import {
   AssistantBackgroundWorkDecisionDtoSchema,
   PENDING_CAPTURE_LIST_STATES,
-  type AssistantBackgroundWorkBlockReason,
+  type AssistantBackgroundWorkBlock,
   type AssistantBackgroundWorkDecisionDto,
 } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
@@ -22,29 +22,23 @@ const CAPTURE_STATE_PLACEHOLDERS = PENDING_CAPTURE_LIST_STATES.map(
   () => '?',
 ).join(', ');
 
-type DecisionDetails = AssistantBackgroundWorkDecisionDto['details'];
-
 export class BackgroundWorkDecisionStore {
   constructor(
     private readonly database: RuntimeDatabase,
     private readonly clock: Clock,
   ) {}
 
-  record(
-    ownerId: string,
-    reason: AssistantBackgroundWorkBlockReason,
-    details: DecisionDetails,
-  ): void {
+  record(ownerId: string, block: AssistantBackgroundWorkBlock): void {
     const queuedJobCount = this.countQueuedJobs(ownerId);
     const pendingCaptureCount = this.countPendingCaptures(ownerId);
     if (queuedJobCount === 0 && pendingCaptureCount === 0) return;
 
     const decision = AssistantBackgroundWorkDecisionDtoSchema.parse({
       recordedAtUtc: this.clock.nowUtc(),
-      reason,
+      reason: block.reason,
       queuedJobCount,
       pendingCaptureCount,
-      details,
+      details: block.details,
     });
     this.database.transaction(() => {
       const histories = this.readAll();

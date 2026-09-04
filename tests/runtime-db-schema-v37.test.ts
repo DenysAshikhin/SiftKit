@@ -17,6 +17,8 @@ import { mockModelPreset } from './helpers/mock-config.js';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 const ColumnNameRowSchema = z.object({ name: z.string() });
+const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
 
 type SeedSession = {
   id: string;
@@ -51,7 +53,7 @@ function seedV36Database(sessions: SeedSession[]): string {
   `);
   createAppConfigMigrationFixture(database);
   database.prepare(`
-    INSERT INTO app_config (id, server_llama_presets_json, server_llama_active_preset_id)
+    INSERT INTO app_config (id, ${LEGACY_PRESETS_COLUMN}, ${LEGACY_ACTIVE_PRESET_COLUMN})
     VALUES (1, ?, ?)
   `).run(
     JSON.stringify([

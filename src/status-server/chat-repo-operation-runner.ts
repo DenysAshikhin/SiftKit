@@ -47,7 +47,6 @@ import type { MockPlannerResponseInput } from '../planner-protocol/mock-response
 import {
   normalizeRepoSearchScorecard,
   type RepoSearchScorecard,
-  type RepoSearchTotals,
 } from './repo-search-scorecard-types.js';
 
 type ChatRepoOperation = 'plan' | 'repo-search';
@@ -140,6 +139,8 @@ export class ChatRepoOperationRunner {
     const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
         presetId: selected.preset.id,
         taskKind: operation,
+        modelPresetId: selected.session.modelPresetId,
+        modelPreset: selected.session.modelPreset,
         prompt: this.buildPrompt(operation, request.content),
         history: buildChatHistoryMessages(effectiveConfig, session),
         initialUserImages: admittedImages,
@@ -272,10 +273,7 @@ export class ChatRepoOperationRunner {
         ...options.progress.snapshot(),
         speculativeAcceptedTokens: getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
         speculativeGeneratedTokens: getScorecardTotal(scorecard, 'speculativeGeneratedTokens'),
-        outputTokens: getScorecardTotal(scorecard, 'outputTokens'),
-        outputTokensEstimated: this.hasEstimatedTokens(scorecard, 'outputTokensEstimatedCount'),
-        thinkingTokens: getScorecardTotal(scorecard, 'thinkingTokens'),
-        thinkingTokensEstimated: this.hasEstimatedTokens(scorecard, 'thinkingTokensEstimatedCount'),
+        turnRecords: options.engineResult.turnRecords,
         sourceRunId: options.engineResult.requestId,
         groundingStatus: options.operation === 'repo-search'
           ? normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus ?? null
@@ -289,13 +287,5 @@ export class ChatRepoOperationRunner {
       throw new Error(`Chat session disappeared after persistence: ${options.session.id}`);
     }
     return authoritativeSession;
-  }
-
-  private hasEstimatedTokens(
-    scorecard: RepoSearchExecutionResult['scorecard'],
-    key: keyof RepoSearchTotals,
-  ): boolean {
-    const count = getScorecardTotal(scorecard, key);
-    return count !== null && count > 0;
   }
 }

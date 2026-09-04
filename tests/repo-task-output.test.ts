@@ -12,6 +12,7 @@ function makeResult(finalOutput: string): RepoSearchExecutionResult {
     transcriptPath: '/tmp/transcript.jsonl',
     artifactPath: '/tmp/artifact.json',
     scorecard: buildMockScorecard(finalOutput),
+    turnRecords: [],
   };
 }
 
@@ -35,6 +36,7 @@ function makeMultiTaskResult(outputs: string[]): RepoSearchExecutionResult {
     transcriptPath: '/tmp/transcript.jsonl',
     artifactPath: '/tmp/artifact.json',
     scorecard,
+    turnRecords: [],
   };
 }
 
@@ -86,13 +88,13 @@ function makeMutatedResult(finalOutput: string, mutatedPaths: string[]): RepoSea
 test('appends the files a run modified so a denying final output cannot hide them', () => {
   const output = formatRepoTaskOutput(makeMutatedResult(
     'No changes made. No files were edited.',
-    ['src/llm-protocol/llama-cpp-client.ts', 'tests/llama-cpp-client-thinking-budget.test.ts'],
+    ['src/llm-protocol/inference-client.ts', 'tests/inference-client-thinking-budget.test.ts'],
   ));
 
   assert.ok(output.includes('No changes made. No files were edited.'));
   assert.ok(output.includes('Files modified by this run:'));
-  assert.ok(output.includes('- src/llm-protocol/llama-cpp-client.ts'));
-  assert.ok(output.includes('- tests/llama-cpp-client-thinking-budget.test.ts'));
+  assert.ok(output.includes('- src/llm-protocol/inference-client.ts'));
+  assert.ok(output.includes('- tests/inference-client-thinking-budget.test.ts'));
 });
 
 test('omits the modified-files section when a run mutated nothing', () => {
