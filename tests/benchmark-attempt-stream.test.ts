@@ -8,7 +8,9 @@ import { parseRepoSearchRequest, parseSummaryRequest } from '../src/status-serve
 import { requestBenchmarkAttemptResult } from '../src/status-server/dashboard-benchmark-runner.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.js';
-import { writeSseError, writeSseResult } from './helpers/sse-http.js';
+import { OPERATION_STREAM_EVENTS } from '../src/lib/operation-stream.js';
+import { SseResponseWriter } from '../src/status-server/sse-response-writer.js';
+import { buildOperationStreamErrorPayload } from './helpers/sse-http.js';
 
 type FakeOperationServer = {
   baseUrl: string;
@@ -36,16 +38,14 @@ const REPO_SEARCH_RESULT = {
   scorecard: buildMockScorecard('benchmark repo-search output'),
 };
 
-const ERROR_PAYLOAD = {
-  error: 'Timed out waiting for model request queue.',
-  errorName: 'Error',
-  diagnosticId: 'diag-2',
-  diagnostic: { name: 'Error', message: 'Timed out waiting for model request queue.' },
-} satisfies JsonSerializable;
+const ERROR_PAYLOAD = buildOperationStreamErrorPayload('Timed out waiting for model request queue.');
 
-/** Mirrors StreamedOperationEndpoint: an opening progress frame, then one terminal frame. */
+/**
+ * Frames responses with the server's own SseResponseWriter and event names rather than a
+ * hand-rolled copy, so this test tracks the production wire format instead of a snapshot of it.
+ */
 async function startFakeOperationServer(
-  respond: (pathname: string, res: http.ServerResponse) => void,
+  respond: (writer: SseResponseWriter) => void,
 ): Promise<FakeOperationServer> {
   const requests: { pathname: string; body: JsonObject }[] = [];
   const server = http.createServer((req, res) => {
@@ -54,7 +54,11 @@ async function startFakeOperationServer(
     req.on('data', (chunk: string) => { raw += chunk; });
     req.on('end', () => {
       requests.push({ pathname: String(req.url || ''), body: parseJsonObjectText(raw || '{}') });
-      respond(String(req.url || ''), res);
+      const writer = new SseResponseWriter(req, res);
+      writer.open();
+      writer.writeEvent(OPERATION_STREAM_EVENTS.progress, { kind: 'lock_wait', elapsedMs: 1 });
+      respond(writer);
+      writer.end();
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -66,8 +70,8 @@ async function startFakeOperationServer(
 }
 
 test('benchmark summary attempt reads its result out of the SSE stream', async () => {
-  const server = await startFakeOperationServer((_pathname, res) => {
-    writeSseResult(res, SUMMARY_RESULT, [{ kind: 'lock_wait', elapsedMs: 1 }]);
+  const server = await startFakeOperationServer((writer) => {
+    writer.writeEvent(OPERATION_STREAM_EVENTS.result, SUMMARY_RESULT);
   });
   try {
     const result = await requestBenchmarkAttemptResult(server.baseUrl, {
@@ -89,8 +93,8 @@ test('benchmark summary attempt reads its result out of the SSE stream', async (
 });
 
 test('benchmark repo-search attempt reads its result out of the SSE stream', async () => {
-  const server = await startFakeOperationServer((_pathname, res) => {
-    writeSseResult(res, REPO_SEARCH_RESULT);
+  const server = await startFakeOperationServer((writer) => {
+    writer.writeEvent(OPERATION_STREAM_EVENTS.result, REPO_SEARCH_RESULT);
   });
   try {
     const result = await requestBenchmarkAttemptResult(server.baseUrl, {
@@ -109,8 +113,8 @@ test('benchmark repo-search attempt reads its result out of the SSE stream', asy
 });
 
 test('benchmark attempt surfaces a terminal error frame as a rejection', async () => {
-  const server = await startFakeOperationServer((_pathname, res) => {
-    writeSseError(res, ERROR_PAYLOAD);
+  const server = await startFakeOperationServer((writer) => {
+    writer.writeEvent(OPERATION_STREAM_EVENTS.error, ERROR_PAYLOAD);
   });
   try {
     await assert.rejects(
@@ -123,11 +127,7 @@ test('benchmark attempt surfaces a terminal error frame as a rejection', async (
 });
 
 test('benchmark attempt fails loudly when the stream ends without a result', async () => {
-  const server = await startFakeOperationServer((_pathname, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-    res.write('\n');
-    res.end();
-  });
+  const server = await startFakeOperationServer(() => {});
   try {
     await assert.rejects(
       requestBenchmarkAttemptResult(server.baseUrl, { taskKind: 'summary', prompt: 'anything' }),
