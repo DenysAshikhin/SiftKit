@@ -191,6 +191,9 @@ $tarballName = Get-SiftKitPackageTarballName
 # Workspace package.json edits (e.g. dashboard) leave that lockfile stale, which drops the
 # @siftkit/contracts workspace link's resolved target and makes `npm pack` crash inside
 # npm-packlist with a silent exit 1 while gathering bundleDependencies.
+# This install relies on `audit=false` from the repo .npmrc. Without it npm's post-reify bulk
+# advisory POST can stall forever with no client-side timeout, hanging the refresh after
+# `reify:save` has already completed. See .npmrc for the full rationale.
 Write-Host 'Reconciling workspace install before packing...'
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--loglevel', 'error') -Description 'Reconciling workspace install'
 
@@ -209,7 +212,11 @@ Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspace
 Stop-ExistingGlobalSiftKitStatusServer
 
 Write-Host 'Installing packed tarball globally...'
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--loglevel', 'error') -Description 'Installing packed tarball globally'
+# --no-audit must be explicit here. `npm i -g` does not load the project .npmrc (it resolves
+# config against the global prefix), so the repo's audit=false never reaches this call, and
+# arborist gates the audit solely on `options.audit === false` with no exemption for global
+# installs. Without the flag this step keeps the original hang.
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--no-audit', '--loglevel', 'error') -Description 'Installing packed tarball globally'
 
 Write-Host 'Resolving freshly installed global siftkit command...'
 $globalSiftKit = Get-GlobalSiftKitCommandPath

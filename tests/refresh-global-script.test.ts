@@ -11,9 +11,12 @@ test('global refresh uses only the npm tarball installation path', () => {
   assert.doesNotMatch(script, /Install-SiftKitViaShellIntegration/u);
   assert.doesNotMatch(script, /Falling back to Install-SiftKitShellIntegration/u);
   assert.doesNotMatch(script, /^catch\s*\{/mu);
+  // The install must go through the packed tarball with a forced overwrite. Pinning the whole
+  // argument vector instead breaks on every legitimate flag addition, which is what this
+  // assertion is here to survive, so only the load-bearing arguments are matched.
   assert.match(
     script,
-    /Invoke-RetryableCommand[^\r\n]+@\('i', '-g', \$tarballName, '--force', '--loglevel', 'error'\)/u,
+    /Invoke-RetryableCommand[^\r\n]+@\('i', '-g', \$tarballName, '--force',[^\r\n]*\)/u,
   );
 });
 
