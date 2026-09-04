@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { getLiveRunSnapshotPath, getLiveRunsDirectory } from '../src/config/paths.js';
+import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { LiveRunSnapshotCollector } from '../src/repo-search/live-snapshot/collector.js';
@@ -92,6 +93,7 @@ test('collector records per-turn prompt budget and model token accounting', () =
   collector.record({
     kind: 'turn_model_response', taskId: 't', turn: 39, text: '{}', thinkingText: '', mockExhausted: false,
     promptTokens: 64552, completionTokens: 71, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 64552,
+    stop: CLEAN_STREAM_STOP,
   });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
@@ -112,6 +114,23 @@ test('collector records per-turn prompt budget and model token accounting', () =
   assert.equal(turn.providerRequests[0].statusCode, 200);
   assert.ok(turn.modelDurationMs !== null && turn.modelDurationMs >= 0);
   assert.equal(snapshot.phase.name, 'idle');
+});
+
+test('collector retains the model stop tuple in the live turn snapshot', () => {
+  const collector = makeCollector();
+
+  collector.record({
+    kind: 'turn_model_response',
+    turn: 1,
+    stop: { earlyStopReason: null, backendEosReason: 'loop_detected', finishReason: null },
+  });
+
+  const turn = LiveRunSnapshotSchema.parse(collector.build()).turns[0];
+  assert.deepEqual(turn.stop, {
+    earlyStopReason: null,
+    backendEosReason: 'loop_detected',
+    finishReason: null,
+  });
 });
 
 test('collector records provider errors without losing the turn', () => {
@@ -326,6 +345,7 @@ test('collector totals and slowest lists summarize every recorded turn', () => {
       kind: 'turn_model_response', taskId: 't', turn, text: '{}', thinkingText: '', mockExhausted: false,
       promptTokens: 100, completionTokens: completion, thinkingTokens: 0,
       promptCacheTokens: cache, promptEvalTokens: promptEval,
+      stop: CLEAN_STREAM_STOP,
     });
   };
 

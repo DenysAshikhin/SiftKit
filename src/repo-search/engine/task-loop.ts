@@ -531,6 +531,7 @@ export class TaskLoop {
       thinkingTokensEstimated: resolvedTokens.thinkingTokensEstimated,
       promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
+      stop: response.stop,
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     });
 

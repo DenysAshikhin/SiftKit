@@ -7,7 +7,10 @@ import { PresetCatalog } from '../src/preset-catalog.js';
 import { mockSiftConfig, usableWebSearchConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
+import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
 import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
@@ -33,6 +36,17 @@ const WEB_MOCK_CONFIG = mockSiftConfig({
   Presets: CONTEXT_FREE_PRESETS,
   WebSearch: usableWebSearchConfig(),
 });
+
+function readTranscriptEvents(result: RepoSearchExecutionResult) {
+  const transcriptId = parseRuntimeArtifactUri(result.transcriptPath);
+  assert.ok(transcriptId);
+  const transcript = readRuntimeArtifact(transcriptId);
+  return String(transcript?.contentText || '')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JsonObjectSchema.parse(parseJsonValueText(line)));
+}
 
 class DisabledCollectingProgressWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
   override get enabled(): boolean {
@@ -60,6 +74,36 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
   assert.equal(tasks[0].finalOutput, 'You like green.');
   assert.equal(tasks[0].groundingStatus, undefined);
   assert.ok(events.some((event) => event.kind === 'answer' && event.answerText === 'You like green.'));
+});
+
+test('chat execution persists the provider stop tuple in its JSONL transcript', async () => {
+  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
+    const result = await executeRepoSearchRequest({
+      presetId: 'chat',
+      prompt: 'Recover after an interrupted model response.',
+      repoRoot: tempRoot,
+      config: MOCK_CONFIG,
+      taskKind: 'chat',
+      systemPrompt: 'general, coder friendly assistant',
+      allowedTools: [],
+      availableModels: ['mock'],
+      model: 'mock',
+      statusBackendUrl: stub.statusUrl,
+      mockResponses: [
+        { content: '', backendEosReason: 'loop_detected' },
+        { content: 'Recovered.' },
+      ],
+    });
+
+    const rawModelResponse = readTranscriptEvents(result)
+      .find((event) => event.kind === 'turn_model_response' && event.turn === 1);
+    const modelResponse = TurnModelResponseEventSchema.parse(rawModelResponse);
+    assert.deepEqual(modelResponse.stop, {
+      earlyStopReason: null,
+      backendEosReason: 'loop_detected',
+      finishReason: null,
+    });
+  });
 });
 
 test('lifecycle reporting stays active without sending live text to a disabled target', async () => {
@@ -368,11 +412,7 @@ const LoggedTranscriptEventSchema = z.object({
 });
 
 function readFirstTurnMessages(result: RepoSearchExecutionResult): PlannerLogMessage[] {
-  const transcriptId = parseRuntimeArtifactUri(result.transcriptPath);
-  assert.ok(transcriptId);
-  const transcript = readRuntimeArtifact(transcriptId);
-  const lines = String(transcript?.contentText || '').trim().split('\n').filter((line) => line.trim().length > 0);
-  const events = lines.map((line) => LoggedTranscriptEventSchema.parse(JSON.parse(line)));
+  const events = readTranscriptEvents(result).map((event) => LoggedTranscriptEventSchema.parse(event));
   const firstTurn = events.find((event) => event.kind === 'turn_new_messages');
   if (!firstTurn?.messages) {
     throw new Error('Expected the transcript to log the first turn messages.');

@@ -116,17 +116,22 @@ export const THINKING_BUDGET_EARLY_STOP_REASON = 'thinking budget exhausted';
  * client and carried unchanged to `describeStreamTruncation`, the only interpreter. Nothing is
  * normalized here, so a clean OpenAI-style stream still carries `finishReason: 'stop'`.
  */
-export type StreamStop = {
+export const StreamStopSchema = z.strictObject({
   /** Set when the client itself cut the stream (thinking budget). */
-  readonly earlyStopReason: string | null;
+  earlyStopReason: z.string().nullable(),
   /** Backend `choices[].eos_reason` (TabbyAPI/exl3); the last non-empty frame wins. */
-  readonly backendEosReason: string | null;
+  backendEosReason: z.string().nullable(),
   /** OpenAI-style `choices[].finish_reason`; the last non-empty frame wins. */
-  readonly finishReason: string | null;
-};
+  finishReason: z.string().nullable(),
+});
+export type StreamStop = z.infer<typeof StreamStopSchema>;
 
 /** No stop signal at all: mock responses and producers that have no stream behind them. */
-export const CLEAN_STREAM_STOP: StreamStop = Object.freeze({ earlyStopReason: null, backendEosReason: null, finishReason: null });
+export const CLEAN_STREAM_STOP: StreamStop = Object.freeze(StreamStopSchema.parse({
+  earlyStopReason: null,
+  backendEosReason: null,
+  finishReason: null,
+}));
 
 export type NormalizedLlamaCppChatResponse = LiveContentResult & {
   reasoningText: string;

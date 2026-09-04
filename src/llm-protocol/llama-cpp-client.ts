@@ -24,6 +24,7 @@ import { ProviderStreamDegenerateError, ProviderStreamDeadlineError, type Provid
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
 import {
+  StreamStopSchema,
   THINKING_BUDGET_EARLY_STOP_REASON,
   type JsonObject,
   type LlamaCppChatMessage,
@@ -537,7 +538,7 @@ export class LlamaCppClient {
         speculativeGeneratedTokens,
       },
       raw: {},
-      stop: { earlyStopReason, backendEosReason, finishReason },
+      stop: StreamStopSchema.parse({ earlyStopReason, backendEosReason, finishReason }),
     };
   }
 }
