@@ -46,7 +46,7 @@ test('throws a typed error for an error frame', () => {
       event: OPERATION_STREAM_EVENTS.error,
       data: JSON.stringify(ERROR_PAYLOAD),
     }, ResultSchema),
-    (error: unknown) => {
+    (error) => {
       assert.ok(error instanceof StatusServerOperationError);
       assert.equal(error.message, 'stream failed');
       assert.equal(error.name, 'TypeError');
