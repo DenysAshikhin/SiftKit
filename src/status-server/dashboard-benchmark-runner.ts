@@ -1,5 +1,6 @@
 import type { ServerContext } from './server-types.js';
 import { normalizeConfig, writeConfig } from './config-store.js';
+import { flushDeferredArtifacts } from './server-ops.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -20,11 +21,7 @@ import {
 } from '../state/dashboard-benchmark.js';
 import { httpClient } from '../lib/http-client.js';
 import { z } from '../lib/zod.js';
-import {
-  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-  OPERATION_STREAM_NO_RESULT_ERROR,
-  classifyOperationStreamFrame,
-} from '../lib/operation-stream.js';
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, readOperationResult } from '../lib/operation-stream.js';
 import { RepoSearchExecutionResultSchema } from '../repo-search/types.js';
 import { SummaryResultSchema } from '../summary/types.js';
 
@@ -109,16 +106,28 @@ export async function restartManagedLlama(ctx: ServerContext): Promise<void> {
   await coordinator.restartConfiguredPreset();
 }
 
-export function buildBenchmarkAttemptMetrics(run: RunRecord | null): BenchmarkAttemptMetrics {
+/**
+ * Throughput is the whole point of a benchmark attempt, so a missing run record is a failure
+ * rather than a row of nulls: silently reporting an attempt as completed with no metrics is
+ * exactly how a broken attempt path stays invisible.
+ */
+export function buildBenchmarkAttemptMetrics(
+  runId: string,
+  runDetail: { run: RunRecord } | null,
+): BenchmarkAttemptMetrics {
+  if (!runDetail) {
+    throw new Error(`Benchmark attempt produced no run record for ${runId}; refusing to report an attempt without metrics.`);
+  }
+  const run = runDetail.run;
   return {
-    durationMs: run?.durationMs ?? null,
-    promptTokensPerSecond: getPromptTokensPerSecond(run?.promptEvalTokens, run?.promptEvalDurationMs),
-    generationTokensPerSecond: getGenerationTokensPerSecond(run?.outputTokens, run?.thinkingTokens, run?.generationDurationMs),
-    acceptanceRate: getAcceptanceRate(run?.speculativeAcceptedTokens, run?.speculativeGeneratedTokens),
-    outputTokens: run?.outputTokens ?? null,
-    thinkingTokens: run?.thinkingTokens ?? null,
-    speculativeAcceptedTokens: run?.speculativeAcceptedTokens ?? null,
-    speculativeGeneratedTokens: run?.speculativeGeneratedTokens ?? null,
+    durationMs: run.durationMs,
+    promptTokensPerSecond: getPromptTokensPerSecond(run.promptEvalTokens, run.promptEvalDurationMs),
+    generationTokensPerSecond: getGenerationTokensPerSecond(run.outputTokens, run.thinkingTokens, run.generationDurationMs),
+    acceptanceRate: getAcceptanceRate(run.speculativeAcceptedTokens, run.speculativeGeneratedTokens),
+    outputTokens: run.outputTokens,
+    thinkingTokens: run.thinkingTokens,
+    speculativeAcceptedTokens: run.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: run.speculativeGeneratedTokens,
   };
 }
 
@@ -132,18 +141,8 @@ export type BenchmarkAttemptResponse = {
   runId: string;
 };
 
-async function readOperationStreamResult<T>(url: string, body: string, schema: z.ZodType<T>): Promise<T> {
-  for await (const frame of httpClient.streamSse({
-    url,
-    body,
-    idleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-  })) {
-    const classified = classifyOperationStreamFrame(frame, schema);
-    if (classified.kind === 'result') {
-      return classified.result;
-    }
-  }
-  throw new Error(OPERATION_STREAM_NO_RESULT_ERROR);
+function readBenchmarkOperationResult<T>(url: string, body: string, schema: z.ZodType<T>): Promise<T> {
+  return readOperationResult(httpClient, { url, body, idleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS }, schema);
 }
 
 /**
@@ -156,20 +155,16 @@ export async function requestBenchmarkAttemptResult(
   attempt: BenchmarkAttemptRequest,
 ): Promise<BenchmarkAttemptResponse> {
   if (attempt.taskKind === 'repo-search') {
-    const result = await readOperationStreamResult(
+    const result = await readBenchmarkOperationResult(
       `${baseUrl}/repo-search`,
       JSON.stringify({ prompt: attempt.prompt }),
       RepoSearchExecutionResultSchema,
     );
     return { outputText: JSON.stringify(result), runId: result.requestId };
   }
-  const result = await readOperationStreamResult(
+  const result = await readBenchmarkOperationResult(
     `${baseUrl}/summary`,
     JSON.stringify({
-      // Required by parseSummaryRequest, which rejects the body outright without it. The
-      // repo-search route defaults this to the server's cwd, so the benchmark sends the same
-      // value to keep both task kinds measuring the same tree.
-      repoRoot: process.cwd(),
       question: attempt.prompt,
       inputText: attempt.prompt,
       format: 'text',
@@ -191,8 +186,10 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
     taskKind: attempt.taskKind,
     prompt: attempt.prompt,
   });
-  const runDetail = buildDashboardRunDetail(response.runId);
-  const runMetrics = buildBenchmarkAttemptMetrics(runDetail?.run ?? null);
+  // The operation's run row is written through the deferred artifact queue, so it has to be
+  // flushed before the lookup can tell "not written yet" apart from "never existed".
+  await flushDeferredArtifacts(ctx);
+  const runMetrics = buildBenchmarkAttemptMetrics(response.runId, buildDashboardRunDetail(response.runId));
   const metrics = {
     ...runMetrics,
     durationMs: runMetrics.durationMs ?? Date.now() - started,
