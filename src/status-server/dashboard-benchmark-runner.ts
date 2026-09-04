@@ -1,7 +1,7 @@
 import type { ServerContext } from './server-types.js';
 import { normalizeConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
-import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { SiftConfig } from '../config/types.js';
 import {
@@ -16,8 +16,17 @@ import {
   updateBenchmarkSessionStatus,
   type BenchmarkAttemptRecord,
   type BenchmarkSessionDetail,
+  type BenchmarkTaskKind,
 } from '../state/dashboard-benchmark.js';
 import { httpClient } from '../lib/http-client.js';
+import { z } from '../lib/zod.js';
+import {
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  OPERATION_STREAM_NO_RESULT_ERROR,
+  classifyOperationStreamFrame,
+} from '../lib/operation-stream.js';
+import { RepoSearchExecutionResultSchema } from '../repo-search/types.js';
+import { SummaryResultSchema } from '../summary/types.js';
 
 export type BenchmarkSseEvent = {
   event: 'log' | 'attempt' | 'session' | 'done' | 'error';
@@ -113,43 +122,72 @@ export function buildBenchmarkAttemptMetrics(run: RunRecord | null): BenchmarkAt
   };
 }
 
+export type BenchmarkAttemptRequest = {
+  taskKind: BenchmarkTaskKind;
+  prompt: string;
+};
+
+export type BenchmarkAttemptResponse = {
+  outputText: string;
+  runId: string;
+};
+
+async function readOperationStreamResult<T>(url: string, body: string, schema: z.ZodType<T>): Promise<T> {
+  for await (const frame of httpClient.streamSse({
+    url,
+    body,
+    idleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  })) {
+    const classified = classifyOperationStreamFrame(frame, schema);
+    if (classified.kind === 'result') {
+      return classified.result;
+    }
+  }
+  throw new Error(OPERATION_STREAM_NO_RESULT_ERROR);
+}
+
+/**
+ * Both operation endpoints answer over SSE, so a result arrives as a terminal frame rather than
+ * a JSON body. Parsing each task kind against its declared result schema is what keeps the run
+ * id and the output text off string sniffing.
+ */
+export async function requestBenchmarkAttemptResult(
+  baseUrl: string,
+  attempt: BenchmarkAttemptRequest,
+): Promise<BenchmarkAttemptResponse> {
+  if (attempt.taskKind === 'repo-search') {
+    const result = await readOperationStreamResult(
+      `${baseUrl}/repo-search`,
+      JSON.stringify({ prompt: attempt.prompt }),
+      RepoSearchExecutionResultSchema,
+    );
+    return { outputText: JSON.stringify(result), runId: result.requestId };
+  }
+  const result = await readOperationStreamResult(
+    `${baseUrl}/summary`,
+    JSON.stringify({
+      question: attempt.prompt,
+      inputText: attempt.prompt,
+      format: 'text',
+      policyProfile: 'general',
+      sourceKind: 'standalone',
+    }),
+    SummaryResultSchema,
+  );
+  return { outputText: result.Summary, runId: result.RequestId };
+}
+
 async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord): Promise<{
   outputText: string;
-  runId: string | null;
+  runId: string;
   metrics: BenchmarkAttemptMetrics;
 }> {
-  const baseUrl = ctx.getServiceBaseUrl();
   const started = Date.now();
-  const response = attempt.taskKind === 'repo-search'
-    ? await httpClient.requestJsonFull({
-      url: `${baseUrl}/repo-search`,
-      method: 'POST',
-      body: JSON.stringify({ prompt: attempt.prompt }),
-    }, JsonObjectSchema)
-    : await httpClient.requestJsonFull({
-      url: `${baseUrl}/summary`,
-      method: 'POST',
-      body: JSON.stringify({
-        question: attempt.prompt,
-        inputText: attempt.prompt,
-        format: 'text',
-        policyProfile: 'general',
-        sourceKind: 'standalone',
-      }),
-    }, JsonObjectSchema);
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`Benchmark ${attempt.taskKind} request failed (${response.statusCode}): ${response.rawText}`);
-  }
-  const parsed = response.body;
-  const outputText = attempt.taskKind === 'summary'
-    ? String(parsed.Summary || parsed.summary || response.rawText)
-    : JSON.stringify(parsed);
-  const runId = typeof parsed.requestId === 'string'
-    ? parsed.requestId
-    : typeof parsed.RequestId === 'string'
-      ? parsed.RequestId
-      : null;
-  const runDetail = runId ? buildDashboardRunDetail('', runId) : null;
+  const response = await requestBenchmarkAttemptResult(ctx.getServiceBaseUrl(), {
+    taskKind: attempt.taskKind,
+    prompt: attempt.prompt,
+  });
+  const runDetail = buildDashboardRunDetail('', response.runId);
   const runMetrics = buildBenchmarkAttemptMetrics(runDetail?.run ?? null);
   const metrics = {
     ...runMetrics,
@@ -158,7 +196,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   updateBenchmarkAttempt({
     attemptId: attempt.id,
     durationMs: metrics.durationMs,
-    runId,
+    runId: response.runId,
     promptTokensPerSecond: metrics.promptTokensPerSecond,
     generationTokensPerSecond: metrics.generationTokensPerSecond,
     acceptanceRate: metrics.acceptanceRate,
@@ -167,7 +205,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
     speculativeAcceptedTokens: metrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: metrics.speculativeGeneratedTokens,
   });
-  return { outputText, runId, metrics };
+  return { outputText: response.outputText, runId: response.runId, metrics };
 }
 
 async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<void> {

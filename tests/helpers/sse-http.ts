@@ -120,3 +120,14 @@ export function writeSseResult(
   res.write(`event: result\ndata: ${JSON.stringify(payload)}\n\n`);
   res.end();
 }
+
+export function writeSseError(res: http.ServerResponse, payload: JsonSerializable): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.write('\n');
+  res.write(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
+  res.end();
+}
