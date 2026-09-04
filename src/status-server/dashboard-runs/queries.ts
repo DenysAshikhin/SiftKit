@@ -116,8 +116,7 @@ export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
   }
 }
 
-export function buildDashboardRunDetail(runtimeRoot: string, runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
-  void runtimeRoot;
+export function buildDashboardRunDetail(runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
   const databasePath = getRuntimeDatabasePath();
   if (!existsSync(databasePath)) {
     return null;

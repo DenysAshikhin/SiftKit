@@ -187,7 +187,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
     taskKind: attempt.taskKind,
     prompt: attempt.prompt,
   });
-  const runDetail = buildDashboardRunDetail('', response.runId);
+  const runDetail = buildDashboardRunDetail(response.runId);
   const runMetrics = buildBenchmarkAttemptMetrics(runDetail?.run ?? null);
   const metrics = {
     ...runMetrics,
