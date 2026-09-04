@@ -15,6 +15,14 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
+test('summary and repo-search agree on defaulting an omitted repo root', () => {
+  const summary = parseSummaryRequest({ question: 'q', inputText: 'text' });
+  const repoSearch = parseRepoSearchRequest({ prompt: 'p' });
+
+  assert.equal(summary?.repoRoot, process.cwd());
+  assert.equal(repoSearch?.repoRoot, process.cwd());
+});
+
 test('core route request normalizers return typed values', () => {
   assert.deepEqual(parseRepoSearchRequest({ prompt: ' p ', repoRoot: ' C:/repo ', model: ' m ', maxTurns: '3' }), {
     prompt: 'p',

@@ -131,9 +131,11 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   const question = reader.optionalString('question');
   const inputTextValue = reader.value('inputText');
   const inputText = typeof inputTextValue === 'string' ? inputTextValue : '';
-  const repoRoot = reader.optionalString('repoRoot');
+  // Defaulted to the server's cwd exactly as parseRepoSearchRequest does: the two sibling
+  // routes must agree on whether a server-internal caller has to supply a repo root.
+  const repoRoot = reader.optionalString('repoRoot') || process.cwd();
   const images = parseImageDataUrls(reader.value('images'));
-  if (!question || (!inputText.trim() && images.length === 0) || !repoRoot) {
+  if (!question || (!inputText.trim() && images.length === 0)) {
     return null;
   }
   const promptPrefixValue = reader.value('promptPrefix');
