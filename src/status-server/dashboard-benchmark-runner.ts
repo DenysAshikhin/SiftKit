@@ -166,6 +166,10 @@ export async function requestBenchmarkAttemptResult(
   const result = await readOperationStreamResult(
     `${baseUrl}/summary`,
     JSON.stringify({
+      // Required by parseSummaryRequest, which rejects the body outright without it. The
+      // repo-search route defaults this to the server's cwd, so the benchmark sends the same
+      // value to keep both task kinds measuring the same tree.
+      repoRoot: process.cwd(),
       question: attempt.prompt,
       inputText: attempt.prompt,
       format: 'text',

@@ -4,6 +4,7 @@ import http from 'node:http';
 
 import { parseJsonObjectText } from '../src/lib/json.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import { parseRepoSearchRequest, parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
 import { requestBenchmarkAttemptResult } from '../src/status-server/dashboard-benchmark-runner.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { closeHttpServer, getAddressInfo } from './helpers/dashboard-http.js';
@@ -79,6 +80,9 @@ test('benchmark summary attempt reads its result out of the SSE stream', async (
     assert.equal(server.requests[0]?.pathname, '/summary');
     assert.equal(server.requests[0]?.body.question, 'Summarize the queue behavior.');
     assert.equal(server.requests[0]?.body.sourceKind, 'standalone');
+    // The real endpoint rejects the body before it ever opens a stream, so the benchmark's
+    // request must satisfy the server's own parser rather than merely look plausible.
+    assert.notEqual(parseSummaryRequest(server.requests[0]?.body ?? {}), null);
   } finally {
     await server.close();
   }
@@ -98,6 +102,7 @@ test('benchmark repo-search attempt reads its result out of the SSE stream', asy
     assert.match(result.outputText, /db:\/\/repo-search\/artifact/u);
     assert.equal(server.requests[0]?.pathname, '/repo-search');
     assert.equal(server.requests[0]?.body.prompt, 'Trace repo-search execution.');
+    assert.notEqual(parseRepoSearchRequest(server.requests[0]?.body ?? {}), null);
   } finally {
     await server.close();
   }
