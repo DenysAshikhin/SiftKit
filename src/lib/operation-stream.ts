@@ -1,5 +1,8 @@
 import { z } from './zod.js';
-import { ServerErrorPayloadSchema } from './error-diagnostics.js';
+import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnostics.js';
+import { parseJsonObjectText, parseJsonText } from './json.js';
+import type { JsonObject } from './json-types.js';
+import type { SseFrame } from './sse-frame-parser.js';
 
 export const OPERATION_STREAM_EVENTS = {
   progress: 'progress',
@@ -51,4 +54,50 @@ export type ContextWarningProgressEvent = z.infer<typeof ContextWarningProgressE
 
 export function contextWarningEvent(warningText: string): ContextWarningProgressEvent {
   return { kind: 'context_warning', warningText };
+}
+
+/** Idle ceiling for an operation stream: a model turn may be silent for a long time. */
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export const OPERATION_STREAM_NO_RESULT_ERROR = 'Operation stream ended before a result frame.';
+
+/** The server's terminal `error` frame, rehydrated on the client side with its diagnostics intact. */
+export class StatusServerOperationError extends Error {
+  public readonly diagnosticId: string;
+  public readonly diagnostic: ErrorDiagnostic;
+  public readonly modelRequests: ModelRequestQueueDiagnostics | undefined;
+
+  constructor(payload: OperationStreamError) {
+    super(payload.error);
+    this.name = payload.errorName;
+    this.diagnosticId = payload.diagnosticId;
+    this.diagnostic = payload.diagnostic;
+    this.modelRequests = payload.modelRequests;
+  }
+}
+
+export type OperationStreamFrame<T> =
+  | { kind: 'progress'; event: JsonObject }
+  | { kind: 'result'; result: T }
+  | { kind: 'ignored' };
+
+/**
+ * Sorts one SSE frame into the operation protocol's three outcomes. Consumers differ only in
+ * what they do with progress frames, so the terminal semantics live here once: an `error` frame
+ * always throws, and a `result` frame is always parsed against the caller's schema.
+ */
+export function classifyOperationStreamFrame<T>(
+  frame: SseFrame,
+  schema: z.ZodType<T>,
+): OperationStreamFrame<T> {
+  if (frame.event === OPERATION_STREAM_EVENTS.progress) {
+    return { kind: 'progress', event: parseJsonObjectText(frame.data) };
+  }
+  if (frame.event === OPERATION_STREAM_EVENTS.error) {
+    throw new StatusServerOperationError(OperationStreamErrorSchema.parse(parseJsonObjectText(frame.data)));
+  }
+  if (frame.event === OPERATION_STREAM_EVENTS.result) {
+    return { kind: 'result', result: parseJsonText(frame.data, schema) };
+  }
+  return { kind: 'ignored' };
 }
