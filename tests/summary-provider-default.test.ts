@@ -8,6 +8,7 @@ import {
 } from '../src/summary/types.js';
 import { shouldRetryWithSmallerChunks } from '../src/summary/chunking.js';
 import { isOversizedMockInput } from '../src/summary/request-runner.js';
+import { REMOVED_BACKEND_ID, REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
 
 test('the default summary provider is the real provider', () => {
   assert.equal(DEFAULT_SUMMARY_PROVIDER, 'real');
@@ -19,7 +20,7 @@ test('the provider domain is exactly real and mock', () => {
 });
 
 test('the provider domain never reuses an engine name', () => {
-  assert.equal(SummaryProviderIdSchema.safeParse(['ll', 'ama.cpp'].join('')).success, false);
+  assert.equal(SummaryProviderIdSchema.safeParse(REMOVED_BACKEND_PROVIDER_ID).success, false);
   assert.equal(SummaryProviderIdSchema.safeParse('exl3').success, false);
 });
 
@@ -37,7 +38,7 @@ test('the default provider keeps the chunk-retry branch alive in downstream gate
   assert.equal(shouldRetryWithSmallerChunks({
     error: retryableError,
     // @ts-expect-error engine ids are not summary providers
-    provider: ['ll', 'ama'].join(''),
+    provider: REMOVED_BACKEND_ID,
     inputText: 'x'.repeat(4096),
     chunkThreshold: 2048,
   }), false);

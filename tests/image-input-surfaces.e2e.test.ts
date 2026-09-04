@@ -17,8 +17,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
@@ -28,8 +27,7 @@ import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
-const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-if (!basePreset) throw new Error('Default model preset is missing');
+const basePreset = mockModelPreset();
 const visionOff = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'exl3', VisionEnabled: false });
 const zeroRetention = ModelRuntimePresetSchema.parse({
   ...basePreset,

@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import test from 'node:test';
 
-import { migrateActiveStateRemoveMaxTokens } from '../src/state/migrations/app-config-migrations.js';
 import { LEGACY_MODEL_PRESETS_COLUMN, LEGACY_ACTIVE_MODEL_PRESET_COLUMN, LEGACY_ENGINE_SNAPSHOT_KEY, LEGACY_ENGINE_CONFIG_KEY } from '../src/state/migrations/constants.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -14,6 +13,8 @@ import { ensureRunLogsTable } from '../src/status-server/dashboard-runs/table.js
 import {
   closeRuntimeDatabase,
   getRuntimeDatabase,
+  migrateDatabaseFile,
+  CURRENT_SCHEMA_VERSION,
 } from '../src/state/runtime-db.js';
 import {
   createManagedTempDir,
@@ -36,6 +37,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
     {
       id: 'one',
       label: 'One',
+      Backend: 'exl3',
       Model: 'one.exl3',
       NumCtx: 155_000,
       MaxTokens: 15_000,
@@ -43,6 +45,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
     {
       id: 'two',
       label: 'Two',
+      Backend: 'exl3',
       Model: 'two.exl3',
       NumCtx: 32_000,
       MaxTokens: 4_096,
@@ -107,7 +110,8 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
     database
       .prepare('UPDATE runtime_schema SET version = 58 WHERE id = 1')
       .run();
-    migrateActiveStateRemoveMaxTokens(database);
+    closeRuntimeDatabase();
+    migrateDatabaseFile(dbPath);
     closeRuntimeDatabase();
 
     const migrated = new Database(dbPath, { readonly: true });
@@ -117,20 +121,20 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
           .prepare('SELECT version AS value FROM runtime_schema WHERE id = 1')
           .get(),
       ).value;
-      assert.equal(version, 58);
+      assert.equal(version, CURRENT_SCHEMA_VERSION);
 
       const presetJson = StringValueRowSchema.parse(
         migrated
           .prepare(
-            `SELECT ${LEGACY_MODEL_PRESETS_COLUMN} AS value FROM app_config WHERE id = 1`,
+            'SELECT server_model_presets_json AS value FROM app_config WHERE id = 1',
           )
           .get(),
       ).value;
       const migratedPresets = parseJsonValueText(presetJson);
       assert.ok(Array.isArray(migratedPresets));
       assert.deepEqual(migratedPresets, [
-        { id: 'one', label: 'One', Model: 'one.exl3', NumCtx: 155_000 },
-        { id: 'two', label: 'Two', Model: 'two.exl3', NumCtx: 32_000 },
+        { id: 'one', label: 'One', Backend: 'exl3', Model: 'one.exl3', NumCtx: 155_000 },
+        { id: 'two', label: 'Two', Backend: 'exl3', Model: 'two.exl3', NumCtx: 32_000 },
       ]);
 
       const migratedSession = StringValueRowSchema.parse(
@@ -143,25 +147,16 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
       assert.deepEqual(withoutMaxTokens(migratedSession), {
         id: 'one',
         label: 'One',
+        Backend: 'exl3',
         Model: 'one.exl3',
         NumCtx: 155_000,
         Temperature: 0.6,
       });
 
-      const migratedLaunch = StringValueRowSchema.parse(
-        migrated
-          .prepare(
-            `SELECT value FROM runtime_metadata WHERE key = '${LEGACY_ENGINE_SNAPSHOT_KEY}'`,
-          )
-          .get(),
-      ).value;
-      assert.deepEqual(
-        JsonObjectSchema.parse(parseJsonValueText(migratedLaunch)),
-        {
-          Model: 'one.exl3',
-          [LEGACY_ENGINE_CONFIG_KEY]: { NumCtx: 155_000, Temperature: 0.6 },
-        },
-      );
+      const migratedLaunch = migrated.prepare(
+        `SELECT value FROM runtime_metadata WHERE key = '${LEGACY_ENGINE_SNAPSHOT_KEY}'`,
+      ).get();
+      assert.equal(migratedLaunch, undefined);
 
       const historical = StringValueRowSchema.parse(
         migrated

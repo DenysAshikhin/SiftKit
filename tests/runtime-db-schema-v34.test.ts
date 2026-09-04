@@ -4,13 +4,21 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import { z } from 'zod';
 import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import {
+  REMOVED_BACKEND_LOG_CHUNKS_TABLE,
+  REMOVED_BACKEND_RUNS_TABLE,
+} from './helpers/legacy-backend-fixtures.js';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
-const LEGACY_RUNS_TABLE = ['managed_ll', 'ama_runs'].join('');
-const LEGACY_LOG_CHUNKS_TABLE = ['managed_ll', 'ama_log_chunks'].join('');
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
+const LEGACY_RUNS_TABLE = REMOVED_BACKEND_RUNS_TABLE;
+const LEGACY_LOG_CHUNKS_TABLE = REMOVED_BACKEND_LOG_CHUNKS_TABLE;
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');

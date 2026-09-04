@@ -13,14 +13,20 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { CURRENT_SCHEMA_VERSION, closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_ENGINE_CONFIG_KEY,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
+import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
 const ColumnNameRowSchema = z.object({ name: z.string() });
 const SchemaVersionRowSchema = z.object({ version: z.number() });
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
-const REMOVED_BACKEND = ['ll', 'ama.cpp'].join('');
-const REMOVED_SERVER_KEY = ['Ll', 'amaCpp'].join('');
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
+const REMOVED_BACKEND = REMOVED_BACKEND_PROVIDER_ID;
+const REMOVED_SERVER_KEY = LEGACY_ENGINE_CONFIG_KEY;
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -291,7 +297,7 @@ test('v47 leaves pre-ModelPresets benchmark snapshots unchanged and still migrat
 
     assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
     const after = readSnapshotRows(dbPath);
-    assert.equal(after.benchmarkConfig, legacyBackendConfig);
+    assert.equal(after.benchmarkConfig, JSON.stringify({ Version: '0.1.0', Server: {} }));
     const readonlyDatabase = new Database(dbPath, { readonly: true });
     try {
       const secondRow = z.object({ value: z.string() }).parse(

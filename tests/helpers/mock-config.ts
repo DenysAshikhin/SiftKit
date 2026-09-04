@@ -1,5 +1,5 @@
-import { z } from '../../src/lib/zod.js';
 import { JsonValueSchema, isJsonObject, type JsonValue, type OptionalJsonValue } from '../../src/lib/json-types.js';
+import { SiftConfigSchema } from '@siftkit/contracts';
 import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
 import type { WebSearchConfig } from '../../src/web-search/types.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
@@ -8,17 +8,12 @@ import { getDefaultConfig } from '../../src/status-server/config-store.js';
 import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
 import { DEAD_BASE_URL } from './dead-endpoints.js';
 
-// Deliberately-partial SiftConfig fixtures: the input is structurally checked
-// against a DeepPartial view (catching typos / wrong nesting) while the runtime
-// value is branded to SiftConfig at this single boundary. Tests exercise only the
-// fields they set; completing the object would change what the code under test reads.
+// Partial fixture inputs are completed with defaults and validated at runtime.
 type DeepPartial<T> = T extends (infer U)[]
   ? DeepPartial<U>[]
   : T extends object
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
-
-const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 
 /** The default preset names no model; fixtures need one so `getConfiguredModel` resolves. */
 export const MOCK_MODEL_ID = 'mock-model';
@@ -34,15 +29,9 @@ export function mockSiftConfig(partial: DeepPartial<SiftConfig> = {}): SiftConfi
   const partialJson = JsonValueSchema.parse(partial);
   const presetPartials = readPresetPartials(partialJson);
   const presets = (presetPartials.length > 0 ? presetPartials : [{}])
-    .map((entry) => withMockModel(mergeConfig(basePreset, entry)));
+    .map((entry) => mergeConfig(basePreset, entry));
   const withPresets = mergeConfig(partialJson, { Server: { ModelPresets: { Presets: presets } } });
   return normalizeConfigObject(mergeConfig(base, withPresets));
-}
-
-// A preset fixture that names no model (the production default, or a copy of it) gets the mock id.
-function withMockModel(preset: JsonValue): JsonValue {
-  if (!isJsonObject(preset) || (preset.Model !== null && preset.Model !== undefined)) return preset;
-  return { ...preset, Model: MOCK_MODEL_ID };
 }
 
 /**
@@ -77,11 +66,10 @@ export function mockModelPreset(overrides: Partial<ModelRuntimePreset> = {}): Mo
   return { ...preset, Model: MOCK_MODEL_ID, ...overrides };
 }
 
-// Brand an already-constructed runtime config object (e.g. a stub server's live
-// config, or a clone with a few overridden fields) as SiftConfig at one boundary.
-// Accepts any JSON value; the schema predicate rejects non-objects at runtime.
+// Validate an already-constructed runtime config object (e.g. a stub server's
+// live config, or a clone with a few overridden fields) at one boundary.
 export function asRuntimeSiftConfig(value: OptionalJsonValue): SiftConfig {
-  return MockSiftConfigSchema.parse(value);
+  return SiftConfigSchema.parse(value);
 }
 
 // The single copies of the WebSearch fixture shapes: enabled-but-providerless by

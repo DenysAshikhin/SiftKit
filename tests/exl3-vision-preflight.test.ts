@@ -8,6 +8,7 @@ import type { JsonValue } from '../src/lib/json-types.js';
 import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 
 function createTempDir(prefix: string): string {
   return createManagedTempDir(prefix);
@@ -37,7 +38,7 @@ test('Exl3ModelCapabilities accepts valid vision_config object', () => {
 test('Exl3ModelCapabilities rejects missing vision_config key', () => {
   const dir = createTempDir('exl3-vision-');
   try {
-    writeConfig(dir, { arch_name: ['ll', 'ama'].join('') });
+    writeConfig(dir, { arch_name: REMOVED_BACKEND_ID });
     const caps = new Exl3ModelCapabilities();
     assert.equal(caps.hasVisionTower(dir), false);
   } finally {
@@ -131,7 +132,7 @@ test('Exl3PresetAdapter validatePreset throws when VisionEnabled=true but no vis
   const baseDir = createTempDir('exl3-vision-');
   try {
     const modelDir = createModelDir(baseDir);
-    writeConfig(modelDir, { arch_name: ['ll', 'ama'].join('') });
+    writeConfig(modelDir, { arch_name: REMOVED_BACKEND_ID });
     const preset = createModelPreset({
       Backend: 'exl3',
       ModelPath: modelDir,

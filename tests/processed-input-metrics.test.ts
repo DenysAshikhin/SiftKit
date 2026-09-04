@@ -26,9 +26,13 @@ import {
   getRuntimeDatabase,
   getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
 
 // SQLite .get()/.all() return `unknown`; narrow rows to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {

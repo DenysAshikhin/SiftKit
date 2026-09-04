@@ -39,6 +39,7 @@ import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWe
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
@@ -571,8 +572,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const managedRuns = await requestJson(`${baseUrl}/dashboard/admin/managed-runs`);
     assert.equal(managedRuns.statusCode, 200);
-    const removedBackendSegment = ['ll', 'ama'].join('');
-    const removedManagedRunsRoute = await requestJson(`${baseUrl}/dashboard/admin/managed-${removedBackendSegment}/runs`);
+    const removedManagedRunsRoute = await requestJson(`${baseUrl}/dashboard/admin/managed-${REMOVED_BACKEND_ID}/runs`);
     assert.equal(removedManagedRunsRoute.statusCode, 404);
 
     const runsResponse = await requestJson(`${baseUrl}/dashboard/runs`);

@@ -3,10 +3,9 @@ import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 
 import { ModelRuntimePresetSchema } from '@siftkit/contracts';
-import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
@@ -17,8 +16,7 @@ before(() => { isolatedRuntime.start(); deadEndpoints.apply(); });
 after(async () => { await isolatedRuntime.close(); deadEndpoints.restore(); });
 
 test('SummaryRequestRunner accepts an image-only request', async () => {
-  const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-  if (!defaultPreset) throw new Error('Default model preset is missing');
+  const defaultPreset = mockModelPreset();
   const visionPreset = ModelRuntimePresetSchema.parse({
     ...defaultPreset,
     Backend: 'exl3',

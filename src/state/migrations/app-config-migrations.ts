@@ -1,4 +1,3 @@
-import { ModelKvCacheQuantizationSchema, ModelPresetFieldSchema } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue, isJsonObject } from '../../lib/json-types.js';
@@ -39,9 +38,6 @@ const PerRowTokensMigrationAnswerRowSchema = z.object({
 });
 const PerRowTokensMigrationThinkingRowSchema = z.object({ id: z.string() });
 const PerRowTokensMigrationThinkingCountRowSchema = z.object({ thinkingRowCount: z.number() });
-
-const EXL3_PRESET_KEYS: ReadonlySet<string> = new Set(['id', 'label', 'Backend', ...ModelPresetFieldSchema.options]);
-const V63_KV_CACHE_QUANTIZATION_FALLBACK = 'f16';
 
 const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
   'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
@@ -736,62 +732,4 @@ export function migrateChatMessagesToPerRowTokens(database: RuntimeDatabase): vo
     }
     database.exec('ALTER TABLE chat_messages DROP COLUMN associated_tool_tokens;');
   }
-}
-
-/**
- * v63: llama.cpp support is gone. The preset columns lose their llama name, presets that targeted
- * the llama backend are dropped (their launch settings mean nothing to exl3), llama-only fields are
- * stripped from the exl3 presets that remain, and rows only a llama engine could have produced
- * (llama-backed run logs and inference runs, managed-llama benchmark logs, the llama launch
- * snapshot) are purged rather than left behind under constraints the code no longer knows.
- */
-export function migrateRuntimeToExl3Only(database: RuntimeDatabase): void {
-  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
-    database.exec(`
-      ALTER TABLE app_config RENAME COLUMN server_llama_presets_json TO server_model_presets_json;
-      ALTER TABLE app_config RENAME COLUMN server_llama_active_preset_id TO server_model_active_preset_id;
-    `);
-  }
-  const rawRow = tableHasColumn(database, 'app_config', 'server_model_presets_json')
-    ? database.prepare(`
-      SELECT server_model_presets_json AS presets_json, server_model_active_preset_id AS active_preset_id
-      FROM app_config
-      WHERE id = 1
-    `).get()
-    : undefined;
-  if (rawRow != null) {
-    const row = ChatModelPresetMigrationConfigRowSchema.parse(rawRow);
-    const presets = z.array(JsonObjectSchema).parse(parseJsonValueText(row.presets_json));
-    const kept = presets.filter((preset) => preset.Backend !== 'llama').map(toExl3Preset);
-    const keptIds = kept.map((preset) => preset.id).filter((id): id is string => typeof id === 'string');
-    const activePresetId = row.active_preset_id !== null && keptIds.includes(row.active_preset_id)
-      ? row.active_preset_id
-      : keptIds[0] ?? null;
-    database.prepare(`
-      UPDATE app_config
-      SET server_model_presets_json = ?, server_model_active_preset_id = ?
-      WHERE id = 1
-    `).run(JSON.stringify(kept), activePresetId);
-  }
-  if (tableHasColumn(database, 'run_logs', 'backend')) {
-    database.prepare("DELETE FROM run_logs WHERE backend = 'llama'").run();
-  }
-  if (tableExists(database, 'inference_runs')) {
-    database.prepare("DELETE FROM inference_runs WHERE backend = 'llama'").run();
-  }
-  if (tableExists(database, 'benchmark_logs')) {
-    database.prepare("DELETE FROM benchmark_logs WHERE stream_kind = 'managed_llama'").run();
-  }
-  if (tableExists(database, 'runtime_metadata')) {
-    database.prepare("DELETE FROM runtime_metadata WHERE key = 'runtime_llama_launch_snapshot'").run();
-  }
-}
-
-function toExl3Preset(preset: JsonObject): JsonObject {
-  const kept = Object.fromEntries(Object.entries(preset).filter(([key]) => EXL3_PRESET_KEYS.has(key)));
-  const kvCacheQuantization = ModelKvCacheQuantizationSchema.safeParse(kept.KvCacheQuantization);
-  return {
-    ...kept,
-    KvCacheQuantization: kvCacheQuantization.success ? kvCacheQuantization.data : V63_KV_CACHE_QUANTIZATION_FALLBACK,
-  };
 }

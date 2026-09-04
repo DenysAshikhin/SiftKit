@@ -12,6 +12,7 @@ import {
   parseChatSessionUpdateRequest,
 } from '../src/status-server/chat-route-request-normalizers.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 
 const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
@@ -64,7 +65,7 @@ test('core route request normalizers return typed values', () => {
       question: 'q',
       inputText: 'text',
       repoRoot: 'C:/repo',
-      provider: ['ll', 'ama'].join(''),
+      provider: REMOVED_BACKEND_ID,
     }),
     /Unsupported provider/u,
   );

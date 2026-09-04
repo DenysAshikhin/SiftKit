@@ -8,6 +8,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { normalizeModelRuntimePresetArray } from '../src/config/normalization.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import type { TaskResult } from '../src/repo-search/engine/task-loop-support.js';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
@@ -123,6 +124,7 @@ export type TestConfig = Dict & {
 
 export function getDefaultConfig(): TestConfig {
   return {
+    Assistant: getDefaultConfigObject().Assistant,
     Version: '0.1.0',
     PolicyMode: 'conservative',
     RawLogRetention: true,

@@ -30,16 +30,11 @@ test('model preset contracts reject the removed MaxTokens field', () => {
   assert.ok(defaultPreset);
   assert.equal(Object.hasOwn(defaultPreset, 'MaxTokens'), false);
   assert.equal(ModelPresetFieldSchema.safeParse('MaxTokens').success, false);
+  const { id: _id, label: _label, Backend: _backend, Model: _model, ...settings } = defaultPreset;
+  assert.equal(ModelPresetSettingsSchema.safeParse(settings).success, true);
   assert.equal(
-    ModelPresetSettingsSchema.safeParse({ ...defaultPreset, MaxTokens: 512 })
+    ModelPresetSettingsSchema.safeParse({ ...settings, MaxTokens: 512 })
       .success,
-    true,
-  );
-  assert.equal(
-    Object.hasOwn(
-      ModelPresetSettingsSchema.parse({ ...defaultPreset, MaxTokens: 512 }),
-      'MaxTokens',
-    ),
     false,
   );
 });
@@ -211,8 +206,8 @@ test('EXL3 preset validation rejects a negative NcpuMoe', () => {
   const preset = createModelPreset({
     Backend: 'exl3',
     ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
-    NcpuMoe: -1,
   });
+  preset.NcpuMoe = -1;
 
   assert.throws(
     () => adapter.validatePreset(preset),

@@ -12,6 +12,7 @@ import { withRealStatusServer, withTempEnv } from './_runtime-helpers.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
 import { rasterBuffer } from './helpers/image-fixtures.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 
 const IMAGE_RETENTION_ZERO_ERROR = 'Image input is disabled for this preset (VisionImageRetention = 0)';
 
@@ -346,7 +347,7 @@ test('internal op summary rejects an unknown Provider from the request file', as
       Question: 'Summarize the build output',
       Text: 'Build output: all 42 tests passed.\n'.repeat(30),
       Format: 'text',
-      Provider: ['ll', 'ama'].join(''),
+      Provider: REMOVED_BACKEND_ID,
     }), 'utf8');
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();

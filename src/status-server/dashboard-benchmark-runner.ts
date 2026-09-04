@@ -1,4 +1,5 @@
 import type { ServerContext } from './server-types.js';
+import { InferenceBackendIdSchema } from '@siftkit/contracts';
 import { normalizeConfig, writeConfig } from './config-store.js';
 import { flushDeferredArtifacts } from './server-ops.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
@@ -209,17 +210,12 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   return { outputText: response.outputText, runId: response.runId, metrics };
 }
 
-async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<void> {
+async function runBenchmarkJob(ctx: ServerContext, detail: BenchmarkSessionDetail, originalConfig: SiftConfig): Promise<void> {
+  const sessionId = detail.session.id;
   const job = activeJobs.get(sessionId);
   if (!job) {
     return;
   }
-  const detail = readBenchmarkSessionDetail(sessionId);
-  if (!detail) {
-    activeJobs.delete(sessionId);
-    return;
-  }
-  const originalConfig = normalizeConfig(parseJsonValueText(detail.session.originalConfigJson || '{}'));
   let currentCaseIndex: number | null = null;
   try {
     log(job, sessionId, null, `Benchmark session ${sessionId} started.\n`);
@@ -321,9 +317,36 @@ export function hasActiveBenchmarkJob(): boolean {
 }
 
 export function startBenchmarkJob(ctx: ServerContext, sessionId: string): void {
+  const detail = readBenchmarkSessionDetail(sessionId);
+  if (!detail) throw new Error(`Benchmark session not found: ${sessionId}.`);
+  let originalConfig: SiftConfig;
+  try {
+    originalConfig = normalizeConfig(parseJsonValueText(detail.session.originalConfigJson));
+    const presetIds = new Set(originalConfig.Server.ModelPresets.Presets.map((preset) => preset.id));
+    for (const benchmarkCase of detail.cases) {
+      if (!InferenceBackendIdSchema.safeParse(benchmarkCase.managedPreset.Backend).success) {
+        throw new Error(`Benchmark case ${benchmarkCase.id} has an unsupported backend snapshot.`);
+      }
+      if (!presetIds.has(benchmarkCase.managedPresetId)) {
+        throw new Error(`Benchmark case ${benchmarkCase.id} references missing preset ${benchmarkCase.managedPresetId}.`);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const completedAtUtc = new Date().toISOString();
+    for (const attempt of detail.attempts) {
+      if (attempt.status === 'pending' || attempt.status === 'running') {
+        updateBenchmarkAttempt({ attemptId: attempt.id, status: 'failed', error: message, completedAtUtc });
+      }
+    }
+    updateBenchmarkSessionStatus({
+      sessionId, status: 'failed', restoreStatus: 'completed', restoreError: null, completedAtUtc,
+    });
+    throw error;
+  }
   const job: ActiveBenchmarkJob = { sessionId, cancelled: false, listeners: new Set() };
   activeJobs.set(sessionId, job);
-  void runBenchmarkJob(ctx, sessionId);
+  void runBenchmarkJob(ctx, detail, originalConfig);
 }
 
 export function cancelBenchmarkJob(sessionId: string): boolean {

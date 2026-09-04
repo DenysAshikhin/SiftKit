@@ -1,7 +1,8 @@
 import { initializeRuntime } from './paths.js';
 import {
   CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
-  ModelPresetFieldSchema, ReasoningEffortSchema, SiftPresetCollectionSchema,
+  ModelPresetFieldSchema, ModelPresetSettingsSchema, ReasoningEffortSchema, SiftConfigSchema as CanonicalSiftConfigSchema,
+  SiftPresetCollectionSchema,
   type ModelIdleAction, type ReasoningEffort,
 } from '@siftkit/contracts';
 import {
@@ -37,17 +38,37 @@ import type {
   WebSearchProviderId,
   WebSearchProviderSettings,
 } from './types.js';
-import { JsonObjectSchema, JsonValueSchema, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
+import { JsonValueSchema, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MAX_ENGINE_STARTUP_TIMEOUT_MS = 600_000;
-const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
 
 function getRecord(value: JsonValue): MutableJsonObject {
   const record = JsonRecordReader.asObject(value);
   return record ? { ...record } : {};
+}
+
+function rejectUnknownConfigFields(input: JsonValue): void {
+  const result = CanonicalSiftConfigSchema.safeParse(input);
+  if (result.success) {
+    return;
+  }
+  const issue = result.error.issues.find((candidate) => candidate.code === 'unrecognized_keys');
+  if (issue?.code === 'unrecognized_keys') {
+    const key = issue.keys[0];
+    if (key) {
+      if (issue.path[0] === 'Server' && issue.path[1] === 'ModelPresets' && issue.path[2] === 'Presets') {
+        throw new Error(
+          `Unsupported model preset field ${key}; it is not part of ModelPresetFieldSchema. `
+          + 'Delete it from the stored preset configuration.',
+        );
+      }
+      const path = [...issue.path, key].join('.');
+      throw new Error(`Unsupported configuration field ${path}; remove it from the stored configuration.`);
+    }
+  }
 }
 
 function booleanOrDefault(value: JsonValue, fallback: boolean): boolean {
@@ -261,6 +282,17 @@ function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number
   }
   const parsed = Number(text);
   return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function getStrictNcpuMoe(input: MutableJsonObject, fallback: number): number {
+  if (!Object.hasOwn(input, 'NcpuMoe')) {
+    return fallback;
+  }
+  const result = ModelPresetSettingsSchema.shape.NcpuMoe.safeParse(input.NcpuMoe);
+  if (!result.success) {
+    throw new Error('NcpuMoe must be a finite non-negative integer when provided.');
+  }
+  return result.data;
 }
 
 function getBooleanWithDefault(value: JsonValue, fallback: JsonValue): boolean {
@@ -478,7 +510,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     BaseUrl: getNullableTrimmedString(input.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
     ModelPath: getNullableTrimmedString(input.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
     NumCtx: getFinitePositiveInteger(input.NumCtx, Number(defaults.NumCtx ?? 150_000)),
-    NcpuMoe: getFiniteNonNegativeInteger(input.NcpuMoe, defaults.NcpuMoe),
+    NcpuMoe: getStrictNcpuMoe(input, defaults.NcpuMoe),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_ENGINE_UBATCH_SIZE)),
     CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_ENGINE_CACHE_RAM)),
@@ -549,14 +581,12 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   if ('Exl3' in inputServer) {
     throw new Error('Unsupported configuration field Server.Exl3; use Server.Engines.Exl3.');
   }
+  rejectUnknownConfigFields(input);
 
   const merged = getRecord(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), input ?? {}));
-  delete merged.Backend;
   delete merged.Paths;
-  delete merged.Model;
 
   const runtime = getRecord(merged.Runtime);
-  delete runtime.PromptPrefix;
   runtime.Engine = getRecord(runtime.Engine);
   merged.Runtime = runtime;
 
@@ -572,11 +602,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
       Preserve: Boolean(thinking.Preserve),
     },
   };
-
-  const thresholds = getRecord(merged.Thresholds);
-  delete thresholds.MaxInputCharacters;
-  delete thresholds.ChunkThresholdRatio;
-  merged.Thresholds = thresholds;
 
   const server = getRecord(merged.Server);
   const modelPresets = getRecord(server.ModelPresets);
@@ -595,7 +620,7 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   merged.Presets = presetCatalog.list();
   merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
   merged.Assistant = normalizeAssistantConfig(merged.Assistant);
-  return SiftConfigSchema.parse(merged);
+  return CanonicalSiftConfigSchema.parse(merged);
 }
 
 export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: NormalizationInfo } {

@@ -10,11 +10,15 @@ import {
 } from '../src/state/runtime-db.js';
 import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 
 const SessionIdentityRowSchema = z.object({ model_preset_id: z.string() });
 const MessageRowSchema = z.object({ content: z.string() });
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
 
 type SeedSession = {
   id: string;

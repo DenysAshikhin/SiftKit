@@ -8,14 +8,19 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 const VersionRowSchema = z.object({ version: z.number() });
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
-const REMOVED_BACKEND = ['ll', 'ama.cpp'].join('');
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const REMOVED_BACKEND = REMOVED_BACKEND_PROVIDER_ID;
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -116,12 +121,14 @@ test('default config has no top-level Backend field', () => {
   assert.equal('Backend' in getDefaultConfigObject(), false);
 });
 
-test('normalization drops any provided top-level Backend', () => {
-  const normalized = normalizeConfigObject({
-    ...getDefaultConfigObject(),
-    Backend: REMOVED_BACKEND,
-  });
-  assert.equal('Backend' in normalized, false);
+test('normalization rejects a provided top-level Backend', () => {
+  assert.throws(
+    () => normalizeConfigObject({
+      ...getDefaultConfigObject(),
+      Backend: REMOVED_BACKEND,
+    }),
+    /Unsupported configuration field Backend/u,
+  );
 });
 
 test('canonical config has no global startup-context switches', () => {

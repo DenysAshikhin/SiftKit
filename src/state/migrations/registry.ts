@@ -13,8 +13,8 @@ import {
   migrateRunLogsBackendToEngineIds,
   migrateRunLogsOperationIdentity,
 
-  migrateRuntimeToExl3Only,
 } from './app-config-migrations.js';
+import { migrateRuntimeToExl3Only } from './exl3-migration.js';
 import {
   ASSISTANT_CORE_SCHEMA_SQL,
   ASSISTANT_DESKTOP_SCHEMA_SQL,
@@ -811,6 +811,13 @@ export const MIGRATIONS: readonly Migration[] = [
     // llama.cpp support was removed: preset columns lose their llama name, llama presets and
     // llama-only rows go. See migrateRuntimeToExl3Only.
     version: 63,
+    rebuildsTables: true,
+    up: migrateRuntimeToExl3Only,
+  },
+  {
+    // Corrective replay for databases stamped v63 by the first EXL3 migration implementation.
+    version: 64,
+    rebuildsTables: true,
     up: migrateRuntimeToExl3Only,
   },
 ];

@@ -40,12 +40,12 @@ export type ModelIdleAction = z.infer<typeof ModelIdleActionSchema>;
 export const InferenceThinkingConfigSchema = z.object({
   Enabled: z.boolean(),
   Preserve: z.boolean(),
-});
+}).strict();
 export type InferenceThinkingConfig = z.infer<typeof InferenceThinkingConfigSchema>;
 
 export const InferenceConfigSchema = z.object({
   Thinking: InferenceThinkingConfigSchema,
-});
+}).strict();
 export type InferenceConfig = z.infer<typeof InferenceConfigSchema>;
 
 export const RuntimeEngineConfigSchema = z.object({
@@ -55,12 +55,12 @@ export const RuntimeEngineConfigSchema = z.object({
   PresencePenalty: z.number().nullable().optional(), RepetitionPenalty: z.number().nullable().optional(),
   ParallelSlots: z.number().nullable().optional(),
   Reasoning: ReasoningSchema.nullable().optional(),
-});
+}).strict();
 export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
-  NumCtx: z.number(), NcpuMoe: z.number(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
+  NumCtx: z.number(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
   CacheRecurrentRam: z.number(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
@@ -86,18 +86,18 @@ export const ModelPresetFieldSchema = z.enum([
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 
-export const ModelPresetSettingsSchema = z.object(ModelPresetSettingsShape);
+export const ModelPresetSettingsSchema = z.object(ModelPresetSettingsShape).strict();
 export type ModelPresetSettings = z.infer<typeof ModelPresetSettingsSchema>;
 
 export const ModelRuntimePresetSchema = z.object({
   id: z.string(), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
   ...ModelPresetSettingsShape,
-});
+}).strict();
 export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
 
 export const ServerModelPresetsConfigSchema = z.object({
   Presets: z.array(ModelRuntimePresetSchema).min(1), ActivePresetId: z.string(),
-});
+}).strict();
 export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;
 
 export const Exl3EngineConfigSchema = z.object({
@@ -108,19 +108,19 @@ export const Exl3EngineConfigSchema = z.object({
   ModelRoot: z.string(),
   AdminApiKey: z.string(),
   ShutdownTimeoutMs: z.number().positive(),
-});
+}).strict();
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
 
 export const WebSearchProviderIdSchema = z.enum(['tavily', 'firecrawl']);
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
-export const WebSearchProviderSettingsSchema = z.object({ Enabled: z.boolean(), ApiKey: z.string() });
+export const WebSearchProviderSettingsSchema = z.object({ Enabled: z.boolean(), ApiKey: z.string() }).strict();
 export type WebSearchProviderSettings = z.infer<typeof WebSearchProviderSettingsSchema>;
 export const WebSearchConfigSchema = z.object({
   EnabledDefault: z.boolean(),
   Providers: z.record(WebSearchProviderIdSchema, WebSearchProviderSettingsSchema),
   ProviderOrder: z.array(WebSearchProviderIdSchema), ResultCount: z.number(), FetchMaxPages: z.number(),
   TimeoutMs: z.number(), FetchMaxCharacters: z.number(),
-});
+}).strict();
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 
 export const AssistantJobPrioritiesSchema = z.object({
@@ -303,30 +303,30 @@ export const SiftConfigSchema = z.object({
   ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,
-  Runtime: z.object({ Engine: RuntimeEngineConfigSchema }),
-  Thresholds: z.object({ MinCharactersForSummary: z.number(), MinLinesForSummary: z.number() }),
+  Runtime: z.object({ Engine: RuntimeEngineConfigSchema }).strict(),
+  Thresholds: z.object({ MinCharactersForSummary: z.number(), MinLinesForSummary: z.number() }).strict(),
   Interactive: z.object({
     Enabled: z.boolean(), WrappedCommands: z.array(z.string()), IdleTimeoutMs: z.number(),
     MaxTranscriptCharacters: z.number(), TranscriptRetention: z.boolean(),
-  }),
+  }).strict(),
   Server: z.object({
     ModelPresets: ServerModelPresetsConfigSchema,
-    Engines: z.object({ Exl3: Exl3EngineConfigSchema }),
-  }),
+    Engines: z.object({ Exl3: Exl3EngineConfigSchema }).strict(),
+  }).strict(),
   OperationModeAllowedTools: OperationModeAllowedToolsSchema,
   Presets: SiftPresetCollectionSchema,
   WebSearch: WebSearchConfigSchema,
   Assistant: AssistantConfigSchema,
   Paths: z.object({
     RuntimeRoot: z.string(), Logs: z.string(), EvalFixtures: z.string(), EvalResults: z.string(),
-  }).optional(),
+  }).strict().optional(),
   Effective: z.object({
     ConfigAuthoritative: z.boolean(), RuntimeConfigReady: z.boolean(), MissingRuntimeFields: z.array(z.string()),
     BudgetSource: z.string(), NumCtx: z.number().nullable(), InputCharactersPerContextToken: z.number(),
     ObservedTelemetrySeen: z.boolean(), ObservedTelemetryUpdatedAtUtc: z.string().nullable(),
     MaxInputCharacters: z.number().nullable(), ChunkThresholdCharacters: z.number().nullable(),
-  }).optional(),
-});
+  }).strict().optional(),
+}).strict();
 export type SiftConfig = z.infer<typeof SiftConfigSchema>;
 export type DashboardConfig = SiftConfig;
 

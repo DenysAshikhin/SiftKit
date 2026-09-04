@@ -14,11 +14,15 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 const ColumnNameRowSchema = z.object({ name: z.string() });
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
-const LEGACY_ACTIVE_PRESET_COLUMN = ['server_ll', 'ama_active_preset_id'].join('');
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
+const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
 
 type SeedSession = {
   id: string;

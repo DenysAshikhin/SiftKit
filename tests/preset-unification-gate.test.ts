@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { REMOVED_BACKEND_REQUEST_OVERRIDES_KEY } from './helpers/legacy-backend-fixtures.js';
 
 // Every inference request derives its sampling and reasoning from the
 // single active ModelRuntimePreset. These patterns are the shapes that previously
@@ -29,7 +30,7 @@ const BANNED_PER_FILE = [
 
 const BANNED_IN_SRC = [
   {
-    pattern: new RegExp(['ll', 'amaCppOverrides'].join(''), 'u'),
+    pattern: new RegExp(REMOVED_BACKEND_REQUEST_OVERRIDES_KEY, 'u'),
     reason: 'per-request backend overrides are active-preset config overlays now',
   },
 ] as const;

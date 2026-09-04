@@ -20,7 +20,10 @@ export class IsolatedRuntime {
     await awaitRepoSearchRunPersistence();
     closeRuntimeDatabase();
     process.chdir(this.originalCwd);
-    await removeDirectoryWithRetries(this.tempRoot);
+    const removed = await removeDirectoryWithRetries(this.tempRoot);
+    if (!removed) {
+      throw new Error(`Unable to remove isolated runtime directory: ${this.tempRoot}`);
+    }
     this.originalCwd = null;
     this.tempRoot = null;
   }

@@ -30,8 +30,14 @@ const VersionRowSchema = z.object({ version: z.number().nullable() });
 const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
+const ForeignKeyViolationRowSchema = z.object({
+  table: z.string(),
+  rowid: z.number().nullable(),
+  parent: z.string(),
+  fkid: z.number(),
+});
 
-export const CURRENT_SCHEMA_VERSION = 63;
+export const CURRENT_SCHEMA_VERSION = 64;
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
@@ -321,8 +327,30 @@ function ensureSchema(database: RuntimeDatabase): void {
   ensureRuntimeMetricsTotalsSchema(database);
   for (const migration of MIGRATIONS) {
     if (currentVersion < migration.version) {
-      migration.up(database);
-      setSchemaVersion(database, migration.version);
+      if (migration.rebuildsTables) {
+        database.exec('PRAGMA foreign_keys = OFF;');
+        try {
+          database.transaction(() => {
+            migration.up(database);
+            const foreignKeyViolations = z.array(ForeignKeyViolationRowSchema).parse(
+              database.prepare('PRAGMA foreign_key_check;').all(),
+            );
+            const firstViolation = foreignKeyViolations[0];
+            if (firstViolation) {
+              throw new Error(
+                `Migration v${migration.version} produced a foreign key violation in ${firstViolation.table}`
+                + ` (parent ${firstViolation.parent}, rowid ${String(firstViolation.rowid ?? 'unknown')}, fk ${String(firstViolation.fkid)}).`,
+              );
+            }
+            setSchemaVersion(database, migration.version);
+          })();
+        } finally {
+          database.exec('PRAGMA foreign_keys = ON;');
+        }
+      } else {
+        migration.up(database);
+        setSchemaVersion(database, migration.version);
+      }
       currentVersion = migration.version;
     }
   }

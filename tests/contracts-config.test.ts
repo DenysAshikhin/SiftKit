@@ -94,6 +94,16 @@ test('SiftConfigSchema rejects an invalid preset backend', () => {
   assert.equal(result.success, false);
 });
 
+test('SiftConfigSchema rejects unknown fields at runtime boundaries', () => {
+  const defaults = getDefaultConfigObject();
+  const result = SiftConfigSchema.safeParse({
+    ...defaults,
+    Runtime: { ...defaults.Runtime, UnknownRuntimeField: true },
+  });
+
+  assert.equal(result.success, false);
+});
+
 test('ModelRuntimePresetSchema requires a backend on every preset', () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');

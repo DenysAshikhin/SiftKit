@@ -46,6 +46,11 @@ import {
 } from './_runtime-helpers.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
+import {
+  REMOVED_BACKEND_MANAGED_READY_FIELD,
+  REMOVED_BACKEND_MANAGED_STARTING_FIELD,
+  REMOVED_BACKEND_MANAGED_STARTUP_WARNING_FIELD,
+} from './helpers/legacy-backend-fixtures.js';
 
 interface StatusPostResponse {
   ok?: boolean;
@@ -632,9 +637,9 @@ test('real status server keeps running in degraded mode when the managed engine 
     await withRealStatusServer(async ({ healthUrl }) => {
       const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
-      assert.equal(['managed', 'Ll', 'amaReady'].join('') in health, false);
-      assert.equal(['managed', 'Ll', 'amaStarting'].join('') in health, false);
-      assert.equal(['managed', 'Ll', 'amaStartupWarning'].join('') in health, false);
+      assert.equal(REMOVED_BACKEND_MANAGED_READY_FIELD in health, false);
+      assert.equal(REMOVED_BACKEND_MANAGED_STARTING_FIELD in health, false);
+      assert.equal(REMOVED_BACKEND_MANAGED_STARTUP_WARNING_FIELD in health, false);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
       statusPath,

@@ -6,10 +6,13 @@ import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../
 import { isReadExpansionEnabled } from '../src/config/index.js';
 import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.js';
 import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_ENGINE_CACHE_RAM } from '../src/config/constants.js';
+import { LEGACY_ENGINE_CONFIG_KEY } from '../src/state/migrations/constants.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
 import { makeTestPreset } from './helpers/model-presets.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
+import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
@@ -89,6 +92,32 @@ test('normalization rejects removed global and backend-specific configuration sh
     () => normalizeConfig(JsonValueSchema.parse(withPenaltyRange)),
     /Unsupported model preset field PenaltyRange; it is not part of ModelPresetFieldSchema\./u,
   );
+
+  const unknownRoot = defaultConfigObject();
+  unknownRoot.NotAConfigField = true;
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(unknownRoot)),
+    /Unsupported configuration field NotAConfigField/u,
+  );
+
+  const unknownEngine = defaultConfigObject();
+  const engine = asObject(asObject(unknownEngine.Server).Engines);
+  engine.Exl3 = { ...asObject(engine.Exl3), NotAnEngineField: true };
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(unknownEngine)),
+    /Unsupported configuration field Server\.Engines\.Exl3\.NotAnEngineField/u,
+  );
+});
+
+test('normalization rejects the legacy engine configuration key with its field path', () => {
+  const config = defaultConfigObject();
+  const server = asObject(config.Server);
+  server[LEGACY_ENGINE_CONFIG_KEY] = {};
+
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(config)),
+    new RegExp(`Unsupported configuration field Server\\.${LEGACY_ENGINE_CONFIG_KEY}`, 'u'),
+  );
 });
 
 test('new default config supplies the default preset backend and EXL3 engine', () => {
@@ -102,6 +131,16 @@ test('new default config supplies the default preset backend and EXL3 engine', (
   assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl313-turbo\\\\Scripts\\\\python\.exe"/u);
   assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
   assert.equal(normalized.Server.Engines.Exl3.AdminApiKey, '');
+});
+
+test('normalization rejects unknown enum-record keys before discarding them', () => {
+  const tools = defaultConfigObject();
+  asObject(tools.OperationModeAllowedTools).obsolete = [];
+  assert.throws(() => normalizeConfig(tools), /OperationModeAllowedTools\.obsolete/u);
+
+  const providers = defaultConfigObject();
+  asObject(asObject(providers.WebSearch).Providers).obsolete = { Enabled: false, ApiKey: '' };
+  assert.throws(() => normalizeConfig(providers), /WebSearch\.Providers\.obsolete/u);
 });
 
 test('normalizeConfig rejects a missing or legacy preset catalog at the Presets path', () => {
@@ -189,11 +228,49 @@ test('normalizeConfig defaults a missing preset Backend to exl3 and rejects any 
   assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(missing))).Backend, 'exl3');
 
   const stale = defaultConfigObject();
-  activePresetObject(stale).Backend = ['ll', 'ama'].join('');
+  activePresetObject(stale).Backend = REMOVED_BACKEND_ID;
   assert.throws(
     () => normalizeConfig(JsonValueSchema.parse(stale)),
     /Unsupported model preset Backend .* only exl3 is supported/u,
   );
+});
+
+test('normalizeConfig rejects a provided negative NcpuMoe instead of silently defaulting it', () => {
+  const config = defaultConfigObject();
+  activePresetObject(config).NcpuMoe = -5;
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(config)),
+    /NcpuMoe must be a finite non-negative integer/u,
+  );
+});
+
+test('normalizeConfig strictly validates provided NcpuMoe values', () => {
+  for (const value of [1.5, null, '12'] as const) {
+    const config = defaultConfigObject();
+    activePresetObject(config).NcpuMoe = value;
+    assert.throws(
+      () => normalizeConfig(JsonValueSchema.parse(config)),
+      /NcpuMoe must be a finite non-negative integer/u,
+      `NcpuMoe=${JSON.stringify(value)} should be rejected`,
+    );
+  }
+
+  for (const value of [0, 12] as const) {
+    const config = defaultConfigObject();
+    activePresetObject(config).NcpuMoe = value;
+    assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NcpuMoe, value);
+  }
+});
+
+test('normalizeConfig applies the NcpuMoe default only when the field is omitted', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).NcpuMoe;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NcpuMoe, 0);
+});
+
+test('mockSiftConfig preserves an explicit null model override', () => {
+  const config = mockSiftConfig({ Server: { ModelPresets: { Presets: [{ Model: null }] } } });
+  assert.equal(config.Server.ModelPresets.Presets[0]?.Model, null);
 });
 
 test('normalizeConfig rejects a KvCacheQuantization EXL3 cannot express', () => {

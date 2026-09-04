@@ -3,14 +3,24 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { z } from 'zod';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase, migrateDatabaseFile } from '../src/state/runtime-db.js';
+import { migrateAppConfigToPresetSourceOfTruth } from '../src/state/migrations/app-config-migrations.js';
+import {
+  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
+  LEGACY_MODEL_PRESETS_COLUMN,
+} from '../src/state/migrations/constants.js';
 import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import {
+  REMOVED_BACKEND_COLUMN_PREFIX,
+  REMOVED_BACKEND_CONTEXT_COLUMN,
+} from './helpers/legacy-backend-fixtures.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
-const REMOVED_COLUMN_PREFIX = ['ll', 'ama_'].join('');
-const REMOVED_NUM_CTX_COLUMN = `${REMOVED_COLUMN_PREFIX}num_ctx`;
-const LEGACY_PRESETS_COLUMN = ['server_ll', 'ama_presets_json'].join('');
+const PresetRowSchema = z.object({ presets: z.string(), active: z.string().nullable() });
+const REMOVED_NUM_CTX_COLUMN = REMOVED_BACKEND_CONTEXT_COLUMN;
+const REMOVED_COLUMN_PREFIX = REMOVED_BACKEND_COLUMN_PREFIX;
+const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -48,7 +58,7 @@ test('fresh DB base schema has no redundant removed-backend columns', () => {
   );
 });
 
-test('v25->v26 migration drops columns and synthesizes a preset when presets json is empty', () => {
+function seedV25Database(): string {
   const dbPath = tempDbPath('sk-v26-migrate-');
   // Build a minimal pre-v26 app_config carrying only the columns the v26
   // migration reads or drops, then mark the schema at version 25.
@@ -70,8 +80,17 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
     VALUES (1, 85000, 85000, '[]');
   `);
   seed.close();
+  return dbPath;
+}
 
-  getRuntimeDatabase(dbPath); // re-runs ensureSchema -> applies the v26 migration
+test('v25->v26 migration drops columns and synthesizes a preset when presets json is empty', () => {
+  const dbPath = seedV25Database();
+  const database = new Database(dbPath);
+  try {
+    migrateAppConfigToPresetSourceOfTruth(database);
+  } finally {
+    database.close();
+  }
 
   const cols = columnNames(dbPath);
   assert.ok(!cols.includes(REMOVED_NUM_CTX_COLUMN), 'removed backend context column dropped');
@@ -79,8 +98,8 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
 
   const read = new Database(dbPath, { readonly: true });
   try {
-    const row = z.object({ presets: z.string(), active: z.string().nullable() }).parse(read.prepare(
-      'SELECT server_model_presets_json AS presets, server_model_active_preset_id AS active FROM app_config WHERE id = 1',
+    const row = PresetRowSchema.parse(read.prepare(
+      `SELECT ${LEGACY_PRESETS_COLUMN} AS presets, ${LEGACY_ACTIVE_MODEL_PRESET_COLUMN} AS active FROM app_config WHERE id = 1`,
     ).get());
     const presets = z.array(z.object({ id: z.string() })).parse(JSON.parse(row.presets));
     assert.equal(presets.length, 1, 'synthesized exactly one preset');
@@ -88,5 +107,26 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
     assert.equal(row.active, 'default', 'active preset id set');
   } finally {
     read.close();
+  }
+});
+
+test('public upgrade from v25 removes the synthesized historical preset', () => {
+  const dbPath = seedV25Database();
+  migrateDatabaseFile(dbPath);
+  const database = new Database(dbPath, { readonly: true });
+  try {
+    const row = PresetRowSchema.parse(database.prepare(
+      'SELECT server_model_presets_json AS presets, server_model_active_preset_id AS active FROM app_config WHERE id = 1',
+    ).get());
+    assert.equal(row.presets, '[]');
+    assert.equal(row.active, null);
+    assert.equal(z.object({ version: z.number() }).parse(database.prepare(
+      'SELECT version FROM runtime_schema WHERE id = 1',
+    ).get()).version, CURRENT_SCHEMA_VERSION);
+    const columns = columnNames(dbPath);
+    assert.equal(columns.includes(REMOVED_NUM_CTX_COLUMN), false);
+    assert.equal(columns.includes('server_num_ctx'), false);
+  } finally {
+    database.close();
   }
 });
