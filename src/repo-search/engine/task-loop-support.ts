@@ -20,7 +20,7 @@ import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../r
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
-import type { ApprovalGate, ApprovalMode } from './approval-gate.js';
+import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
 // ---------------------------------------------------------------------------
@@ -268,7 +268,6 @@ export type RunTaskLoopOptions = {
   logger?: JsonLogger | null;
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
-  approvalMode?: ApprovalMode;
   timingRecorder?: TemporaryTimingRecorder | null;
 };
 

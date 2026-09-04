@@ -3,7 +3,7 @@ import {
   RepoAgentStartRequestSchema,
   type RepoAgentStartRequest,
 } from '../repo-agent/api-schemas.js';
-import type { ApprovalMode } from '../repo-search/engine/approval-gate.js';
+import type { ApprovalMode } from '@siftkit/contracts';
 
 export function buildRepoAgentServerRequest(input: {
   task: string;

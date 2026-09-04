@@ -83,8 +83,9 @@ type ChatTabProps = React.ComponentProps<typeof ChatTab>;
 
 function buildDefaultStore(sessionId: string): ChatSessionRuntimeStore {
   return new ChatSessionRuntimeStore()
-    .ensureSession('session-a')
-    .ensureSession('session-b')
+    .ensureSession('session-a', '')
+    .ensureSession('session-b', '')
+    .ensureSession(sessionId, '')
     .apply({ kind: 'draft', sessionId, draft: 'hi' });
 }
 
@@ -114,6 +115,7 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
     onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {},
+    onChangeRepoAgentApprovalMode: async () => {},
     onStopOperation: async () => {},
     onPendingImagesChange: () => {},
     onPendingImagesAppend: () => {},
@@ -129,6 +131,20 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
 
 test('repo-agent composer uses the Run Agent label', () => {
   assert.match(render({ chatMode: 'repo-agent', isRepoToolMode: true }), />Run Agent<\/button>/u);
+});
+
+test('the repo folder field shows the seeded server default', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id, 'C:/srv/siftkit')
+    .apply({ kind: 'draft', sessionId: SESSION_A.id, draft: 'hi' });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  })} />);
+  const field = screen.getByPlaceholderText('Repo folder path…');
+  assert.equal(field.getAttribute('value'), 'C:/srv/siftkit');
 });
 
 test('changing presets warns about context invalidation and updates only after confirmation', async () => {
@@ -759,7 +775,7 @@ test('pasting an image attaches it and a text paste is left alone', async () => 
   const appended: string[] = [];
   try {
     const store = new ChatSessionRuntimeStore()
-      .ensureSession(SESSION_A.id)
+      .ensureSession(SESSION_A.id, '')
       .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE });
     renderComponent(React.createElement(ChatTab, buildProps({
       selectedRuntime: store.get(SESSION_A.id),
@@ -817,7 +833,7 @@ test('renders user and tool-image attachments inline', () => {
 
 test('a submitted message renders as a pending bubble instead of staying in the composer', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession(SESSION_A.id)
+    .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE })
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [{ dataUrl: IMAGE, note: null }] });
@@ -834,7 +850,7 @@ test('a submitted message renders as a pending bubble instead of staying in the 
 
 test('the pending bubble survives a warning that arrives before the stream', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession(SESSION_A.id)
+    .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
     .apply({ kind: 'warning', sessionId: SESSION_A.id, text: 'repo root is dirty' });
@@ -848,7 +864,7 @@ test('the pending bubble survives a warning that arrives before the stream', () 
 
 test('the pending bubble clears once the assistant starts streaming', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession(SESSION_A.id)
+    .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
     .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'here it is' } });
@@ -1037,7 +1053,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
     assert.ok(terminal.contextUsage.remainingTokens > terminal.contextUsage.warnThresholdTokens);
 
     const responseStore = new ChatSessionRuntimeStore()
-      .ensureSession(terminal.session.id)
+      .ensureSession(terminal.session.id, '')
       .apply({ kind: 'done', sessionId: terminal.session.id, response: terminal });
     const markup = render({
       sessions: [terminal.session],
@@ -1120,7 +1136,7 @@ function buildThinkingStore(options: {
   marker: string;
 }): ChatSessionRuntimeStore {
   return new ChatSessionRuntimeStore()
-    .ensureSession(SESSION_B.id)
+    .ensureSession(SESSION_B.id, '')
     .apply({ kind: 'submit', sessionId: SESSION_B.id, content: options.content, images: options.images })
     .apply({
       kind: 'begin', sessionId: SESSION_B.id, operationKind: options.operationKind, operationId: OPERATION_ID,
@@ -1256,4 +1272,116 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
   assert.ok(logicStart >= 0, 'Internal Logic must render');
   assert.ok(logic.includes('PROGRESS_MARKER_TWO'), 'raw model progress must stay inside Internal Logic');
   assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
+});
+
+test('repo-agent composer shows the approval mode control with Auto selected by default', () => {
+  renderComponent(<ChatTab {...buildProps({ chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false })} />);
+  const group = screen.getByRole('group', { name: 'Approval mode' });
+  const buttons = ['Manual', 'Auto', 'Approve all'].map((name) => screen.getByRole('button', { name }));
+  assert.equal(buttons.length, 3);
+  assert.equal(group.contains(buttons[1] ?? null), true);
+  assert.equal(buttons[0]?.getAttribute('aria-pressed'), 'false');
+  assert.equal(buttons[1]?.getAttribute('aria-pressed'), 'true');
+  assert.equal(buttons[2]?.getAttribute('aria-pressed'), 'false');
+});
+
+test('non-repo-agent modes do not render the approval mode control', () => {
+  renderComponent(<ChatTab {...buildProps({ chatMode: 'repo-search', isRepoToolMode: true, isDirectChatMode: false })} />);
+  assert.equal(screen.queryByRole('group', { name: 'Approval mode' }), null);
+});
+
+test('clicking an approval mode reports the wire value and reflects the stored mode', async () => {
+  const changes: string[] = [];
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'repo-agent-approval-mode', sessionId: SESSION_A.id, approval: 'off' });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
+    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    onChangeRepoAgentApprovalMode: async (mode) => { changes.push(mode); },
+  })} />);
+  assert.equal(screen.getByRole('button', { name: 'Approve all' }).getAttribute('aria-pressed'), 'true');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Manual' })); });
+  assert.deepEqual(changes, ['interactive']);
+});
+
+test('the approval mode control stays enabled while this client owns a running repo-agent', () => {
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
+    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+  })} />);
+  assert.equal(screen.getByRole('button', { name: 'Auto' }).hasAttribute('disabled'), false);
+  assert.equal(screen.getByPlaceholderText('Describe the task for the repo agent…').hasAttribute('disabled'), true);
+});
+
+test('the approval mode control is disabled when another client owns the run', () => {
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'remote-begin', sessionId: SESSION_A.id, operationKind: 'repo-agent' });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
+    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+  })} />);
+  for (const name of ['Manual', 'Auto', 'Approve all']) {
+    assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
+  }
+});
+
+test('the context bar and label grow with the live token counter while a turn streams', () => {
+  const usage = { ...CONTEXT_USAGE, totalUsedTokens: 40, usedTokens: 40, chatUsedTokens: 40, remainingTokens: 60 };
+  const idle = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id, '')
+    .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: usage });
+  const idleView = renderComponent(<ChatTab {...buildProps({
+    selectedRuntime: idle.get(SESSION_A.id), sessionRuntimes: idle.getAll(),
+  })} />);
+  const idleBar = idleView.container.querySelector('.ctx');
+  assert.ok(idleBar instanceof HTMLElement);
+  assert.equal(idleBar.title, 'context 40 / 100');
+  assert.equal(idleBar.querySelector('i')?.style.width, '40%');
+  assert.equal(idleView.container.querySelector('.ctx-label')?.textContent, '40 / 100');
+  idleView.unmount();
+
+  const streaming = idle
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
+    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'x'.repeat(40) } });
+  const view = renderComponent(<ChatTab {...buildProps({
+    selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
+  })} />);
+  const bar = view.container.querySelector('.ctx');
+  assert.ok(bar instanceof HTMLElement);
+  assert.equal(bar.title, 'context 50 / 100');
+  assert.equal(bar.querySelector('i')?.style.width, '50%');
+  assert.equal(view.container.querySelector('.ctx-label')?.textContent, '~50 / 100');
+});
+
+test('the context bar follows the backend prompt count of the latest tool step when it is larger', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id, '')
+    .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: { ...CONTEXT_USAGE, totalUsedTokens: 40 } })
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID })
+    .apply({ kind: 'tool', sessionId: SESSION_A.id, toolEvent: {
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
+    } });
+  const view = renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
+    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+  })} />);
+  const bar = view.container.querySelector('.ctx');
+  assert.ok(bar instanceof HTMLElement);
+  assert.equal(bar.title, 'context 88 / 100');
+  assert.equal(bar.className, 'ctx warn');
+});
+
+test('the approval mode control is disabled during a local non-repo-agent operation', () => {
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
+    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+  })} />);
+  for (const name of ['Manual', 'Auto', 'Approve all']) {
+    assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
+  }
 });

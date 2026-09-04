@@ -11,6 +11,8 @@ import {
   ChatOperationStatusResponseSchema,
   StopChatOperationResponseSchema,
   ActiveChatRepoAgentResponseSchema,
+  ChatRepoAgentApprovalModeResponseSchema,
+  ChatRepoAgentDecideResponseSchema,
   AssistantMemoryHistoryEntryDtoSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantMutationResponseSchema,
@@ -50,6 +52,9 @@ import {
   type ChatOperationStatusResponse,
   type ChatRepoAgentStreamRequest,
   type ActiveChatRepoAgentResponse,
+  type ApprovalMode,
+  type ChatRepoAgentApprovalModeResponse,
+  type ChatRepoAgentDecideResponse,
   type RepoAgentDecision,
   type StopChatOperationResponse,
   type ModelLifecycleAction,
@@ -571,10 +576,6 @@ export function streamRepoSearchMessage(
 
 export type { RepoAgentDecision } from '@siftkit/contracts';
 
-const RepoAgentDecisionResponseSchema = z.object({
-  ok: z.literal(true),
-  runId: z.string().uuid(),
-});
 export function streamRepoAgentMessage(
   sessionId: string,
   payload: ChatRepoAgentStreamRequest,
@@ -588,14 +589,29 @@ export function streamRepoAgentMessage(
 export function decideRepoAgent(
   sessionId: string,
   decision: RepoAgentDecision,
-): Promise<z.infer<typeof RepoAgentDecisionResponseSchema>> {
+): Promise<ChatRepoAgentDecideResponse> {
   return fetchJson(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/decide`,
-    RepoAgentDecisionResponseSchema,
+    ChatRepoAgentDecideResponseSchema,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(decision),
+    },
+  );
+}
+
+export function updateRepoAgentApprovalMode(
+  sessionId: string,
+  approval: ApprovalMode,
+): Promise<ChatRepoAgentApprovalModeResponse> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/approval-mode`,
+    ChatRepoAgentApprovalModeResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approval }),
     },
   );
 }

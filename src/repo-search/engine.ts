@@ -20,7 +20,7 @@ import {
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
 import { TaskResultSchema, taskPassed } from './engine/task-loop-support.js';
-import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
+import type { ApprovalGate } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_MAX_TURNS,
@@ -156,7 +156,6 @@ export async function runRepoSearch(options: {
   logger?: JsonLogger | null;
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
-  approvalMode?: ApprovalMode;
   timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
@@ -229,7 +228,6 @@ export async function runRepoSearch(options: {
       logger: options.logger || null,
       progressWriter,
       approvalGate: options.approvalGate,
-      approvalMode: options.approvalMode,
       timingRecorder: options.timingRecorder || null,
     });
     tasks.push(result);

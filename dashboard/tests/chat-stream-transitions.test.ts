@@ -16,6 +16,7 @@ const SESSION: ChatSession = {
   modelPresetId: 'test-model',
   model: null,
   contextWindowTokens: 100,
+  planRepoRoot: 'C:/repo',
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   messages: [],
@@ -68,7 +69,7 @@ class Gate {
 
 /** Mirrors how useChatSessions drains the generator into the store. */
 class StoreDrain {
-  store = new ChatSessionRuntimeStore().ensureSession('session-a').ensureSession('session-b');
+  store = new ChatSessionRuntimeStore().ensureSession('session-a', '').ensureSession('session-b', '');
   readonly completions: string[] = [];
 
   async drain(stream: AsyncGenerator<ChatStreamEvent>, sessionId: string, thinking: boolean): Promise<void> {

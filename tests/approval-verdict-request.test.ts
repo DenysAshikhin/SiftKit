@@ -8,10 +8,8 @@ import {
 } from '../src/repo-search/planner-protocol.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.js';
-import {
-  ApprovalModeSchema,
-  RepoSearchApprovalRequestSchema,
-} from '../src/repo-search/engine/approval-gate.js';
+import { ApprovalModeSchema } from '@siftkit/contracts';
+import { RepoSearchApprovalRequestSchema } from '../src/repo-search/engine/approval-gate.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';

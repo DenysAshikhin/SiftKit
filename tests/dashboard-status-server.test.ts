@@ -393,7 +393,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
       modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
-      presetId: 'chat', mode: 'chat',
+      planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
@@ -403,7 +403,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
       modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
-      presetId: 'chat', mode: 'chat',
+      planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat',
       createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });

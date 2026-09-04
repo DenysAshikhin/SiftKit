@@ -12,6 +12,7 @@ function createSession(): ChatSession {
     id: 'telemetry-session',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
+    planRepoRoot: 'C:/repo',
     thinkingEnabled: true,
   };
 }

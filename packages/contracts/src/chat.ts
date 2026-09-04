@@ -184,7 +184,7 @@ export const ChatSessionSchema = z.object({
   modelPreset: ModelRuntimePresetSchema.optional(),
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
-  mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
+  mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
   messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
@@ -226,11 +226,16 @@ export const RepoAgentDecisionSchema = z.discriminatedUnion('decision', [
 ]);
 export type RepoAgentDecision = z.infer<typeof RepoAgentDecisionSchema>;
 
+export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
+export const DEFAULT_APPROVAL_MODE = 'auto' satisfies ApprovalMode;
+export const APPROVAL_MODE_ERROR = `approval must be one of: ${ApprovalModeSchema.options.join(', ')}.`;
+
 export const ChatRepoAgentStreamRequestSchema = z.strictObject({
   content: z.string().trim().min(1),
   images: z.array(ImageDataUrlSchema).optional(),
   repoRoot: z.string().trim().min(1).optional(),
-  approval: z.enum(['interactive', 'auto', 'off']).optional(),
+  approval: ApprovalModeSchema,
   maxTurns: z.number().int().positive().optional(),
   operationId: z.string().uuid(),
 });
@@ -277,11 +282,33 @@ export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
 
 const ChatStreamApprovalWithoutRunIdSchema = ChatStreamApprovalSchema.omit({ runId: true });
 export const ActiveChatRepoAgentResponseSchema = z.discriminatedUnion('status', [
-  z.strictObject({ runId: z.string().uuid(), status: z.literal('running') }),
+  z.strictObject({ runId: z.string().uuid(), status: z.literal('running'), approvalMode: ApprovalModeSchema }),
   z.strictObject({
     runId: z.string().uuid(),
     status: z.literal('approval_required'),
+    approvalMode: ApprovalModeSchema,
     approval: ChatStreamApprovalWithoutRunIdSchema,
   }),
 ]);
 export type ActiveChatRepoAgentResponse = z.infer<typeof ActiveChatRepoAgentResponseSchema>;
+
+export const ChatRepoAgentApprovalModeRequestSchema = z.strictObject({ approval: ApprovalModeSchema });
+export type ChatRepoAgentApprovalModeRequest = z.infer<typeof ChatRepoAgentApprovalModeRequestSchema>;
+export const ChatRepoAgentDecideResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  decidedAtUtc: z.string().datetime(),
+});
+export type ChatRepoAgentDecideResponse = z.infer<typeof ChatRepoAgentDecideResponseSchema>;
+
+export const ChatRepoAgentApprovalModeResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  runId: z.string().uuid(),
+  approval: ApprovalModeSchema,
+  /** Set when switching to `off` released a parked approval; the client mirrors it as an approve decision. */
+  released: z.strictObject({
+    approvalId: z.string().uuid(),
+    decidedAtUtc: z.string().datetime(),
+  }).nullable(),
+});
+export type ChatRepoAgentApprovalModeResponse = z.infer<typeof ChatRepoAgentApprovalModeResponseSchema>;

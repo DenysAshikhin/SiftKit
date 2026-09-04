@@ -1,122 +1,64 @@
-import type { OptionalJsonValue } from '../../../src/lib/json-types.js';
-import { formatNumber } from './format';
-import type { ContextUsage } from '../types';
+import { sumLiveTokenDisplays } from './format';
+import type { ChatMessage, ContextUsage } from '../types';
 
-export type ContextBarSectionKind = 'provider-overhead' | 'used' | 'free' | 'warn';
-
-export type ContextBarSection = {
-  kind: ContextBarSectionKind;
-  tokenCount: number;
-  percent: number;
-  titleText: string;
+/**
+ * The backend prompt_tokens reported by the newest tool step, paired with the live bubble sum it
+ * already covers. The two are only meaningful together, so they travel as one value.
+ */
+export type LiveToolPromptStep = {
+  promptTokens: number;
+  liveBaselineTokens: number;
 };
 
-export type ContextBarVisual = {
+export type LiveContextUsage = {
+  usedTokens: number;
+  contextWindowTokens: number;
+  /** usedTokens / contextWindowTokens clamped to [0, 1]. */
   ratio: number;
-  percent: number;
-  fillColor: string;
-  titleText: string;
-  sections: ContextBarSection[];
+  /** False while the count includes provisional live-bubble estimates. */
+  exact: boolean;
 };
 
-export function computeContextBarVisual(used: number, total: number): Omit<ContextBarVisual, 'sections'> {
-  const ratio = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0;
-  const percent = ratio * 100;
-  const hue = 120 - 120 * ratio;
-  const fillColor = `hsl(${hue}, 70%, 45%)`;
-  const titleText = `${formatNumber(used)} / ${formatNumber(total)} (${(ratio * 100).toFixed(1)}% used)`;
-  return { ratio, percent, fillColor, titleText };
-}
-
-function getNonNegativeInteger(value: OptionalJsonValue): number {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
-}
-
-function getSectionPercent(tokenCount: number, total: number): number {
-  return total > 0 ? Math.max(0, Math.min(100, (tokenCount / total) * 100)) : 0;
-}
-
-function appendSection(sections: ContextBarSection[], kind: ContextBarSectionKind, tokenCount: number, total: number, titleText: string): void {
-  if (tokenCount <= 0) {
-    return;
-  }
-  sections.push({
-    kind,
-    tokenCount,
-    percent: getSectionPercent(tokenCount, total),
-    titleText,
-  });
-}
-
-// Resolves the bar shown beneath the composer. While a turn is generating, the most
-// truthful "context window fullness" signal is the backend prompt_tokens for the active
-// tool step (liveToolPromptTokenCount); it is preferred over the persisted total usage so
-// the bar grows in realtime. A fresh session has no contextUsage until the turn completes,
-// so the session's own window is used as the denominator during that first stream.
-export function resolveContextBarVisual(
-  usage: ContextUsage | null,
-  sessionContextWindowTokens: number,
-  liveToolPromptTokenCount: number | null,
-  chatBusy: boolean,
-): ContextBarVisual | null {
-  const liveUsed = chatBusy
-    && typeof liveToolPromptTokenCount === 'number'
-    && Number.isFinite(liveToolPromptTokenCount)
-    && liveToolPromptTokenCount > 0
-    ? liveToolPromptTokenCount
-    : null;
-  if (!usage && liveUsed === null) {
+/**
+ * Drives the bar and label beneath the composer. At rest it mirrors the persisted usage.
+ * While a turn streams it adds the provisional token counts of the live bubbles (the same
+ * counter each bubble shows) and never drops below the backend prompt_tokens reported by the
+ * latest tool step, so the bar moves with the counter instead of waiting for the turn to end.
+ * The backend count is a floor, not a ceiling: bubbles streamed since that step are added on
+ * top of it, measured against the baseline captured when the step arrived so nothing that the
+ * step already counted is added twice.
+ */
+export function resolveLiveContextUsage(input: {
+  contextUsage: ContextUsage | null;
+  liveMessages: readonly ChatMessage[];
+  liveToolPromptStep: LiveToolPromptStep | null;
+  busy: boolean;
+}): LiveContextUsage | null {
+  const { contextUsage } = input;
+  if (!contextUsage || contextUsage.contextWindowTokens <= 0) {
     return null;
   }
-  const total = usage ? usage.contextWindowTokens : sessionContextWindowTokens;
-  if (total <= 0) {
-    return null;
-  }
-  const hasEstimatedUsage = usage ? Number(usage.estimatedTokenFallbackTokens || 0) > 0 : false;
-  const showingEstimatedPersistedUsage = hasEstimatedUsage && liveUsed === null;
-  const baseUsed = usage ? usage.totalUsedTokens : 0;
-  const used = liveUsed === null
-    ? baseUsed
-    : hasEstimatedUsage
-      ? liveUsed
-      : Math.max(baseUsed, liveUsed);
-  const visual = computeContextBarVisual(used, total);
-  const providerOverheadTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.providerOverheadTokens);
-  const warnThresholdTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.warnThresholdTokens);
-  const providerTokens = Math.min(providerOverheadTokens, total);
-  const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
-  const warnTokens = Math.min(warnThresholdTokens, Math.max(total - providerTokens - usedTokens, 0));
-  const freeTokens = Math.max(total - providerTokens - usedTokens - warnTokens, 0);
-  const sections: ContextBarSection[] = [];
-  const unavailableTitle = 'Context token count unavailable: this session includes fallback token estimates.';
-  appendSection(
-    sections,
-    'provider-overhead',
-    providerTokens,
-    total,
-    `Provider overhead reserve: ${formatNumber(providerTokens)} tokens used by request framing, model options, and chat template metadata.`,
-  );
-  appendSection(
-    sections,
-    'used',
+  const contextWindowTokens = contextUsage.contextWindowTokens;
+  const finish = (usedTokens: number, exact: boolean): LiveContextUsage => ({
     usedTokens,
-    total,
-    showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText,
-  );
-  appendSection(
-    sections,
-    'free',
-    freeTokens,
-    total,
-    showingEstimatedPersistedUsage ? 'Free context token count unavailable.' : `${formatNumber(freeTokens)} tokens currently free.`,
-  );
-  appendSection(
-    sections,
-    'warn',
-    warnTokens,
-    total,
-    `Warning zone: the last ${formatNumber(warnThresholdTokens)} tokens. When used context reaches here the session should be condensed. Chatting further risks the model's response being cut off if the context window fills up.`,
-  );
-  return { ...visual, titleText: showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText, sections };
+    contextWindowTokens,
+    ratio: Math.min(1, Math.max(0, usedTokens / contextWindowTokens)),
+    exact,
+  });
+  if (!input.busy) {
+    return finish(contextUsage.totalUsedTokens, true);
+  }
+  const live = sumLiveTokenDisplays(input.liveMessages);
+  const estimated = contextUsage.totalUsedTokens + live.tokenCount;
+  const step = input.liveToolPromptStep;
+  if (!step) {
+    return finish(estimated, live.exact);
+  }
+  // Progress rows are replaced rather than appended, so the live sum can shrink below the
+  // baseline; that only means the step already counts everything on screen.
+  const streamedSinceToolStep = Math.max(0, live.tokenCount - step.liveBaselineTokens);
+  const backendBacked = step.promptTokens + streamedSinceToolStep;
+  return backendBacked > estimated
+    ? finish(backendBacked, streamedSinceToolStep === 0 || live.exact)
+    : finish(estimated, live.exact);
 }

@@ -126,6 +126,7 @@ import {
 } from './chat-session-operation-endpoint.js';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
 import {
+  ChatRepoAgentApprovalModeEndpoint,
   ChatRepoAgentDecideEndpoint,
   GetChatRepoAgentActiveEndpoint,
   StreamChatRepoAgentEndpoint,
@@ -1698,6 +1699,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamRepoSearchEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/stream$/u, endpoint: new StreamChatRepoAgentEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/decide$/u, endpoint: new ChatRepoAgentDecideEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/approval-mode$/u, endpoint: new ChatRepoAgentApprovalModeEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation$/u, endpoint: new GetChatOperationEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/stop$/u, endpoint: new StopChatOperationEndpoint() },

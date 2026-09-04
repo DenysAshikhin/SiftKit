@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
+import { sumLiveTokenDisplays } from '../src/lib/format';
+import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
 import type { ChatSessionResponse } from '../src/types';
 
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
@@ -14,6 +16,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
     modelPresetId: 'test-model',
     model: null,
     contextWindowTokens: 100,
+    planRepoRoot: 'C:/repo',
     createdAtUtc: '2026-06-03T00:00:00.000Z',
     updatedAtUtc: '2026-06-03T00:00:00.000Z',
     messages: [],
@@ -36,8 +39,8 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
 
 test('apply routes every transition through one copy-on-write path', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('session-a')
-    .ensureSession('session-b');
+    .ensureSession('session-a', '')
+    .ensureSession('session-b', '');
   const next = store
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'hello' })
@@ -56,13 +59,6 @@ test('apply routes every transition through one copy-on-write path', () => {
   assert.deepEqual(next.get('session-b'), store.get('session-b'));
 });
 
-test('apply creates a runtime for a session that has not been seeded', () => {
-  const next = new ChatSessionRuntimeStore()
-    .apply({ kind: 'draft', sessionId: 'fresh', draft: 'typed' });
-  assert.equal(next.get('fresh').draft, 'typed');
-  assert.deepEqual(next.get('fresh').activity, { kind: 'idle' });
-});
-
 test('get still throws for a session that was never touched', () => {
   assert.throws(
     () => new ChatSessionRuntimeStore().get('ghost'),
@@ -72,6 +68,7 @@ test('get still throws for a session that was never touched', () => {
 
 test('plan input and image transitions replace only their own fields', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s', '')
     .apply({ kind: 'images', sessionId: 's', images: [IMAGE_A] })
     .apply({ kind: 'plan-inputs', sessionId: 's', planRepoRootInput: 'C:/repo', planMaxTurnsInput: '12' });
   assert.deepEqual(next.get('s').pendingImages, [IMAGE_A]);
@@ -82,8 +79,8 @@ test('plan input and image transitions replace only their own fields', () => {
 
 test('session B cannot clear session A streaming state or draft', () => {
   const initial = new ChatSessionRuntimeStore()
-    .ensureSession('session-a')
-    .ensureSession('session-b')
+    .ensureSession('session-a', '')
+    .ensureSession('session-b', '')
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'draft-a' })
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'answer-a' } })
@@ -96,7 +93,7 @@ test('session B cannot clear session A streaming state or draft', () => {
 });
 
 test('ensureSession creates a runtime with idle activity and empty defaults', () => {
-  const store = new ChatSessionRuntimeStore().ensureSession('s1');
+  const store = new ChatSessionRuntimeStore().ensureSession('s1', '');
   const runtime = store.get('s1');
   assert.equal(runtime.sessionId, 's1');
   assert.equal(runtime.activity.kind, 'idle');
@@ -104,7 +101,7 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
   assert.equal(runtime.error, null);
   assert.deepEqual(runtime.warnings, []);
   assert.equal(runtime.contextUsage, null);
-  assert.equal(runtime.liveToolPromptTokenCount, null);
+  assert.equal(runtime.liveToolPromptStep, null);
   assert.equal(runtime.draft, '');
   assert.deepEqual(runtime.pendingImages, []);
   assert.equal(runtime.planRepoRootInput, '');
@@ -114,7 +111,7 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
 
 test('begin sets local activity with operation kind and ownership id', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID });
   const activity = store.get('s1').activity;
   assert.equal(activity.kind, 'local');
@@ -125,7 +122,7 @@ test('begin sets local activity with operation kind and ownership id', () => {
 });
 
 test('thinking deltas assemble per turn into separate live messages', () => {
-  let store = new ChatSessionRuntimeStore();
+  let store = new ChatSessionRuntimeStore().ensureSession('s1', '');
   store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'first ' } });
   store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 6, text: 'turn' } });
   store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'second turn' } });
@@ -138,7 +135,7 @@ test('thinking deltas assemble per turn into separate live messages', () => {
 });
 
 test('answer deltas assemble on the live answer message', () => {
-  let store = new ChatSessionRuntimeStore();
+  let store = new ChatSessionRuntimeStore().ensureSession('s1', '');
   store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Answer' } });
   store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 6, text: ' body' } });
   const answer = store.get('s1').liveMessages.find((message) => message.id === 'live-answer-4');
@@ -147,6 +144,7 @@ test('answer deltas assemble on the live answer message', () => {
 
 test('narration deltas assemble in one turn-scoped live message', () => {
   const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Reading' } })
     .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 7, text: ' files' } });
 
@@ -163,6 +161,7 @@ test('narration deltas assemble in one turn-scoped live message', () => {
 
 test('tool start demotes narration and answer promotes the same message identity', () => {
   const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Candidate draft' } })
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4,
@@ -178,9 +177,54 @@ test('tool start demotes narration and answer promotes the same message identity
   assert.equal(promoted?.content, 'Authoritative answer');
 });
 
+test('a tool event records the live token sum it was measured against', () => {
+  const streamed = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'weighing options' } });
+  const store = streamed.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+    kind: 'tool_start',
+    toolCallId: 'tc1',
+    turn: 1,
+    maxTurns: 4,
+    activityKind: 'search',
+    activitySubject: { kind: 'none' },
+    command: 'rg foo',
+    promptTokenCount: 4096,
+  }});
+  const runtime = store.get('s1');
+  assert.deepEqual(runtime.liveToolPromptStep, {
+    promptTokens: 4096,
+    liveBaselineTokens: sumLiveTokenDisplays(runtime.liveMessages).tokenCount,
+  });
+});
+
+test('submit clears the tool prompt baseline with the count it pairs with', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start',
+      toolCallId: 'tc1',
+      turn: 1,
+      maxTurns: 4,
+      activityKind: 'search',
+      activitySubject: { kind: 'none' },
+      command: 'rg foo',
+      promptTokenCount: 4096,
+    }})
+    .apply({ kind: 'submit', sessionId: 's1', content: 'next task', images: [] });
+  assert.equal(store.get('s1').liveToolPromptStep, null);
+});
+
+test('ensureSession seeds the composer repo root with the session default', () => {
+  const runtime = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/srv/siftkit')
+    .get('s1');
+  assert.equal(runtime.planRepoRootInput, 'C:/srv/siftkit');
+});
+
 test('applyToolEvent appends running tool message on tool_start', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
@@ -198,7 +242,7 @@ test('applyToolEvent appends running tool message on tool_start', () => {
 
 test('applyToolEvent completes tool message on tool_result', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
@@ -231,7 +275,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
 
 test('applyAnswer upserts an answer live message', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello world' } });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
@@ -240,7 +284,7 @@ test('applyAnswer upserts an answer live message', () => {
 
 test('applyAnswer handles empty answer text', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: '' } });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
@@ -250,14 +294,14 @@ test('applyAnswer handles empty answer text', () => {
 
 test('applyWarning appends a warning string', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'warning', sessionId: 's1', text: 'missing file' });
   assert.deepEqual(store.get('s1').warnings, ['missing file']);
 });
 
 test('applyDone sets idle activity and applies context usage', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
@@ -267,7 +311,7 @@ test('applyDone sets idle activity and applies context usage', () => {
 
 test('applyFailure sets error and idle activity', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
@@ -277,21 +321,21 @@ test('applyFailure sets error and idle activity', () => {
 
 test('setDraft replaces the draft text', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'new draft' });
   assert.equal(store.get('s1').draft, 'new draft');
 });
 
 test('setImages replaces pending images', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'images', sessionId: 's1', images: [IMAGE_A, IMAGE_B] });
   assert.deepEqual(store.get('s1').pendingImages, [IMAGE_A, IMAGE_B]);
 });
 
 test('appendImages preserves complete attachment records in dispatch order', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_A] })
     .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_B] });
 
@@ -300,7 +344,7 @@ test('appendImages preserves complete attachment records in dispatch order', () 
 
 test('setPlanInputs replaces plan input fields', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'plan-inputs', sessionId: 's1', planRepoRootInput: 'C:\\repo', planMaxTurnsInput: '30' });
   assert.equal(store.get('s1').planRepoRootInput, 'C:\\repo');
   assert.equal(store.get('s1').planMaxTurnsInput, '30');
@@ -313,8 +357,8 @@ test('unknown session throws on get', () => {
 
 test('removeSession drops the session and rejects subsequent access', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
-    .ensureSession('s2')
+    .ensureSession('s1', '')
+    .ensureSession('s2', '')
     .removeSession('s1');
   assert.equal(store.getAll().length, 1);
   assert.equal(store.getAll()[0]?.sessionId, 's2');
@@ -323,9 +367,9 @@ test('removeSession drops the session and rejects subsequent access', () => {
 
 test('getAll returns runtimes in insertion order', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('a')
-    .ensureSession('b')
-    .ensureSession('c');
+    .ensureSession('a', '')
+    .ensureSession('b', '')
+    .ensureSession('c', '');
   const all = store.getAll();
   assert.equal(all.length, 3);
   assert.equal(all[0]?.sessionId, 'a');
@@ -334,7 +378,7 @@ test('getAll returns runtimes in insertion order', () => {
 });
 
 test('immutable previous snapshots remain unchanged after mutation', () => {
-  const store1 = new ChatSessionRuntimeStore().ensureSession('s1');
+  const store1 = new ChatSessionRuntimeStore().ensureSession('s1', '');
   const store2 = store1.apply({
     kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID,
   });
@@ -344,15 +388,15 @@ test('immutable previous snapshots remain unchanged after mutation', () => {
 
 test('plan inputs initialize once on ensureSession but do not overwrite dirty draft', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'dirty' })
-    .ensureSession('s1');
+    .ensureSession('s1', '');
   assert.equal(store.get('s1').draft, 'dirty');
 });
 
-test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCount', () => {
+test('applyToolEvent sets the step prompt tokens from tool_start promptTokenCount', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
@@ -363,12 +407,12 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCo
       command: 'rg foo',
       promptTokenCount: 42,
     }});
-  assert.equal(store.get('s1').liveToolPromptTokenCount, 42);
+  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 42);
 });
 
-test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenCount', () => {
+test('applyToolEvent sets the step prompt tokens from tool_result promptTokenCount', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_result',
       toolCallId: 'tc1',
@@ -383,18 +427,20 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
       outputTokensEstimated: false,
       promptTokenCount: 55,
     }});
-  assert.equal(store.get('s1').liveToolPromptTokenCount, 55);
+  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 55);
 });
 
-test('applyAnswer creates runtime for unknown session via apply', () => {
+test('apply rejects a session that was never seeded by ensureSession', () => {
   const store = new ChatSessionRuntimeStore();
-  const next = store.apply({ kind: 'answer', sessionId: 'unknown', delta: { turn: 1, offset: 0, text: 'text' } });
-  assert.equal(next.get('unknown').liveMessages[0]?.content, 'text');
+  assert.throws(
+    () => store.apply({ kind: 'answer', sessionId: 'unknown', delta: { turn: 1, offset: 0, text: 'text' } }),
+    /unknown session "unknown"/,
+  );
 });
 
 test('applyDone clears live messages and draft for the session', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
@@ -406,7 +452,7 @@ test('applyDone clears live messages and draft for the session', () => {
 
 test('applyFailure clears live messages but preserves draft and images for retry', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
     .apply({ kind: 'images', sessionId: 's1', images: [IMAGE_A] })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
@@ -419,8 +465,8 @@ test('applyFailure clears live messages but preserves draft and images for retry
 
 test('setContextUsage updates only the targeted session', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
-    .ensureSession('s2')
+    .ensureSession('s1', '')
+    .ensureSession('s2', '')
     .apply({ kind: 'context-usage', sessionId: 's1', contextUsage: SAMPLE_RESPONSE.contextUsage });
   assert.equal(store.get('s1').contextUsage, SAMPLE_RESPONSE.contextUsage);
   assert.equal(store.get('s2').contextUsage, null);
@@ -428,6 +474,7 @@ test('setContextUsage updates only the targeted session', () => {
 
 test('submit moves the draft and images into a live user bubble', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'look at this' })
     .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_A] })
     .apply({ kind: 'submit', sessionId: 's1', content: 'look at this', images: [IMAGE_A] });
@@ -445,6 +492,7 @@ test('submit moves the draft and images into a live user bubble', () => {
 
 test('submit keeps the live user bubble first when the answer starts streaming', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello' } });
 
@@ -456,6 +504,7 @@ test('submit keeps the live user bubble first when the answer starts streaming',
 
 test('failure restores the submitted draft and images and drops the live bubble', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'look at this', images: [IMAGE_A, IMAGE_B] })
     .apply({ kind: 'failure', sessionId: 's1', message: 'engine unavailable' });
 
@@ -469,6 +518,7 @@ test('failure restores the submitted draft and images and drops the live bubble'
 
 test('failure without a submitted input leaves the composer untouched', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'typed but never sent' })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
 
@@ -478,6 +528,7 @@ test('failure without a submitted input leaves the composer untouched', () => {
 
 test('submit marks the session as awaiting the first streamed response', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
 
   assert.equal(next.get('s1').awaitingResponse, true);
@@ -485,6 +536,7 @@ test('submit marks the session as awaiting the first streamed response', () => {
 
 test('a warning before the stream starts leaves the session still awaiting', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
     .apply({ kind: 'warning', sessionId: 's1', text: 'repo root is dirty' });
 
@@ -493,6 +545,7 @@ test('a warning before the stream starts leaves the session still awaiting', () 
 
 test('any streamed evidence ends the awaiting state, whatever arrives first', () => {
   const submitted = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
 
   const afterTool = submitted.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
@@ -517,6 +570,7 @@ test('any streamed evidence ends the awaiting state, whatever arrives first', ()
 
 test('done and failure both end the awaiting state', () => {
   const submitted = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
 
   assert.equal(submitted.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').awaitingResponse, false);
@@ -525,6 +579,7 @@ test('done and failure both end the awaiting state', () => {
 
 test('done clears the submitted input along with the live messages', () => {
   const next = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [IMAGE_A] })
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
 
@@ -535,7 +590,7 @@ test('done clears the submitted input along with the live messages', () => {
 
 test('progress transitions upsert a single live-progress message in place', () => {
   const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
+    .ensureSession('s1', '')
     .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 3, text: 'RED done', elapsedMs: 1_000 } })
     .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 5, text: 'GREEN wiring', elapsedMs: 2_000 } });
 
@@ -554,6 +609,7 @@ test('approval state is set by approval and cleared by submit, done, and failure
     reviewPayload: null,
   };
   const pending = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'approval', sessionId: 's1', approval });
   assert.deepEqual(pending.get('s1').pendingApproval, approval);
   assert.equal(
@@ -576,6 +632,7 @@ test('approval state is set by approval and cleared by submit, done, and failure
 
 test('local activity retains the client operation id used by Stop', () => {
   const activity = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({
       kind: 'begin',
       sessionId: 's1',
@@ -592,6 +649,7 @@ test('local activity retains the client operation id used by Stop', () => {
 
 test('remote activity clears only when authoritative status reports no lease', () => {
   const remote = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'remote-begin', sessionId: 's1', operationKind: 'plan' })
     .apply({ kind: 'control-error', sessionId: 's1', message: 'Session is busy' });
   assert.deepEqual(remote.get('s1').activity, { kind: 'remote', operationKind: 'plan' });
@@ -609,6 +667,7 @@ test('a Stop control error preserves the live local operation and pending approv
     reviewPayload: null,
   };
   const runtime = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'keep me', images: [IMAGE_A] })
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'repo-agent', operationId: OPERATION_ID })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
@@ -623,4 +682,71 @@ test('a Stop control error preserves the live local operation and pending approv
   assert.equal(runtime.submittedInput?.content, 'keep me');
   assert.deepEqual(runtime.pendingApproval, approval);
   assert.equal(runtime.error, 'Stop request failed');
+});
+
+test('a fresh runtime uses the shared default repo-agent approval mode', () => {
+  const store = new ChatSessionRuntimeStore().ensureSession('session-a', '');
+  assert.equal(store.get('session-a').repoAgentApprovalMode, DEFAULT_APPROVAL_MODE);
+});
+
+test('repo-agent-approval-mode replaces only that field for its own session and survives a run', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('session-a', '')
+    .ensureSession('session-b', '')
+    .apply({ kind: 'draft', sessionId: 'session-a', draft: 'keep me' })
+    .apply({ kind: 'repo-agent-approval-mode', sessionId: 'session-a', approval: 'off' });
+  assert.equal(store.get('session-a').repoAgentApprovalMode, 'off');
+  assert.equal(store.get('session-a').draft, 'keep me');
+  assert.equal(store.get('session-b').repoAgentApprovalMode, 'auto');
+  const afterRun = store
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'repo-agent', operationId: OPERATION_ID })
+    .apply({ kind: 'done', sessionId: 'session-a', response: SAMPLE_RESPONSE });
+  assert.equal(afterRun.get('session-a').repoAgentApprovalMode, 'off');
+});
+
+test('submit clears the previous turn\'s live tool prompt count', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
+    } });
+  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 88);
+  assert.equal(store.apply({ kind: 'submit', sessionId: 's1', content: 'next', images: [] }).get('s1').liveToolPromptStep, null);
+});
+
+test('a tool batch keeps the baseline captured when the turn prompt count arrived', () => {
+  const started = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'weighing options' } })
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tc1', turn: 1, maxTurns: 4,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 4096,
+    } });
+  const step = started.get('s1').liveToolPromptStep;
+  const finished = started.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+    kind: 'tool_result', toolCallId: 'tc1', turn: 1, maxTurns: 4,
+    activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo',
+    exitCode: 0, outputSnippet: 'hit', outputTokens: 900, outputTokensEstimated: false, promptTokenCount: 4096,
+  } });
+  assert.deepEqual(finished.get('s1').liveToolPromptStep, step);
+  assert.ok(sumLiveTokenDisplays(finished.get('s1').liveMessages).tokenCount > (step?.liveBaselineTokens ?? 0));
+});
+
+test('a new turn prompt count rebases the baseline on the live sum it was measured against', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tc1', turn: 1, maxTurns: 4,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 4096,
+    } })
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+      kind: 'tool_start', toolCallId: 'tc2', turn: 2, maxTurns: 4,
+      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg bar', promptTokenCount: 5200,
+    } });
+  const runtime = store.get('s1');
+  assert.deepEqual(runtime.liveToolPromptStep, {
+    promptTokens: 5200,
+    liveBaselineTokens: sumLiveTokenDisplays(runtime.liveMessages).tokenCount,
+  });
 });

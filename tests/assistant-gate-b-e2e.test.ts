@@ -68,6 +68,7 @@ const SESSION: ChatSession = {
   id: 'chat_1',
   modelPresetId: 'default',
   modelPreset: mockModelPreset({ id: 'default' }),
+  planRepoRoot: 'C:/repo',
 };
 
 test('Gate B: conversation, correction, projection, retrieval, and opt-out work end to end', async () => {

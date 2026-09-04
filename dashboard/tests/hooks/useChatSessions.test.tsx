@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { ActiveChatRepoAgentResponse } from '@siftkit/contracts';
+import type {
+  ActiveChatRepoAgentResponse,
+  ChatRepoAgentApprovalModeResponse,
+  ChatRepoAgentDecideResponse,
+} from '@siftkit/contracts';
 import { renderHook, waitFor } from '../react-test-environment.js';
 
 import {
@@ -30,6 +34,7 @@ const SESSION: ChatSession = {
   },
   model: null,
   contextWindowTokens: 100,
+  planRepoRoot: 'C:/repo',
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   messages: [],
@@ -79,7 +84,7 @@ test('upsertSession updates A without replacing selected B', () => {
 
 test('adding a new session leaves another session streaming', () => {
   const runtimeStore = new ChatSessionRuntimeStore()
-    .ensureSession('session-a')
+    .ensureSession('session-a', '')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
   const sessions = upsertSession(
     [{ ...SESSION, id: 'session-a' }],
@@ -182,6 +187,8 @@ class ChatFetchFixture {
     runtimeStatus?: typeof RUNTIME_STATUS;
     activeRun?: ActiveChatRepoAgentResponse;
     operationStatuses?: Array<'active' | 'missing'>;
+    decideResponse?: ChatRepoAgentDecideResponse;
+    approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
     holdStream?: boolean;
     stopStatus?: number;
   }) {
@@ -243,6 +250,18 @@ class ChatFetchFixture {
       if (url === '/runtime/inference' && this.options.runtimeStatus) {
         return new Response(JSON.stringify(this.options.runtimeStatus), { status: 200 });
       }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/decide` && this.options.decideResponse) {
+        return new Response(JSON.stringify(this.options.decideResponse), { status: 200 });
+      }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/approval-mode` && this.options.approvalModeResponse) {
+        return new Response(JSON.stringify(this.options.approvalModeResponse), { status: 200 });
+      }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/stream`) {
+        this.streamRequestCount += 1;
+        return new Response(new ReadableStream<Uint8Array>({
+          start: (controller) => { this.streamController = controller; },
+        }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     };
   }
@@ -273,6 +292,7 @@ test('selecting a session restores a parked repo-agent approval', async () => {
     activeRun: {
       runId: '4f9c1f9a-0000-4000-8000-000000000000',
       status: 'approval_required',
+      approvalMode: 'interactive',
       approval: {
         approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
         toolName: 'bash',
@@ -291,6 +311,7 @@ test('selecting a session restores a parked repo-agent approval', async () => {
     await waitFor(() => {
       assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
       assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
+      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'interactive');
     });
   } finally {
     fixture.restore();
@@ -571,4 +592,119 @@ test('sending images with insufficient headroom enqueues an error toast and stil
 test('sending images with comfortable headroom enqueues no toast', async () => {
   const result = await sendImageForHeadroom(SESSION, { ...RUNTIME_STATUS, gpuFreeBytes: 8 * 1_073_741_824 });
   assert.deepEqual(result.toasts, []);
+});
+
+test('selecting a session with a running repo-agent restores the live approval mode', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeRun: { runId: OPERATION_ID, status: 'running', approvalMode: 'off' },
+    operationStatuses: ['active'],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'off');
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval, null);
+    });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('changing the approval mode on an idle session updates local state without a server call', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.selectedSession?.id, 's1');
+      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'auto');
+    });
+    await act(async () => { await hook.result.current.setRepoAgentApprovalMode('interactive'); });
+    assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'interactive');
+    assert.equal(fixture.requestedUrls.some((url) => url.endsWith('/repo-agent/approval-mode')), false);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a repo-agent decision is resolved with the timestamp the server recorded', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeRun: {
+      runId: OPERATION_ID,
+      status: 'approval_required',
+      approvalMode: 'interactive',
+      approval: {
+        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+        toolName: 'bash', command: 'npm test', reviewPayload: null,
+      },
+    },
+    operationStatuses: ['active'],
+    decideResponse: { ok: true, runId: OPERATION_ID, decidedAtUtc: '2026-09-04T10:00:00.000Z' },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
+    });
+    await act(async () => { await hook.result.current.submitRepoAgentDecision({ decision: 'approve' }); });
+    const runtime = hook.result.current.runtimeStore.get('s1');
+    assert.equal(runtime.pendingApproval, null);
+    assert.equal(runtime.resolvedApproval?.decidedAtUtc, '2026-09-04T10:00:00.000Z');
+    assert.deepEqual(runtime.resolvedApproval?.decision, { decision: 'approve' });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('changing the approval mode while this client owns a repo-agent run syncs it to the server', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    approvalModeResponse: { ok: true, runId: OPERATION_ID, approval: 'off', released: null },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'do the thing');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '');
+    });
+    let run: Promise<void> = Promise.resolve();
+    act(() => { run = hook.result.current.sendRepoAgent(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    await act(async () => { await hook.result.current.setRepoAgentApprovalMode('off'); });
+    assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'off');
+    assert.equal(fixture.sentBodies.at(-1), JSON.stringify({ approval: 'off' }));
+    assert.equal(fixture.requestedUrls.filter((url) => url.endsWith('/repo-agent/approval-mode')).length, 1);
+    fixture.finishHeldStream();
+    await act(async () => { await run; });
+  } finally {
+    fixture.restore();
+  }
 });

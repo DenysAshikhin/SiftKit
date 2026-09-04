@@ -28,9 +28,9 @@ import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { streamSessionBoundary } from './repo-search.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import type { RepoAgentSession } from '../repo-agent-sessions.js';
+import type { RepoAgentApprovalDelivery, RepoAgentSession } from '../repo-agent-sessions.js';
 import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.js';
-import type { ApprovalMode } from '../../repo-search/engine/approval-gate.js';
+import { APPROVAL_MODE_ERROR, type ApprovalMode } from '@siftkit/contracts';
 import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 
@@ -51,7 +51,7 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       const approvalIssue = parsedRequest.error.issues.some((issue) => issue.path[0] === 'approval');
       sendJson(res, 400, {
         error: approvalIssue
-          ? 'approval must be one of: interactive, auto, off.'
+          ? APPROVAL_MODE_ERROR
           : 'Invalid repo-agent request.',
       });
       return;
@@ -59,7 +59,8 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
     const input = parsedRequest.data;
     const { session } = startRepoAgentRun(ctx, {
       prompt: input.prompt, repoRoot: input.repoRoot,
-      approvalMode: input.approval ?? 'auto',
+      approvalMode: input.approval,
+      approvalDelivery: input.approval === 'interactive' ? 'progress' : 'boundary',
       model: input.model, maxTurns: input.maxTurns, logFile: input.logFile,
       images: input.images, promptPrefix: input.promptPrefix,
       availableModels: input.availableModels,
@@ -73,6 +74,7 @@ export type StartRepoAgentRunInput = {
   prompt: string;
   repoRoot: string | undefined;
   approvalMode: ApprovalMode;
+  approvalDelivery: RepoAgentApprovalDelivery;
   model?: string | null;
   maxTurns?: number;
   logFile?: string;
@@ -118,6 +120,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     requestId: admission.requestId,
     admission,
     approvalMode: input.approvalMode,
+    approvalDelivery: input.approvalDelivery,
     locks: new ServerModelLockAdapter(ctx),
     approvalGates: ctx.approvalGates,
     engineRequest: {

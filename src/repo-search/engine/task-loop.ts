@@ -93,6 +93,7 @@ import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.j
 import type { ImageTokenBudget } from '@siftkit/contracts';
 import type { ApprovalRequester } from './approval-gate.js';
 import { LlmApprovalGate } from './llm-approval-gate.js';
+import { ModeSwitchedApprovalRequester } from './approval-mode-requester.js';
 import type { RepoSearchLoopKind } from '../task-kind.js';
 
 export {
@@ -359,19 +360,20 @@ export class TaskLoop {
   }
 
   private buildApprovalRequester(options: RunTaskLoopOptions): ApprovalRequester | null {
-    if (options.approvalMode !== 'auto') {
-      return options.approvalGate ?? null;
-    }
     if (!options.approvalGate) {
-      throw new Error('approvalMode "auto" requires an approvalGate for escalation.');
+      return null;
     }
-    return new LlmApprovalGate({
-      requestId: options.approvalGate.getRequestId(),
-      humanGate: options.approvalGate,
-      verdictRequester: this,
-      progressWriter: options.progressWriter ?? new SilentProgressWriter(),
-      logger: options.logger ?? null,
-    });
+    return new ModeSwitchedApprovalRequester(
+      options.approvalGate,
+      options.approvalGate,
+      new LlmApprovalGate({
+        requestId: options.approvalGate.getRequestId(),
+        humanGate: options.approvalGate,
+        verdictRequester: this,
+        progressWriter: options.progressWriter ?? new SilentProgressWriter(),
+        logger: options.logger ?? null,
+      }),
+    );
   }
 
   /**

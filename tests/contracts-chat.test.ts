@@ -82,14 +82,14 @@ test('assistant narration and progress persist with the stopped transcript', () 
   assert.equal(PersistedChatTranscriptMessageSchema.safeParse({ ...message, kind: 'assistant_bogus' }).success, false);
   assert.equal(ChatSessionSchema.safeParse({
     id: 's1', title: 't', modelPresetId: 'preset-a', model: null, contextWindowTokens: 4096,
-    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration, progress],
+    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration, progress],
   }).success, true);
 });
 
 test('ChatSessionSchema no longer carries a condensed summary', () => {
   const parsed = ChatSessionSchema.parse({
     id: 's1', title: 't', modelPresetId: 'preset-a', model: 'model-a', contextWindowTokens: 4096,
-    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
   });
   assert.equal('condensedSummary' in parsed, false);
 });
@@ -105,7 +105,7 @@ test('ChatSessionResponseSchema requires contextUsage', () => {
 test('ChatSessionSchema requires modelPresetId', () => {
   const session = {
     id: 's1', title: 't', model: 'model-a', contextWindowTokens: 4096,
-    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
   };
 
   assert.throws(() => ChatSessionSchema.parse(session));

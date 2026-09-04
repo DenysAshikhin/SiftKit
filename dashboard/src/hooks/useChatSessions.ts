@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import {
   assessImageVramHeadroom,
   estimateVisionPeakVramBytesForImagePixels,
+  type ApprovalMode,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.js';
 import {
@@ -23,13 +24,16 @@ import {
   streamRepoAgentMessage,
   stopChatOperation,
   updateChatSession,
+  updateRepoAgentApprovalMode,
+  type RepoAgentDecision,
 } from '../api';
 import {
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
   resolveRepoRoot,
 } from '../lib/chat-composer-inputs';
-import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import { ChatSessionRuntimeStore, type ResolvedRepoAgentApproval } from '../lib/chat-session-runtime-store';
+import { ownsRepoAgentRun } from '../lib/chat-session-state';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
@@ -96,7 +100,7 @@ export function useChatSessions(deps: {
         setRuntimeStore((prev) => {
           let store = prev;
           for (const session of response.sessions) {
-            store = store.ensureSession(session.id);
+            store = store.ensureSession(session.id, session.planRepoRoot);
           }
           return store;
         });
@@ -135,6 +139,13 @@ export function useChatSessions(deps: {
             sessionId: response.session.id,
             contextUsage: response.contextUsage,
           }));
+          if (activeRun) {
+            setRuntimeStore((previous) => previous.apply({
+              kind: 'repo-agent-approval-mode',
+              sessionId: response.session.id,
+              approval: activeRun.approvalMode,
+            }));
+          }
           if (activeRun?.status === 'approval_required') {
             setRuntimeStore((previous) => previous.apply({
               kind: 'approval',
@@ -271,7 +282,7 @@ export function useChatSessions(deps: {
       setRuntimeStore((prev) => {
         let store = prev;
         for (const session of response.sessions) {
-          store = store.ensureSession(session.id);
+          store = store.ensureSession(session.id, session.planRepoRoot);
         }
         return store;
       });
@@ -289,6 +300,7 @@ export function useChatSessions(deps: {
       const response = await createChatSession(request);
       setSessions((previous) => [response.session, ...previous]);
       setSelectedSessionId(response.session.id);
+      setRuntimeStore((prev) => prev.ensureSession(response.session.id, response.session.planRepoRoot));
       applySessionResponse(response);
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
@@ -458,6 +470,7 @@ export function useChatSessions(deps: {
     pendingImages: PendingImage[];
     planRepoRootInput: string;
     planMaxTurnsInput: string;
+    repoAgentApprovalMode: ApprovalMode;
   } {
     const runtime = runtimeStore.get(sessionId);
     return {
@@ -465,6 +478,7 @@ export function useChatSessions(deps: {
       pendingImages: runtime.pendingImages,
       planRepoRootInput: runtime.planRepoRootInput,
       planMaxTurnsInput: runtime.planMaxTurnsInput,
+      repoAgentApprovalMode: runtime.repoAgentApprovalMode,
     };
   }
 
@@ -526,7 +540,7 @@ export function useChatSessions(deps: {
     await runChatStream(session.id, 'plan', operationId, streamPlanMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
       operationId,
     }));
@@ -543,7 +557,7 @@ export function useChatSessions(deps: {
     await runChatStream(session.id, 'repo-search', operationId, streamRepoSearchMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
       operationId,
     }));
@@ -560,24 +574,49 @@ export function useChatSessions(deps: {
     await runChatStream(session.id, 'repo-agent', operationId, streamRepoAgentMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
+      approval: inputs.repoAgentApprovalMode,
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
       operationId,
     }));
   }
 
-  async function submitRepoAgentDecision(
-    decision: Parameters<typeof decideRepoAgent>[1],
-  ): Promise<void> {
+  function applyApprovalResolution(sessionId: string, resolution: ResolvedRepoAgentApproval): void {
+    setRuntimeStore((previous) => previous.apply({ kind: 'approval-decision', sessionId, resolution }));
+  }
+
+  async function submitRepoAgentDecision(decision: RepoAgentDecision): Promise<void> {
     const session = requireSelectedSession(selectedSession);
     const approval = runtimeStore.get(session.id).pendingApproval;
-    await decideRepoAgent(session.id, decision);
+    const response = await decideRepoAgent(session.id, decision);
     if (approval) {
-      setRuntimeStore((previous) => previous.apply({
-        kind: 'approval-decision',
-        sessionId: session.id,
-        resolution: { approval, decision, decidedAtUtc: new Date().toISOString() },
-      }));
+      applyApprovalResolution(session.id, { approval, decision, decidedAtUtc: response.decidedAtUtc });
+    }
+  }
+
+  async function setRepoAgentApprovalMode(approval: ApprovalMode): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const runtime = runtimeStore.get(session.id);
+    const previous = runtime.repoAgentApprovalMode;
+    const pending = runtime.pendingApproval;
+    setRuntimeStore((store) => store.apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval }));
+    if (!ownsRepoAgentRun(runtime)) {
+      return;
+    }
+    try {
+      const response = await updateRepoAgentApprovalMode(session.id, approval);
+      const released = response.released;
+      if (pending && released && released.approvalId === pending.approvalId) {
+        applyApprovalResolution(session.id, {
+          approval: pending,
+          decision: { decision: 'approve' },
+          decidedAtUtc: released.decidedAtUtc,
+        });
+      }
+    } catch (error) {
+      setRuntimeStore((store) => store
+        .apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval: previous })
+        .apply({ kind: 'control-error', sessionId: session.id, message: toError(error).message }));
     }
   }
 
@@ -628,6 +667,7 @@ export function useChatSessions(deps: {
     sendRepoSearch,
     sendRepoAgent,
     submitRepoAgentDecision,
+    setRepoAgentApprovalMode,
     stopOperation,
   };
 }

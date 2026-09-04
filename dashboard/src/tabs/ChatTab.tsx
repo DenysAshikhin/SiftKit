@@ -15,7 +15,8 @@ import {
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
+import { resolveLiveContextUsage } from '../lib/contextBar';
+import { deriveSessionIndicator, isSessionBusy, ownsRepoAgentRun, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { ToolActivityRow } from '../components/ToolActivityRow';
@@ -24,6 +25,8 @@ import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
 import type { RepoAgentDecision } from '../api';
+import type { ApprovalMode } from '@siftkit/contracts';
+import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
 import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
@@ -92,6 +95,7 @@ export type ChatTabProps = {
   onSendRepoSearch(): Promise<void>;
   onSendRepoAgent(): Promise<void>;
   onSubmitRepoAgentDecision(decision: RepoAgentDecision): Promise<void>;
+  onChangeRepoAgentApprovalMode(mode: ApprovalMode): Promise<void>;
   onStopOperation(): Promise<void>;
   onSendMessage(): Promise<void>;
   onPendingImagesChange(images: PendingImage[]): void;
@@ -189,6 +193,7 @@ export function ChatTab({
   onSendRepoSearch,
   onSendRepoAgent,
   onSubmitRepoAgentDecision,
+  onChangeRepoAgentApprovalMode,
   onStopOperation,
   onSendMessage,
   onPendingImagesChange,
@@ -199,7 +204,7 @@ export function ChatTab({
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
-  const liveToolPromptTokenCount = selectedRuntime?.liveToolPromptTokenCount ?? null;
+  const liveToolPromptStep = selectedRuntime?.liveToolPromptStep ?? null;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
   const chatError = selectedRuntime?.error ?? null;
   const warnings = selectedRuntime?.warnings ?? [];
@@ -298,9 +303,13 @@ export function ChatTab({
     void onUpdateSessionPreset(presetId);
   }
 
-  const usedRatio = contextUsage && contextUsage.contextWindowTokens > 0
-    ? Math.max(0, Math.min(1, contextUsage.totalUsedTokens / contextUsage.contextWindowTokens))
-    : 0;
+  const liveContextUsage = resolveLiveContextUsage({
+    contextUsage,
+    liveMessages,
+    liveToolPromptStep,
+    busy: selectedSessionBusy,
+  });
+  const usedRatio = liveContextUsage?.ratio ?? 0;
   const contextTone = getContextBarFillTone(usedRatio);
 
   return (
@@ -487,7 +496,7 @@ export function ChatTab({
               {showSettings ? (
                 <SettingsPopover
                   contextUsage={contextUsage}
-                  liveToolPromptTokenCount={liveToolPromptTokenCount}
+                  liveToolPromptTokenCount={liveToolPromptStep?.promptTokens ?? null}
                   isRepoToolMode={isRepoToolMode}
                   chatBusy={selectedSessionBusy}
                   onCondense={onCondense}
@@ -505,10 +514,17 @@ export function ChatTab({
                   <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={selectedSessionBusy || !planRepoRootInput.trim()}>
                     Directory
                   </button>
+                  {chatMode === 'repo-agent' && selectedRuntime ? (
+                    <RepoAgentApprovalModeControl
+                      value={selectedRuntime.repoAgentApprovalMode}
+                      disabled={selectedRuntime.activity.kind !== 'idle' && !ownsRepoAgentRun(selectedRuntime)}
+                      onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
+                    />
+                  ) : null}
                 </div>
               ) : null}
-              {contextUsage ? (
-                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(contextUsage.totalUsedTokens)} / ${formatNumber(contextUsage.contextWindowTokens)}`}>
+              {liveContextUsage ? (
+                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(liveContextUsage.usedTokens)} / ${formatNumber(liveContextUsage.contextWindowTokens)}`}>
                   <i style={{ width: `${usedRatio * 100}%` }} />
                 </div>
               ) : null}
@@ -536,8 +552,8 @@ export function ChatTab({
                   rows={2}
                   disabled={selectedSessionBusy}
                 />
-                {contextUsage ? (
-                  <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
+                {liveContextUsage ? (
+                  <span className="ctx-label">{liveContextUsage.exact ? '' : '~'}{formatCompactTokenCount(liveContextUsage.usedTokens)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
                 ) : null}
                 <label className="mini-btn attach" title="Attach images">
                   Attach

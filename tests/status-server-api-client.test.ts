@@ -104,7 +104,7 @@ test('repo-agent uses its own inactivity timeout without changing repo-search', 
   const renderer = new SilentProgressRenderer(process.stderr, 'test');
 
   await assert.rejects(
-    () => client.requestRepoAgent({ prompt: 'agent task' }, renderer),
+    () => client.requestRepoAgent({ prompt: 'agent task', approval: 'auto' }, renderer),
     /stream failed/iu,
   );
   await assert.rejects(
@@ -121,7 +121,7 @@ test('repo-agent start and decide parse run results through the server-owned rou
   const client = new StatusServerApiClient(http, { repoAgentIdleTimeoutMs: 25 });
   const renderer = new SilentProgressRenderer(process.stderr, 'test');
 
-  const started = await client.requestRepoAgent({ prompt: 'agent task' }, renderer);
+  const started = await client.requestRepoAgent({ prompt: 'agent task', approval: 'auto' }, renderer);
   const decided = await client.requestRepoAgentDecide({
     runId: '550e8400-e29b-41d4-a716-446655440000',
     decision: 'approve',

@@ -49,7 +49,7 @@ function liveTurnFor(store: ChatSessionRuntimeStore, sessionId: string): ChatTur
 test('a live repo-agent turn renders the thinking stack above the recent-activity ring and keeps showRecentActivity true', () => {
   const sessionId = 'session-repo-agent';
   let store = new ChatSessionRuntimeStore()
-    .ensureSession(sessionId)
+    .ensureSession(sessionId, '')
     .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: REPO_AGENT_OPERATION_ID });
   for (const turn of [1, 2, 3, 4]) {
     store = store.apply({ kind: 'thinking', sessionId, delta: { turn, offset: 0, text: `thinking turn ${turn}` } });

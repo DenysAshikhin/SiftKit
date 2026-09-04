@@ -81,12 +81,9 @@ export function parseChatMessageOperationRequest(
   return messageRequest;
 }
 
-/** Falls back to the session's saved root, then to the process root, exactly as the endpoints did. */
+/** Falls back to the session's saved root, exactly as the endpoints did. */
 function resolveChatRepoRoot(requestedRepoRoot: string | undefined, session: ChatSession): string {
-  const sessionRepoRoot = typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-    ? session.planRepoRoot.trim()
-    : process.cwd();
-  return resolve(requestedRepoRoot || sessionRepoRoot);
+  return resolve(requestedRepoRoot || session.planRepoRoot);
 }
 
 /** Sends a 400 and returns null when the body is not a valid repo operation request. */

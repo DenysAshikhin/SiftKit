@@ -28,3 +28,10 @@ export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
     || runtime.pendingApproval !== null
   );
 }
+
+/** True when this client started, and still streams, the session's repo-agent run. */
+export function ownsRepoAgentRun(runtime: ChatSessionRuntime | null): boolean {
+  return runtime !== null
+    && runtime.activity.kind === 'local'
+    && runtime.activity.operationKind === 'repo-agent';
+}

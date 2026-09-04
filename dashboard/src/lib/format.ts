@@ -156,6 +156,14 @@ export function getLiveMessageTokenDisplay(message: ChatMessage): TokenDisplay {
   };
 }
 
+export function sumLiveTokenDisplays(messages: readonly ChatMessage[]): { tokenCount: number; exact: boolean } {
+  const displays = messages.map(getLiveMessageTokenDisplay);
+  return {
+    tokenCount: displays.reduce((sum, display) => sum + display.tokenCount, 0),
+    exact: displays.every((display) => display.exact),
+  };
+}
+
 export function formatLiveMessageTokenLabel(message: ChatMessage): string {
   const display = getLiveMessageTokenDisplay(message);
   const textTokens = display.tokenCount - display.imageTokens;
@@ -170,11 +178,7 @@ export function formatLiveMessageTokenLabel(message: ChatMessage): string {
 
 export function getTurnTokenDisplay(turn: ChatTurn): { tokenCount: number; exact: boolean } {
   if (turn.isLive || !turn.main) {
-    const displays = turn.messages.map(getLiveMessageTokenDisplay);
-    return {
-      tokenCount: displays.reduce((sum, display) => sum + display.tokenCount, 0),
-      exact: displays.every((display) => display.exact),
-    };
+    return sumLiveTokenDisplays(turn.messages);
   }
 
   const main = turn.main;

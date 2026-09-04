@@ -59,6 +59,8 @@ test-out.log
 /tmp-*.ts
 
 # Temp directories
+/.plan-scratch
+/.scratch
 /tmp-find
 /tmp-home
 /tmp-home-real

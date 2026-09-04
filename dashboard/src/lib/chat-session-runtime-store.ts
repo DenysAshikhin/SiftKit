@@ -3,9 +3,13 @@ import {
   upsertLiveMessageInto,
 } from './chat-live-messages';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
+import type { LiveToolPromptStep } from './contextBar';
+import { sumLiveTokenDisplays } from './format';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
 import {
   reduceChatTranscript,
+  DEFAULT_APPROVAL_MODE,
+  type ApprovalMode,
   type ChatStreamApproval,
   type ChatStreamProgress,
   type ChatStreamTextDelta,
@@ -33,7 +37,7 @@ export type ChatSessionRuntime = {
   error: string | null;
   warnings: string[];
   contextUsage: ContextUsage | null;
-  liveToolPromptTokenCount: number | null;
+  liveToolPromptStep: LiveToolPromptStep | null;
   draft: string;
   pendingImages: PendingImage[];
   submittedInput: SubmittedChatInput | null;
@@ -43,6 +47,7 @@ export type ChatSessionRuntime = {
   planMaxTurnsInput: string;
   pendingApproval: ChatStreamApproval | null;
   resolvedApproval: ResolvedRepoAgentApproval | null;
+  repoAgentApprovalMode: ApprovalMode;
 };
 
 export type ChatSessionRuntimeTransition =
@@ -66,9 +71,10 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
   | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
-  | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string };
+  | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string }
+  | { kind: 'repo-agent-approval-mode'; sessionId: string; approval: ApprovalMode };
 
-function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
+function createChatSessionRuntime(sessionId: string, planRepoRootInput: string): ChatSessionRuntime {
   return {
     sessionId,
     activity: { kind: 'idle' },
@@ -76,15 +82,16 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
     error: null,
     warnings: [],
     contextUsage: null,
-    liveToolPromptTokenCount: null,
+    liveToolPromptStep: null,
     draft: '',
     pendingImages: [],
     submittedInput: null,
     awaitingResponse: false,
-    planRepoRootInput: '',
+    planRepoRootInput,
     planMaxTurnsInput: '',
     pendingApproval: null,
     resolvedApproval: null,
+    repoAgentApprovalMode: DEFAULT_APPROVAL_MODE,
   };
 }
 
@@ -104,9 +111,19 @@ function applyTranscriptEvent(
 }
 
 function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
+  const next = applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
+  // Every event in a turn's tool batch carries that turn's prompt_tokens, so the baseline is
+  // captured once per turn. Re-capturing it per event would fold the tool output the backend has
+  // not billed yet into the baseline and drop the displayed growth back to prompt_tokens.
+  const step = runtime.liveToolPromptStep;
   return {
-    ...applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent }),
-    liveToolPromptTokenCount: toolEvent.promptTokenCount,
+    ...next,
+    liveToolPromptStep: step && step.promptTokens === toolEvent.promptTokenCount
+      ? step
+      : {
+        promptTokens: toolEvent.promptTokenCount,
+        liveBaselineTokens: sumLiveTokenDisplays(next.liveMessages).tokenCount,
+      },
   };
 }
 
@@ -156,6 +173,7 @@ function applyTransition(
         pendingImages: [],
         submittedInput: { content: transition.content, images: transition.images },
         awaitingResponse: true,
+        liveToolPromptStep: null,
         pendingApproval: null,
         resolvedApproval: null,
         liveMessages: upsertLiveMessageInto(
@@ -206,6 +224,8 @@ function applyTransition(
         planRepoRootInput: transition.planRepoRootInput,
         planMaxTurnsInput: transition.planMaxTurnsInput,
       };
+    case 'repo-agent-approval-mode':
+      return { ...runtime, repoAgentApprovalMode: transition.approval };
   }
 }
 
@@ -229,21 +249,20 @@ export class ChatSessionRuntimeStore {
     return [...this.runtimesBySessionId.values()];
   }
 
-  ensureSession(sessionId: string): ChatSessionRuntimeStore {
+  /** Seeds the composer repo root from the session so the default directory is visible and editable. */
+  ensureSession(sessionId: string, planRepoRootInput: string): ChatSessionRuntimeStore {
     if (this.runtimesBySessionId.has(sessionId)) {
       return this;
     }
     const next = new Map(this.runtimesBySessionId);
-    next.set(sessionId, createChatSessionRuntime(sessionId));
+    next.set(sessionId, createChatSessionRuntime(sessionId, planRepoRootInput));
     return new ChatSessionRuntimeStore(next);
   }
 
-  /** The single copy-on-write path. Writers create the runtime if it is absent. */
+  /** The single copy-on-write path. The session must have been seeded by ensureSession first. */
   apply(transition: ChatSessionRuntimeTransition): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(transition.sessionId)
-      ?? createChatSessionRuntime(transition.sessionId);
     const next = new Map(this.runtimesBySessionId);
-    next.set(transition.sessionId, applyTransition(existing, transition));
+    next.set(transition.sessionId, applyTransition(this.get(transition.sessionId), transition));
     return new ChatSessionRuntimeStore(next);
   }
 

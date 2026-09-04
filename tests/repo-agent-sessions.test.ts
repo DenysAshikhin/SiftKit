@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test, { after, type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getAbortError } from '../src/lib/abort.js';
 import type { ProgressWriter } from '../src/lib/progress-writer.js';
@@ -20,6 +21,7 @@ import { RepoAgentDecideRequestSchema } from '../src/repo-agent/api-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import {
   RepoAgentSessionManager,
+  type RepoAgentApprovalDelivery,
   type RepoAgentEngine,
   type RepoAgentEngineRequest,
   type RepoAgentModelLockAdapter,
@@ -27,7 +29,9 @@ import {
   type RepoAgentSessionSubscriber,
 } from '../src/status-server/repo-agent-sessions.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import type { ApprovalGate, ApprovalMode } from '../src/repo-search/engine/approval-gate.js';
+import type { ApprovalMode } from '@siftkit/contracts';
+import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import { ModeSwitchedApprovalRequester } from '../src/repo-search/engine/approval-mode-requester.js';
 
 function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
   const scorecard = buildMockScorecard(finalOutput);
@@ -99,6 +103,49 @@ class ParkingEngine implements RepoAgentEngine {
       return makeEngineResult(`denied: ${decision.reason}`);
     }
     return makeEngineResult('installed');
+  }
+}
+
+class TwoStepParkingEngine implements RepoAgentEngine {
+  private signalFirstCallDone: () => void = () => {};
+  /** Resolves once the first gate call has returned. */
+  readonly firstCallDone = new Promise<void>((resolve) => { this.signalFirstCallDone = resolve; });
+  private releaseSecondCall: () => void = () => {};
+  private readonly secondCallGate = new Promise<void>((resolve) => { this.releaseSecondCall = resolve; });
+
+  /** When true the engine waits for `releaseSecond()` before its second gate call. */
+  constructor(private readonly holdBeforeSecondCall = false) {}
+
+  releaseSecond(): void {
+    this.releaseSecondCall();
+  }
+
+  async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    const gate = request.approvalGate;
+    if (!gate) {
+      throw new Error('TwoStepParkingEngine requires an approval gate.');
+    }
+    // Mirror the task loop: the dispatcher reads the gate's live mode on every call.
+    const requester = new ModeSwitchedApprovalRequester(gate, gate, {
+      request: () => Promise.resolve({ kind: 'deny', reason: 'llm gate should not be consulted' }),
+    });
+    const modes: ApprovalMode[] = [];
+    for (const command of ['write a.txt', 'write b.txt']) {
+      if (modes.length === 1) {
+        this.signalFirstCallDone();
+        if (this.holdBeforeSecondCall) {
+          await this.secondCallGate;
+        }
+      }
+      modes.push(gate.mode);
+      const decision = await requester.request({
+        turn: modes.length + 1, toolName: 'write', command, reviewPayload: null, pendingMessages: [],
+      });
+      if (decision.kind !== 'approve') {
+        throw new Error(`unexpected ${decision.kind}`);
+      }
+    }
+    return makeEngineResult(`modes=${modes.join(',')}`);
   }
 }
 
@@ -250,9 +297,25 @@ async function waitWithTimeout<T>(promise: Promise<T>, description: string, time
   }
 }
 
+async function waitForStatus(
+  session: RepoAgentSession,
+  status: RepoAgentRunState['status'],
+): Promise<RepoAgentRunState> {
+  return waitWithTimeout(
+    (async () => {
+      while (session.getState().status !== status) {
+        await delay(5);
+      }
+      return session.getState();
+    })(),
+    `run status ${status}`,
+  );
+}
+
 type SessionTestHarnessOptions = {
   engine: RepoAgentEngine;
   approvalMode: ApprovalMode;
+  approvalDelivery: RepoAgentApprovalDelivery;
   locks?: RepoAgentModelLockAdapter;
   decisionTimeoutMs?: number;
 };
@@ -318,6 +381,7 @@ class SessionTestHarness {
   readonly runId: string;
   readonly requestId: string;
   readonly approvalMode: ApprovalMode;
+  readonly approvalDelivery: RepoAgentApprovalDelivery;
   readonly engine: RepoAgentEngine;
   readonly locks: RepoAgentModelLockAdapter;
   readonly approvalGates = new Map<string, ApprovalGate>();
@@ -341,6 +405,7 @@ class SessionTestHarness {
     releaseCwd: () => void;
     engine: RepoAgentEngine;
     approvalMode: ApprovalMode;
+    approvalDelivery: RepoAgentApprovalDelivery;
     locks: RepoAgentModelLockAdapter;
     decisionTimeoutMs?: number;
   }) {
@@ -349,6 +414,7 @@ class SessionTestHarness {
     this.releaseCwd = options.releaseCwd;
     this.engine = options.engine;
     this.approvalMode = options.approvalMode;
+    this.approvalDelivery = options.approvalDelivery;
     this.locks = options.locks;
     this.decisionTimeoutMs = options.decisionTimeoutMs;
     this.currentStore = makeTestStore(this.tempRoot);
@@ -382,6 +448,7 @@ class SessionTestHarness {
         releaseCwd,
         engine: options.engine,
         approvalMode: options.approvalMode,
+        approvalDelivery: options.approvalDelivery,
         locks: options.locks ?? new ImmediateLockAdapter(),
         ...(options.decisionTimeoutMs === undefined
           ? {}
@@ -494,6 +561,7 @@ class SessionTestHarness {
       requestId: this.requestId,
       admission: this.admission,
       approvalMode: this.approvalMode,
+      approvalDelivery: this.approvalDelivery,
       locks: this.locks,
       approvalGates: this.approvalGates,
       engineRequest: this.engineRequest,
@@ -643,6 +711,7 @@ test('Session decisions require the owning run ID', async (t) => {
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
     const parked = await session.waitForBoundary(0);
@@ -663,6 +732,7 @@ test('Completion: engine returns immediately, boundary resolves completed, lock 
   const harness = await SessionTestHarness.create({
     engine: new CompletingEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -681,6 +751,7 @@ test('Non-finish engine result resolves failed and preserves terminal synthesis'
   const harness = await SessionTestHarness.create({
     engine: new NonFinishEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -702,6 +773,7 @@ test('Park boundary: ParkingEngine parks at approval_required with populated dec
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -727,6 +799,7 @@ test('Harness cleanup waits for an auto approval park and is idempotent', async 
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -747,6 +820,7 @@ test('Harness cleanup observes interactive approval before aborting', async (t) 
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'interactive',
+    approvalDelivery: 'progress',
   }, t);
   const session = harness.start();
 
@@ -761,6 +835,7 @@ test('Approve resume: submitDecision approve resumes engine to completion', asyn
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -786,6 +861,7 @@ test('Deny resume: submitDecision deny resumes engine with denied output', async
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -812,6 +888,7 @@ test('Abort: submitDecision abort resolves to aborted boundary, settled resolves
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -834,6 +911,7 @@ test('Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, en
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
     decisionTimeoutMs: 25,
   }, t);
   const session = harness.start();
@@ -850,10 +928,11 @@ test('Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, en
     assert.equal(finalState.status, 'approval_timeout');
 });
 
-test('Interactive park is not a boundary: subscriber receives approval_request, waitForBoundary stays pending', async (t) => {
+test('Progress delivery: subscriber receives approval_request, waitForBoundary stays pending', async (t) => {
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'interactive',
+    approvalDelivery: 'progress',
   }, t);
   const session = harness.start();
 
@@ -890,10 +969,11 @@ test('Interactive park is not a boundary: subscriber receives approval_request, 
     await session.settled;
 });
 
-test('Suppression: approvalMode auto, subscriber never sees approval_request', async (t) => {
+test('Boundary delivery: subscriber never sees approval_request, waitForBoundary resolves approval_required', async (t) => {
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -916,6 +996,7 @@ test('Engine failure: engine rejects, boundary resolves failed, lock released', 
   const harness = await SessionTestHarness.create({
     engine: new FailingEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -934,6 +1015,7 @@ test('Empty engine failure still publishes a non-empty authoritative failed stat
   const harness = await SessionTestHarness.create({
     engine: new EmptyErrorEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
 
@@ -955,6 +1037,7 @@ test('Admission persistence failure does not block the durable engine failure tr
   const harness = await SessionTestHarness.create({
     engine: new FailingEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
   }, t);
   const runtimeDatabasePath = path.join(harness.tempRoot, '.siftkit', 'runtime.sqlite');
     fs.mkdirSync(runtimeDatabasePath, { recursive: true });
@@ -981,6 +1064,7 @@ test('Lock timeout: adapter returns null, boundary resolves failed with queue me
   const harness = await SessionTestHarness.create({
     engine: new CompletingEngine(),
     approvalMode: 'off',
+    approvalDelivery: 'boundary',
     locks,
   }, t);
   const session = harness.start();
@@ -1002,6 +1086,7 @@ test('Boundary cancellation removes only the disconnected waiter and leaves the 
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const session = harness.start();
     const parked = await session.waitForBoundary(0);
@@ -1021,6 +1106,7 @@ test('Persistence failure while deciding retains the authoritative failed sessio
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
     approvalMode: 'auto',
+    approvalDelivery: 'boundary',
   }, t);
   const runsRoot = path.join(harness.tempRoot, '.siftkit', 'repo-agent', 'runs');
     fs.mkdirSync(runsRoot, { recursive: true });
@@ -1045,7 +1131,7 @@ test('Persistence failure while deciding retains the authoritative failed sessio
 
 test('session progress writer reports wantsLiveText from the attached subscriber', async (t) => {
   const engine = new ScriptedProgressEngine([]);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
 
   const writer = await waitWithTimeout(engine.writerReceived, 'the engine to receive the progress writer');
@@ -1082,7 +1168,7 @@ function liveTextEvents() {
 test('live-text events reach only a live-text subscriber: a live-text subscriber receives all four in order', async (t) => {
   const events = liveTextEvents();
   const engine = new ScriptedProgressEngine(events.all);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
   const subscriber = new RecordingSubscriber(true);
   session.attach(subscriber);
@@ -1097,7 +1183,7 @@ test('live-text events reach only a live-text subscriber: a live-text subscriber
 test('live-text events reach only a live-text subscriber: a non-live-text subscriber receives only tool_start', async (t) => {
   const events = liveTextEvents();
   const engine = new ScriptedProgressEngine(events.all);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
   const subscriber = new RecordingSubscriber(false);
   session.attach(subscriber);
@@ -1112,7 +1198,7 @@ test('live-text events reach only a live-text subscriber: a non-live-text subscr
 test('answer events are never fanned out: a non-live-text subscriber receives nothing', async (t) => {
   const answer: RepoSearchProgressEvent = { kind: 'answer', turn: 1, maxTurns: 4, answerText: 'the cipher is solved' };
   const engine = new ScriptedProgressEngine([answer]);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
   const subscriber = new RecordingSubscriber(false);
   session.attach(subscriber);
@@ -1127,7 +1213,7 @@ test('answer events are never fanned out: a non-live-text subscriber receives no
 test('answer events reach a live-text subscriber for stopped-transcript capture', async (t) => {
   const answer: RepoSearchProgressEvent = { kind: 'answer', turn: 1, maxTurns: 4, answerText: 'the cipher is solved' };
   const engine = new ScriptedProgressEngine([answer]);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
   const subscriber = new RecordingSubscriber(true);
   session.attach(subscriber);
@@ -1161,7 +1247,7 @@ test('live-text events are not server-logged', async (t) => {
     elapsedMs: 12,
   };
   const engine = new ScriptedProgressEngine([progressUpdate, toolStart]);
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
   const subscriber = new RecordingSubscriber(true);
   session.attach(subscriber);
@@ -1194,7 +1280,7 @@ test('live-text events are not server-logged', async (t) => {
 
 test('session exposes the engine execution result after a completed run', async (t) => {
   const engine = new TurnThinkingEngine();
-  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
 
   const boundary = await session.waitForBoundary(0);
@@ -1215,7 +1301,7 @@ test('session exposes the engine execution result after a completed run', async 
 });
 
 test('session getExecutionResult returns null for an aborted run', async (t) => {
-  const harness = await SessionTestHarness.create({ engine: new AbortingEngine(), approvalMode: 'off' }, t);
+  const harness = await SessionTestHarness.create({ engine: new AbortingEngine(), approvalMode: 'off', approvalDelivery: 'boundary' }, t);
   const session = harness.start();
 
   session.abort();
@@ -1223,5 +1309,89 @@ test('session getExecutionResult returns null for an aborted run', async (t) => 
   const boundary = await session.waitForBoundary(0);
   assert.equal(boundary.status, 'aborted');
   assert.equal(session.getExecutionResult(), null);
+  await session.settled;
+});
+
+test('setApprovalMode off releases a parked approval, reports it, and the run completes', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(), approvalMode: 'interactive', approvalDelivery: 'progress',
+  }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber();
+  session.attach(subscriber);
+  const parked = await waitForStatus(session, 'approval_required');
+  assert.equal(parked.status, 'approval_required');
+  const released = session.setApprovalMode('off');
+  assert.equal(session.getApprovalMode(), 'off');
+  assert.ok(released);
+  if (parked.status === 'approval_required' && released) {
+    assert.equal(released.approvalId, parked.approval.approvalId);
+  }
+  const result = await session.waitForBoundary(0);
+  assert.equal(result.status, 'completed');
+  if (result.status === 'completed') {
+    assert.ok(result.output.includes('installed'));
+  }
+  await session.settled;
+});
+
+test('setApprovalMode auto or interactive leaves a parked approval waiting and returns null', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(), approvalMode: 'interactive', approvalDelivery: 'progress',
+  }, t);
+  const session = harness.start();
+  session.attach(new RecordingSubscriber());
+  await waitForStatus(session, 'approval_required');
+  assert.equal(session.setApprovalMode('auto'), null);
+  assert.equal(session.getApprovalMode(), 'auto');
+  assert.equal(session.getState().status, 'approval_required');
+  assert.equal(session.setApprovalMode('interactive'), null);
+  assert.equal(session.getState().status, 'approval_required');
+  session.submitDecision({ runId: harness.runId, decision: 'abort' });
+  await session.settled;
+});
+
+test('setApprovalMode while running is visible to the engine on its next gate call', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new TwoStepParkingEngine(), approvalMode: 'interactive', approvalDelivery: 'progress',
+  }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber();
+  session.attach(subscriber);
+  await waitWithTimeout(
+    (async () => { while (subscriber.events.filter((e) => e.kind === 'approval_request').length < 1) { await delay(5); } })(),
+    'first approval',
+  );
+  session.setApprovalMode('off');
+  const result = await session.waitForBoundary(0);
+  assert.equal(result.status, 'completed');
+  if (result.status === 'completed') {
+    assert.equal(result.output.includes('modes=interactive,off'), true);
+  }
+  await session.settled;
+});
+
+test('a run started in off parks after a switch to interactive', async (t) => {
+  const engine = new TwoStepParkingEngine(true);
+  const harness = await SessionTestHarness.create({
+    engine, approvalMode: 'off', approvalDelivery: 'progress',
+  }, t);
+  const session = harness.start();
+  const subscriber = new RecordingSubscriber();
+  session.attach(subscriber);
+  assert.equal(session.getApprovalMode(), 'off');
+  await waitWithTimeout(engine.firstCallDone, 'first auto-approved call');
+  assert.ok(harness.approvalGates.get(harness.requestId));
+  assert.equal(subscriber.events.filter((event) => event.kind === 'approval_request').length, 0);
+  session.setApprovalMode('interactive');
+  engine.releaseSecond();
+  await waitForStatus(session, 'approval_required');
+  assert.equal(subscriber.events.filter((event) => event.kind === 'approval_request').length, 1);
+  session.submitDecision({ runId: harness.runId, decision: 'approve' });
+  const result = await session.waitForBoundary(0);
+  assert.equal(result.status, 'completed');
+  if (result.status === 'completed') {
+    assert.equal(result.output.includes('modes=off,interactive'), true);
+  }
   await session.settled;
 });

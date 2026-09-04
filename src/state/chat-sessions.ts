@@ -48,7 +48,7 @@ export type ChatSession = {
   webSearchEnabled?: boolean;
   presetId?: string;
   mode?: ChatSessionMode;
-  planRepoRoot?: string;
+  planRepoRoot: string;
   promptContext?: ChatPromptContext;
   createdAtUtc?: string;
   updatedAtUtc?: string;
@@ -622,9 +622,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       session.webSearchEnabled === true ? 1 : 0,
       presetId,
       mode,
-      typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-        ? resolve(session.planRepoRoot)
-        : process.cwd(),
+      resolve(session.planRepoRoot),
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );

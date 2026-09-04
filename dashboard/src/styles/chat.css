@@ -114,6 +114,7 @@
 .composer-settings-popover { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); }
 .composer-settings-popover.warning { border-color: #5a4a2a; }
 .composer-plan-row { display: flex; gap: 8px; align-items: center; }
+.approval-mode { display: inline-flex; gap: 4px; margin-left: auto; }
 .composer-plan-root { flex: 1; }
 
 /* ---- error banner ---- */

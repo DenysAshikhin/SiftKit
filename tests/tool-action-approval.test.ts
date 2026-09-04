@@ -63,7 +63,7 @@ test('approve lets a write execute; the file exists afterwards', async () => {
   const tempRoot = createManagedTempDir('siftkit-approval-write-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -87,7 +87,7 @@ test('edit approval receives every complete replacement before execution', async
   try {
     fs.writeFileSync(path.join(tempRoot, 'cleanup.ts'), 'cleanCache();\n', 'utf8');
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('edit cleanup'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "edit", arguments: {"path":"cleanup.ts","edits":[{"oldText":"cleanCache();","newText":"fs.rmSync(repoRoot, { recursive: true, force: true });"}]} }] },
@@ -113,7 +113,7 @@ test('a run records the files it mutated even when the finish output denies chan
   const tempRoot = createManagedTempDir('siftkit-mutated-paths-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -131,7 +131,7 @@ test('a mutated path is recorded in its resolved form, not as the model spelled 
   const tempRoot = createManagedTempDir('siftkit-resolved-paths-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":".\\nested\\Out.txt","content":"hello"} }] },
@@ -148,7 +148,7 @@ test('a denied mutation is not recorded as a mutated path', async () => {
   const tempRoot = createManagedTempDir('siftkit-denied-paths-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'deny', reason: 'no' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -167,7 +167,7 @@ test('deny blocks execution, feeds the reason to the model, and the run continue
     const writer = new AutoRespondingWriter((event) => (
       event.toolName === 'write' ? { kind: 'deny', reason: 'not that file' } : { kind: 'approve' }
     ));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "write", arguments: {"path":"out.txt","content":"hello"} }] },
@@ -189,7 +189,7 @@ test('denied read never executes (no read output recorded)', async () => {
   try {
     fs.writeFileSync(path.join(tempRoot, 'secret.txt'), 'secret-content', 'utf8');
     const writer = new AutoRespondingWriter(() => ({ kind: 'deny', reason: '' }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('read a file'), makeLoopOptions(tempRoot, [
       { toolCalls: [{ name: "read", arguments: {"path":"secret.txt"} }] },
@@ -210,7 +210,7 @@ test('abort throws out of the run', async () => {
       kind: 'abort',
       reason: CLIENT_ABORT_MESSAGE,
     }));
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
     writer.gate = gate;
     await assert.rejects(
       runTaskLoop(makeTask('read'), makeLoopOptions(tempRoot, [

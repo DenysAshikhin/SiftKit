@@ -11,6 +11,12 @@ import {
   StopChatOperationRequestSchema,
   StopChatOperationResponseSchema,
   PersistedChatTranscriptMessageSchema,
+  ApprovalModeSchema,
+  ChatRepoAgentApprovalModeRequestSchema,
+  ChatRepoAgentApprovalModeResponseSchema,
+  ChatRepoAgentDecideResponseSchema,
+  DEFAULT_APPROVAL_MODE,
+  APPROVAL_MODE_ERROR,
 } from '@siftkit/contracts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -82,7 +88,8 @@ test('active repo-agent responses expose only actionable nonterminal states', ()
   assert.deepEqual(ActiveChatRepoAgentResponseSchema.parse({
     runId: OPERATION_ID,
     status: 'running',
-  }), { runId: OPERATION_ID, status: 'running' });
+    approvalMode: 'auto',
+  }), { runId: OPERATION_ID, status: 'running', approvalMode: 'auto' });
   assert.throws(() => ActiveChatRepoAgentResponseSchema.parse({
     runId: OPERATION_ID,
     status: 'approval_timeout',
@@ -102,4 +109,61 @@ test('operation status and Stop contracts validate ownership without exposing it
     startedAtUtc: '2026-08-31T12:00:00.000Z',
   });
   assert.equal('operationId' in status, false);
+});
+
+test('approval mode is one shared enum', () => {
+  assert.deepEqual(ApprovalModeSchema.options, ['interactive', 'auto', 'off']);
+  assert.throws(() => ApprovalModeSchema.parse('manual'));
+});
+
+test('chat repo-agent stream requests require an approval mode', () => {
+  assert.throws(() => ChatRepoAgentStreamRequestSchema.parse({
+    content: 'update the repository',
+    repoRoot: 'C:\repo',
+    operationId: OPERATION_ID,
+  }));
+  assert.equal(
+    ChatRepoAgentStreamRequestSchema.parse({ content: 'x', approval: 'off', operationId: OPERATION_ID }).approval,
+    'off',
+  );
+});
+
+test('active repo-agent responses report the live approval mode', () => {
+  const running = ActiveChatRepoAgentResponseSchema.parse({
+    runId: OPERATION_ID, status: 'running', approvalMode: 'auto',
+  });
+  assert.equal(running.approvalMode, 'auto');
+  assert.throws(() => ActiveChatRepoAgentResponseSchema.parse({ runId: OPERATION_ID, status: 'running' }));
+  const parked = ActiveChatRepoAgentResponseSchema.parse({
+    runId: OPERATION_ID, status: 'approval_required', approvalMode: 'interactive',
+    approval: { approvalId: '4f9c1f9a-0000-4000-8000-000000000001', toolName: 'write', command: 'write x', reviewPayload: null },
+  });
+  assert.equal(parked.approvalMode, 'interactive');
+});
+
+test('decision and approval-mode responses carry the server timestamp', () => {
+  const decided = ChatRepoAgentDecideResponseSchema.parse({
+    ok: true, runId: OPERATION_ID, decidedAtUtc: '2026-09-04T00:00:00.000Z',
+  });
+  assert.equal(decided.decidedAtUtc, '2026-09-04T00:00:00.000Z');
+  assert.throws(() => ChatRepoAgentDecideResponseSchema.parse({ ok: true, runId: OPERATION_ID }));
+
+  assert.deepEqual(ChatRepoAgentApprovalModeRequestSchema.parse({ approval: 'off' }), { approval: 'off' });
+  assert.throws(() => ChatRepoAgentApprovalModeRequestSchema.parse({ approval: 'off', extra: 1 }));
+  const idle = ChatRepoAgentApprovalModeResponseSchema.parse({
+    ok: true, runId: OPERATION_ID, approval: 'off', released: null,
+  });
+  assert.equal(idle.released, null);
+  const released = ChatRepoAgentApprovalModeResponseSchema.parse({
+    ok: true, runId: OPERATION_ID, approval: 'off',
+    released: { approvalId: '4f9c1f9a-0000-4000-8000-000000000001', decidedAtUtc: '2026-09-04T00:00:00.000Z' },
+  });
+  assert.equal(released.released?.approvalId, '4f9c1f9a-0000-4000-8000-000000000001');
+  assert.throws(() => ChatRepoAgentApprovalModeResponseSchema.parse({ ok: true, runId: OPERATION_ID, approval: 'off' }));
+});
+
+test('the approval mode default and error text derive from the shared enum', () => {
+  assert.equal(DEFAULT_APPROVAL_MODE, 'auto');
+  assert.equal(ApprovalModeSchema.safeParse(DEFAULT_APPROVAL_MODE).success, true);
+  assert.equal(APPROVAL_MODE_ERROR, 'approval must be one of: interactive, auto, off.');
 });

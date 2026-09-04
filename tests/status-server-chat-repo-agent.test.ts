@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   ActiveChatRepoAgentResponseSchema,
+  ChatRepoAgentApprovalModeResponseSchema,
   ChatSessionResponseSchema,
   ChatStreamApprovalSchema,
   ChatStreamTextDeltaSchema,
@@ -234,6 +235,7 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   );
   assert.equal(decide.statusCode, 200);
   assert.equal(decide.body.runId, runId);
+  assert.match(String(decide.body.decidedAtUtc), /^\d{4}-\d{2}-\d{2}T/u);
 
   const response = await stream;
   assert.equal(response.statusCode, 200);
@@ -526,4 +528,164 @@ test('repo-agent operation stream omits thinking', async (t) => {
     0,
     `operation stream must not forward live-text frames, got: ${JSON.stringify(liveTextFrames)}`,
   );
+});
+
+test('chat repo-agent stream rejects a request without an approval mode', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-no-mode-', t);
+  const sessionId = await createSession(harness, 'No mode');
+  const response = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'write a file', repoRoot: process.cwd(), operationId: OPERATION_A,
+        mockResponses: repoAgentFinishResponses('never'), mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'approval must be one of: interactive, auto, off.');
+});
+
+test('approval-mode endpoint rejects sessions without an active run and invalid modes', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-mode-409-', t);
+  const sessionId = await createSession(harness, 'Mode without run');
+  const idle = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/approval-mode`,
+    { method: 'POST', body: JSON.stringify({ approval: 'off' }) },
+  );
+  assert.equal(idle.statusCode, 409);
+  const invalid = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/approval-mode`,
+    { method: 'POST', body: JSON.stringify({ approval: 'manual' }) },
+  );
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(invalid.body.error, 'approval must be one of: interactive, auto, off.');
+});
+
+test('switching a parked chat run to off approves the pending command and skips later approvals', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-switch-off-', t);
+  const sessionId = await createSession(harness, 'Switch to off');
+  const stream = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'write two files',
+        repoRoot: process.cwd(),
+        approval: 'interactive',
+        operationId: OPERATION_A,
+        maxTurns: 6,
+        mockResponses: [
+          { toolCalls: [{ name: 'write', arguments: { path: 'first.txt', content: 'one' } }] },
+          { toolCalls: [{ name: 'write', arguments: { path: 'second.txt', content: 'two' } }] },
+          ...repoAgentFinishResponses('wrote both'),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+  const active = await waitForApproval(harness, sessionId);
+  const parsedActive = ActiveChatRepoAgentResponseSchema.parse(active);
+  assert.equal(parsedActive.approvalMode, 'interactive');
+  assert.equal(parsedActive.status, 'approval_required');
+  const parkedApprovalId = parsedActive.status === 'approval_required' ? parsedActive.approval.approvalId : null;
+
+  const switched = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/approval-mode`,
+    { method: 'POST', body: JSON.stringify({ approval: 'off' }) },
+  );
+  assert.equal(switched.statusCode, 200);
+  const switchedBody = ChatRepoAgentApprovalModeResponseSchema.parse(switched.body);
+  assert.equal(switchedBody.approval, 'off');
+  assert.equal(switchedBody.released?.approvalId, parkedApprovalId);
+  assert.match(String(switchedBody.released?.decidedAtUtc), /^\d{4}-\d{2}-\d{2}T/u);
+
+  const response = await stream;
+  assert.equal(response.statusCode, 200);
+  // Exactly one approval frame: the second write ran under `off` without parking.
+  assert.equal(response.events.filter((event) => event.event === 'approval').length, 1);
+  const completed = readDoneResponse(response);
+  const approvals = completed.session.messages.filter((message) => message.kind === 'repo_agent_approval');
+  assert.equal(approvals.length, 1);
+  const approval = approvals[0];
+  assert.equal(approval?.kind === 'repo_agent_approval' ? approval.approvalDecision : null, 'approve');
+  assert.equal(completed.session.messages.at(-1)?.content.includes('wrote both'), true);
+});
+
+test('active endpoint reports the live mode and a running chat run switches modes without parking', async (t) => {
+  const gate = new EngineGate();
+  const harness = await startHarness('siftkit-chat-repo-agent-mode-running-', t, {
+    engineService: new GatedEngineService(gate),
+  });
+  const sessionId = await createSession(harness, 'Mode while running');
+  const stream = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'hold generation', repoRoot: process.cwd(), approval: 'auto', operationId: OPERATION_A,
+        mockResponses: repoAgentFinishResponses('held then done'), mockCommandResults: {},
+      }),
+    },
+  );
+  await waitForRunStatus(harness, sessionId, 'running');
+  const before = ActiveChatRepoAgentResponseSchema.parse(
+    (await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`)).body,
+  );
+  assert.equal(before.approvalMode, 'auto');
+  const switched = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/approval-mode`,
+    { method: 'POST', body: JSON.stringify({ approval: 'interactive' }) },
+  );
+  assert.equal(switched.statusCode, 200);
+  assert.equal(ChatRepoAgentApprovalModeResponseSchema.parse(switched.body).released, null);
+  const after = ActiveChatRepoAgentResponseSchema.parse(
+    (await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`)).body,
+  );
+  assert.equal(after.approvalMode, 'interactive');
+  gate.release();
+  const response = await stream;
+  assert.equal(response.statusCode, 200);
+  assert.equal(readDoneResponse(response).session.messages.filter((m) => m.kind === 'repo_agent_approval').length, 0);
+});
+
+test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame instead of ending the stream', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-auto-unsure-', t);
+  const sessionId = await createSession(harness, 'Auto unsure');
+  const stream = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'write a file',
+        repoRoot: process.cwd(),
+        approval: 'auto',
+        operationId: OPERATION_A,
+        maxTurns: 4,
+        mockResponses: [
+          { toolCalls: [{ name: 'write', arguments: { path: 'unsure.txt', content: 'x' } }] },
+          { content: '{"verdict":"unsure","reason":"cannot judge"}' },
+          ...repoAgentFinishResponses('escalated and approved'),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+  const active = ActiveChatRepoAgentResponseSchema.parse(await waitForApproval(harness, sessionId));
+  assert.equal(active.status, 'approval_required');
+  assert.equal(active.approvalMode, 'auto');
+  const decide = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/decide`,
+    { method: 'POST', body: JSON.stringify({ decision: 'approve' }) },
+  );
+  assert.equal(decide.statusCode, 200);
+  const response = await stream;
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.events.some((event) => event.event === 'approval'), true);
+  assert.equal(response.events.some((event) => event.event === 'error'), false);
+  assert.equal(readDoneResponse(response).session.messages.at(-1)?.content.includes('escalated and approved'), true);
 });

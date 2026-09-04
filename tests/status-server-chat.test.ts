@@ -16,6 +16,7 @@ import {
   resolveChatSessionConfig,
   sessionUsesActiveModelPreset,
 } from '../src/status-server/chat.js';
+import { buildChatSessionResponse } from '../src/status-server/routes/chat.js';
 import {
   getActiveModelPreset,
   getConfiguredLlamaNumCtx,
@@ -83,7 +84,7 @@ function mockChatSession(session: object): ChatSession {
       content,
     });
   });
-  return ChatSessionSchema.parse({ modelPresetId: 'default', ...parsed, messages });
+  return ChatSessionSchema.parse({ modelPresetId: 'default', planRepoRoot: process.cwd(), ...parsed, messages });
 }
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
@@ -666,6 +667,7 @@ test('buildContextUsage estimates continuation context from session content inst
     id: 'session-usage',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed.gguf', NumCtx: 75000 }),
+    planRepoRoot: 'C:/repo',
     messages: [
       {
         id: 'user-1',
@@ -1024,6 +1026,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     id: 'session-replay-usage',
     modelPresetId: 'historical-preset',
     modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 62000 }),
+    planRepoRoot: 'C:/repo',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
       {
@@ -1378,4 +1381,13 @@ test('buildContextUsage counts persisted image tokens', () => {
   assert.equal(withImages.imageUsedTokens, 1024);
   assert.equal(withImages.chatUsedTokens, withoutImages.chatUsedTokens + 1024);
   assert.equal(withImages.totalUsedTokens, withoutImages.totalUsedTokens + 1024);
+});
+
+test('buildChatSessionResponse mirrors the stored repo root onto the wire session', () => {
+  const config = createConfig();
+  const session = createSession();
+
+  const response = buildChatSessionResponse(config, mockChatSession({ ...session, planRepoRoot: 'C:/srv/pinned' }));
+
+  assert.equal(response.session.planRepoRoot, 'C:/srv/pinned');
 });

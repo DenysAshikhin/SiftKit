@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ApprovalMode } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { getAbortError } from '../../lib/abort.js';
 import { ServerLogger, serverLogger, shortenRequestId } from '../../status-server/server-logger.js';
@@ -27,9 +28,6 @@ export type RepoSearchApprovalRequest = z.infer<typeof RepoSearchApprovalRequest
 
 export const RepoSearchApprovalResultSchema = z.object({ accepted: z.literal(true) });
 export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSchema>;
-
-export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
-export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 
 export type HumanApprovalRequestInput = {
   turn: number;
@@ -68,6 +66,11 @@ export type ApprovalRequester = {
 
 export type HumanApprovalRequester = {
   request(input: HumanApprovalRequestInput): Promise<ApprovalDecision>;
+};
+
+/** Something whose approval mode can change while a run executes; read on every tool call. */
+export type LiveApprovalMode = {
+  readonly mode: ApprovalMode;
 };
 
 export type ApprovalDecision =
@@ -138,11 +141,13 @@ export class ApprovalGate {
   private readonly decisionTimeoutMs: number;
   private readonly logger: ServerLogger;
   private readonly observer: ApprovalGateObserver | undefined;
+  private currentMode: ApprovalMode;
 
   constructor(options: {
     requestId: string;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     abortSignal: AbortSignal;
+    mode: ApprovalMode;
     bypassReadOnlyTools: boolean;
     decisionTimeoutMs?: number;
     logger?: ServerLogger;
@@ -152,12 +157,22 @@ export class ApprovalGate {
     this.requestId = options.requestId;
     this.progressWriter = options.progressWriter;
     this.abortSignal = options.abortSignal;
+    this.currentMode = options.mode;
     this.bypassReadOnlyTools = options.bypassReadOnlyTools;
     this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
     this.observer = options.observer;
     if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
       throw new Error('Approval decision timeout must be a positive number of milliseconds.');
     }
+  }
+
+  get mode(): ApprovalMode {
+    return this.currentMode;
+  }
+
+  /** Takes effect on the next request; a parked approval keeps waiting for submit(). */
+  setMode(mode: ApprovalMode): void {
+    this.currentMode = mode;
   }
 
   getRequestId(): string {

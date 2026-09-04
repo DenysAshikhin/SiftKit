@@ -26,7 +26,7 @@ class FailingWriter extends CollectingWriter {
 
 test('request emits approval_request and resolves with the submitted decision', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const humanGate: HumanApprovalRequester = gate;
   const pending = humanGate.request({
     turn: 2,
@@ -48,7 +48,7 @@ test('request emits approval_request and resolves with the submitted decision', 
 
 test('deny decision carries its reason', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'git',
@@ -61,7 +61,7 @@ test('deny decision carries its reason', async () => {
 
 test('unknown or already-resolved approvalId returns false', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   assert.equal(gate.submit('nope', { kind: 'approve' }), false);
   const pending = gate.request({
     turn: 1,
@@ -77,7 +77,7 @@ test('unknown or already-resolved approvalId returns false', async () => {
 
 test('pending approval remains live until an explicit decision', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'write',
@@ -102,7 +102,7 @@ test('the decision timeout matches the ten minutes the repo-agent prompter waits
 test('an unanswered approval aborts the run once the decision timeout elapses', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'git',
@@ -123,7 +123,7 @@ test('an unanswered approval aborts the run once the decision timeout elapses', 
 test('a submitted decision cancels the pending timeout', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'write',
@@ -140,7 +140,7 @@ test('a submitted decision cancels the pending timeout', async (t) => {
 test('approval publication failure clears the pending approval and timeout', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new FailingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'write',
@@ -157,7 +157,7 @@ test('approval publication failure clears the pending approval and timeout', asy
 test('abort clears the timeout so it cannot resolve an already-rejected approval', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const pending = harness.gate.request({
     turn: 1,
     toolName: 'write',
@@ -174,7 +174,7 @@ test('abort clears the timeout so it cannot resolve an already-rejected approval
 
 test('abort rejects every pending approval and makes their IDs stale', async () => {
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const first = harness.gate.request({
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
   });
@@ -194,7 +194,7 @@ test('abort rejects every pending approval and makes their IDs stale', async () 
 
 test('an already-aborted signal rejects without emitting approval_request', async () => {
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   harness.controller.abort(new Error('stream already closed'));
   await assert.rejects(
     harness.gate.request({
@@ -207,7 +207,7 @@ test('an already-aborted signal rejects without emitting approval_request', asyn
 
 test('submission removes abort handling from the resolved approval', async () => {
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const pending = harness.gate.request({
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
   });
@@ -221,7 +221,7 @@ test('submission removes abort handling from the resolved approval', async () =>
 
 test('read-only bypass still approves when the signal is already aborted', async () => {
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer, true);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive', bypassReadOnlyTools: true });
   harness.controller.abort(new Error('closed'));
   assert.deepEqual(await harness.gate.request({
     turn: 1, toolName: 'read', command: 'read path=a.ts', reviewPayload: null,
@@ -232,7 +232,7 @@ test('read-only bypass still approves when the signal is already aborted', async
 for (const toolName of ['read', 'grep', 'find', 'ls']) {
   test(`bypassReadOnlyTools: true — ${toolName} returns approve immediately with no event`, async () => {
     const writer = new CollectingWriter();
-    const gate = new ApprovalGateHarness(writer, true).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive', bypassReadOnlyTools: true }).gate;
     const decision = gate.request({
       turn: 1,
       toolName,
@@ -254,7 +254,7 @@ for (const { toolName, command } of [
 ]) {
   test(`bypassReadOnlyTools: true — ${toolName} still emits approval_request`, async () => {
     const writer = new CollectingWriter();
-    const gate = new ApprovalGateHarness(writer, true).gate;
+    const gate = new ApprovalGateHarness(writer, { mode: 'interactive', bypassReadOnlyTools: true }).gate;
     const pending = gate.request({
       turn: 1,
       toolName,
@@ -270,7 +270,7 @@ for (const { toolName, command } of [
 
 test('manual approval event carries the transient review payload but the decision does not', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGateHarness(writer).gate;
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
   const reviewPayload = '{\n  "content": "manual-review-sentinel"\n}';
   const pending = gate.request({
     turn: 1,
@@ -289,7 +289,7 @@ test('manual approval event carries the transient review payload but the decisio
 
 test('the gate logs a park line and a decision line around an approval wait', async () => {
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const pending = harness.gate.request({
     turn: 3,
     toolName: 'write',
@@ -315,7 +315,7 @@ test('the gate logs a park line and a decision line around an approval wait', as
 test('an expired approval logs approval_timeout', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new CollectingWriter();
-  const harness = new ApprovalGateHarness(writer);
+  const harness = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const pending = harness.gate.request({
     turn: 1, toolName: 'run', command: 'npm test', reviewPayload: null,
   });
@@ -329,7 +329,7 @@ test('an expired approval logs approval_timeout', async (t) => {
 
 test('a client disconnect while parked logs approval_abandoned, an immediate abort logs nothing', async () => {
   const writer = new CollectingWriter();
-  const parked = new ApprovalGateHarness(writer);
+  const parked = new ApprovalGateHarness(writer, { mode: 'interactive' });
   const pending = parked.gate.request({
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
   });
@@ -338,7 +338,7 @@ test('a client disconnect while parked logs approval_abandoned, an immediate abo
   assert.equal(parked.logLines.length, 2);
   assert.match(parked.logLines[1], /approval_abandoned/u);
 
-  const preAborted = new ApprovalGateHarness(new CollectingWriter());
+  const preAborted = new ApprovalGateHarness(new CollectingWriter(), { mode: 'interactive' });
   preAborted.controller.abort(new Error('stream already closed'));
   await assert.rejects(preAborted.gate.request({
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
@@ -379,6 +379,7 @@ test('observer.onDecision fires with the submitted decision', async () => {
     requestId: 'req-observer-1',
     progressWriter: writer,
     abortSignal: controller.signal,
+    mode: 'interactive',
     bypassReadOnlyTools: false,
     observer,
   });
@@ -399,6 +400,7 @@ test('observer.onTimeout fires when the decision timer expires', async () => {
     requestId: 'req-observer-2',
     progressWriter: writer,
     abortSignal: controller.signal,
+    mode: 'interactive',
     bypassReadOnlyTools: false,
     decisionTimeoutMs: 25,
     observer,
@@ -415,6 +417,7 @@ test('an onDecision observer failure aborts instead of leaving the request unset
     requestId: 'req-observer-decision-failure',
     progressWriter: writer,
     abortSignal: new AbortController().signal,
+    mode: 'interactive',
     bypassReadOnlyTools: false,
     observer: new ThrowingObserver('decision'),
   });
@@ -434,6 +437,7 @@ test('an onTimeout observer failure aborts instead of throwing from the timer', 
     requestId: 'req-observer-timeout-failure',
     progressWriter: new CollectingWriter(),
     abortSignal: new AbortController().signal,
+    mode: 'interactive',
     bypassReadOnlyTools: false,
     decisionTimeoutMs: 25,
     observer: new ThrowingObserver('timeout'),
@@ -448,4 +452,24 @@ test('an onTimeout observer failure aborts instead of throwing from the timer', 
     kind: 'abort',
     reason: 'Approval observer failed: timeout observer failed',
   });
+});
+
+test('gate exposes its live mode and setMode replaces it', () => {
+  const gate = new ApprovalGateHarness(new CollectingWriter(), { mode: 'interactive' }).gate;
+  assert.equal(gate.mode, 'interactive');
+  gate.setMode('off');
+  assert.equal(gate.mode, 'off');
+  gate.setMode('auto');
+  assert.equal(gate.mode, 'auto');
+});
+
+test('setMode does not settle a parked approval by itself', async () => {
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
+  const pending = gate.request({ turn: 1, toolName: 'write', command: 'write x', reviewPayload: null });
+  gate.setMode('off');
+  const settled = await Promise.race([pending.then(() => true), delay(20).then(() => false)]);
+  assert.equal(settled, false);
+  gate.submit(writer.approvals[0].approvalId, { kind: 'approve' });
+  assert.deepEqual(await pending, { kind: 'approve' });
 });
