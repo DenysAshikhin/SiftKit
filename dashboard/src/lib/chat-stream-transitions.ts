@@ -35,6 +35,8 @@ export async function* toRuntimeTransitions(
         yield { kind: 'approval', sessionId, approval: event.approval };
       } else if (event.kind === 'answer') {
         yield { kind: 'answer', sessionId, delta: event.delta };
+      } else if (event.kind === 'usage') {
+        yield { kind: 'usage', sessionId, usage: event.usage };
       } else if (event.kind === 'done') {
         if (event.payload.session.id !== sessionId) {
           throw new Error(

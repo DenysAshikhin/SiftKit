@@ -42,6 +42,7 @@ test('interactive CLI prompts on approval_request and POSTs the decision', async
             transcriptPath: 'C:\\tmp\\t.jsonl',
             artifactPath: 'C:\\tmp\\a.json',
             scorecard: buildMockScorecard('interactive done'),
+            turnRecords: [],
           };
           res.write(`event: result\ndata: ${JSON.stringify(result)}\n\n`);
           res.end();

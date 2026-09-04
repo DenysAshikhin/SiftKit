@@ -38,6 +38,29 @@ function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   });
 }
 
+function makeCollectingSynthesizer(
+  tokenUsage: TokenUsageTracker,
+  progressEvents: RepoSearchProgressEvent[],
+): TerminalSynthesizer {
+  return new TerminalSynthesizer({
+    baseUrl: 'http://127.0.0.1:9', // never contacted in mock mode
+    model: 'mock-model',
+    timeoutMs: 1_000,
+    config: mockOfflineSiftConfig(),
+    useEstimatedTokensOnly: true,
+    totalContextTokens: 32_000,
+    streamFinishAsAnswer: false,
+    logger: null,
+    progress: new ProgressReporter({
+      progressWriter: new CollectingProgressWriter(progressEvents),
+      taskId: 't1',
+      maxTurns: 45,
+      taskStartedAt: Date.now(),
+    }),
+    tokenUsage,
+  });
+}
+
 function makeStreamingSynthesizer(options: {
   tokenUsage: TokenUsageTracker;
   baseUrl: string;
@@ -266,4 +289,21 @@ test('synthesize retries provider errors and records terminal synthesis failure'
   } finally {
     await closeServer(server);
   }
+});
+
+test('terminal synthesis publishes its own usage frame', async () => {
+  const tokenUsage = new TokenUsageTracker(undefined);
+  const progressEvents: RepoSearchProgressEvent[] = [];
+  const synthesizer = makeCollectingSynthesizer(tokenUsage, progressEvents);
+  const input = synthesisInput();
+  await synthesizer.synthesize({ ...input, mockResponses: [{ content: 'synthesized answer' }] });
+
+  // Synthesis is its own turn; without a frame for it the span is measured and never published.
+  const synthesisTurn = input.turnsUsed + 1;
+  const usage = progressEvents.find((event) => event.kind === 'usage');
+  assert.ok(usage, 'terminal synthesis must publish a usage frame');
+  assert.equal(usage.kind, 'usage');
+  assert.equal(usage.turn, synthesisTurn);
+  assert.equal(usage.record.turn, synthesisTurn);
+  assert.ok(usage.record.outputTokens > 0);
 });

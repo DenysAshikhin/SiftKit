@@ -4,6 +4,7 @@ import {
   finalizeStoppedChatTranscript,
   reduceChatTranscript,
   type ChatTranscriptMessage,
+  type ChatStreamUsageEvent,
   type ChatTranscriptMetadata,
 } from '@siftkit/contracts';
 
@@ -167,4 +168,90 @@ test('stopped transcript finalization rejects multiple answer rows', () => {
     () => finalizeStoppedChatTranscript(messages, '*Stopped by user.*', metadata),
     /multiple answer rows/u,
   );
+});
+
+test('a usage frame refuses to fold the run total onto more than one answer row', () => {
+  let messages: ChatTranscriptMessage[] = [];
+  messages = reduceChatTranscript(messages, {
+    kind: 'answer',
+    delta: { turn: 1, offset: 0, text: 'first' },
+  }, metadata);
+  messages = reduceChatTranscript(messages, {
+    kind: 'answer',
+    delta: { turn: 2, offset: 0, text: 'second' },
+  }, metadata);
+
+  assert.throws(
+    () => reduceChatTranscript(messages, { kind: 'usage', usage: usageFrameForTurn(2, 10, 60) }, metadata),
+    /multiple answer rows/u,
+  );
+});
+
+function usageFrameForTurn(turn: number, thinkingTokens: number, outputTokens: number): ChatStreamUsageEvent {
+  return {
+    turn,
+    maxTurns: 20,
+    record: {
+      turn,
+      promptTokens: 500,
+      thinkingTokens,
+      outputTokens,
+      toolTokens: 0,
+      generatedChars: 480,
+      thinkingTokensEstimated: false,
+      outputTokensEstimated: false,
+    },
+    totals: {
+      promptTokens: 500,
+      thinkingTokens,
+      outputTokens,
+      toolTokens: 0,
+      thinkingTokensEstimatedCount: 0,
+      outputTokensEstimatedCount: 0,
+    },
+    charsPerToken: 4,
+  };
+}
+
+test('a live thinking row carries no self-derived token estimate', () => {
+  const messages = reduceChatTranscript([], {
+    kind: 'thinking',
+    delta: { turn: 1, offset: 0, text: 'x'.repeat(400) },
+  }, metadata);
+  assert.equal(messages[0]?.thinkingTokens, 0);
+  assert.equal(messages[0]?.thinkingTokensEstimated, false);
+});
+
+test('a live answer row carries no self-derived token estimate', () => {
+  const messages = reduceChatTranscript([], {
+    kind: 'answer',
+    delta: { turn: 1, offset: 0, text: 'y'.repeat(400) },
+  }, metadata);
+  assert.equal(messages[0]?.outputTokensEstimate, 0);
+  assert.equal(messages[0]?.outputTokensEstimated, false);
+});
+
+test('a usage frame snaps the turn rows to the engine-measured counts', () => {
+  const usageFrame = usageFrameForTurn(2, 95, 60);
+  const streamed = reduceChatTranscript(
+    reduceChatTranscript([], { kind: 'thinking', delta: { turn: 2, offset: 0, text: 'reasoning' } }, metadata),
+    { kind: 'answer', delta: { turn: 2, offset: 0, text: 'the answer' } },
+    metadata,
+  );
+  const settled = reduceChatTranscript(streamed, { kind: 'usage', usage: usageFrame }, metadata);
+  const thinking = settled.find((message) => message.kind === 'assistant_thinking');
+  const answer = settled.find((message) => message.kind === 'assistant_answer');
+  assert.equal(thinking?.thinkingTokens, usageFrame.record.thinkingTokens);
+  assert.equal(answer?.outputTokensEstimate, usageFrame.totals.outputTokens);
+});
+
+test('a usage frame for another turn leaves that turn thinking row alone', () => {
+  const streamed = reduceChatTranscript(
+    reduceChatTranscript([], { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'first reasoning' } }, metadata),
+    { kind: 'thinking', delta: { turn: 2, offset: 0, text: 'second reasoning' } },
+    metadata,
+  );
+  const settled = reduceChatTranscript(streamed, { kind: 'usage', usage: usageFrameForTurn(2, 95, 60) }, metadata);
+  assert.equal(settled.find((message) => message.id === 'test-thinking-1')?.thinkingTokens, 0);
+  assert.equal(settled.find((message) => message.id === 'test-thinking-2')?.thinkingTokens, 95);
 });

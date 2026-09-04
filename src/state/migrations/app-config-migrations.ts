@@ -30,6 +30,14 @@ const IdleActionMigrationBenchmarkCaseRowSchema = z.object({ id: z.string(), man
 const MaxTokensMigrationConfigRowSchema = z.object({ presets_json: z.string() });
 const MaxTokensMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string() });
 const MaxTokensMigrationMetadataRowSchema = z.object({ value: z.string() });
+const PerRowTokensMigrationAnswerRowSchema = z.object({
+  session_id: z.string(),
+  id: z.string(),
+  thinking_tokens: z.number(),
+  position: z.number(),
+});
+const PerRowTokensMigrationThinkingRowSchema = z.object({ id: z.string() });
+const PerRowTokensMigrationThinkingCountRowSchema = z.object({ thinkingRowCount: z.number() });
 
 const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
   'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
@@ -681,4 +689,47 @@ export function migrateActiveStateRemoveMaxTokens(database: RuntimeDatabase): vo
       `).run(migratedLaunchJson);
     }
   })();
+}
+
+/**
+ * Per-row token accounting: the answer row no longer carries a run-wide thinking aggregate,
+ * and tool tokens are read from the tool rows that own them instead of a denormalized column.
+ */
+export function migrateChatMessagesToPerRowTokens(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'chat_messages')) {
+    return;
+  }
+  if (tableHasColumn(database, 'chat_messages', 'associated_tool_tokens')) {
+    const answerRows = z.array(PerRowTokensMigrationAnswerRowSchema).parse(database.prepare(`
+      SELECT session_id, id, thinking_tokens, position
+      FROM chat_messages
+      WHERE kind = 'assistant_answer' AND thinking_tokens > 0
+    `).all());
+    const findLatestThinking = database.prepare(`
+      SELECT id FROM chat_messages
+      WHERE session_id = ? AND kind = 'assistant_thinking' AND position < ?
+      ORDER BY position DESC LIMIT 1
+    `);
+    const countThinking = database.prepare(`
+      SELECT COUNT(*) AS thinkingRowCount FROM chat_messages
+      WHERE session_id = ? AND kind = 'assistant_thinking' AND position < ?
+    `);
+    const setThinking = database.prepare('UPDATE chat_messages SET thinking_tokens = ? WHERE id = ?');
+    for (const answer of answerRows) {
+      const counted = PerRowTokensMigrationThinkingCountRowSchema.parse(
+        countThinking.get(answer.session_id, answer.position),
+      );
+      // Exactly one surviving thinking row means retention pruned the rest, so that row must
+      // absorb the aggregate or the tokens are lost. More than one means the step rows are
+      // already complete and the aggregate is pure duplication.
+      if (counted.thinkingRowCount === 1) {
+        const latest = PerRowTokensMigrationThinkingRowSchema.parse(
+          findLatestThinking.get(answer.session_id, answer.position),
+        );
+        setThinking.run(answer.thinking_tokens, latest.id);
+      }
+      setThinking.run(0, answer.id);
+    }
+    database.exec('ALTER TABLE chat_messages DROP COLUMN associated_tool_tokens;');
+  }
 }

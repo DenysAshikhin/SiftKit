@@ -12,6 +12,7 @@ function makeResult(finalOutput: string): RepoSearchExecutionResult {
     transcriptPath: '/tmp/transcript.jsonl',
     artifactPath: '/tmp/artifact.json',
     scorecard: buildMockScorecard(finalOutput),
+    turnRecords: [],
   };
 }
 
@@ -35,6 +36,7 @@ function makeMultiTaskResult(outputs: string[]): RepoSearchExecutionResult {
     transcriptPath: '/tmp/transcript.jsonl',
     artifactPath: '/tmp/artifact.json',
     scorecard,
+    turnRecords: [],
   };
 }
 

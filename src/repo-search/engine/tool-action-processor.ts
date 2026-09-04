@@ -1076,7 +1076,8 @@ export class ToolActionProcessor {
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
-    tokenUsage.addToolTokens(resultTokenCount);
+    tokenUsage.addToolTokens(resultTokenCount, turn);
+    progress.usageForTurn(turn, tokenUsage.turnRecords());
 
     const imageDataUrls = nativeExecution && nativeExecution.ok && nativeExecution.imageDataUrl
       ? [nativeExecution.imageDataUrl]

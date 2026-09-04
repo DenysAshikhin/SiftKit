@@ -156,6 +156,28 @@ test('narration events always become narration transitions', async () => {
   assert.deepEqual(await collectKinds(narrationStream(), 'plan', false), ['begin', 'narration', 'done']);
 });
 
+test('usage events become session-scoped usage transitions', async () => {
+  const usage = {
+    turn: 1, maxTurns: 20,
+    record: {
+      turn: 1, promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40,
+      generatedChars: 320, thinkingTokensEstimated: false, outputTokensEstimated: false,
+    },
+    totals: {
+      promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40,
+      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
+    },
+    charsPerToken: 4,
+  };
+  async function* usageStream(): AsyncGenerator<ChatStreamEvent> {
+    yield { kind: 'usage', usage };
+    yield { kind: 'done', payload: response('session-a') };
+  }
+  const transitions = await collect(usageStream(), 'repo-search', true);
+  assert.deepEqual(transitions.map((entry) => entry.kind), ['begin', 'usage', 'done']);
+  assert.deepEqual(transitions[1], { kind: 'usage', sessionId: 'session-a', usage });
+});
+
 test('approval events become session-scoped approval transitions', async () => {
   async function* approvalStream(): AsyncGenerator<ChatStreamEvent> {
     yield {

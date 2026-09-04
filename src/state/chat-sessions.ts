@@ -96,7 +96,6 @@ const MessageRowSchema = z.object({
   answer_ended_at_utc: z.string().nullable(),
   speculative_accepted_tokens: z.number().nullable(),
   speculative_generated_tokens: z.number().nullable(),
-  associated_tool_tokens: z.number().nullable(),
   thinking_content: z.string().nullable(),
   tool_call_command: z.string().nullable(),
   tool_call_activity_kind: z.string().nullable(),
@@ -221,7 +220,6 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     answerEndedAtUtc: row.answer_ended_at_utc,
     speculativeAcceptedTokens: row.speculative_accepted_tokens,
     speculativeGeneratedTokens: row.speculative_generated_tokens,
-    associatedToolTokens: row.associated_tool_tokens,
     thinkingContent: row.thinking_content,
     toolCallCommand: row.tool_call_command,
     toolCallActivityKind: kind === 'assistant_tool_call'
@@ -349,7 +347,6 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       answer_ended_at_utc,
       speculative_accepted_tokens,
       speculative_generated_tokens,
-      associated_tool_tokens,
       thinking_content,
       tool_call_command,
       tool_call_activity_kind,
@@ -656,7 +653,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         answer_ended_at_utc,
         speculative_accepted_tokens,
         speculative_generated_tokens,
-        associated_tool_tokens,
         thinking_content,
         tool_call_command,
         tool_call_activity_kind,
@@ -686,7 +682,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
@@ -723,7 +719,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
         toNullableNonNegativeInteger(message.speculativeAcceptedTokens),
         toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
-        toNullableNonNegativeInteger(message.associatedToolTokens),
         typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
         typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
         messageKind === 'assistant_tool_call'

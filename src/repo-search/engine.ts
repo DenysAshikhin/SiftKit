@@ -20,6 +20,7 @@ import {
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
 import { TaskResultSchema, taskPassed } from './engine/task-loop-support.js';
+import type { TurnTokenRecord } from './engine/turn-token-record.js';
 import type { ApprovalGate } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -157,7 +158,7 @@ export async function runRepoSearch(options: {
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
   timingRecorder?: TemporaryTimingRecorder | null;
-}): Promise<Scorecard> {
+}): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
     throw new Error('runRepoSearch taskPrompt is required.');
@@ -200,10 +201,11 @@ export async function runRepoSearch(options: {
   }];
 
   const tasks: TaskResult[] = [];
+  const turnRecords: TurnTokenRecord[] = [];
 
   for (const task of tasksToRun) {
     throwIfAborted(options.abortSignal);
-    const result = await runTaskLoop(task, {
+    const loop = new TaskLoop(task, {
       repoRoot,
       model,
       baseUrl,
@@ -230,10 +232,12 @@ export async function runRepoSearch(options: {
       approvalGate: options.approvalGate,
       timingRecorder: options.timingRecorder || null,
     });
+    const result = await loop.run();
     tasks.push(result);
+    turnRecords.push(...loop.turnTokenRecords());
   }
 
   const scorecard = buildScorecard({ runId: randomUUID(), model, tasks });
   options.logger?.write({ kind: 'run_done', scorecard });
-  return scorecard;
+  return { scorecard, turnRecords };
 }

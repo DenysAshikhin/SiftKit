@@ -209,6 +209,11 @@ export class TranscriptCompactor {
   }> {
     let mockResponseIndex = input.mockResponseIndex;
     let lastErrorMessage = '';
+    // Compaction is part of preparing the turn that overflowed, so its cost belongs to that
+    // turn's record. The manual condense path has no planner turn and no token consumer:
+    // its tracker is constructed for the single call and discarded, so there is nothing to
+    // attribute and no row that could disagree.
+    const summaryTurn = input.turn;
     for (let attempt = 1; attempt <= COMPACTION_SUMMARY_ATTEMPTS; attempt += 1) {
       const startedAt = Date.now();
       try {
@@ -231,8 +236,10 @@ export class TranscriptCompactor {
         if (typeof response.nextMockResponseIndex === 'number') {
           mockResponseIndex = response.nextMockResponseIndex;
         }
-        const resolved = await this.options.tokenUsage.recordModelResponse(response, 0);
-        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
+        if (summaryTurn !== null) {
+          const resolved = await this.options.tokenUsage.recordModelResponse(response, 0, summaryTurn);
+          this.options.tokenUsage.addOutputTokens(resolved.completionTokens, summaryTurn, resolved.completionTokensEstimated);
+        }
         const summaryText = String(response.text || '').trim();
         if (!response.mockExhausted && summaryText) {
           return {

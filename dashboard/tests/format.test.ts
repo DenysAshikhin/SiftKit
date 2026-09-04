@@ -28,7 +28,7 @@ function tokenMessage(overrides: Partial<ChatMessage>): ChatMessage {
   };
 }
 
-test('live bubble token labels expose provisional text, tool, image, and empty counts', () => {
+test('live bubble token labels surface the row token fields and image tokens without estimating text', () => {
   const user = tokenMessage({ role: 'user', kind: 'user_text', content: '12345678' });
   const thinking = tokenMessage({
     kind: 'assistant_thinking', content: '12345678', thinkingTokens: 2, thinkingTokensEstimated: true,
@@ -50,25 +50,24 @@ test('live bubble token labels expose provisional text, tool, image, and empty c
     }],
   });
 
-  assert.deepEqual(getLiveMessageTokenDisplay(user), { tokenCount: 2, exact: false, imageTokens: 0 });
-  assert.equal(formatLiveMessageTokenLabel(user), '~2 tokens');
+  assert.deepEqual(getLiveMessageTokenDisplay(user), { tokenCount: 0, exact: true, imageTokens: 0 });
+  assert.equal(formatLiveMessageTokenLabel(user), '0 tokens');
   assert.equal(formatLiveMessageTokenLabel(thinking), '~2 tokens');
-  assert.equal(formatLiveMessageTokenLabel(tool), '~7 tokens');
+  assert.equal(formatLiveMessageTokenLabel(tool), '5 tokens');
   assert.equal(formatLiveMessageTokenLabel(image), '1,024 image tokens');
   assert.equal(formatLiveMessageTokenLabel(tokenMessage({})), '0 tokens');
 });
 
-test('settled outer turn tokens use aggregate answer telemetry without re-adding inner generation', () => {
+test('settled turn tokens sum every row token field once and ignore the removed answer-row aggregate', () => {
   const messages = [
     tokenMessage({ id: 'thinking', kind: 'assistant_thinking', content: 'thinking', thinkingTokens: 10 }),
     tokenMessage({ id: 'narration', kind: 'assistant_narration', content: 'narration', outputTokensEstimate: 5 }),
     tokenMessage({
       id: 'tool', kind: 'assistant_tool_call', content: 'run tool', toolCallCommand: 'run tool',
-      outputTokensEstimate: 20, associatedToolTokens: 20,
+      outputTokensEstimate: 20,
     }),
     tokenMessage({
       id: 'answer', content: 'answer', inputTokensEstimate: 99, outputTokensEstimate: 40, thinkingTokens: 10,
-      associatedToolTokens: 20,
     }),
   ];
   const turn = {
@@ -76,7 +75,7 @@ test('settled outer turn tokens use aggregate answer telemetry without re-adding
     recentActivities: [], showRecentActivity: false, main: messages[3] ?? null,
   } satisfies ChatTurn;
 
-  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 70, exact: true });
+  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 184, exact: true });
 });
 
 test('live outer turn tokens sum each provisional bubble once', () => {

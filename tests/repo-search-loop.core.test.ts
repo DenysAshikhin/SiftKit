@@ -89,7 +89,7 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
 });
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
-  const scorecard = await runRepoSearch({
+  const { scorecard } = await runRepoSearch({
                                           plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
@@ -118,7 +118,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 
 test('repo-search executes a native web_search tool when allowed', async () => {
   const events: RepoSearchProgressEvent[] = [];
-  const scorecard = await runRepoSearch({
+  const { scorecard } = await runRepoSearch({
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',

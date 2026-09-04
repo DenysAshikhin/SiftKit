@@ -65,6 +65,7 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   buildRetainedWebToolCalls,
 } from '../chat.js';
+import type { TurnTokenRecord } from '../../repo-search/engine/turn-token-record.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
 import { ChatMemorySeam } from '../chat-memory-seam.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
@@ -73,7 +74,7 @@ import {
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
 } from '../chat-route-request-normalizers.js';
-import { normalizeRepoSearchScorecard, type RepoSearchTotals } from '../repo-search-scorecard-types.js';
+import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
 import {
   type ChatSession,
   readChatSessionFromPath,
@@ -183,6 +184,19 @@ function forwardRepoSearchToolEvent(
   }
 }
 
+export function forwardRepoSearchUsageEvent(
+  writer: Pick<SseResponseWriter, 'writeEvent'>,
+  event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
+): void {
+  writer.writeEvent('usage', {
+    turn: event.turn,
+    maxTurns: event.maxTurns,
+    record: event.record,
+    totals: event.totals,
+    charsPerToken: event.charsPerToken,
+  });
+}
+
 function toChatStreamToolEvent(
   event: Extract<RepoSearchProgressEvent, { kind: 'tool_start' | 'tool_result' }>,
 ): ChatStreamToolEvent {
@@ -243,11 +257,6 @@ export function buildChatSessionResponse(config: SiftConfig, session: ChatSessio
     session: toWireChatSession(config, withPromptContext(config, session)),
     contextUsage: buildContextUsage(config, session),
   };
-}
-
-function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof RepoSearchTotals): boolean {
-  const count = getScorecardTotal(scorecard, key);
-  return count !== null && count > 0;
 }
 
 function admitSelectedChatImages(
@@ -410,6 +419,10 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
         text: event.progressText,
         elapsedMs: event.elapsedMs,
       });
+      return;
+    }
+    if (event.kind === 'usage') {
+      forwardRepoSearchUsageEvent(this.writer, event);
       return;
     }
     if (event.kind !== 'tool_start' && event.kind !== 'tool_result') {
@@ -811,6 +824,7 @@ type ChatTurnContent = {
   assistantContent: string;
   usage: Partial<ChatUsage>;
   persistTurns: PersistTurn[];
+  turnRecords: TurnTokenRecord[];
   sourceRunId: string | null;
   compactionSummary: string;
 };
@@ -902,16 +916,13 @@ class ChatMessageTurn {
         assistantContent: String(scorecardTasks[0]?.finalOutput || '').trim(),
         usage: {
           promptTokens: getScorecardTotal(result.scorecard, 'promptTokens'),
-          completionTokens: getScorecardTotal(result.scorecard, 'outputTokens'),
-          thinkingTokens: getScorecardTotal(result.scorecard, 'thinkingTokens'),
-          outputTokensEstimated: hasEstimatedScorecardTokens(result.scorecard, 'outputTokensEstimatedCount'),
-          thinkingTokensEstimated: hasEstimatedScorecardTokens(result.scorecard, 'thinkingTokensEstimatedCount'),
           promptCacheTokens: getScorecardTotal(result.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
           speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
           speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
         },
         persistTurns: await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result)),
+        turnRecords: result.turnRecords,
         // Run rows are keyed by the engine request id, so deleting a tool bubble later
         // finds the run-log command to purge.
         sourceRunId: String(result.requestId || ''),
@@ -941,6 +952,7 @@ class ChatMessageTurn {
           assistantContent,
           usage: {},
           persistTurns: [{ thinkingText: '', toolMessages: [] }],
+          turnRecords: [],
           sourceRunId: null,
           compactionSummary: '',
         },
@@ -966,6 +978,7 @@ class ChatMessageTurn {
       turn.usage,
       {
         turns: turn.persistTurns,
+        turnRecords: turn.turnRecords,
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(this.session),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
@@ -1200,10 +1213,6 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       const scorecardSpeculative = readScorecardSpeculativeMetrics(result?.scorecard);
       const usage: ChatUsage = {
         promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-        completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
-        thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
-        outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
-        thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
         promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
         promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
@@ -1220,6 +1229,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       const inputTokenCount = await telemetry.countInputTokens(userContent);
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, selectedSession, userContent, assistantContent, usage, {
         turns: persistTurns,
+        turnRecords: result.turnRecords,
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(selectedSession),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,

@@ -407,7 +407,7 @@ export async function executeRepoSearchRequest(
       systemContext,
     ).compose(baseSystemPrompt, request.additionalPromptPrefix);
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
-    const scorecard = await runRepoSearch({
+    const { scorecard, turnRecords } = await runRepoSearch({
       repoRoot,
       config,
       systemContext,
@@ -574,6 +574,7 @@ export async function executeRepoSearchRequest(
       transcriptPath: transcriptUri,
       artifactPath,
       scorecard,
+      turnRecords,
     };
   } catch (error) {
     const transcriptPath = `${folders.failed}/request_${requestId}.jsonl`;

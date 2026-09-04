@@ -712,8 +712,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const planUsage = d(planMessage.body.contextUsage);
     const latestMessage = planMessages[planMessages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
-    assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
-    assert.equal(Number(planUsage.toolUsedTokens), Number(latestMessage.associatedToolTokens || 0));
+    const toolTokens = planMessages
+      .filter((message) => message.kind === 'assistant_tool_call')
+      .reduce((sum, message) => sum + Number(message.outputTokensEstimate || 0), 0);
+    assert.equal(toolTokens > 0, true);
+    assert.equal(Number(planUsage.toolUsedTokens), toolTokens);
     assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens) + Number(planUsage.toolUsedTokens));
     const repoSearch = d(planMessage.body.repoSearch);
     const repoScorecard = d(repoSearch.scorecard);
@@ -725,7 +728,10 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(Number(repoTotals.promptTokens || 0) > 0, true);
     assert.equal(latestMessage.sourceRunId, String(repoSearch.requestId));
     assert.equal(Number(latestMessage.outputTokensEstimate || 0), Number(repoTotals.outputTokens || 0));
-    assert.equal(Number(latestMessage.thinkingTokens || 0), Number(repoTotals.thinkingTokens || 0));
+    const thinkingTokens = planMessages
+      .filter((message) => message.kind === 'assistant_thinking')
+      .reduce((sum, message) => sum + Number(message.thinkingTokens || 0), 0);
+    assert.equal(thinkingTokens, Number(repoTotals.thinkingTokens || 0));
     const latestContent = String(latestMessage.content);
     assert.match(latestContent, /^# Implementation Plan/mu);
     assert.match(latestContent, /Critical Review/mu);

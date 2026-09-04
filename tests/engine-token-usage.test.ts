@@ -28,7 +28,7 @@ test('recordModelResponse counts output and thinking locally, ignoring provider 
     promptCacheTokens: 50, promptEvalTokens: 60,
     promptEvalDurationMs: 11, generationDurationMs: 22,
     speculativeAcceptedTokens: 16, speculativeGeneratedTokens: 20,
-  }, 123);
+  }, 123, 1);
   assert.equal(resolved.completionTokens, 20);
   assert.equal(resolved.thinkingTokens, 100);
   assert.equal(resolved.completionTokensEstimated, true);
@@ -51,26 +51,26 @@ test('regression: provider-shaped usage fields cannot influence resolved counts'
     thinkingText: '',
     completionTokens: 2, usageThinkingTokens: 3, promptTokens: 999999,
   };
-  const withBogus = await tracker.recordModelResponse(providerShaped, 10);
+  const withBogus = await tracker.recordModelResponse(providerShaped, 10, 1);
   assert.equal(withBogus.completionTokens, 50);
   assert.equal(tracker.snapshot().promptTokens, 10);
 });
 
 test('recordModelResponse estimates completion/thinking tokens when usage is missing', async () => {
   const tracker = new TokenUsageTracker(undefined);
-  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking' }, 0);
+  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking' }, 0, 1);
   assert.ok(resolved.completionTokens > 0);
   assert.ok(resolved.thinkingTokens > 0);
   assert.equal(resolved.completionTokensEstimated, true);
   assert.equal(resolved.thinkingTokensEstimated, true);
-  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '' }, 0);
+  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '' }, 0, 1);
   assert.deepEqual(empty, {
     completionTokens: 0,
     thinkingTokens: 0,
     completionTokensEstimated: false,
     thinkingTokensEstimated: false,
   });
-  const absent = await tracker.recordModelResponse({}, 0);
+  const absent = await tracker.recordModelResponse({}, 0, 1);
   assert.deepEqual(absent, {
     completionTokens: 0,
     thinkingTokens: 0,
@@ -112,7 +112,7 @@ test('recordModelResponse uses the server tokenizer for text and thinking', asyn
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',
       thinkingText: 'exact thinking',
-    }, 0);
+    }, 0, 1);
 
     assert.deepEqual(resolved, {
       completionTokens: 17,
@@ -138,7 +138,7 @@ test('negative or non-finite usage fields are ignored', async () => {
     generationDurationMs: -1,
     speculativeAcceptedTokens: -3,
     speculativeGeneratedTokens: Number.NaN,
-  }, -5);
+  }, -5, 1);
   assert.deepEqual(resolved, {
     completionTokens: 0,
     thinkingTokens: 0,
@@ -163,9 +163,9 @@ test('negative or non-finite usage fields are ignored', async () => {
 
 test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and floored at zero', () => {
   const tracker = new TokenUsageTracker(undefined);
-  tracker.addOutputTokens(15, true);
-  tracker.addToolTokens(3.2);
-  tracker.addToolTokens(-1);
+  tracker.addOutputTokens(15, 1, true);
+  tracker.addToolTokens(3.2, 1);
+  tracker.addToolTokens(-1, 1);
   assert.equal(tracker.snapshot().outputTokens, 15);
   assert.equal(tracker.snapshot().outputTokensEstimatedCount, 1);
   assert.equal(tracker.snapshot().toolTokens, 4);

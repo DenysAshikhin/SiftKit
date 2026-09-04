@@ -521,7 +521,6 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         answerEndedAtUtc: '2026-01-01T00:00:05.000Z',
         speculativeAcceptedTokens: 6,
         speculativeGeneratedTokens: 8,
-        associatedToolTokens: 9,
         thinkingContent: 'thinking',
         toolCallCommand: 'rg -n Dict src',
         toolCallActivityKind: 'search',
@@ -647,7 +646,7 @@ test('a compacted turn persists a summary row and flags everything before it', (
       'second question',
       'second answer',
       {},
-      { turns: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
+      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
     );
 
     const kinds = updated.messages.map((message) => message.kind);
@@ -672,7 +671,7 @@ test('a turn without compaction leaves the earlier messages in context', () => {
       compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
     ]);
 
-    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [] });
+    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [], turnRecords: [] });
 
     assert.equal(updated.messages.some((message) => message.kind === 'compaction_summary'), false);
     assert.equal(updated.messages.every((message) => message.compressedIntoSummary !== true), true);
@@ -694,7 +693,7 @@ test('a second compaction supersedes the first summary row', () => {
       'third question',
       'third answer',
       {},
-      { turns: [], compactionSummary: 'SECOND SUMMARY' },
+      { turns: [], turnRecords: [], compactionSummary: 'SECOND SUMMARY' },
     );
 
     const summaryRows = updated.messages.filter((message) => message.kind === 'compaction_summary');
@@ -801,7 +800,7 @@ test('both persistence paths write the same compaction summary row shape', () =>
       'next question',
       'next answer',
       {},
-      { turns: [], compactionSummary: 'SUMMARY TEXT' },
+      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY TEXT' },
     );
 
     const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');

@@ -13,7 +13,6 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
-    associatedToolTokens: 0,
     createdAtUtc: '2026-06-04T00:00:00.000Z',
     sourceRunId: null,
     ...overrides,

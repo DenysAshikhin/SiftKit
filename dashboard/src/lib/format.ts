@@ -10,7 +10,6 @@ import type {
   RunGroupFilter,
   RunRecord,
 } from '../types.js';
-import { estimatePromptTokens } from './chatMessages.js';
 import type { ChatTurn } from './chatTurns.js';
 
 const {
@@ -133,25 +132,10 @@ type TokenDisplay = {
 
 export function getLiveMessageTokenDisplay(message: ChatMessage): TokenDisplay {
   const components = getMessageTokenComponents(message);
-  const numericTextTokens = components.input.tokenCount
-    + components.output.tokenCount
-    + components.thinking.tokenCount;
-  const content = message.kind === 'assistant_tool_call'
-    ? String(message.toolCallCommand || message.content || '').trim()
-    : String(message.content || '').trim();
-  const contentTokens = numericTextTokens === 0 && content ? estimatePromptTokens(content) : 0;
-  const toolCommandTokens = message.kind === 'assistant_tool_call' && numericTextTokens > 0 && content
-    ? estimatePromptTokens(content)
-    : 0;
   const imageTokens = sumImageTokens(message.imageMeta);
-  const exact = contentTokens === 0
-    && toolCommandTokens === 0
-    && components.input.exact
-    && components.output.exact
-    && components.thinking.exact;
   return {
-    tokenCount: numericTextTokens + contentTokens + toolCommandTokens + imageTokens,
-    exact,
+    tokenCount: components.input.tokenCount + components.output.tokenCount + components.thinking.tokenCount + imageTokens,
+    exact: components.input.exact && components.output.exact && components.thinking.exact,
     imageTokens,
   };
 }
@@ -177,30 +161,7 @@ export function formatLiveMessageTokenLabel(message: ChatMessage): string {
 }
 
 export function getTurnTokenDisplay(turn: ChatTurn): { tokenCount: number; exact: boolean } {
-  if (turn.isLive || !turn.main) {
-    return sumLiveTokenDisplays(turn.messages);
-  }
-
-  const main = turn.main;
-  const components = getMessageTokenComponents(main);
-  const numericGenerationTokens = components.output.tokenCount + components.thinking.tokenCount;
-  const content = String(main.content || '').trim();
-  const contentTokens = numericGenerationTokens === 0 && content ? estimatePromptTokens(content) : 0;
-  const associatedToolTokens = readTokenCount(main.associatedToolTokens);
-  const imageTokens = turn.messages.reduce((sum, message) => sum + sumImageTokens(message.imageMeta), 0);
-  let toolTokensExact = true;
-  for (const message of turn.messages) {
-    if (message.kind === 'assistant_tool_call' && !getMessageTokenComponents(message).output.exact) {
-      toolTokensExact = false;
-    }
-  }
-  return {
-    tokenCount: numericGenerationTokens + contentTokens + associatedToolTokens + imageTokens,
-    exact: contentTokens === 0
-      && components.output.exact
-      && components.thinking.exact
-      && toolTokensExact,
-  };
+  return sumLiveTokenDisplays(turn.messages);
 }
 
 export function getSessionTelemetryStats(session: ChatSession | null): {

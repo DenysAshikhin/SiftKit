@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { sumLiveTokenDisplays } from '../src/lib/format';
+import { createLiveMessage } from '../src/lib/chat-live-messages';
 import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
 import type { ChatSessionResponse } from '../src/types';
+import { buildUsageFrame } from './usage-frame';
 
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
 const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
@@ -101,7 +102,8 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
   assert.equal(runtime.error, null);
   assert.deepEqual(runtime.warnings, []);
   assert.equal(runtime.contextUsage, null);
-  assert.equal(runtime.liveToolPromptStep, null);
+  assert.equal(runtime.latestUsage, null);
+  assert.equal(runtime.streamedCharsSinceUsage, 0);
   assert.equal(runtime.draft, '');
   assert.deepEqual(runtime.pendingImages, []);
   assert.equal(runtime.planRepoRootInput, '');
@@ -177,42 +179,47 @@ test('tool start demotes narration and answer promotes the same message identity
   assert.equal(promoted?.content, 'Authoritative answer');
 });
 
-test('a tool event records the live token sum it was measured against', () => {
-  const streamed = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'weighing options' } });
-  const store = streamed.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-    kind: 'tool_start',
-    toolCallId: 'tc1',
+test('thinking and answer deltas accumulate streamed chars and the usage frame resets the counter', () => {
+  const usage = buildUsageFrame({
     turn: 1,
-    maxTurns: 4,
-    activityKind: 'search',
-    activitySubject: { kind: 'none' },
-    command: 'rg foo',
-    promptTokenCount: 4096,
-  }});
-  const runtime = store.get('s1');
-  assert.deepEqual(runtime.liveToolPromptStep, {
-    promptTokens: 4096,
-    liveBaselineTokens: sumLiveTokenDisplays(runtime.liveMessages).tokenCount,
+    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
   });
-});
-
-test('submit clears the tool prompt baseline with the count it pairs with', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      promptTokenCount: 4096,
-    }})
-    .apply({ kind: 'submit', sessionId: 's1', content: 'next task', images: [] });
-  assert.equal(store.get('s1').liveToolPromptStep, null);
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcde' } })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcdef' } });
+  assert.equal(store.get('s1').streamedCharsSinceUsage, 11);
+
+  const narration = store.apply({ kind: 'narration', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'narrated steps' } });
+  assert.equal(narration.get('s1').streamedCharsSinceUsage, 11 + 'narrated steps'.length);
+
+  const reset = narration.apply({ kind: 'usage', sessionId: 's1', usage });
+  assert.equal(reset.get('s1').streamedCharsSinceUsage, 0);
+  assert.deepEqual(reset.get('s1').latestUsage, usage);
+
+  const growing = reset.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'xyz' } });
+  assert.equal(growing.get('s1').streamedCharsSinceUsage, 3);
+});
+
+test('a usage transition snaps the live thinking row to the measured count and ends the wait', () => {
+  const usage = buildUsageFrame({
+    turn: 1,
+    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
+  });
+  const submitted = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'submit', sessionId: 's1', content: 'question', images: [] });
+  assert.equal(submitted.get('s1').awaitingResponse, true);
+
+  // A frame is stream traffic like any other transcript event: on its own it proves the run
+  // started answering, so the spinner stops even before any text arrives.
+  assert.equal(submitted.apply({ kind: 'usage', sessionId: 's1', usage }).get('s1').awaitingResponse, false);
+
+  const store = submitted
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'reasoning at length' } })
+    .apply({ kind: 'usage', sessionId: 's1', usage });
+  const thinking = store.get('s1').liveMessages.find((message) => message.kind === 'assistant_thinking');
+  assert.equal(thinking?.thinkingTokens, 70);
 });
 
 test('ensureSession seeds the composer repo root with the session default', () => {
@@ -392,42 +399,6 @@ test('plan inputs initialize once on ensureSession but do not overwrite dirty dr
     .apply({ kind: 'draft', sessionId: 's1', draft: 'dirty' })
     .ensureSession('s1', '');
   assert.equal(store.get('s1').draft, 'dirty');
-});
-
-test('applyToolEvent sets the step prompt tokens from tool_start promptTokenCount', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      promptTokenCount: 42,
-    }});
-  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 42);
-});
-
-test('applyToolEvent sets the step prompt tokens from tool_result promptTokenCount', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_result',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      exitCode: 0,
-      outputSnippet: '',
-      outputTokens: 0,
-      outputTokensEstimated: false,
-      promptTokenCount: 55,
-    }});
-  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 55);
 });
 
 test('apply rejects a session that was never seeded by ensureSession', () => {
@@ -704,49 +675,19 @@ test('repo-agent-approval-mode replaces only that field for its own session and 
   assert.equal(afterRun.get('session-a').repoAgentApprovalMode, 'off');
 });
 
-test('submit clears the previous turn\'s live tool prompt count', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
-      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
-    } });
-  assert.equal(store.get('s1').liveToolPromptStep?.promptTokens, 88);
-  assert.equal(store.apply({ kind: 'submit', sessionId: 's1', content: 'next', images: [] }).get('s1').liveToolPromptStep, null);
-});
-
-test('a tool batch keeps the baseline captured when the turn prompt count arrived', () => {
-  const started = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'weighing options' } })
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tc1', turn: 1, maxTurns: 4,
-      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 4096,
-    } });
-  const step = started.get('s1').liveToolPromptStep;
-  const finished = started.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-    kind: 'tool_result', toolCallId: 'tc1', turn: 1, maxTurns: 4,
-    activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo',
-    exitCode: 0, outputSnippet: 'hit', outputTokens: 900, outputTokensEstimated: false, promptTokenCount: 4096,
-  } });
-  assert.deepEqual(finished.get('s1').liveToolPromptStep, step);
-  assert.ok(sumLiveTokenDisplays(finished.get('s1').liveMessages).tokenCount > (step?.liveBaselineTokens ?? 0));
-});
-
-test('a new turn prompt count rebases the baseline on the live sum it was measured against', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tc1', turn: 1, maxTurns: 4,
-      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 4096,
-    } })
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tc2', turn: 2, maxTurns: 4,
-      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg bar', promptTokenCount: 5200,
-    } });
-  const runtime = store.get('s1');
-  assert.deepEqual(runtime.liveToolPromptStep, {
-    promptTokens: 5200,
-    liveBaselineTokens: sumLiveTokenDisplays(runtime.liveMessages).tokenCount,
+test('a usage transition replaces the stored usage frame', () => {
+  const usage = buildUsageFrame({
+    turn: 2,
+    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
+    totals: { promptTokens: 1800, thinkingTokens: 140, outputTokens: 20, toolTokens: 80 },
   });
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('session-a', '')
+    .apply({ kind: 'usage', sessionId: 'session-a', usage });
+  assert.deepEqual(store.get('session-a').latestUsage, usage);
+});
+
+test('live thinking bubbles carry no self-derived token estimate', () => {
+  const message = createLiveMessage('live-1', 'assistant_thinking', 'assistant', 'x'.repeat(400));
+  assert.equal(message.thinkingTokens, 0);
 });

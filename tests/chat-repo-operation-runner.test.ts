@@ -128,6 +128,12 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
     transcriptPath: 'transcript.jsonl',
     artifactPath: 'artifact.json',
     scorecard,
+    // The engine's per-turn records are what the answer row is built from; the scorecard totals
+    // above only feed the rate and cache fields.
+    turnRecords: [{
+      turn: 1, promptTokens: 20, thinkingTokens: 2, outputTokens: 8, toolTokens: 4,
+      generatedChars: 32, thinkingTokensEstimated: true, outputTokensEstimated: true,
+    }],
   };
 }
 
@@ -278,8 +284,9 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
       assert.equal(tool?.toolCallActivityKind, 'search');
       assert.equal(answer?.outputTokensEstimate, 8);
       assert.equal(answer?.outputTokensEstimated, true);
-      assert.equal(answer?.thinkingTokens, 2);
-      assert.equal(answer?.thinkingTokensEstimated, true);
+      // Per-step rows own thinking; the answer row owns only the answer.
+      assert.equal(answer?.thinkingTokens, 0);
+      assert.equal(answer?.thinkingTokensEstimated, false);
       assert.equal(answer?.promptCacheTokens, 3);
       assert.equal(answer?.promptEvalTokens, 10);
       assert.equal(answer?.promptTokensPerSecond, 20);

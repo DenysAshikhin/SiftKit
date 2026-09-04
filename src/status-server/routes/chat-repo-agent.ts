@@ -162,13 +162,17 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     try {
       const result = await started.session.waitForBoundary(0);
       const telemetry = new ChatTurnTelemetry(effectiveConfig, getMockTokenConfig(config, request.value.mockResponses));
-      const turns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(started.session.getExecutionResult()));
+      // A run stopped before the engine finished has no execution result, and therefore no turn
+      // records to attribute.
+      const executionResult = started.session.getExecutionResult();
+      const turns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(executionResult));
       const updatedSession = appendChatRepoAgentMessages(getRuntimeRoot(), request.sessionId, {
         content: request.value.content,
         images: request.value.images,
         decisions: binding.decisions,
         result,
         turns,
+        turnRecords: executionResult === null ? [] : executionResult.turnRecords,
         stoppedMessages: progressWriter.getStoppedMessages('Repo-agent run stopped by user.'),
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(activeSession),
       });

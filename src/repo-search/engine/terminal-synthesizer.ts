@@ -70,6 +70,9 @@ export class TerminalSynthesizer {
     let finalOutput = '';
     let lastErrorMessage = '';
     let successAttempt = 0;
+    // Terminal synthesis runs after the loop's last turn, so it is its own turn: the
+    // synthesis call must not merge into the last loop turn's record.
+    const synthesisTurn = input.turnsUsed + 1;
     for (let attempt = 1; attempt <= MAX_SYNTHESIS_ATTEMPTS; attempt += 1) {
       try {
         const synthesisResponse = await requestTerminalSynthesis({
@@ -90,8 +93,9 @@ export class TerminalSynthesizer {
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
-        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount);
-        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
+        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount, synthesisTurn);
+        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, synthesisTurn, resolved.completionTokensEstimated);
+        this.options.progress.usageForTurn(synthesisTurn, this.options.tokenUsage.turnRecords());
 
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {

@@ -7,6 +7,7 @@ import {
   migrateActiveStateRemoveMaxTokens,
   migrateAppConfigRemoveGlobalStartupContext,
   migrateAppConfigToPresetSourceOfTruth,
+  migrateChatMessagesToPerRowTokens,
   migrateChatSessionsToModelPresetIdentity,
   migrateChatSessionsToModelPresetSnapshot,
   migrateRunLogsBackendToEngineIds,
@@ -796,6 +797,12 @@ export const MIGRATIONS: readonly Migration[] = [
         rejection_reason = NULL
         WHERE status = 'needs_confirmation' AND rejection_reason IS NOT NULL AND hold_json IS NULL;
       `);
+    },
+  },
+  {
+    version: 62,
+    up: (database) => {
+      migrateChatMessagesToPerRowTokens(database);
     },
   },
 ];

@@ -10,6 +10,7 @@ import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
+import { buildUsageFrame } from './usage-frame';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
@@ -19,6 +20,11 @@ import { getActiveModelPreset } from '../../src/config/getters.js';
 import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getRuntimeRoot } from '../../src/config/paths.js';
 import { saveChatSession } from '../../src/state/chat-sessions.js';
+
+/** Every rendered token badge, in DOM order, so an assertion names the badges and not the markup. */
+function readTokenBadges(html: string): string[] {
+  return [...html.matchAll(/<span class="msg-tokens"[^>]*>([^<]*)<\/span>/gu)].map((match) => match[1] ?? '');
+}
 
 const IMAGE = 'data:image/png;base64,AA==';
 const IMAGE_META = {
@@ -1183,9 +1189,18 @@ test('once the answer streams, the answer and the thinking both render', () => {
   assert.ok(html.includes('THINK_MARKER_ONE'), 'the thinking must remain visible once the answer arrives');
 });
 
-test('pending and streamed bubbles expose provisional token counts while the outer turn stays unique', () => {
+test('the outer turn badge sums the live bubble counters once and labels them run tokens', () => {
+  // Live rows hold no self-derived estimate; the usage frame is what gives them their counts.
   const store = buildThinkingStore({ content: '12345678', images: [], operationKind: 'repo-agent', marker: '12345678' })
-    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: '12345678' } });
+    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: '12345678' } })
+    .apply({
+      kind: 'usage',
+      sessionId: SESSION_B.id,
+      usage: buildUsageFrame({
+        turn: 1,
+        record: { promptTokens: 100, thinkingTokens: 2, outputTokens: 2, generatedChars: 16 },
+      }),
+    });
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1194,9 +1209,10 @@ test('pending and streamed bubbles expose provisional token counts while the out
     isRepoToolMode: true,
   });
 
-  assert.equal(html.match(/~2 tokens/gu)?.length, 3);
-  assert.match(html, /~4 context tokens/u);
-  assert.doesNotMatch(html, /tokens unavailable/u);
+  // Every token badge on the page, in DOM order: the submitted user row, then the run total and
+  // the two bubbles it sums. Asserting the whole list is what proves no badge claims an estimate
+  // and no bubble is counted twice.
+  assert.deepEqual(readTokenBadges(html), ['0 tokens', '4 run tokens', '2 tokens', '2 tokens']);
 });
 
 test('a live turn with a running tool call renders recent activity and the thinking that led to it', () => {
@@ -1327,7 +1343,7 @@ test('the approval mode control is disabled when another client owns the run', (
   }
 });
 
-test('the context bar and label grow with the live token counter while a turn streams', () => {
+test('the context bar and label grow with the calibrated streaming tail while a turn streams', () => {
   const usage = { ...CONTEXT_USAGE, totalUsedTokens: 40, usedTokens: 40, chatUsedTokens: 40, remainingTokens: 60 };
   const idle = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
@@ -1344,18 +1360,30 @@ test('the context bar and label grow with the live token counter while a turn st
 
   const streaming = idle
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'x'.repeat(40) } });
+    .apply({ kind: 'usage', sessionId: SESSION_A.id, usage: {
+      turn: 1, maxTurns: 20,
+      record: {
+        turn: 1, promptTokens: 60, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
+        generatedChars: 0, thinkingTokensEstimated: false, outputTokensEstimated: false,
+      },
+      totals: {
+        promptTokens: 60, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
+        thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
+      },
+      charsPerToken: 4,
+    } })
+    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 2, offset: 0, text: 'x'.repeat(40) } });
   const view = renderComponent(<ChatTab {...buildProps({
     selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
   })} />);
   const bar = view.container.querySelector('.ctx');
   assert.ok(bar instanceof HTMLElement);
-  assert.equal(bar.title, 'context 50 / 100');
-  assert.equal(bar.querySelector('i')?.style.width, '50%');
-  assert.equal(view.container.querySelector('.ctx-label')?.textContent, '~50 / 100');
+  assert.equal(bar.title, 'context 70 / 100');
+  assert.equal(bar.querySelector('i')?.style.width, '70%');
+  assert.equal(view.container.querySelector('.ctx-label')?.textContent, '~70 / 100');
 });
 
-test('the context bar follows the backend prompt count of the latest tool step when it is larger', () => {
+test('the context bar follows the usage frame prompt count of the latest turn while streaming', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: { ...CONTEXT_USAGE, totalUsedTokens: 40 } })
@@ -1363,6 +1391,18 @@ test('the context bar follows the backend prompt count of the latest tool step w
     .apply({ kind: 'tool', sessionId: SESSION_A.id, toolEvent: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
+    } })
+    .apply({ kind: 'usage', sessionId: SESSION_A.id, usage: {
+      turn: 1, maxTurns: 2,
+      record: {
+        turn: 1, promptTokens: 88, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
+        generatedChars: 0, thinkingTokensEstimated: false, outputTokensEstimated: false,
+      },
+      totals: {
+        promptTokens: 88, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
+        thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
+      },
+      charsPerToken: 4,
     } });
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,

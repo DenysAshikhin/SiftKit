@@ -3,6 +3,7 @@ import {
   ChatStreamProgressSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
+  ChatStreamUsageEventSchema,
   ChatTranscriptMessageSchema,
   PersistedChatTranscriptMessageSchema,
   type ChatStreamTextDelta,
@@ -16,6 +17,7 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('answer'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('progress'), progress: ChatStreamProgressSchema }),
   z.strictObject({ kind: z.literal('tool'), tool: ChatStreamToolEventSchema }),
+  z.strictObject({ kind: z.literal('usage'), usage: ChatStreamUsageEventSchema }),
 ]);
 export type ChatTranscriptEvent = z.infer<typeof ChatTranscriptEventSchema>;
 
@@ -25,10 +27,6 @@ export const ChatTranscriptMetadataSchema = z.strictObject({
   createdAtUtc: z.string().min(1),
 });
 export type ChatTranscriptMetadata = z.infer<typeof ChatTranscriptMetadataSchema>;
-
-function estimateTokenCount(content: string): number {
-  return content ? Math.max(1, Math.ceil(content.length / 4)) : 0;
-}
 
 export function applyChatStreamTextDelta(previous: string, delta: ChatStreamTextDelta): string {
   if (delta.offset === 0) return delta.text;
@@ -52,19 +50,19 @@ function textMessage(
   content: string,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage {
-  const thinkingTokens = kind === 'assistant_thinking' ? estimateTokenCount(content) : 0;
+  // The engine measures every generated token and publishes it on the usage frame. A row that
+  // also derived a count from its own text would disagree with the settled transcript.
   return ChatTranscriptMessageSchema.parse({
     id,
     role: 'assistant',
     kind,
     content,
     inputTokensEstimate: 0,
-    outputTokensEstimate: kind === 'assistant_thinking' ? 0 : estimateTokenCount(content),
-    thinkingTokens,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
     inputTokensEstimated: false,
-    outputTokensEstimated: kind !== 'assistant_thinking',
-    thinkingTokensEstimated: thinkingTokens > 0,
-    associatedToolTokens: 0,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
     createdAtUtc: metadata.createdAtUtc,
     sourceRunId: metadata.sourceRunId,
   });
@@ -142,7 +140,6 @@ function reduceToolEvent(
     inputTokensEstimated: false,
     outputTokensEstimated: tool.kind === 'tool_result' ? tool.outputTokensEstimated : false,
     thinkingTokensEstimated: false,
-    associatedToolTokens: tool.kind === 'tool_result' ? tool.outputTokens : 0,
     createdAtUtc: metadata.createdAtUtc,
     sourceRunId: metadata.sourceRunId,
     toolCallCommand: tool.command,
@@ -159,6 +156,50 @@ function reduceToolEvent(
   return upsertMessage(beforeTool, message);
 }
 
+/**
+ * A transcript carries exactly one answer row: the loop finishes or terminal synthesis speaks,
+ * never both. A second row means two emitters claimed the same run, and folding a run total onto
+ * each of them would double-count it, so the ambiguity fails here instead of being averaged away.
+ */
+function findAnswerIndex(messages: readonly ChatTranscriptMessage[]): number | null {
+  const indexes = messages
+    .map((message, index) => message.kind === 'assistant_answer' ? index : -1)
+    .filter((index) => index >= 0);
+  if (indexes.length > 1) {
+    throw new Error('Chat transcript contains multiple answer rows.');
+  }
+  return indexes[0] ?? null;
+}
+
+/**
+ * The frame closes a turn: the estimate-free rows for that turn take the counts the engine
+ * measured. `record` is that turn's thinking; `totals` is the run's generated output, which is
+ * what the persisted answer row carries, so live and settled agree on the same number.
+ */
+function reduceUsageEvent(
+  messages: readonly ChatTranscriptMessage[],
+  event: Extract<ChatTranscriptEvent, { kind: 'usage' }>,
+  metadata: ChatTranscriptMetadata,
+): ChatTranscriptMessage[] {
+  const thinkingId = textMessageId('thinking', event.usage.turn, metadata);
+  const answerIndex = findAnswerIndex(messages);
+  return messages.map((message, index) => {
+    if (message.id === thinkingId && message.kind === 'assistant_thinking') {
+      return ChatTranscriptMessageSchema.parse({
+        ...message,
+        thinkingTokens: event.usage.record.thinkingTokens,
+      });
+    }
+    if (index === answerIndex) {
+      return ChatTranscriptMessageSchema.parse({
+        ...message,
+        outputTokensEstimate: event.usage.totals.outputTokens,
+      });
+    }
+    return message;
+  });
+}
+
 export function reduceChatTranscript(
   messages: readonly ChatTranscriptMessage[],
   event: ChatTranscriptEvent,
@@ -168,6 +209,7 @@ export function reduceChatTranscript(
     return reduceTextEvent(messages, event, metadata);
   }
   if (event.kind === 'progress') return reduceProgressEvent(messages, event, metadata);
+  if (event.kind === 'usage') return reduceUsageEvent(messages, event, metadata);
   return reduceToolEvent(messages, event, metadata);
 }
 
@@ -177,20 +219,14 @@ export function finalizeStoppedChatTranscript(
   metadata: ChatTranscriptMetadata,
 ): PersistedChatTranscriptMessage[] {
   const parsedMarker = z.string().trim().min(1).parse(marker);
-  const answerIndexes = messages
-    .map((message, index) => message.kind === 'assistant_answer' ? index : -1)
-    .filter((index) => index >= 0);
-  if (answerIndexes.length > 1) {
-    throw new Error('Stopped chat transcript contains multiple answer rows.');
-  }
+  const answerIndex = findAnswerIndex(messages);
 
   const terminal = messages.map((message) => (
     message.kind === 'assistant_tool_call' && message.toolCallStatus === 'running'
       ? ChatTranscriptMessageSchema.parse({ ...message, toolCallStatus: 'stopped' })
       : message
   ));
-  const answerIndex = answerIndexes[0];
-  const finalized = answerIndex === undefined
+  const finalized = answerIndex === null
     ? [
       ...terminal,
       textMessage(

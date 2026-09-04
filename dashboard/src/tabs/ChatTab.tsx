@@ -204,7 +204,8 @@ export function ChatTab({
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
-  const liveToolPromptStep = selectedRuntime?.liveToolPromptStep ?? null;
+  const latestUsage = selectedRuntime?.latestUsage ?? null;
+  const streamedCharsSinceUsage = selectedRuntime?.streamedCharsSinceUsage ?? 0;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
   const chatError = selectedRuntime?.error ?? null;
   const warnings = selectedRuntime?.warnings ?? [];
@@ -305,8 +306,8 @@ export function ChatTab({
 
   const liveContextUsage = resolveLiveContextUsage({
     contextUsage,
-    liveMessages,
-    liveToolPromptStep,
+    latestUsage,
+    streamedCharsSinceUsage,
     busy: selectedSessionBusy,
   });
   const usedRatio = liveContextUsage?.ratio ?? 0;
@@ -496,7 +497,7 @@ export function ChatTab({
               {showSettings ? (
                 <SettingsPopover
                   contextUsage={contextUsage}
-                  liveToolPromptTokenCount={liveToolPromptStep?.promptTokens ?? null}
+                  liveToolPromptTokenCount={latestUsage?.record.promptTokens ?? null}
                   isRepoToolMode={isRepoToolMode}
                   chatBusy={selectedSessionBusy}
                   onCondense={onCondense}
@@ -848,8 +849,8 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
   const aggregateTokens = getTurnTokenDisplay(turn);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   const tokenLabel = aggregateTokens.exact
-    ? formatTokenLabel(aggregateTokens.tokenCount, 'context tokens')
-    : `~${formatNumber(aggregateTokens.tokenCount)} context tokens`;
+    ? formatTokenLabel(aggregateTokens.tokenCount, 'run tokens')
+    : `~${formatNumber(aggregateTokens.tokenCount)} run tokens`;
   const tokenTitle = turn.isLive
     ? 'Provisional unique token total across the bubbles currently streaming in this turn.'
     : 'Unique run tokens: aggregate model generation plus tool output and retained images; internal bubbles are not added twice.';

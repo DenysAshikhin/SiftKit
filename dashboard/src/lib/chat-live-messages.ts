@@ -8,7 +8,7 @@ export function createLiveMessage(
   role: ChatMessage['role'],
   content: string,
 ): ChatMessage {
-  const thinkingTokens = kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0;
+  const thinkingTokens = 0;
   return ChatMessageSchema.parse({
     id,
     role,
@@ -19,8 +19,7 @@ export function createLiveMessage(
     thinkingTokens,
     inputTokensEstimated: false,
     outputTokensEstimated: false,
-    thinkingTokensEstimated: thinkingTokens > 0,
-    associatedToolTokens: 0,
+    thinkingTokensEstimated: false,
     createdAtUtc: new Date().toISOString(),
     sourceRunId: null,
   });

@@ -3,8 +3,6 @@ import {
   upsertLiveMessageInto,
 } from './chat-live-messages';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
-import type { LiveToolPromptStep } from './contextBar';
-import { sumLiveTokenDisplays } from './format';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
 import {
   reduceChatTranscript,
@@ -13,6 +11,7 @@ import {
   type ChatStreamApproval,
   type ChatStreamProgress,
   type ChatStreamTextDelta,
+  type ChatStreamUsageEvent,
   type ChatTranscriptEvent,
 } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
@@ -37,7 +36,9 @@ export type ChatSessionRuntime = {
   error: string | null;
   warnings: string[];
   contextUsage: ContextUsage | null;
-  liveToolPromptStep: LiveToolPromptStep | null;
+  latestUsage: ChatStreamUsageEvent | null;
+  /** Streamed text characters since the last usage frame; sizes the in-flight tail. */
+  streamedCharsSinceUsage: number;
   draft: string;
   pendingImages: PendingImage[];
   submittedInput: SubmittedChatInput | null;
@@ -68,6 +69,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'failure'; sessionId: string; message: string }
   | { kind: 'control-error'; sessionId: string; message: string }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
+  | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
   | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
@@ -82,7 +84,8 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
     error: null,
     warnings: [],
     contextUsage: null,
-    liveToolPromptStep: null,
+    latestUsage: null,
+    streamedCharsSinceUsage: 0,
     draft: '',
     pendingImages: [],
     submittedInput: null,
@@ -111,20 +114,12 @@ function applyTranscriptEvent(
 }
 
 function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
-  const next = applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
-  // Every event in a turn's tool batch carries that turn's prompt_tokens, so the baseline is
-  // captured once per turn. Re-capturing it per event would fold the tool output the backend has
-  // not billed yet into the baseline and drop the displayed growth back to prompt_tokens.
-  const step = runtime.liveToolPromptStep;
-  return {
-    ...next,
-    liveToolPromptStep: step && step.promptTokens === toolEvent.promptTokenCount
-      ? step
-      : {
-        promptTokens: toolEvent.promptTokenCount,
-        liveBaselineTokens: sumLiveTokenDisplays(next.liveMessages).tokenCount,
-      },
-  };
+  return applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
+}
+
+function applyUsageEvent(runtime: ChatSessionRuntime, usage: ChatStreamUsageEvent): ChatSessionRuntime {
+  const next = applyTranscriptEvent(runtime, { kind: 'usage', usage });
+  return { ...next, latestUsage: usage, streamedCharsSinceUsage: 0 };
 }
 
 function applyTransition(
@@ -147,10 +142,13 @@ function applyTransition(
       return runtime.activity.kind === 'remote'
         ? { ...runtime, activity: { kind: 'idle' }, error: null }
         : runtime;
+    // Every streamed character sizes the in-flight tail, whichever text channel carried it.
     case 'thinking':
-      return applyTranscriptEvent(runtime, { kind: 'thinking', delta: transition.delta });
     case 'narration':
-      return applyTranscriptEvent(runtime, { kind: 'narration', delta: transition.delta });
+    case 'answer': {
+      const next = applyTranscriptEvent(runtime, { kind: transition.kind, delta: transition.delta });
+      return { ...next, streamedCharsSinceUsage: next.streamedCharsSinceUsage + transition.delta.text.length };
+    }
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
     case 'progress':
@@ -161,8 +159,6 @@ function applyTransition(
       return { ...runtime, pendingApproval: null, resolvedApproval: transition.resolution };
     case 'approval-clear':
       return { ...runtime, pendingApproval: null, resolvedApproval: null };
-    case 'answer':
-      return applyTranscriptEvent(runtime, { kind: 'answer', delta: transition.delta });
     case 'warning':
       return { ...runtime, warnings: [...runtime.warnings, transition.text] };
     case 'submit':
@@ -173,7 +169,6 @@ function applyTransition(
         pendingImages: [],
         submittedInput: { content: transition.content, images: transition.images },
         awaitingResponse: true,
-        liveToolPromptStep: null,
         pendingApproval: null,
         resolvedApproval: null,
         liveMessages: upsertLiveMessageInto(
@@ -212,6 +207,8 @@ function applyTransition(
       return { ...runtime, error: transition.message };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
+    case 'usage':
+      return applyUsageEvent(runtime, transition.usage);
     case 'draft':
       return { ...runtime, draft: transition.draft };
     case 'images':

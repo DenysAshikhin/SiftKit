@@ -70,7 +70,7 @@ test('v61 moves encoded holds into hold_json and clears the reason it borrowed',
       readonly.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
     );
     assert.equal(version.version, CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 61);
+    assert.equal(CURRENT_SCHEMA_VERSION, 62);
   } finally {
     readonly.close();
   }

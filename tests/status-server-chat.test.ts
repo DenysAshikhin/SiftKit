@@ -326,8 +326,9 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
     createSession(),
     'Find tool call handling.',
     'Tool calls are handled in engine.ts.',
-    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
+    { promptTokens: 30, promptCacheTokens: null, promptEvalTokens: 30 },
     {
+      turnRecords: [],
       turns: [
         { thinkingText: 'think one', toolMessages: [{
           id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
@@ -354,7 +355,6 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
   const answerMessage = session.messages.find((m) => m.kind === 'assistant_answer' && m.content === 'Tool calls are handled in engine.ts.');
   assert.equal(toolMessage?.outputTokensEstimate, 295);
   assert.equal(toolMessage?.outputTokensEstimated, false);
-  assert.equal(toolMessage?.associatedToolTokens, 295);
   assert.equal(answerMessage?.groundingStatus, 'fetched');
 });
 
@@ -365,8 +365,9 @@ test('appendChatMessagesWithUsage deletes older thinking transcript entries when
     createSession(),
     'Find tool call handling.',
     'Tool calls are handled in engine.ts.',
-    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
+    { promptTokens: 30, promptCacheTokens: null, promptEvalTokens: 30 },
     {
+      turnRecords: [],
       turns: [
         { thinkingText: 'think one', toolMessages: [] },
         { thinkingText: 'think two', toolMessages: [] },
@@ -394,6 +395,7 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
   const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'fix the cipher',
     images: [],
+    turnRecords: [],
     decisions: [{
       decision: { decision: 'approve' },
       approval: {
@@ -436,6 +438,33 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
   }
 });
 
+test('a repo-agent run with no engine result estimates the answer row and says so', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-repo-agent-no-result-');
+  const session = createSession();
+  saveChatSession(runtimeRoot, session);
+  // A failed run never produced an execution result, so there are no turn records to attribute.
+  const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
+    content: 'fix the cipher',
+    images: [],
+    turnRecords: [],
+    decisions: [],
+    result: {
+      status: 'failed',
+      runId: '7a2d9c1b-0000-4000-8000-000000000000',
+      output: '',
+      error: 'engine crashed',
+    },
+    stoppedMessages: [],
+    turns: [],
+    maintainPerStepThinking: true,
+  });
+
+  const appended = repoAgentPersistedMessages(persisted).slice(2);
+  const answer = appended.find((message) => message.kind === 'assistant_answer');
+  assert.equal(answer?.outputTokensEstimate, estimateTokenCount('Repo-agent run failed: engine crashed'));
+  assert.equal(answer?.outputTokensEstimated, true);
+});
+
 test('appendChatRepoAgentMessages prunes older thinking when maintainPerStepThinking is false', () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-repo-agent-prune-');
   const session = createSession();
@@ -444,6 +473,7 @@ test('appendChatRepoAgentMessages prunes older thinking when maintainPerStepThin
   const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'fix the cipher',
     images: [],
+    turnRecords: [],
     decisions: [],
     result: { status: 'completed', runId, output: 'done' },
     stoppedMessages: [],
@@ -518,6 +548,7 @@ test('aborted repo-agent persistence orders approval before the stopped assistan
   const updated = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'stop the agent',
     images: [],
+    turnRecords: [],
     decisions: [{
       decision: { decision: 'approve' },
       approval: {
@@ -548,8 +579,9 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
     createSession(),
     'Find tool call handling.',
     'Tool calls are handled in engine.ts.',
-    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
+    { promptTokens: 30, promptCacheTokens: null, promptEvalTokens: 30 },
     {
+      turnRecords: [],
       turns: [
         { thinkingText: '', toolMessages: [{
           id: 'tool-a', content: 'read path="src/x.ts"', toolCallCommand: 'read path="src/x.ts"',
@@ -571,14 +603,14 @@ test('appendChatMessagesWithUsage omits empty-thinking turns and persists single
   const runtimeRoot = createManagedTempDir('siftkit-chat-single-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot, createSession(), 'hi', 'hello',
-    { promptTokens: 5, completionTokens: 2, thinkingTokens: 1, promptCacheTokens: null, promptEvalTokens: 5 },
-    { turns: [{ thinkingText: 'regular chat reasoning', toolMessages: [] }] }
+    { promptTokens: 5, promptCacheTokens: null, promptEvalTokens: 5 },
+    { turns: [{ thinkingText: 'regular chat reasoning', toolMessages: [] }], turnRecords: [] }
   );
   assert.deepEqual(session.messages.slice(2).map((m) => m.kind), ['user_text', 'assistant_thinking', 'assistant_answer']);
 
   const emptySession = appendChatMessagesWithUsage(
     runtimeRoot, createSession(), 'hi', 'hello', {},
-    { turns: [{ thinkingText: '', toolMessages: [] }] }
+    { turns: [{ thinkingText: '', toolMessages: [] }], turnRecords: [] }
   );
   assert.deepEqual(emptySession.messages.slice(2).map((m) => m.kind), ['user_text', 'assistant_answer']);
 });
@@ -662,7 +694,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
 });
 
 
-test('buildContextUsage estimates continuation context from session content instead of provider prompt telemetry', () => {
+test('buildContextUsage sums stored session token fields instead of provider prompt telemetry', () => {
   const session: ChatSession = {
     id: 'session-usage',
     modelPresetId: 'default',
@@ -696,10 +728,10 @@ test('buildContextUsage estimates continuation context from session content inst
     ],
   };
 
-  const expectedThinkingTokens = estimateTokenCount('Prior reasoning that can be replayed.');
+  const expectedThinkingTokens = 3405;
   const expectedChatTokens = estimateTokenCount('general, coder friendly assistant')
-    + estimateTokenCount('How are tool calls handled?')
-    + estimateTokenCount('# Repo Search Results\n\nTool calls are parsed and executed through the loop.')
+    + 52403
+    + 2288
     + expectedThinkingTokens;
   const usage = buildContextUsage(createConfig(), session);
 
@@ -822,7 +854,7 @@ test('buildPersistTurnsFromRepoSearchResult persists per-call prompt token count
 });
 
 
-test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
+test('buildContextUsage sums stored thinking and tool token fields', () => {
   const session = mockChatSession({
     id: 'session-usage-typed',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed.gguf', NumCtx: 75000 }),
@@ -832,6 +864,7 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
         role: 'assistant',
         kind: 'assistant_thinking',
         content: 'Visible reasoning bubble.',
+        thinkingTokens: 42,
       },
       {
         id: 'tool-1',
@@ -846,12 +879,12 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
 
   const usage = buildContextUsage(createConfig(), session);
 
-  assert.equal(usage.thinkingUsedTokens, estimateTokenCount('Visible reasoning bubble.'));
+  assert.equal(usage.thinkingUsedTokens, 42);
   assert.equal(
     usage.chatUsedTokens,
     estimateTokenCount('general, coder friendly assistant')
-      + estimateTokenCount('Visible reasoning bubble.')
-      + estimateTokenCount('rg -n "x" src'),
+      + 42
+      + estimateTokenCount('src/example.ts:1:x'),
   );
   assert.equal(usage.toolUsedTokens, estimateTokenCount('src/example.ts:1:x'));
   assert.equal(usage.totalUsedTokens, usage.chatUsedTokens + usage.toolUsedTokens);
@@ -1025,7 +1058,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
   const session: ChatSession = {
     id: 'session-replay-usage',
     modelPresetId: 'historical-preset',
-    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 62000 }),
+    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 250_000 }),
     planRepoRoot: 'C:/repo',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
@@ -1036,17 +1069,17 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
         toolCallActivitySubject: { kind: 'host', value: 'example.test' }, toolCallTurn: 1, toolCallMaxTurns: 45,
         toolCallExitCode: 0, toolCallStatus: 'done',
       },
-      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', inputTokensEstimate: 0, outputTokensEstimate: 2048, thinkingTokens: 0, associatedToolTokens: 42073, createdAtUtc: '2026-01-01T00:00:00.000Z' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', inputTokensEstimate: 0, outputTokensEstimate: 2048, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
     ],
   };
 
   const usage = buildContextUsage(createConfig(), session);
 
-  assert.ok(usage.chatUsedTokens < 1000);
+  assert.equal(usage.chatUsedTokens, estimateTokenCount('general, coder friendly assistant') + 161239 + 42073 + 2048);
   assert.equal(usage.toolUsedTokens, 42073);
   assert.equal(usage.totalUsedTokens, usage.chatUsedTokens + 42073);
-  assert.equal(usage.remainingTokens, 62000 - usage.totalUsedTokens);
-  assert.equal(usage.contextWindowTokens, 62000);
+  assert.equal(usage.remainingTokens, 250_000 - usage.totalUsedTokens);
+  assert.equal(usage.contextWindowTokens, 250_000);
 });
 
 test('buildContextUsage excludes every compressed message cost and counts the active summary plus live turn', () => {
@@ -1084,7 +1117,6 @@ test('buildContextUsage excludes every compressed message cost and counts the ac
         kind: 'assistant_tool_call',
         content: 'grep x',
         toolCallOutput: 'T'.repeat(12_000),
-        associatedToolTokens: 3000,
         compressedIntoSummary: true,
       },
       { id: 'summary', role: 'assistant', kind: 'compaction_summary', content: 'short summary' },
@@ -1120,11 +1152,9 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'tiny', 'answer', {
     promptTokens: null,
-    completionTokens: 4,
-    thinkingTokens: 0,
     promptCacheTokens: 1204807,
     promptEvalTokens: 161239,
-  }, { turns: [] });
+  }, { turns: [], turnRecords: [] });
 
   const userMessage = updated.messages.find((message) => message.kind === 'user_text');
   assert.ok(userMessage);
@@ -1222,11 +1252,9 @@ test('appendChatMessagesWithUsage stores exact user text tokens when caller supp
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'full user message', 'answer', {
     promptTokens: null,
-    completionTokens: 4,
-    thinkingTokens: 0,
     promptCacheTokens: null,
     promptEvalTokens: null,
-  }, { turns: [], inputTokens: 17, inputTokensEstimated: false });
+  }, { turns: [], turnRecords: [], inputTokens: 17, inputTokensEstimated: false });
 
   const userMessage = updated.messages.find((message) => message.kind === 'user_text');
   assert.ok(userMessage);
@@ -1241,21 +1269,24 @@ test('appendChatMessagesWithUsage preserves estimated usage flags on answer toke
     createSession(),
     'Find token accounting.',
     'Token labels must not claim estimates are known.',
+    {},
     {
-      completionTokens: 11,
-      thinkingTokens: 13,
-      outputTokensEstimated: true,
-      thinkingTokensEstimated: true,
+      turns: [],
+      // The engine could not measure this turn's output, so the record says so and the row must
+      // keep saying so rather than presenting the count as known.
+      turnRecords: [{
+        turn: 1, promptTokens: 30, thinkingTokens: 0, outputTokens: 11, toolTokens: 0,
+        generatedChars: 44, thinkingTokensEstimated: false, outputTokensEstimated: true,
+      }],
     },
-    { turns: [] },
   );
 
   const answerMessage = session.messages.find((message) => message.kind === 'assistant_answer'
     && message.content === 'Token labels must not claim estimates are known.');
   assert.equal(answerMessage?.outputTokensEstimate, 11);
   assert.equal(answerMessage?.outputTokensEstimated, true);
-  assert.equal(answerMessage?.thinkingTokens, 13);
-  assert.equal(answerMessage?.thinkingTokensEstimated, true);
+  assert.equal(answerMessage?.thinkingTokens, 0);
+  assert.equal(answerMessage?.thinkingTokensEstimated, false);
 });
 
 test('buildRetainedWebToolCalls extracts command result state from undeleted web calls', () => {
@@ -1335,6 +1366,7 @@ test('appendChatMessagesWithUsage persists image metadata on the user message', 
   });
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'look', 'ok', {}, {
+    turnRecords: [],
     turns: [{ thinkingText: '', toolMessages: [] }],
     images: ['data:image/png;base64,AA=='],
     imageMeta: [metadata],

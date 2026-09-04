@@ -45,6 +45,7 @@ function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
     transcriptPath: 'db://repo-search/request_test.jsonl',
     artifactPath: 'db://repo-search/request_test.json',
     scorecard,
+    turnRecords: [],
   };
 }
 

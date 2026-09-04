@@ -84,6 +84,7 @@ import { TerminalSynthesizer } from './terminal-synthesizer.js';
 import { ToolActionProcessor } from './tool-action-processor.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
+import type { TurnTokenRecord } from './turn-token-record.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor } from './transcript-compactor.js';
@@ -518,7 +519,8 @@ export class TaskLoop {
       this.mockResponseIndex = response.nextMockResponseIndex;
     }
 
-    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount);
+    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount, turn);
+    this.progress.usageForTurn(turn, this.tokenUsage.turnRecords());
     // Emitted after the response is tallied so the line closing a turn already counts that turn's thinking.
     this.progress.llmEnd(turn, prepared.promptTokenCount, this.tokenUsage.snapshot().thinkingTokens);
 
@@ -732,7 +734,7 @@ export class TaskLoop {
   }
 
   private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
     this.counters.invalidResponses += 1;
     const invalidActionMessage = error instanceof NativePlannerToolCallError
       ? error.message
@@ -777,7 +779,7 @@ export class TaskLoop {
   }
 
   private handleFinishAction(turn: number, action: AgentLoopFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
       finalOutput: action.text,
@@ -875,5 +877,9 @@ export class TaskLoop {
       toolStats: this.toolStats.snapshot(),
       readOverlapSummary: this.readWindows.summary(),
     };
+  }
+
+  turnTokenRecords(): readonly TurnTokenRecord[] {
+    return this.tokenUsage.turnRecords();
   }
 }

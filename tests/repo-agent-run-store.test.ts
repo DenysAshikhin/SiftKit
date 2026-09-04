@@ -56,6 +56,7 @@ function buildExecutionResult(reason: TaskEndReason): RepoSearchExecutionResult 
     transcriptPath: 'transcript.jsonl',
     artifactPath: 'artifact.json',
     scorecard: buildScorecard({ runId, model, tasks }),
+    turnRecords: [],
   };
 }
 

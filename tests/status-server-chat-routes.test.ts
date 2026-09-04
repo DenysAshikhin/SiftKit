@@ -185,7 +185,7 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
     verdict: 'pass',
     failureReasons: [],
   });
-  return { requestId: 'caption-test', transcriptPath: '', artifactPath: '', scorecard };
+  return { requestId: 'caption-test', transcriptPath: '', artifactPath: '', scorecard, turnRecords: [] };
 }
 
 class InjectedCaptionEngineService extends StatusEngineService {

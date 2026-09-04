@@ -30,7 +30,7 @@ const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
-export const CURRENT_SCHEMA_VERSION = 61;
+export const CURRENT_SCHEMA_VERSION = 62;
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
@@ -208,7 +208,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       answer_ended_at_utc TEXT,
       speculative_accepted_tokens INTEGER,
       speculative_generated_tokens INTEGER,
-      associated_tool_tokens INTEGER,
       thinking_content TEXT,
       tool_call_command TEXT,
       tool_call_activity_kind TEXT,

@@ -52,6 +52,37 @@ export const ChatStreamToolEventSchema = z.discriminatedUnion('kind', [
 ]);
 export type ChatStreamToolEvent = z.infer<typeof ChatStreamToolEventSchema>;
 
+export const ChatTurnTokenRecordSchema = z.object({
+  turn: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  generatedChars: z.number().int().nonnegative(),
+  thinkingTokensEstimated: z.boolean(),
+  outputTokensEstimated: z.boolean(),
+});
+export type ChatTurnTokenRecord = z.infer<typeof ChatTurnTokenRecordSchema>;
+
+export const ChatTurnTokenTotalsSchema = z.object({
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  thinkingTokensEstimatedCount: z.number().int().nonnegative(),
+  outputTokensEstimatedCount: z.number().int().nonnegative(),
+});
+export type ChatTurnTokenTotals = z.infer<typeof ChatTurnTokenTotalsSchema>;
+
+export const ChatStreamUsageEventSchema = z.object({
+  turn: z.number().int().nonnegative(),
+  maxTurns: z.number().int().positive(),
+  record: ChatTurnTokenRecordSchema,
+  totals: ChatTurnTokenTotalsSchema,
+  charsPerToken: z.number().positive(),
+});
+export type ChatStreamUsageEvent = z.infer<typeof ChatStreamUsageEventSchema>;
+
 export const ToolCallStatusSchema = z.enum(['running', 'done', 'stopped']);
 export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
 
@@ -82,7 +113,7 @@ const ChatMessageBaseSchema = z.object({
   thinkingStartedAtUtc: z.string().nullable().optional(), thinkingEndedAtUtc: z.string().nullable().optional(),
   answerStartedAtUtc: z.string().nullable().optional(), answerEndedAtUtc: z.string().nullable().optional(),
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
-  associatedToolTokens: z.number().nullable().optional(), thinkingContent: z.string().nullable().optional(),
+  thinkingContent: z.string().nullable().optional(),
   toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),

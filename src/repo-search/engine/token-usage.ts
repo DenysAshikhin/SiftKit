@@ -1,6 +1,10 @@
 import type { SiftConfig } from '../../config/index.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
+import {
+  foldTurnTokenRecords,
+  type TurnTokenRecord,
+} from './turn-token-record.js';
 
 export type ModelUsageResponse = {
   text?: string;
@@ -36,12 +40,7 @@ export type TokenUsageSnapshot = {
 };
 
 export class TokenUsageTracker {
-  private promptTokens = 0;
-  private outputTokens = 0;
-  private toolTokens = 0;
-  private thinkingTokens = 0;
-  private outputTokensEstimatedCount = 0;
-  private thinkingTokensEstimatedCount = 0;
+  private readonly records: TurnTokenRecord[] = [];
   private promptCacheTokens = 0;
   private promptEvalTokens = 0;
   private promptEvalDurationMs = 0;
@@ -57,17 +56,46 @@ export class TokenUsageTracker {
 
   private readonly useEstimatedTokensOnly: boolean;
 
-  async recordModelResponse(response: ModelUsageResponse, promptTokenCount: number): Promise<ResolvedResponseTokens> {
+  private recordFor(turn: number): TurnTokenRecord {
+    const existing = this.records.find((record) => record.turn === turn);
+    if (existing) {
+      return existing;
+    }
+    const created: TurnTokenRecord = {
+      turn,
+      promptTokens: 0,
+      thinkingTokens: 0,
+      outputTokens: 0,
+      toolTokens: 0,
+      generatedChars: 0,
+      thinkingTokensEstimated: false,
+      outputTokensEstimated: false,
+    };
+    this.records.push(created);
+    this.records.sort((left, right) => left.turn - right.turn);
+    return created;
+  }
+
+  turnRecords(): readonly TurnTokenRecord[] {
+    return this.records;
+  }
+
+  async recordModelResponse(
+    response: ModelUsageResponse,
+    promptTokenCount: number,
+    turn: number,
+  ): Promise<ResolvedResponseTokens> {
+    const record = this.recordFor(turn);
     if (Number.isFinite(promptTokenCount) && promptTokenCount >= 0) {
-      this.promptTokens += promptTokenCount;
+      record.promptTokens += promptTokenCount;
     }
     const completion = await this.resolveTextTokens(response.text);
     const thinking = await this.resolveTextTokens(response.thinkingText);
-    const completionTokens = completion.tokenCount;
-    const thinkingTokens = thinking.tokenCount;
-    this.thinkingTokens += thinkingTokens;
-    if (thinking.estimated && thinkingTokens > 0) {
-      this.thinkingTokensEstimatedCount += 1;
+    record.thinkingTokens += thinking.tokenCount;
+    record.generatedChars += String(response.text || '').trim().length
+      + String(response.thinkingText || '').trim().length;
+    if (thinking.estimated && thinking.tokenCount > 0) {
+      record.thinkingTokensEstimated = true;
     }
     if (Number.isFinite(response.promptCacheTokens) && Number(response.promptCacheTokens) >= 0) {
       this.promptCacheTokens += Number(response.promptCacheTokens);
@@ -88,32 +116,34 @@ export class TokenUsageTracker {
       this.speculativeGeneratedTokens += Number(response.speculativeGeneratedTokens);
     }
     return {
-      completionTokens,
-      thinkingTokens,
+      completionTokens: completion.tokenCount,
+      thinkingTokens: thinking.tokenCount,
       completionTokensEstimated: completion.estimated,
       thinkingTokensEstimated: thinking.estimated,
     };
   }
 
-  addOutputTokens(tokens: number, estimated = false): void {
-    this.outputTokens += tokens;
+  addOutputTokens(tokens: number, turn: number, estimated = false): void {
+    const record = this.recordFor(turn);
+    record.outputTokens += tokens;
     if (estimated && tokens > 0) {
-      this.outputTokensEstimatedCount += 1;
+      record.outputTokensEstimated = true;
     }
   }
 
-  addToolTokens(tokens: number): void {
-    this.toolTokens += Math.max(0, Math.ceil(tokens));
+  addToolTokens(tokens: number, turn: number): void {
+    this.recordFor(turn).toolTokens += Math.max(0, Math.ceil(tokens));
   }
 
   snapshot(): TokenUsageSnapshot {
+    const totals = foldTurnTokenRecords(this.records);
     return {
-      promptTokens: this.promptTokens,
-      outputTokens: this.outputTokens,
-      toolTokens: this.toolTokens,
-      thinkingTokens: this.thinkingTokens,
-      outputTokensEstimatedCount: this.outputTokensEstimatedCount,
-      thinkingTokensEstimatedCount: this.thinkingTokensEstimatedCount,
+      promptTokens: totals.promptTokens,
+      outputTokens: totals.outputTokens,
+      toolTokens: totals.toolTokens,
+      thinkingTokens: totals.thinkingTokens,
+      outputTokensEstimatedCount: totals.outputTokensEstimatedCount,
+      thinkingTokensEstimatedCount: totals.thinkingTokensEstimatedCount,
       promptCacheTokens: this.promptCacheTokens,
       promptEvalTokens: this.promptEvalTokens,
       promptEvalDurationMs: this.promptEvalDurationMs,

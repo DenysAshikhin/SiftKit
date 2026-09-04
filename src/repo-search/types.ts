@@ -60,6 +60,36 @@ export const LlmStartProgressEventSchema = z.object({
   elapsedMs: z.number(),
 });
 export const LlmEndProgressEventSchema = LlmStartProgressEventSchema.extend({ kind: z.literal('llm_end') });
+
+export const TurnTokenRecordSchema = z.object({
+  turn: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  generatedChars: z.number().int().nonnegative(),
+  thinkingTokensEstimated: z.boolean(),
+  outputTokensEstimated: z.boolean(),
+});
+
+export const TurnTokenTotalsSchema = z.object({
+  promptTokens: z.number().int().nonnegative(),
+  thinkingTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  toolTokens: z.number().int().nonnegative(),
+  thinkingTokensEstimatedCount: z.number().int().nonnegative(),
+  outputTokensEstimatedCount: z.number().int().nonnegative(),
+});
+
+export const UsageProgressEventSchema = z.object({
+  ...turnScopedFields,
+  kind: z.literal('usage'),
+  record: TurnTokenRecordSchema,
+  totals: TurnTokenTotalsSchema,
+  charsPerToken: z.number().positive(),
+  elapsedMs: z.number(),
+});
+
 export const ToolResultProgressEventSchema = z.object({
   ...turnScopedFields,
   kind: z.literal('tool_result'),
@@ -105,6 +135,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   z.object({ ...taskScopedFields, kind: z.literal('preflight_done'), promptChars: z.number(), promptTokenCount: z.number() }),
   LlmStartProgressEventSchema,
   LlmEndProgressEventSchema,
+  UsageProgressEventSchema,
   z.object({ ...turnScopedFields, kind: z.literal('thinking'), thinkingText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),
@@ -194,5 +225,6 @@ export const RepoSearchExecutionResultSchema = z.object({
   transcriptPath: z.string(),
   artifactPath: z.string(),
   scorecard: ScorecardSchema,
+  turnRecords: z.array(TurnTokenRecordSchema),
 });
 export type RepoSearchExecutionResult = z.infer<typeof RepoSearchExecutionResultSchema>;
