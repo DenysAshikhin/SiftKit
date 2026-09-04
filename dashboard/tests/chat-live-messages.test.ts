@@ -93,14 +93,19 @@ test('a live repo-agent turn renders the thinking stack above the recent-activit
     outputTokens: 32,
     outputTokensEstimated: false,
   };
-  store = store
-    .apply({ kind: 'tool', sessionId, toolEvent: toolStart })
-    .apply({ kind: 'tool', sessionId, toolEvent: toolResult });
+  store = store.apply({ kind: 'tool', sessionId, toolEvent: toolStart });
+
+  live = liveTurnFor(store, sessionId);
+  assert.equal(live.recentActivities.length, 1);
+  assert.equal(live.recentActivities[0]?.state, 'active');
+
+  store = store.apply({ kind: 'tool', sessionId, toolEvent: toolResult });
 
   live = liveTurnFor(store, sessionId);
   assert.equal(live.showRecentActivity, true);
   assert.equal(live.liveThinking.length, LIVE_THINKING_STACK_DEPTH);
   assert.equal(live.recentActivities.length, 1);
   assert.equal(live.recentActivities[0]?.activityKind, 'search');
-  assert.equal(live.recentActivities[0]?.state, 'active');
+  // tool_result marks the call done, so the ring reads as finished rather than in-flight.
+  assert.equal(live.recentActivities[0]?.state, 'completed');
 });
