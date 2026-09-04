@@ -2,10 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpClient, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
-import {
-  StatusServerApiClient,
-  StatusServerOperationError,
-} from '../src/cli/status-server-api-client.js';
+import { StatusServerApiClient } from '../src/cli/status-server-api-client.js';
+import { StatusServerOperationError } from '../src/lib/operation-stream.js';
 import { SilentProgressRenderer } from '../src/cli/progress-renderer.js';
 import { z } from '../src/lib/zod.js';
 import {
