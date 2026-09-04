@@ -3,6 +3,7 @@ import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnost
 import { parseJsonObjectText, parseJsonText } from './json.js';
 import type { JsonObject } from './json-types.js';
 import type { SseFrame } from './sse-frame-parser.js';
+import type { HttpClient, SseStreamOptions } from './http-client.js';
 
 export const OPERATION_STREAM_EVENTS = {
   progress: 'progress',
@@ -78,18 +79,18 @@ export class StatusServerOperationError extends Error {
 
 export type OperationStreamFrame<T> =
   | { kind: 'progress'; event: JsonObject }
-  | { kind: 'result'; result: T }
-  | { kind: 'ignored' };
+  | { kind: 'result'; result: T };
 
 /**
- * Sorts one SSE frame into the operation protocol's three outcomes. Consumers differ only in
- * what they do with progress frames, so the terminal semantics live here once: an `error` frame
- * always throws, and a `result` frame is always parsed against the caller's schema.
+ * Sorts one SSE frame into the operation protocol's outcomes, or `null` for a frame the
+ * protocol does not define. Consumers differ only in what they do with progress frames, so the
+ * terminal semantics live here once: an `error` frame always throws, and a `result` frame is
+ * always parsed against the caller's schema.
  */
 export function classifyOperationStreamFrame<T>(
   frame: SseFrame,
   schema: z.ZodType<T>,
-): OperationStreamFrame<T> {
+): OperationStreamFrame<T> | null {
   if (frame.event === OPERATION_STREAM_EVENTS.progress) {
     return { kind: 'progress', event: parseJsonObjectText(frame.data) };
   }
@@ -99,5 +100,43 @@ export function classifyOperationStreamFrame<T>(
   if (frame.event === OPERATION_STREAM_EVENTS.result) {
     return { kind: 'result', result: parseJsonText(frame.data, schema) };
   }
-  return { kind: 'ignored' };
+  return null;
+}
+
+/**
+ * The one operation-stream read loop. Yields each progress payload and returns the parsed
+ * result, so a caller that renders progress and a caller that ignores it share the framing,
+ * error, and missing-result semantics instead of restating them.
+ */
+export async function* streamOperationResult<T>(
+  client: HttpClient,
+  options: SseStreamOptions,
+  schema: z.ZodType<T>,
+): AsyncGenerator<JsonObject, T> {
+  for await (const frame of client.streamSse(options)) {
+    const classified = classifyOperationStreamFrame(frame, schema);
+    if (classified?.kind === 'progress') {
+      yield classified.event;
+      continue;
+    }
+    if (classified?.kind === 'result') {
+      return classified.result;
+    }
+  }
+  throw new Error(OPERATION_STREAM_NO_RESULT_ERROR);
+}
+
+/** Reads an operation stream to its result, discarding progress. */
+export async function readOperationResult<T>(
+  client: HttpClient,
+  options: SseStreamOptions,
+  schema: z.ZodType<T>,
+): Promise<T> {
+  const stream = streamOperationResult(client, options, schema);
+  for (;;) {
+    const next = await stream.next();
+    if (next.done) {
+      return next.value;
+    }
+  }
 }

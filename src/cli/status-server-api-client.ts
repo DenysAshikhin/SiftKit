@@ -14,9 +14,8 @@ import { AGENT_RUN_ID_HEADER, readNestedAgentRunId } from '../lib/agent-run-mark
 import { parseJsonText } from '../lib/json.js';
 import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-  OPERATION_STREAM_NO_RESULT_ERROR,
   StatusServerOperationError,
-  classifyOperationStreamFrame,
+  streamOperationResult,
 } from '../lib/operation-stream.js';
 import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
@@ -454,38 +453,35 @@ export class StatusServerApiClient {
     const startedAt = Date.now();
     try {
       const nestedAgentRunId = readNestedAgentRunId();
-      for await (const frame of this.client.streamSse({
+      const stream = streamOperationResult(this.client, {
         ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
         url: this.getServiceUrl(pathname),
         body,
         idleTimeoutMs,
-      })) {
-        const classified = classifyOperationStreamFrame(frame, schema);
-        if (classified.kind === 'progress') {
-          const progressEvent = classified.event;
-          if (progressEvent.kind === 'approval_request') {
-            if (!approvalPrompter) {
-              throw new Error('Received approval_request on a non-interactive run.');
-            }
-            // The frame crossed the wire, so it is parsed back into its declared shape here.
-            const approval = ApprovalRequestProgressEventSchema.parse(progressEvent);
-            const decision = await approvalPrompter.promptDecision(approval);
-            await this.submitApproval(approval, decision);
-            continue;
-          }
-          renderer.render(progressEvent);
-          continue;
-        }
-        if (classified.kind === 'result') {
+      }, schema);
+      for (;;) {
+        const next = await stream.next();
+        if (next.done) {
           logHttpClientBoundary(
             task,
             'caller_response_received',
             `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
           );
-          return classified.result;
+          return next.value;
         }
+        const progressEvent = next.value;
+        if (progressEvent.kind === 'approval_request') {
+          if (!approvalPrompter) {
+            throw new Error('Received approval_request on a non-interactive run.');
+          }
+          // The frame crossed the wire, so it is parsed back into its declared shape here.
+          const approval = ApprovalRequestProgressEventSchema.parse(progressEvent);
+          const decision = await approvalPrompter.promptDecision(approval);
+          await this.submitApproval(approval, decision);
+          continue;
+        }
+        renderer.render(progressEvent);
       }
-      throw new Error(OPERATION_STREAM_NO_RESULT_ERROR);
     } catch (error) {
       throw this.normalizeError(toError(error));
     }
