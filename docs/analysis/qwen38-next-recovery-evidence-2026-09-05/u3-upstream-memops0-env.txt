@@ -1,0 +1,5 @@
+EXL3_MOE_MEMOPS=0
+PYTORCH_ALLOC_CONF=backend:native
+EXL3_LOAD_ARENA=1
+PYTHONPATH=C:/Users/denys/Documents/GitHub/SiftKit/pristine_exle/exllamav3
+args: -mcs 410 -mct 12 -cs 32768 -chunk_size 4096 -ngr -max_length 8192

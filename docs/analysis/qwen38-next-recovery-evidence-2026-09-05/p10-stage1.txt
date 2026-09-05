@@ -1,0 +1,75 @@
+ -- Loading D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6
+ -- CPU split experts (worker, dynamic): model.language_model.layers.0.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.1.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.2.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.3.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.4.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.5.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.6.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.7.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.8.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.9.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.10.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.11.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.12.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.13.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.14.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.15.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.16.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.17.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.18.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.19.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.20.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.21.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.22.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.23.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.24.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.25.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.26.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.27.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.28.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.29.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.30.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.31.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.32.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.33.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.34.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.35.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.36.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.37.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.38.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.39.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.40.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.41.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.42.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.43.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.44.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.45.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.46.mlp [102..512) of 512
+ -- CPU split experts (worker, dynamic): model.language_model.layers.47.mlp [102..512) of 512
+
+ -- CPU MoE worker started: 48 layers, avx512-vbmi, 12 threads
+ -- Loading tokenizer...
+ -- Bitrate: 4.29 bpw / 6.01 bpw (head)
+ -- Chunk size: 4096
+
+ -- stream prof (48 layers, rows 512, ms/layer): router-sync 0.72 host-enqueue 3.82 gpu-span 49.24 | batches/layer 4.7 | per layer: stage-wait 32.45 dma 13.65 compute 3.24
+ -- stream prof (96 layers, rows 1024, ms/layer): router-sync 0.58 host-enqueue 3.05 gpu-span 60.67 | batches/layer 6.6 | per layer: stage-wait 44.31 dma 14.26 compute 6.96
+ -- stream prof (144 layers, rows 2048, ms/layer): router-sync 1.36 host-enqueue 5.09 gpu-span 83.96 | batches/layer 9.1 | per layer: stage-wait 61.92 dma 19.75 compute 9.39
+ -- stream prof (192 layers, rows 4096, ms/layer): router-sync 4.20 host-enqueue 6.58 gpu-span 101.08 | batches/layer 11.7 | per layer: stage-wait 73.15 dma 25.99 compute 11.82
+
+[33;1mPrefill:[0m
+ -- stream prof (240 layers, rows 256, ms/layer): router-sync 8.04 host-enqueue 8.77 gpu-span 106.11 | batches/layer 12.1 | per layer: stage-wait 76.64 dma 27.42 compute 14.78
+Length     256: [32;1m    104.96[0m tokens/s
+ -- stream prof (288 layers, rows 512, ms/layer): router-sync 0.04 host-enqueue 2.59 gpu-span 49.76 | batches/layer 5.3 | per layer: stage-wait 36.38 dma 11.17 compute 2.06
+Length     512: [32;1m    157.71[0m tokens/s
+ -- stream prof (336 layers, rows 1024, ms/layer): router-sync 0.44 host-enqueue 3.36 gpu-span 68.82 | batches/layer 7.4 | per layer: stage-wait 46.64 dma 15.67 compute 5.71
+Length    1024: [32;1m    265.11[0m tokens/s
+ -- stream prof (384 layers, rows 2048, ms/layer): router-sync 1.33 host-enqueue 4.45 gpu-span 80.83 | batches/layer 10.3 | per layer: stage-wait 57.18 dma 22.07 compute 7.69
+Length    2048: [32;1m    413.10[0m tokens/s
+ -- stream prof (432 layers, rows 4096, ms/layer): router-sync 4.17 host-enqueue 6.31 gpu-span 100.29 | batches/layer 12.3 | per layer: stage-wait 71.30 dma 27.19 compute 11.06
+Length    4096: [32;1m    721.05[0m tokens/s
+ -- stream prof (480 layers, rows 4096, ms/layer): router-sync 9.23 host-enqueue 8.44 gpu-span 106.30 | batches/layer 13.2 | per layer: stage-wait 74.73 dma 29.60 compute 16.35
+Length    8192: [32;1m    735.48[0m tokens/s
+
+

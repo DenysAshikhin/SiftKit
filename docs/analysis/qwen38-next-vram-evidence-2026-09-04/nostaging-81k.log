@@ -1,0 +1,54 @@
+2026-09-04 20:12:54.697 INFO:     Configured backend: cudaMallocAsync
+2026-09-04 20:13:00.781 INFO:     exllamav3 version: 1.4.6
+2026-09-04 20:13:02.226 INFO:     Keeping vision model weights in system RAM 
+(vision_offload).
+2026-09-04 20:13:02.227 INFO:     Using main model MTP component for drafting
+2026-09-04 20:13:02.231 INFO:     Disabling GPU split because one GPU is in 
+use.
+2026-09-04 20:13:02.231 INFO:     Using configured max_seq_len: 155000 tokens.
+2026-09-04 20:13:02.232 INFO:     Using configured cache_size: 155136 tokens.
+2026-09-04 20:13:02.234 INFO:     Attempting to load a prompt template if 
+present.
+2026-09-04 20:13:02.258 INFO:     Using template "chat_template" for chat 
+completions.
+2026-09-04 20:13:04.972 INFO:     Loading model: 
+D:\personal\models\elx3\3.8_27b_sc_5.00bpw_h6
+2026-09-04 20:13:04.974 INFO:     Loading with a manual GPU split (or a one GPU
+setup)
+2026-09-04 20:14:29.097 INFO:     Model successfully loaded.
+Loading vision modules ------------------------------------- 100% 30/30 0:00:00
+Loading draft modules  ------------------------------------- 100% 3/3   0:00:00
+Loading model modules  ------------------------------------- 100% 67/67 0:00:00
+2026-09-04 20:14:29.099 WARNING:  Disabling authentication makes your instance 
+vulnerable. Set the `disable_auth` flag to False in config.yml if you want to 
+share this instance with others.
+2026-09-04 20:14:29.099 INFO:     Generation logging is disabled
+2026-09-04 20:14:29.100 INFO:     Developer documentation: 
+http://127.0.0.1:8098/redoc
+2026-09-04 20:14:29.100 INFO:     Starting OAI API
+2026-09-04 20:14:29.101 INFO:     Completions: 
+http://127.0.0.1:8098/v1/completions
+2026-09-04 20:14:29.101 INFO:     Chat completions: 
+http://127.0.0.1:8098/v1/chat/completions
+2026-09-04 20:14:29.112 INFO:     Started server process [31308]
+2026-09-04 20:14:29.112 INFO:     Waiting for application startup.
+2026-09-04 20:14:29.113 INFO:     Application startup complete.
+2026-09-04 20:14:29.114 INFO:     Uvicorn running on http://127.0.0.1:8098 
+(Press CTRL+C to quit)
+2026-09-04 20:14:30.143 INFO:     127.0.0.1:24288 - "GET /v1/models HTTP/1.1" 
+200
+2026-09-04 20:14:30.149 INFO:     127.0.0.1:24289 - "GET /v1/model HTTP/1.1" 
+200
+2026-09-04 20:14:30.414 INFO:     127.0.0.1:24288 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:14:30.415 INFO:     127.0.0.1:24290 - "GET /v1/model HTTP/1.1" 
+200
+2026-09-04 20:14:30.577 INFO:     127.0.0.1:24289 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:14:30.579 INFO:     127.0.0.1:24290 - "GET /health HTTP/1.1" 200
+2026-09-04 20:14:30.757 INFO:     127.0.0.1:24288 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:14:30.933 INFO:     127.0.0.1:24289 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:14:31.048 INFO:     Received chat completion request 
+a0d35e97af90434bbd03e60f7a72f437

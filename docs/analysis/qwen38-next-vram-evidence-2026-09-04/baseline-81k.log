@@ -1,0 +1,59 @@
+2026-09-04 20:11:06.817 INFO:     Configured backend: cudaMallocAsync
+2026-09-04 20:11:12.316 INFO:     exllamav3 version: 1.4.6
+2026-09-04 20:11:13.398 INFO:     Keeping vision model weights in system RAM 
+(vision_offload).
+2026-09-04 20:11:13.399 INFO:     Using main model MTP component for drafting
+2026-09-04 20:11:13.402 INFO:     Disabling GPU split because one GPU is in 
+use.
+2026-09-04 20:11:13.403 INFO:     Using configured max_seq_len: 155000 tokens.
+2026-09-04 20:11:13.403 INFO:     Using configured cache_size: 155136 tokens.
+2026-09-04 20:11:13.404 INFO:     Attempting to load a prompt template if 
+present.
+2026-09-04 20:11:13.427 INFO:     Using template "chat_template" for chat 
+completions.
+2026-09-04 20:11:15.324 INFO:     Loading model: 
+D:\personal\models\elx3\3.8_27b_sc_5.00bpw_h6
+2026-09-04 20:11:15.325 INFO:     Loading with a manual GPU split (or a one GPU
+setup)
+2026-09-04 20:11:19.928 INFO:     Model successfully loaded.
+Loading vision modules ------------------------------------- 100% 30/30 0:00:00
+Loading draft modules  ------------------------------------- 100% 3/3   0:00:00
+Loading model modules  ------------------------------------- 100% 67/67 0:00:00
+2026-09-04 20:11:19.930 WARNING:  Disabling authentication makes your instance 
+vulnerable. Set the `disable_auth` flag to False in config.yml if you want to 
+share this instance with others.
+2026-09-04 20:11:19.930 INFO:     Generation logging is disabled
+2026-09-04 20:11:19.930 INFO:     Developer documentation: 
+http://127.0.0.1:8098/redoc
+2026-09-04 20:11:19.931 INFO:     Starting OAI API
+2026-09-04 20:11:19.931 INFO:     Completions: 
+http://127.0.0.1:8098/v1/completions
+2026-09-04 20:11:19.932 INFO:     Chat completions: 
+http://127.0.0.1:8098/v1/chat/completions
+2026-09-04 20:11:19.969 INFO:     Started server process [25916]
+2026-09-04 20:11:19.969 INFO:     Waiting for application startup.
+2026-09-04 20:11:19.970 INFO:     Application startup complete.
+2026-09-04 20:11:19.972 INFO:     Uvicorn running on http://127.0.0.1:8098 
+(Press CTRL+C to quit)
+2026-09-04 20:11:20.389 INFO:     127.0.0.1:15577 - "GET /v1/models HTTP/1.1" 
+200
+2026-09-04 20:11:20.396 INFO:     127.0.0.1:15578 - "GET /v1/model HTTP/1.1" 
+200
+2026-09-04 20:11:20.636 INFO:     127.0.0.1:15577 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:11:20.799 INFO:     127.0.0.1:15578 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:11:20.952 INFO:     127.0.0.1:15577 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:11:21.104 INFO:     127.0.0.1:15578 - "POST /v1/token/encode 
+HTTP/1.1" 200
+2026-09-04 20:11:21.216 INFO:     Received chat completion request 
+9ca5d6de08fa4f7e9e4e7e1074e27f61
+2026-09-04 20:12:18.094 INFO:     Finished chat completion request 
+9ca5d6de08fa4f7e9e4e7e1074e27f61
+2026-09-04 20:12:18.095 INFO:     127.0.0.1:15577 - "POST /v1/chat/completions 
+HTTP/1.1" 200
+2026-09-04 20:12:18.096 INFO:     Metrics (ID: 
+9ca5d6de08fa4f7e9e4e7e1074e27f61): 27 tokens generated in 56.63 seconds (Queue:
+0.0 s, Process: 0 cached tokens and 81062 new tokens at 1449.87 T/s, Generate: 
+37.65 T/s, Context: 81062 tokens, Draft: 21 / 24 tokens accepted (87.50%)) 

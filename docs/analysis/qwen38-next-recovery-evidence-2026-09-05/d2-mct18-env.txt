@@ -1,0 +1,6 @@
+PYTORCH_ALLOC_CONF=backend:native
+EXL3_MOE_CPU_STAGE_THREADS=8
+EXL3_LOAD_ARENA=1
+PYTHONPATH=C:/Users/denys/Documents/GitHub/SiftKit/pristine_exle/exllamav3
+EXL3_MOE_STREAM_T=4
+args: -spf -max_length 2048 -mct 18

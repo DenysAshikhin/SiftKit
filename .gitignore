@@ -74,3 +74,5 @@ test-out.log
 *.tgz
 /tmp/
 tmp-*.ts
+
+/.scratch-*/

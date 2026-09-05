@@ -1,0 +1,322 @@
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
+Exception ignored in: <function SharedMemory.__del__ at 0x000002577BD8C180>
+Traceback (most recent call last):
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 189, in __del__
+    self.close()
+  File "C:\python_313\Lib\multiprocessing\shared_memory.py", line 232, in close
+    self._mmap.close()
+BufferError: cannot close exported pointers exist
