@@ -1,6 +1,0 @@
-EXL3_MOE_STREAM_PROF=1
-PYTORCH_ALLOC_CONF=backend:native
-EXL3_LOAD_ARENA=1
-PYTHONPATH=C:/Users/denys/Documents/GitHub/SiftKit/pristine_exle/exllamav3
-EXL3_MOE_STREAM_T=4
-args: -m D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 -mcs 410 -mct 12 -cs 32768 -chunk_size 4096 -ngr -max_length 8192

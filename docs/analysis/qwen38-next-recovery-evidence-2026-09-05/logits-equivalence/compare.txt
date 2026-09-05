@@ -1,6 +1,0 @@
-old vs old2:
-token agreement 5/24 (first divergence at 5); first-step logits: max|diff| 1.1562, mean|diff| 0.12591, ref max|logit| 18.19, argmax equal True
-new vs old:
-token agreement 6/24 (first divergence at 5); first-step logits: max|diff| 0.9922, mean|diff| 0.14020, ref max|logit| 18.19, argmax equal True
-new vs old2:
-token agreement 6/24 (first divergence at 6); first-step logits: max|diff| 1.0212, mean|diff| 0.12517, ref max|logit| 17.72, argmax equal True

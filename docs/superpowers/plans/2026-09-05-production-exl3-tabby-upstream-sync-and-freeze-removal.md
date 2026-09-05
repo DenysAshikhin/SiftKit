@@ -76,6 +76,10 @@ Reference numbers for the final smoke (RTX 4090, Flash-Next 4.05bpw, `-mcs 410 -
 - [ ] **Step 2:** Commit: `docs: qwen3.8 flash-next performance investigation, engine handoffs and evidence (2026-09-04/05)`.
 - [ ] **Step 3:** Verify: `git status --porcelain -uall | wc -l` == 0.
 
+### Task 0.4: Condense the analysis docs (added 2026-09-05 at the user's request after Task 0.3)
+
+The seven per-session docs and the raw run outputs were replaced by one record, `docs/analysis/2026-09-05-qwen38-flash-next-engine.md` (levers with verdicts, final numbers, equivalence, reproduce, open items), plus `docs/analysis/qwen38-flash-next-engine/` holding only the current tooling (`scripts/`: run5.sh, sweep-merged.sh, sweep-upstream.sh, logits_merged.sh, logits_check.py, compare_pt.py, build_ext.bat, moe_cpu_ref.py, stagebench.{py,cpp}) and the three logits references (`logits_old.pt`, `logits_old2.pt`, `logits_merged.pt`). Everything else from Tasks 0.1 to 0.3 is recoverable from commit `523f152f`. Later phases reference the new paths.
+
 ---
 
 ## Phase 1: Commit the in-flight work in both production repos
@@ -154,8 +158,8 @@ Neither branch is pushed; `fork` remotes are untouched.
 - [ ] **Step 2:** `git show --stat HEAD | tail -1` == `7 files changed, 455 insertions(+), 470 deletions(-)`.
 - [ ] **Step 3:** Rerun `update-exllamav3.ps1` (merge is skipped; rebuild + install + verify).
 - [ ] **Step 4:** Unit tests against the installed extension: `cd exllamav3-dev-qbench && python -m pytest tests/test_moe_cpu_offload.py tests/test_moe_cpu_pool_.py -q` -> 4 passed.
-- [ ] **Step 5:** Engine benchmark on the production import path (no `PYTHONPATH`): `EXL3_LOAD_ARENA=1 PYTORCH_ALLOC_CONF=backend:native python eval/perf.py -m D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 -mcs 410 -mct 12 -cs 32768 -chunk_size 4096 -ngr -max_length 8192` -> prefill 8192 within 1,700-2,000 tok/s, decode 30-35 tok/s. Save stdout as `docs/analysis/qwen38-next-recovery-evidence-2026-09-05/p1-production-merged.txt` (SiftKit repo).
-- [ ] **Step 6:** Equivalence: `EXL3_MOE_STREAM_T=4 python <SiftKit>/docs/analysis/qwen38-next-recovery-evidence-2026-09-05/scripts/logits_check.py --check <SiftKit>/docs/analysis/qwen38-next-recovery-evidence-2026-09-05/logits-equivalence/logits_old.pt -m D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 -mcs 410 -mct 12 -cs 32768` -> argmax equal, max |diff| at or below the 1.16 noise floor. (`logits_check.py` loads `perf.py` from the pristine path by absolute path; that is only the workload loader.)
+- [ ] **Step 5:** Engine benchmark on the production import path (no `PYTHONPATH`): `EXL3_LOAD_ARENA=1 PYTORCH_ALLOC_CONF=backend:native python eval/perf.py -m D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 -mcs 410 -mct 12 -cs 32768 -chunk_size 4096 -ngr -max_length 8192` -> prefill 8192 within 1,700-2,000 tok/s, decode 30-35 tok/s. Save stdout as `docs/analysis/qwen38-flash-next-engine/production-merged-perf.txt` (SiftKit repo).
+- [ ] **Step 6:** Equivalence: `EXL3_MOE_STREAM_T=4 python <SiftKit>/docs/analysis/qwen38-flash-next-engine/scripts/logits_check.py --check <SiftKit>/docs/analysis/qwen38-flash-next-engine/logits-equivalence/logits_old.pt -m D:/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 -mcs 410 -mct 12 -cs 32768` -> argmax equal, max |diff| at or below the 1.16 noise floor. (`logits_check.py` loads `perf.py` from the pristine path by absolute path; that is only the workload loader.)
 - [ ] **Step 7:** `python -c "import importlib.metadata as m; print(m.version('exllamav3'))"` prints `1.4.7+unified.1`. Tabby will refuse to start until Phase 5 bumps its pin; that is the expected loud failure.
 
 ---
@@ -338,7 +342,7 @@ function migratePresetRecord(
 ## Phase 8: Record the outcome (item 4 summary)
 
 - [ ] **Step 1:** New handoff `docs/analysis/2026-09-0X-production-upstream-sync-handoff.md` with: the three repos' final commits; production-vs-upstream divergence after the work (exllamav3: qbench tooling, quantize.py fix, version stamp, zero-copy engine 58d19c0; Tabby: usage-stats counters, env-contract test, draft-mode test, pin); what freeze removal deleted in each repo; the Phase 4 and Phase 7 numbers; the pyd SHA printed by the update script.
-- [ ] **Step 2:** Update `docs/analysis/2026-09-05-qwen38-next-upstream-sync-handoff.md` "Remaining" section: deployment done, Linux check still open.
+- [ ] **Step 2:** Update `docs/analysis/2026-09-05-qwen38-flash-next-engine.md` "State and open items": production on the merged engine, Linux check still open, and record the production-path benchmark and equivalence numbers under "Final numbers".
 - [ ] **Step 3:** Commit docs. Pristine clones: leave `engine-zero-copy` checked out in pristine exllamav3 and `origin/main` detached in pristine Tabby.
 
 ---
