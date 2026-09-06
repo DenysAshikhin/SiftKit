@@ -554,7 +554,7 @@ export const MIGRATIONS: readonly Migration[] = [
   {
     version: 47,
     up: (database) => {
-    migrateAppConfigIdleAction(database);
+    migrateAppConfigIdleAction(database, 'add-missing');
     },
   },
   {
@@ -819,5 +819,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 64,
     rebuildsTables: true,
     up: migrateRuntimeToExl3Only,
+  },
+  {
+    // Host-RAM freeze was removed; presets that idled to `freeze` now idle to `unload`.
+    version: 65,
+    up: (database) => {
+      migrateAppConfigIdleAction(database, 'freeze-to-unload');
+    },
   },
 ];

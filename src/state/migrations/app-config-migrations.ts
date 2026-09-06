@@ -439,15 +439,32 @@ function parseMigrationJson(text: string, source: string): JsonValue {
   }
 }
 
-function migratePresetRecord(value: JsonValue, source: string): { preset: JsonObject; changed: boolean } {
+/**
+ * `add-missing` (v47) stamps presets that predate IdleAction; `freeze-to-unload` (v65) retires the
+ * removed host-RAM freeze action. The app_config preset column was renamed between the two.
+ */
+export type IdleActionMigrationMode = 'add-missing' | 'freeze-to-unload';
+
+const IDLE_ACTION_APP_CONFIG_COLUMN = {
+  'add-missing': 'server_llama_presets_json',
+  'freeze-to-unload': 'server_model_presets_json',
+} as const satisfies Record<IdleActionMigrationMode, string>;
+
+function migratePresetRecord(
+  value: JsonValue, source: string, mode: IdleActionMigrationMode,
+): { preset: JsonObject; changed: boolean } {
   const preset = requireMigrationObject(value, source);
-  if (Object.hasOwn(preset, 'IdleAction')) {
-    return { preset, changed: false };
+  if (mode === 'add-missing') {
+    if (Object.hasOwn(preset, 'IdleAction')) return { preset, changed: false };
+    return { preset: { ...preset, IdleAction: 'unload' }, changed: true };
   }
+  if (preset.IdleAction !== 'freeze') return { preset, changed: false };
   return { preset: { ...preset, IdleAction: 'unload' }, changed: true };
 }
 
-function migratePresetArray(text: string, source: string): { presets: JsonObject[]; changed: boolean } {
+function migratePresetArray(
+  text: string, source: string, mode: IdleActionMigrationMode,
+): { presets: JsonObject[]; changed: boolean } {
   const parsed = parseMigrationJson(text, source);
   if (!Array.isArray(parsed)) {
     throw new Error(`Cannot migrate ${source}: expected a JSON array of preset objects.`);
@@ -455,14 +472,16 @@ function migratePresetArray(text: string, source: string): { presets: JsonObject
   const presets: JsonObject[] = [];
   let changed = false;
   for (const [index, value] of parsed.entries()) {
-    const migrated = migratePresetRecord(value, `${source}[${index}]`);
+    const migrated = migratePresetRecord(value, `${source}[${index}]`, mode);
     presets.push(migrated.preset);
     changed ||= migrated.changed;
   }
   return { presets, changed };
 }
 
-function migrateConfigSnapshot(text: string, source: string): { json: string; changed: boolean } {
+function migrateConfigSnapshot(
+  text: string, source: string, mode: IdleActionMigrationMode,
+): { json: string; changed: boolean } {
   const config = requireMigrationObject(parseMigrationJson(text, source), source);
   // Snapshots that predate Server.ModelPresets (e.g. Server.Inference) carry no presets to
   // migrate; they stay untouched and normalization rejects them loudly if they are ever reused.
@@ -484,7 +503,7 @@ function migrateConfigSnapshot(text: string, source: string): { json: string; ch
   const presets: JsonObject[] = [];
   let changed = false;
   for (const [index, value] of presetsValue.entries()) {
-    const migrated = migratePresetRecord(value, `${source}.Server.ModelPresets.Presets[${index}]`);
+    const migrated = migratePresetRecord(value, `${source}.Server.ModelPresets.Presets[${index}]`, mode);
     presets.push(migrated.preset);
     changed ||= migrated.changed;
   }
@@ -498,22 +517,23 @@ function migrateConfigSnapshot(text: string, source: string): { json: string; ch
   return { json: JSON.stringify(config), changed: true };
 }
 
-export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
+export function migrateAppConfigIdleAction(database: RuntimeDatabase, mode: IdleActionMigrationMode): void {
+  const appConfigColumn = IDLE_ACTION_APP_CONFIG_COLUMN[mode];
   let migratedAppPresets: JsonObject[] | null = null;
   let migratedAppPresetsChanged = false;
   const migratedSessions: { id: string; modelPresetJson: string }[] = [];
   const migratedBenchmarkSessions: { id: string; originalConfigJson: string }[] = [];
   const migratedBenchmarkCases: { id: string; managedPresetJson: string }[] = [];
 
-  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
+  if (tableHasColumn(database, 'app_config', appConfigColumn)) {
     const rawRow = database.prepare(`
-      SELECT server_llama_presets_json AS presets_json
+      SELECT ${appConfigColumn} AS presets_json
       FROM app_config
       WHERE id = 1
     `).get();
     if (rawRow != null) {
       const row = IdleActionMigrationConfigRowSchema.parse(rawRow);
-      const migrated = migratePresetArray(row.presets_json, 'app_config.server_llama_presets_json');
+      const migrated = migratePresetArray(row.presets_json, `app_config.${appConfigColumn}`, mode);
       migratedAppPresets = migrated.presets;
       migratedAppPresetsChanged = migrated.changed;
     }
@@ -529,6 +549,7 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
       const migrated = migratePresetRecord(
         parseMigrationJson(row.model_preset_json ?? '', `chat_sessions[${row.id}].model_preset_json`),
         `chat_sessions[${row.id}].model_preset_json`,
+        mode,
       );
       if (migrated.changed) {
         migratedSessions.push({ id: row.id, modelPresetJson: JSON.stringify(migrated.preset) });
@@ -545,6 +566,7 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
       const migrated = migrateConfigSnapshot(
         row.original_config_json,
         `benchmark_sessions[${row.id}].original_config_json`,
+        mode,
       );
       if (migrated.changed) {
         migratedBenchmarkSessions.push({ id: row.id, originalConfigJson: migrated.json });
@@ -561,6 +583,7 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
       const migrated = migratePresetRecord(
         parseMigrationJson(row.managed_preset_json, `benchmark_cases[${row.id}].managed_preset_json`),
         `benchmark_cases[${row.id}].managed_preset_json`,
+        mode,
       );
       if (migrated.changed) {
         migratedBenchmarkCases.push({ id: row.id, managedPresetJson: JSON.stringify(migrated.preset) });
@@ -573,7 +596,7 @@ export function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
     if (migratedAppPresetsChanged && migratedAppPresets !== null) {
       database.prepare(`
         UPDATE app_config
-        SET server_llama_presets_json = ?, updated_at_utc = ?
+        SET ${appConfigColumn} = ?, updated_at_utc = ?
         WHERE id = 1
       `).run(JSON.stringify(migratedAppPresets), updatedAtUtc);
     }

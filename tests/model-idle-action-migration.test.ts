@@ -453,6 +453,125 @@ test('a failed v47 migration write surfaces and leaves the marker incomplete', (
   }
 });
 
+// A v64 database is the last one that could persist `IdleAction: 'freeze'`; v65 rewrites it to
+// `unload` everywhere a preset snapshot lives and leaves every other value byte-identical.
+function seedFreezeIdleActionSnapshots(dbPath: string): {
+  appPresets: JsonObject[];
+  chatPresetNone: string;
+  benchmarkConfigUnload: string;
+} {
+  writeConfig(dbPath, getDefaultConfigObject());
+  const database = getRuntimeDatabase(dbPath);
+  const basePreset = JsonObjectSchema.parse(JsonValueSchema.parse(
+    getDefaultConfigObject().Server.ModelPresets.Presets[0],
+  ));
+  const freezePreset = { ...basePreset, id: 'freeze-preset', IdleAction: 'freeze' };
+  const nonePreset = { ...basePreset, id: 'none-preset', IdleAction: 'none' };
+  const unloadPreset = { ...basePreset, id: 'unload-preset', IdleAction: 'unload' };
+  const appPresets = [freezePreset, nonePreset, unloadPreset];
+  const timestamp = '2026-01-01T00:00:00.000Z';
+  const insertSession = database.prepare(`
+    INSERT INTO chat_sessions (
+      id, title, model_preset_id, model_preset_json, thinking_enabled,
+      web_search_enabled, preset_id, mode, plan_repo_root,
+      created_at_utc, updated_at_utc
+    ) VALUES (?, 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', ?, ?)
+  `);
+  insertSession.run('session-freeze', JSON.stringify(freezePreset), timestamp, timestamp);
+  const chatPresetNone = JSON.stringify(nonePreset);
+  insertSession.run('session-none', chatPresetNone, timestamp, timestamp);
+  const configWith = (preset: JsonObject): string => {
+    const config = JsonObjectSchema.parse(JsonValueSchema.parse(getDefaultConfigObject()));
+    const server = JsonObjectSchema.parse(config.Server);
+    const modelPresets = JsonObjectSchema.parse(server.ModelPresets);
+    config.Server = { ...server, ModelPresets: { ...modelPresets, Presets: [preset] } };
+    return JSON.stringify(config);
+  };
+  const insertBenchmarkSession = database.prepare(`
+    INSERT INTO benchmark_sessions (
+      id, status, question_preset_count, case_count, repetitions,
+      current_case_index, current_prompt_index, current_repeat_index,
+      restore_status, restore_error, original_config_json,
+      started_at_utc, completed_at_utc, updated_at_utc
+    ) VALUES (?, 'completed', 1, 1, 1, NULL, NULL, NULL, 'completed', NULL, ?, ?, NULL, ?)
+  `);
+  insertBenchmarkSession.run('benchmark-session-freeze', configWith(freezePreset), timestamp, timestamp);
+  const benchmarkConfigUnload = configWith(unloadPreset);
+  insertBenchmarkSession.run('benchmark-session-unload', benchmarkConfigUnload, timestamp, timestamp);
+  database.prepare(`
+    INSERT INTO benchmark_cases (
+      id, session_id, case_index, label, managed_preset_id, managed_preset_label,
+      managed_preset_json, spec_override_json, created_at_utc
+    ) VALUES ('benchmark-case-freeze', 'benchmark-session-freeze', 0, 'Case', 'default', 'Default', ?, '{}', ?)
+  `).run(JSON.stringify(freezePreset), timestamp);
+  database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1').run(JSON.stringify(appPresets));
+  database.exec('UPDATE runtime_schema SET version = 64 WHERE id = 1');
+  closeRuntimeDatabase();
+  return { appPresets, chatPresetNone, benchmarkConfigUnload };
+}
+
+function readColumn(dbPath: string, sql: string, id: string): string {
+  const database = new Database(dbPath, { readonly: true });
+  try {
+    return z.object({ value: z.string() }).parse(database.prepare(sql).get(id)).value;
+  } finally {
+    database.close();
+  }
+}
+
+test('v65 migrates persisted IdleAction freeze to unload in every snapshot and leaves other values byte-identical', () => {
+  const dbPath = tempDbPath('sk-idle-action-freeze-to-unload-');
+  try {
+    const seeded = seedFreezeIdleActionSnapshots(dbPath);
+
+    getRuntimeDatabase(dbPath);
+    closeRuntimeDatabase();
+
+    assert.equal(readSchemaVersion(dbPath), 65);
+    const appPresets = readStoredPresets(dbPath);
+    assert.deepEqual(appPresets.map((preset) => preset.IdleAction), ['unload', 'none', 'unload']);
+    assert.equal(JSON.stringify(appPresets[1]), JSON.stringify(seeded.appPresets[1]));
+    assert.equal(JSON.stringify(appPresets[2]), JSON.stringify(seeded.appPresets[2]));
+    const chatSql = 'SELECT model_preset_json AS value FROM chat_sessions WHERE id = ?';
+    assert.equal(JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, chatSql, 'session-freeze'))).IdleAction, 'unload');
+    assert.equal(readColumn(dbPath, chatSql, 'session-none'), seeded.chatPresetNone);
+    const benchmarkSql = 'SELECT original_config_json AS value FROM benchmark_sessions WHERE id = ?';
+    const migratedConfig = JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, benchmarkSql, 'benchmark-session-freeze')));
+    const migratedPresets = z.array(JsonObjectSchema).parse(
+      JsonObjectSchema.parse(JsonObjectSchema.parse(migratedConfig.Server).ModelPresets).Presets,
+    );
+    assert.equal(migratedPresets[0]?.IdleAction, 'unload');
+    assert.equal(readColumn(dbPath, benchmarkSql, 'benchmark-session-unload'), seeded.benchmarkConfigUnload);
+    const caseSql = 'SELECT managed_preset_json AS value FROM benchmark_cases WHERE id = ?';
+    assert.equal(JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, caseSql, 'benchmark-case-freeze'))).IdleAction, 'unload');
+
+    assert.doesNotThrow(() => readConfig(dbPath));
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('after v65, a persisted IdleAction freeze fails loudly', () => {
+  const dbPath = tempDbPath('sk-idle-action-freeze-post-marker-');
+  try {
+    writeConfig(dbPath, getDefaultConfigObject());
+    const database = getRuntimeDatabase(dbPath);
+    const row = PresetsJsonRowSchema.parse(
+      database.prepare('SELECT server_model_presets_json AS presets_json FROM app_config WHERE id = 1').get(),
+    );
+    const presets = z.array(JsonObjectSchema).parse(parseJsonValueText(row.presets_json));
+    const first = presets[0];
+    if (!first) throw new Error('Expected a default model preset.');
+    first.IdleAction = 'freeze';
+    database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1').run(JSON.stringify(presets));
+    closeRuntimeDatabase();
+
+    assert.throws(() => readConfig(dbPath), /Invalid IdleAction 'freeze'; expected none or unload/u);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
 test('IdleAction schema rejects ram and other invalid values', () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Expected a default model preset.');
@@ -462,7 +581,7 @@ test('IdleAction schema rejects ram and other invalid values', () => {
 
 test('EXL3 accepts all documented IdleAction values', () => {
   const base = getDefaultConfigObject();
-  for (const IdleAction of ['none', 'freeze', 'unload'] as const) {
+  for (const IdleAction of ['none', 'unload'] as const) {
     const exl3 = {
       ...base,
       Server: {

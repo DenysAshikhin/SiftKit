@@ -201,8 +201,8 @@ test('v63 renames the preset columns and keeps only exl3 presets with exl3 field
   try {
     migrate(dbPath);
 
-    assert.equal(CURRENT_SCHEMA_VERSION, 64);
-    assert.equal(schemaVersion(dbPath), 64);
+    assert.equal(CURRENT_SCHEMA_VERSION, 65);
+    assert.equal(schemaVersion(dbPath), 65);
     const columns = appConfigColumns(dbPath);
     assert.equal(columns.includes('server_model_presets_json'), true);
     assert.equal(columns.includes('server_model_active_preset_id'), true);
@@ -293,7 +293,7 @@ test('re-opening a migrated database is a no-op', () => {
     const first = readPresets(dbPath);
     migrate(dbPath);
     assert.deepEqual(readPresets(dbPath), first);
-    assert.equal(schemaVersion(dbPath), 64);
+    assert.equal(schemaVersion(dbPath), 65);
   } finally {
     closeRuntimeDatabase();
   }
@@ -440,7 +440,7 @@ test('v64 repairs already-v63 tables and preserves retained child rows while enf
   database.close();
   try {
     migrate(dbPath);
-    assert.equal(schemaVersion(dbPath), 64);
+    assert.equal(schemaVersion(dbPath), 65);
     assert.equal(count(dbPath, "SELECT COUNT(*) AS count FROM inference_run_log_chunks WHERE run_id = 'inference-exl3'"), 1);
     const migrated = new Database(dbPath);
     try {

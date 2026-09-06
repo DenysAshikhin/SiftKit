@@ -37,7 +37,7 @@ const ForeignKeyViolationRowSchema = z.object({
   fkid: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 64;
+export const CURRENT_SCHEMA_VERSION = 65;
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
