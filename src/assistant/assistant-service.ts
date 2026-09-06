@@ -649,7 +649,7 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * Called by the host before it freezes or unloads the model (§12.4). Background model work
+   * Called by the host before it unloads the model (§12.4). Background model work
    * cannot survive the transition and cannot wake the model back up, so the drain is preempted
    * and awaited before residency changes.
    */

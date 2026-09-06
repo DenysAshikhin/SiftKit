@@ -7,8 +7,7 @@ const STATUS = {
   activePresetId: 'active-id',
   activePresetLabel: 'Active runtime',
   backend: 'exl3',
-  idleAction: 'freeze',
-  freezeSupported: true,
+  idleAction: 'unload',
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',
@@ -20,7 +19,7 @@ const STATUS = {
   gpuFreeBytes: 1024,
 };
 
-test('lifecycle action posts freeze and parses its shared response', async () => {
+test('lifecycle action posts unload and parses its shared response', async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl = '';
   globalThis.fetch = async (input) => {
@@ -28,8 +27,8 @@ test('lifecycle action posts freeze and parses its shared response', async () =>
     return new Response(JSON.stringify({ ok: true, status: 'done' }), { status: 200 });
   };
   try {
-    assert.deepEqual(await postModelResidencyAction('freeze'), { ok: true, status: 'done' });
-    assert.equal(requestUrl, '/runtime/model/freeze');
+    assert.deepEqual(await postModelResidencyAction('unload'), { ok: true, status: 'done' });
+    assert.equal(requestUrl, '/runtime/model/unload');
   } finally {
     globalThis.fetch = originalFetch;
   }

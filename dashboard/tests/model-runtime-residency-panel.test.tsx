@@ -11,8 +11,7 @@ const STATUS = {
   activePresetId: 'active-id',
   activePresetLabel: 'Active runtime',
   backend: 'exl3',
-  idleAction: 'freeze',
-  freezeSupported: true,
+  idleAction: 'unload',
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',
@@ -70,15 +69,15 @@ test('renders static runtime facts as associated definition terms and descriptio
   }
 });
 
-test('freeze control uses the exact route and refetches status after completion', async () => {
+test('unload control uses the exact route and refetches status after completion', async () => {
   const fetchState = installFetch();
   try {
     render(<RuntimePanel />);
     await act(async () => {});
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Freeze to RAM' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Unload' })); });
     assert.deepEqual(fetchState.calls.slice(0, 3), [
       '/runtime/inference',
-      '/runtime/model/freeze',
+      '/runtime/model/unload',
       '/runtime/inference',
     ]);
   } finally {
@@ -86,14 +85,15 @@ test('freeze control uses the exact route and refetches status after completion'
   }
 });
 
-test('load and unload controls follow stable state and backend rules', async () => {
-  const fetchState = installFetch({ ...STATUS, modelState: 'frozen' });
+test('panel offers exactly Load and Unload and follows the stable model state', async () => {
+  const fetchState = installFetch({ ...STATUS, modelState: 'unloaded' });
   try {
     render(<RuntimePanel />);
     await act(async () => {});
-    assert.equal(screen.getByRole('button', { name: 'Load/Restore' }).hasAttribute('disabled'), false);
-    assert.equal(screen.getByRole('button', { name: 'Freeze to RAM' }).hasAttribute('disabled'), true);
-    assert.equal(screen.getByRole('button', { name: 'Unload' }).hasAttribute('disabled'), false);
+    assert.deepEqual(screen.getAllByRole('button').map((button) => button.textContent), ['Load', 'Unload']);
+    assert.equal(screen.getByRole('button', { name: 'Load' }).hasAttribute('disabled'), false);
+    assert.equal(screen.getByRole('button', { name: 'Unload' }).hasAttribute('disabled'), true);
+    assert.equal(screen.queryByText(/freeze/iu), null);
   } finally {
     fetchState.restore();
   }

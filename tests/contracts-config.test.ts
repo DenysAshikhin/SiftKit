@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   Exl3EngineConfigSchema,
   InferenceModelStateSchema,
+  InferenceRuntimeErrorPhaseSchema,
+  ModelIdleActionSchema,
   ModelLifecycleActionSchema,
   ModelLifecycleRequestSchema,
   ModelLifecycleResponseSchema,
@@ -137,7 +139,6 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
     activePresetLabel: 'Coding',
     backend: 'exl3',
     idleAction: 'unload',
-    freezeSupported: true,
     processState: 'ready',
     modelState: 'unloaded',
     model: null,
@@ -148,16 +149,18 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
   }));
 });
 
-test('model lifecycle contracts accept only freeze terminology and valid responses', () => {
-  assert.deepEqual(ModelLifecycleActionSchema.parse('freeze'), 'freeze');
+test('model lifecycle contracts accept only load/unload terminology and valid responses', () => {
+  assert.deepEqual(ModelLifecycleActionSchema.options, ['load', 'unload']);
+  assert.equal(ModelLifecycleActionSchema.safeParse('freeze').success, false);
   assert.equal(ModelLifecycleActionSchema.safeParse('offload').success, false);
-  assert.equal(ModelLifecycleActionSchema.safeParse('ram').success, false);
   assert.deepEqual(ModelLifecycleRequestSchema.parse({ action: 'load' }), { action: 'load' });
   assert.deepEqual(ModelLifecycleResponseSchema.parse({ ok: true, status: 'done' }), { ok: true, status: 'done' });
   assert.equal(ModelLifecycleResponseSchema.safeParse({ ok: true, status: 'malformed' }).success, false);
-  assert.equal(InferenceModelStateSchema.safeParse('freezing').success, true);
-  assert.equal(InferenceModelStateSchema.safeParse('frozen').success, true);
-  assert.equal(InferenceModelStateSchema.safeParse('offloaded').success, false);
+  assert.deepEqual(InferenceModelStateSchema.options, ['unloaded', 'loading', 'ready', 'unloading', 'failed']);
+  assert.equal(InferenceModelStateSchema.safeParse('frozen').success, false);
+  assert.deepEqual(ModelIdleActionSchema.options, ['none', 'unload']);
+  assert.deepEqual(InferenceRuntimeErrorPhaseSchema.options, ['process-start', 'process-stop', 'model-load', 'model-unload', 'preset-switch']);
+  assert.equal(Object.hasOwn(InferenceRuntimeStatusSchema.shape, 'freezeSupported'), false);
 });
 
 test('SiftPresetSchema rejects removed and unknown fields', () => {

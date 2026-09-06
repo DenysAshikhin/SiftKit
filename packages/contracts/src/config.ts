@@ -27,14 +27,14 @@ export const InferenceProcessStateSchema = z.enum([
 export type InferenceProcessState = z.infer<typeof InferenceProcessStateSchema>;
 
 export const InferenceModelStateSchema = z.enum([
-  'unloaded', 'loading', 'ready', 'unloading', 'freezing', 'frozen', 'failed',
+  'unloaded', 'loading', 'ready', 'unloading', 'failed',
 ]);
 export type InferenceModelState = z.infer<typeof InferenceModelStateSchema>;
 
-export const ModelLifecycleActionSchema = z.enum(['load', 'freeze', 'unload']);
+export const ModelLifecycleActionSchema = z.enum(['load', 'unload']);
 export type ModelLifecycleAction = z.infer<typeof ModelLifecycleActionSchema>;
 
-export const ModelIdleActionSchema = z.enum(['none', 'freeze', 'unload']);
+export const ModelIdleActionSchema = z.enum(['none', 'unload']);
 export type ModelIdleAction = z.infer<typeof ModelIdleActionSchema>;
 
 export const InferenceThinkingConfigSchema = z.object({

@@ -331,11 +331,8 @@ export class ModelResidencyEndpoint implements RouteEndpoint {
       const action = ModelLifecycleRequestSchema.parse({ action: this.action }).action;
       const result = action === 'load'
         ? await coordinator.loadActivePresetNow()
-        : action === 'unload'
-          ? await coordinator.unloadActivePresetNow()
-          : await coordinator.freezeActivePresetNow();
+        : await coordinator.unloadActivePresetNow();
       if (result.status === 'busy') sendJson(res, 409, ModelLifecycleResponseSchema.parse({ ok: false, error: result.reason }));
-      else if (result.status === 'unsupported') sendJson(res, 400, ModelLifecycleResponseSchema.parse({ ok: false, error: result.reason }));
       else sendJson(res, 200, ModelLifecycleResponseSchema.parse({ ok: true, status: result.status }));
     } catch (error) {
       sendJson(res, 503, ModelLifecycleResponseSchema.parse({ ok: false, error: error instanceof Error ? error.message : String(error) }));

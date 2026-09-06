@@ -31,17 +31,6 @@ class FakeRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloaded');
   }
 
-  supportsFreeze(): boolean {
-    return true;
-  }
-
-  async freezePreset(): Promise<void> {
-    this.transitionModelTo('frozen');
-  }
-
-  async restorePreset(): Promise<void> {
-    this.transitionModelTo('ready');
-  }
 }
 
 class FixedRuntimeSource {

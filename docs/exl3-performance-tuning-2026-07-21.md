@@ -188,7 +188,7 @@ memory from `nvidia-smi` (a fresh process each time, no image encoded before the
 - **Image latency unchanged at 2.1 MP**: 4,008 ms on vs 4,148 ms off for the same screenshot and
   prompt. The streaming cost is small next to encode plus generation at this size; expect it to
   matter more for back-to-back image requests.
-- **Freeze/restore keeps the pinning.** With `IdleAction: freeze`, a vision-pinned model froze to
+- **Freeze/restore keeps the pinning** (historical: host-RAM freeze was removed on 2026-09-05). With `IdleAction: freeze`, a vision-pinned model froze to
   1,006 MiB and restored to 21,058 MiB — the tower does not come back into VRAM, and an image
   request after restore still captions correctly.
 

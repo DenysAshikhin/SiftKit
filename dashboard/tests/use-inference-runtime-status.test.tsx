@@ -11,7 +11,6 @@ const STATUS = {
   activePresetLabel: 'Active runtime',
   backend: 'exl3',
   idleAction: 'unload',
-  freezeSupported: true,
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',

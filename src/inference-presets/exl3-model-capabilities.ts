@@ -78,32 +78,6 @@ export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
  */
 const DEVICE_RESIDENT_PAST_IDS_MARKER = 'pinned_ids_valid';
 
-/**
- * Markers for the host-RAM freeze patch carried by the `siftkit` branch of exllamav3. Both halves
- * are checked because the patch is pure Python and is therefore installable by overlaying files
- * into site-packages, which can leave `Model.freeze` present without the source it imports.
- */
-const FROZEN_TENSOR_SOURCE_MARKER = 'class FrozenTensorSource';
-const MODEL_FREEZE_MARKER = 'def freeze';
-
-/**
- * Watermark for the freeze build that verifies snapshot coverage before handing back a source.
- * Earlier freeze builds silently omitted vision-tower tensors, so their snapshots only failed on
- * restore — after the VRAM copy was gone. Those builds are reported as having no freeze support.
- */
-const FREEZE_COVERAGE_MARKER = 'def _validate_freeze_coverage';
-
-/**
- * Shown wherever a freeze is refused, so the reason names the missing dependency and the fix. It
- * names the capability rather than a version, because the check below reads source watermarks and
- * never reads a version — a file-overlay install leaves version metadata describing the wheel it
- * overwrote, which is why the watermarks exist in the first place.
- */
-export const FREEZE_UNSUPPORTED_REASON =
-  'The installed exllamav3 has no host-RAM freeze support that validates snapshot coverage. Install '
-  + 'an exllamav3 built from the siftkit branch whose Model verifies snapshot coverage before '
-  + 'freezing, then restart the backend.';
-
 export class Exl3ModelCapabilities {
   constructor(
     private readonly packageLocator: Exl3PackageLocator = new InterpreterExl3PackageLocator(),
@@ -129,29 +103,6 @@ export class Exl3ModelCapabilities {
       return source.includes(DEVICE_RESIDENT_PAST_IDS_MARKER) ? 'compatible' : 'incompatible';
     } catch {
       return 'incompatible';
-    }
-  }
-
-  /**
-   * Whether the installed exllamav3 can freeze weights to host RAM. Without it `Model.freeze()`
-   * raises `AttributeError` inside TabbyAPI, so both the idle `freeze` action and the manual
-   * button would fail at request time rather than being refused up front.
-   */
-  hasFreezeSupport(pythonPath: string): boolean {
-    const frozenTensors = this.readPackageSource(pythonPath, ['loader', 'frozen_tensors.py']);
-    if (!frozenTensors?.includes(FROZEN_TENSOR_SOURCE_MARKER)) return false;
-    const model = this.readPackageSource(pythonPath, ['model', 'model.py']);
-    if (!model) return false;
-    return model.includes(MODEL_FREEZE_MARKER) && model.includes(FREEZE_COVERAGE_MARKER);
-  }
-
-  private readPackageSource(pythonPath: string, relativePath: string[]): string | null {
-    try {
-      const inspection = this.packageLocator.inspectPackage(pythonPath);
-      if (inspection.status !== 'resolved') return null;
-      return readFileSync(win32.join(inspection.packageDirectory, ...relativePath), 'utf8');
-    } catch {
-      return null;
     }
   }
 }

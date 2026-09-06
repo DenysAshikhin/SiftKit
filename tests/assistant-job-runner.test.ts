@@ -709,7 +709,7 @@ test('runner executes every Gate C job branch with configured priority order', a
   });
 });
 
-test('a frozen model claims no model-backed job and spends no attempt', async () => {
+test('an unloaded model claims no model-backed job and spends no attempt', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
     const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     new ConversationIngestor(pipeline).ingestTurn({
@@ -750,7 +750,7 @@ test('a frozen model claims no model-backed job and spends no attempt', async ()
   });
 });
 
-test('a model that freezes mid-call requeues the job without spending an attempt', async () => {
+test('a model that unloads mid-call requeues the job without spending an attempt', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
     const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     new ConversationIngestor(pipeline).ingestTurn({
@@ -762,7 +762,7 @@ test('a model that freezes mid-call requeues the job without spending an attempt
     const residencyGate = new StaticResidencyGate(true);
     let recordedGpuUse = 0;
 
-    class FreezingInference extends FakeAssistantInference {
+    class UnloadingInference extends FakeAssistantInference {
       constructor() {
         super([]);
       }
@@ -783,7 +783,7 @@ test('a model that freezes mid-call requeues the job without spending an attempt
       graph,
       ...UNUSED_GATE_C_JOBS,
       extractor: new ConversationExtractor(
-        graph, new StructuredOutputRunner(new FreezingInference()),
+        graph, new StructuredOutputRunner(new UnloadingInference()),
       ),
       promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
       consolidator: new CandidateConsolidator(
@@ -811,7 +811,7 @@ test('a model that freezes mid-call requeues the job without spending an attempt
   });
 });
 
-test('a frozen model still lets deterministic jobs drain', async () => {
+test('an unloaded model still lets deterministic jobs drain', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
     graph.jobs.enqueue({
       ownerId, jobType: 'capture_retention', payload: { reason: 'schedule' },

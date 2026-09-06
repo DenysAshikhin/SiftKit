@@ -5,7 +5,6 @@ import type {
   ModelLifecycleActionResult,
 } from '@siftkit/contracts';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
-import { FREEZE_UNSUPPORTED_REASON } from '../inference-presets/exl3-model-capabilities.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
@@ -51,8 +50,7 @@ export class PresetRuntimeCoordinator {
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.runtime;
     try {
-      if (runtime.getModelState() === 'frozen') await runtime.restorePreset();
-      else await runtime.ensurePresetReady(preset);
+      await runtime.ensurePresetReady(preset);
     } catch (error) {
       this.fail('process-start', error instanceof Error ? error.message : String(error));
       throw error;
@@ -109,8 +107,7 @@ export class PresetRuntimeCoordinator {
     }
     this.beginResidencyAction();
     try {
-      if (modelState === 'frozen') await runtime.restorePreset();
-      else await runtime.ensurePresetReady(preset);
+      await runtime.ensurePresetReady(preset);
       this.errorPhase = null;
       this.error = null;
     } catch (error) {
@@ -142,23 +139,17 @@ export class PresetRuntimeCoordinator {
     this.idleDeadlineUtc = deadlineUtc;
   }
 
-  async applyIdleResidencyAction(presetId: string, action: 'freeze' | 'unload'): Promise<boolean> {
+  async applyIdleResidencyAction(presetId: string, action: 'unload'): Promise<boolean> {
     if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
     if (this.residencyActionInProgress) return false;
     const runtime = this.runtime;
     if (runtime.getModelState() !== 'ready') return false;
-    if (action === 'freeze' && !runtime.supportsFreeze()) {
-      const error = new Error(FREEZE_UNSUPPORTED_REASON);
-      this.fail('model-freeze', error.message);
-      throw error;
-    }
     this.beginResidencyAction();
     try {
-      if (action === 'freeze') await runtime.freezePreset();
-      else await runtime.unloadPreset();
+      await runtime.unloadPreset();
       return true;
     } catch (error) {
-      this.fail(action === 'freeze' ? 'model-freeze' : 'model-unload', error instanceof Error ? error.message : String(error));
+      this.fail('model-unload', error instanceof Error ? error.message : String(error));
       throw error;
     } finally {
       this.endResidencyAction();
@@ -198,29 +189,6 @@ export class PresetRuntimeCoordinator {
     }
   }
 
-  async freezeActivePresetNow(): Promise<ModelLifecycleActionResult> {
-    const busy = this.refuseIfBusy();
-    if (busy) return busy;
-    const runtime = this.runtime;
-    if (!runtime.supportsFreeze()) {
-      return { status: 'unsupported', reason: FREEZE_UNSUPPORTED_REASON };
-    }
-    if (runtime.getModelState() === 'frozen') return { status: 'noop' };
-    if (runtime.getModelState() !== 'ready') {
-      return { status: 'busy', reason: `Cannot freeze a model in state '${runtime.getModelState()}'.` };
-    }
-    this.beginResidencyAction();
-    try {
-      await runtime.freezePreset();
-      return { status: 'done' };
-    } catch (error) {
-      this.fail('model-freeze', error instanceof Error ? error.message : String(error));
-      throw error;
-    } finally {
-      this.endResidencyAction();
-    }
-  }
-
   async loadActivePresetNow(): Promise<ModelLifecycleActionResult> {
     const busy = this.refuseIfBusy();
     if (busy) return busy;
@@ -229,8 +197,7 @@ export class PresetRuntimeCoordinator {
     if (runtime.getModelState() === 'ready') return { status: 'noop' };
     this.beginResidencyAction();
     try {
-      if (runtime.getModelState() === 'frozen') await runtime.restorePreset();
-      else await runtime.ensurePresetReady(preset);
+      await runtime.ensurePresetReady(preset);
       this.errorPhase = null;
       this.error = null;
       return { status: 'done' };
@@ -254,7 +221,6 @@ export class PresetRuntimeCoordinator {
       activePresetLabel: preset.label,
       backend: preset.Backend,
       idleAction: preset.IdleAction,
-      freezeSupported: runtime.supportsFreeze(),
       processState: runtime.getProcessState(),
       modelState: runtime.getModelState(),
       model: preset.Model,

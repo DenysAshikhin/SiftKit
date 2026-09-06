@@ -3,35 +3,22 @@ import React from 'react';
 import { postModelResidencyAction } from '../../api';
 import type { InferenceRuntimeStatusResult } from '../../hooks/useInferenceRuntimeStatus';
 import type {
-  InferenceBackendId,
   InferenceModelState,
   InferenceProcessState,
   ModelLifecycleAction,
 } from '@siftkit/contracts';
 
-type ResidencyControlState = {
-  load: boolean;
-  freeze: boolean;
-  unload: boolean;
-};
+type ResidencyControlState = { load: boolean; unload: boolean };
 
 export function resolveResidencyControlState(
   modelState: InferenceModelState,
-  backend: InferenceBackendId,
-  freezeSupported: boolean,
   processState: InferenceProcessState = 'ready',
   requestBusy = false,
 ): ResidencyControlState {
   const stableProcess = processState === 'ready';
-  const stableModel = modelState === 'unloaded' || modelState === 'ready' || modelState === 'frozen';
-  if (requestBusy || !stableProcess || !stableModel) {
-    return { load: false, freeze: false, unload: false };
-  }
-  return {
-    load: modelState === 'unloaded' || modelState === 'frozen',
-    freeze: modelState === 'ready' && backend === 'exl3' && freezeSupported,
-    unload: modelState === 'ready' || modelState === 'frozen',
-  };
+  const stableModel = modelState === 'unloaded' || modelState === 'ready';
+  if (requestBusy || !stableProcess || !stableModel) return { load: false, unload: false };
+  return { load: modelState === 'unloaded', unload: modelState === 'ready' };
 }
 
 function displayValue(value: string | null): string {
@@ -47,8 +34,8 @@ export function ModelRuntimeResidencyPanel({ runtime }: ModelRuntimeResidencyPan
   const [actionError, setActionError] = React.useState<string | null>(null);
   const status = runtime.status;
   const controls = status
-    ? resolveResidencyControlState(status.modelState, status.backend, status.freezeSupported, status.processState, actionBusy || runtime.loading || runtime.error !== null)
-    : { load: false, freeze: false, unload: false };
+    ? resolveResidencyControlState(status.modelState, status.processState, actionBusy || runtime.loading || runtime.error !== null)
+    : { load: false, unload: false };
 
   async function runAction(action: ModelLifecycleAction): Promise<void> {
     setActionBusy(true);
@@ -91,15 +78,9 @@ export function ModelRuntimeResidencyPanel({ runtime }: ModelRuntimeResidencyPan
             </p>
           ) : null}
           <div className="settings-live-nav-control">
-            <button type="button" disabled={!controls.load} onClick={() => { void runAction('load'); }}>Load/Restore</button>
-            <button type="button" disabled={!controls.freeze} onClick={() => { void runAction('freeze'); }}>Freeze to RAM</button>
+            <button type="button" disabled={!controls.load} onClick={() => { void runAction('load'); }}>Load</button>
             <button type="button" disabled={!controls.unload} onClick={() => { void runAction('unload'); }}>Unload</button>
           </div>
-          {status.backend === 'exl3' && !status.freezeSupported ? (
-            <p className="hint" role="status">
-              Freeze to RAM is unavailable: the installed exllamav3 has no host-RAM freeze support.
-            </p>
-          ) : null}
           {actionError ? <p className="hint" role="alert">Runtime action failed: {actionError}</p> : null}
         </>
       ) : null}

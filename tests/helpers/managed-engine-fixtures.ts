@@ -207,10 +207,6 @@ const server = http.createServer((request, response) => {
     sendJson(response, 200, { ok: true });
     return;
   }
-  if (request.method === 'POST' && (url === '/v1/model/freeze' || url === '/v1/model/restore')) {
-    sendJson(response, 200, { ok: true });
-    return;
-  }
   if (request.method === 'POST' && url === '/v1/token/encode') {
     readJsonBody(request, (body) => {
       const text = String(body && body.text || '');

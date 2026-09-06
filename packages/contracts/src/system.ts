@@ -30,7 +30,7 @@ export const EngineConnectionTestResponseSchema = z.object({
 export type EngineConnectionTestResponse = z.infer<typeof EngineConnectionTestResponseSchema>;
 
 export const InferenceRuntimeErrorPhaseSchema = z.enum([
-  'process-start', 'process-stop', 'model-load', 'model-unload', 'model-freeze', 'preset-switch',
+  'process-start', 'process-stop', 'model-load', 'model-unload', 'preset-switch',
 ]);
 export type InferenceRuntimeErrorPhase = z.infer<typeof InferenceRuntimeErrorPhaseSchema>;
 
@@ -43,7 +43,6 @@ export const ModelLifecycleActionResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('done') }).strict(),
   z.object({ status: z.literal('noop') }).strict(),
   z.object({ status: z.literal('busy'), reason: z.string().min(1) }).strict(),
-  z.object({ status: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
 ]);
 export type ModelLifecycleActionResult = z.infer<typeof ModelLifecycleActionResultSchema>;
 
@@ -58,7 +57,6 @@ export const InferenceRuntimeStatusSchema = z.object({
   activePresetLabel: z.string(),
   backend: InferenceBackendIdSchema,
   idleAction: ModelIdleActionSchema,
-  freezeSupported: z.boolean(),
   processState: InferenceProcessStateSchema,
   modelState: InferenceModelStateSchema,
   model: z.string().nullable(),

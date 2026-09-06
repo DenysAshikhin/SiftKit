@@ -2,11 +2,11 @@
 
 ## Installed deployment
 
-- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `siftkit` at `4d6554eb3694a013922c1b64c7bf28371df4540d`, forked from `theroyallab/tabbyAPI@0158fb48`
-- ExLlamaV3 checkout: `C:\Users\denys\Documents\GitHub\exllamav3`, branch `siftkit` at `8bcc08a`, forked from upstream `dev` at `cf05532` (v1.3.0)
-- Python: `C:\envs\rl313\Scripts\python.exe` (`3.13.14`)
-- Torch: `2.9.0+cu128`; CUDA build: `12.8`
-- ExLlamaV3: `1.3.0+siftkit.freeze`, installed from a locally built wheel under `C:\tmp\rsx\elx3_freeze\wheels`
+- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `siftkit` at `f8b2bec`, merged with `theroyallab/tabbyAPI@e37b9c9` (main). Local delta: usage-stats cache-token counters, exllamav3 pin, draft-mode regression test.
+- ExLlamaV3 checkout: `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench`, branch `dev` at `297711c`, merged with upstream `dev` at `c93f3c6` (v1.4.7) plus the zero-copy MoE CPU-offload engine `58d19c0`. Local delta otherwise: qbench tooling and a `quantize.py` fix.
+- Python: `C:\envs\rl313-turbo\Scripts\python.exe` (`3.13.14`)
+- Torch: `2.13.0+cu132`; CUDA build: `13.2`
+- ExLlamaV3: `1.4.7+unified.1`, editable install of the checkout above, rebuilt with `update-exllamav3.ps1`
 - Model: `D:\personal\models\elx3\3.8_27b_4.6bpw`
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
 - Managed command: `C:\envs\rl313\Scripts\python.exe main.py`, with the Tabby checkout as its working directory
@@ -20,7 +20,7 @@ Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `t
 
 ## Configuring a preset
 
-In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)` as that preset's backend. Set its Tabby base URL, model path, context size, cache mode, and idle-unload delay. Selecting the preset makes it active; there is no global backend switch.
+In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)` as that preset's backend. Set its Tabby base URL, model path, context size, cache mode, and idle-unload delay. `IdleAction` is `none` (stay resident) or `unload` (full unload after `SleepIdleSeconds`; the next request cold-loads). Selecting the preset makes it active; there is no global backend switch.
 
 Set `Server.Engines.Exl3.AdminApiKey` to Tabby's admin API bearer token. SiftKit uses it for readiness checks, model inspection, load, and unload, including idle wake/reload. Leave it empty only when Tabby authentication is disabled. Caller authorization on proxied inference requests remains separate.
 

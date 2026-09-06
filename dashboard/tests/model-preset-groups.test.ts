@@ -48,7 +48,6 @@ test('sampling / reasoning / lifecycle summaries', () => {
 test('preset summary reports the idle action alongside the timer', () => {
   const base = preset({});
   assert.match(summarizeLifecycle({ ...base, IdleAction: 'none' }), /stays resident/u);
-  assert.match(summarizeLifecycle({ ...base, IdleAction: 'freeze' }), /idle freeze 600s/u);
   assert.match(summarizeLifecycle({ ...base, IdleAction: 'unload' }), /idle unload 600s/u);
 });
 

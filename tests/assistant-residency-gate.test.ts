@@ -9,8 +9,7 @@ function statusWith(modelState: InferenceModelState): InferenceRuntimeStatus {
     activePresetId: 'preset_a',
     activePresetLabel: 'Preset A',
     backend: 'exl3',
-    idleAction: 'freeze',
-    freezeSupported: true,
+    idleAction: 'unload',
     processState: 'ready',
     modelState,
     model: 'model-a',
@@ -23,7 +22,7 @@ function statusWith(modelState: InferenceModelState): InferenceRuntimeStatus {
 
 test('only a ready model counts as resident', () => {
   const notResident: readonly InferenceModelState[] = [
-    'unloaded', 'loading', 'unloading', 'freezing', 'frozen', 'failed',
+    'unloaded', 'loading', 'unloading', 'failed',
   ];
   for (const state of notResident) {
     const gate = new StatusServerResidencyGate({ getStatus: () => statusWith(state) });

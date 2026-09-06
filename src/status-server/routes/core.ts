@@ -52,7 +52,6 @@ const CORE_ROUTES = new RouteTable([
   { method: 'POST', path: '/status/restart', endpoint: new StatusRestartEndpoint() },
   { method: 'POST', path: '/runtime/model/load', endpoint: new ModelResidencyEndpoint('load') },
   { method: 'POST', path: '/runtime/model/unload', endpoint: new ModelResidencyEndpoint('unload') },
-  { method: 'POST', path: '/runtime/model/freeze', endpoint: new ModelResidencyEndpoint('freeze') },
 ]);
 
 export async function handleCoreRoute(

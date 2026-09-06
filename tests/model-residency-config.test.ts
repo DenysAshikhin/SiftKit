@@ -27,13 +27,14 @@ test('IdleAction defaults to unload when absent from stored preset JSON', () => 
 });
 
 test('IdleAction accepts every documented value', () => {
-  for (const action of ['none', 'freeze', 'unload'] as const) {
+  for (const action of ['none', 'unload'] as const) {
     assert.equal(presetWith(action).IdleAction, action);
   }
 });
 
 test('IdleAction rejects an unrecognised value', () => {
   assert.throws(() => presetWith('hibernate'), /Invalid IdleAction/u);
+  assert.throws(() => presetWith('freeze'), /Invalid IdleAction 'freeze'; expected none or unload/u);
 });
 
 test('IdleAction is visible on the preset form', () => {

@@ -146,7 +146,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'StartupTimeoutMs', layout: 'quarter', helpText: 'Maximum time allowed for managed engine startup before the attempt is treated as failed.' },
       { label: 'HealthcheckTimeoutMs', layout: 'quarter', helpText: 'Maximum wait for an individual health probe before it is treated as failed.' },
       { label: 'HealthcheckIntervalMs', layout: 'quarter', helpText: 'Delay between consecutive health probes while waiting for readiness.' },
-      { label: 'IdleAction', layout: 'quarter', helpText: 'What happens when the model goes idle: stay resident, freeze weights (EXL3 only), or fully unload.' },
+      { label: 'IdleAction', layout: 'quarter', helpText: 'What happens when the model goes idle: stay resident or fully unload.' },
       { label: 'SleepIdleSeconds', layout: 'quarter', helpText: 'Seconds of idleness before the configured action runs. Ignored while the model stays resident.' },
       { label: 'Vision enabled', layout: 'quarter', helpText: 'Enables image input for this model preset when the selected model exposes a supported vision encoder.' },
       { label: VISION_OFFLOAD_LABEL, layout: 'quarter', helpText: 'Stores the vision tower in pinned system RAM instead of VRAM and streams it to the GPU per image. Frees VRAM at the cost of slower image requests; text-only requests are unaffected.' },

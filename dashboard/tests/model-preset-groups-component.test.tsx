@@ -65,7 +65,6 @@ test('selected preset editor does not render active runtime lifecycle controls',
   const markup = render(MANAGED_PRESET);
   assert.doesNotMatch(markup, /Runtime:/u);
   assert.doesNotMatch(markup, /<button[^>]*>Load/u);
-  assert.doesNotMatch(markup, /<button[^>]*>Freeze/u);
   assert.doesNotMatch(markup, /<button[^>]*>Unload/u);
 });
 
@@ -73,8 +72,7 @@ const ACTIVE_RUNTIME_STATUS = {
   activePresetId: MANAGED_PRESET.id,
   activePresetLabel: MANAGED_PRESET.label,
   backend: 'exl3',
-  idleAction: 'freeze',
-  freezeSupported: true,
+  idleAction: 'unload',
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',

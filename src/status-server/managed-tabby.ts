@@ -6,7 +6,7 @@ import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
 } from '../inference-presets/exl3-preset-adapter.js';
-import { Exl3ModelCapabilities, FREEZE_UNSUPPORTED_REASON } from '../inference-presets/exl3-model-capabilities.js';
+import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
@@ -122,41 +122,6 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       await this.client.unload(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
       this.residentPresetId = null;
       this.transitionModelTo('unloaded');
-    } catch (error) {
-      this.transitionModelTo('failed');
-      throw error;
-    }
-  }
-
-  supportsFreeze(): boolean {
-    return this.capabilities.hasFreezeSupport(this.engine.PythonPath);
-  }
-
-  async freezePreset(): Promise<void> {
-    if (this.loadPromise) await this.loadPromise;
-    if (this.getModelState() === 'frozen') return;
-    if (!this.supportsFreeze()) throw new Error(FREEZE_UNSUPPORTED_REASON);
-    const preset = this.currentPreset;
-    if (!preset) throw new Error('Cannot freeze EXL3 without a validated current preset.');
-    this.transitionModelTo('freezing');
-    try {
-      await this.client.freeze(getBaseUrl(preset), preset.StartupTimeoutMs);
-      this.transitionModelTo('frozen');
-    } catch (error) {
-      this.transitionModelTo('failed');
-      throw error;
-    }
-  }
-
-  async restorePreset(): Promise<void> {
-    if (this.getModelState() === 'ready') return;
-    const preset = this.currentPreset;
-    if (!preset) throw new Error('Cannot restore EXL3 without a validated current preset.');
-    this.transitionModelTo('loading');
-    try {
-      await this.client.restore(getBaseUrl(preset), preset.StartupTimeoutMs);
-      this.residentPresetId = preset.id;
-      this.transitionModelTo('ready');
     } catch (error) {
       this.transitionModelTo('failed');
       throw error;

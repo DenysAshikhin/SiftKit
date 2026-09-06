@@ -15,11 +15,13 @@ async function startManagedEngineServer(name: string) {
   return { server, stub };
 }
 
-test('POST /runtime/model/offload is not an alias for freeze', async () => {
+test('removed residency routes offload and freeze are not served', async () => {
   const { server, stub } = await startManagedEngineServer('residency-old-route-');
   try {
-    const response = await requestJson(`${server.baseUrl}/runtime/model/offload`, { method: 'POST' });
-    assert.equal(response.statusCode, 404);
+    for (const route of ['offload', 'freeze']) {
+      const response = await requestJson(`${server.baseUrl}/runtime/model/${route}`, { method: 'POST' });
+      assert.equal(response.statusCode, 404, route);
+    }
   } finally {
     await server.close();
     await stub.close();

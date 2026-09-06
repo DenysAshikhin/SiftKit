@@ -270,7 +270,7 @@ export function getFinitePositiveInteger(value: JsonValue, fallback: number): nu
 function getModelIdleAction(value: JsonValue): ModelIdleAction {
   const parsed = ModelIdleActionSchema.safeParse(value);
   if (!parsed.success) {
-    throw new Error(`Invalid IdleAction '${String(value)}'; expected none, freeze, or unload.`);
+    throw new Error(`Invalid IdleAction '${String(value)}'; expected none or unload.`);
   }
   return parsed.data;
 }

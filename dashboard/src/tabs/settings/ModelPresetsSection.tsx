@@ -313,7 +313,6 @@ export function ModelPresetsSection({
               if (value.success) modelPresetActions.setIdleAction(value.data);
             }}>
               <option value="none">Stay resident</option>
-              <option value="freeze">Freeze model</option>
               <option value="unload">Full unload</option>
             </select>
           </ModelPresetControl>

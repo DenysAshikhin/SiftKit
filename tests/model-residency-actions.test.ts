@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
-import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-
-import { InferenceModelStateSchema } from '@siftkit/contracts';
 
 import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
@@ -19,28 +16,24 @@ import type { ModelRuntimePreset } from '../src/config/types.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 import { StatusServerResidencyGate } from '../src/status-server/assistant-residency-gate.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { TabbyModelClient } from '../src/status-server/tabby-model-client.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createFakeExl3Capabilities, writeFakeExl3Venv } from './helpers/tabby-fake.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type FixtureOptions = {
   externalServerEnabled?: boolean;
-  idleAction?: 'none' | 'freeze' | 'unload';
+  idleAction?: 'none' | 'unload';
   sleepIdleSeconds?: number;
   blockedTransition?: BlockedTransition;
 };
 
-type BlockedTransition = 'unload' | 'freeze' | 'restore' | 'ensure';
+type BlockedTransition = 'unload' | 'ensure';
 
 type Deferred = {
   promise: Promise<void>;
@@ -83,16 +76,6 @@ class BlockingRecordingInferenceRuntime extends RecordingInferenceRuntime {
   override async unloadPreset(): Promise<void> {
     await this.waitForRelease('unload');
     await super.unloadPreset();
-  }
-
-  override async freezePreset(): Promise<void> {
-    await this.waitForRelease('freeze');
-    await super.freezePreset();
-  }
-
-  override async restorePreset(): Promise<void> {
-    await this.waitForRelease('restore');
-    await super.restorePreset();
   }
 
   override async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
@@ -198,30 +181,6 @@ async function waitForEvent(events: readonly string[], expected: string): Promis
   assert.equal(events.includes(expected), true, `expected event ${expected}`);
 }
 
-async function startStubTabby(status: number, body: string, seen: string[]) {
-  const server = createServer((request, response) => {
-    seen.push(new URL(request.url ?? '/', 'http://localhost').pathname);
-    response.writeHead(status, { 'content-type': 'application/json' });
-    response.end(body);
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('Stub Tabby server did not bind to TCP.');
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    close: async (): Promise<void> => await new Promise((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
-  };
-}
-
-test('model state schema covers the freeze lifecycle', () => {
-  for (const state of ['unloaded', 'loading', 'ready', 'unloading', 'freezing', 'frozen', 'failed']) {
-    assert.equal(InferenceModelStateSchema.safeParse(state).success, true, state);
-  }
-  assert.equal(InferenceModelStateSchema.safeParse('restoring').success, false);
-});
-
 test('idle controller never arms a timer when IdleAction is none', async () => {
   const fixture = createCoordinatorFixture({ idleAction: 'none' });
   try {
@@ -230,20 +189,6 @@ test('idle controller never arms a timer when IdleAction is none', async () => {
     fixture.controller.armAfterRequest(fixture.preset, Date.now());
     assert.equal(fixture.controller.getIdleDeadlineUtc(), null);
     assert.deepEqual(fixture.events, []);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test('idle controller freezes when IdleAction is freeze', async () => {
-  const fixture = createCoordinatorFixture({ idleAction: 'freeze' });
-  try {
-    await fixture.coordinator.ensureActivePresetReady();
-    fixture.events.length = 0;
-    fixture.controller.armAfterRequest(fixture.preset, Date.now());
-    assert.equal(typeof fixture.controller.getIdleDeadlineUtc(), 'string');
-    await waitForEvent(fixture.events, 'freeze:exl3');
-    assert.deepEqual(fixture.events, ['freeze:exl3']);
   } finally {
     await fixture.cleanup();
   }
@@ -277,28 +222,26 @@ test('manual unload refuses while a model request is active', async () => {
 });
 
 test('idle residency transition blocks all manual residency actions', async () => {
-  const fixture = createCoordinatorFixture({ blockedTransition: 'freeze' });
+  const fixture = createCoordinatorFixture({ blockedTransition: 'unload' });
   try {
     await fixture.coordinator.ensureActivePresetReady();
     fixture.events.length = 0;
-    const idlePromise = fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'freeze');
+    const idlePromise = fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload');
     await fixture.exl3Runtime.transitionStarted.promise;
 
     assert.equal(fixture.coordinator.canGrantModelRequest(), false);
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'busy');
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'busy');
     assert.equal((await fixture.coordinator.loadActivePresetNow()).status, 'busy');
     assert.deepEqual(fixture.events, []);
 
     fixture.exl3Runtime.releaseTransition();
     assert.equal(await idlePromise, true);
-    assert.deepEqual(fixture.events, ['freeze:exl3']);
+    assert.deepEqual(fixture.events, ['unload:exl3']);
   } finally {
     fixture.exl3Runtime.releaseTransition();
     await fixture.cleanup();
   }
 });
-
 test('manual residency transition blocks idle actions and model requests', async () => {
   const fixture = createCoordinatorFixture({ blockedTransition: 'unload' });
   try {
@@ -320,30 +263,31 @@ test('manual residency transition blocks idle actions and model requests', async
   }
 });
 
-test('request-triggered frozen restoration blocks competing residency actions', async () => {
-  const fixture = createCoordinatorFixture({ blockedTransition: 'restore' });
+test('request-triggered cold reload blocks competing residency actions', async () => {
+  const fixture = createCoordinatorFixture();
   try {
     await fixture.coordinator.ensureActivePresetReady();
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'done');
+    assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
+    fixture.exl3Runtime.setBlockedTransition('ensure');
     const ensurePromise = fixture.coordinator.ensureActivePresetReady();
     await fixture.exl3Runtime.transitionStarted.promise;
 
     assert.equal(fixture.coordinator.canGrantModelRequest(), false);
     const manualPromise = fixture.coordinator.unloadActivePresetNow();
-    const idlePromise = fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'freeze');
+    const idlePromise = fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'unload');
     fixture.exl3Runtime.releaseTransition();
 
     assert.equal((await manualPromise).status, 'busy');
     assert.equal(await idlePromise, false);
     await ensurePromise;
+    assert.deepEqual(fixture.events, ['load:exl3-main']);
     assert.equal(fixture.coordinator.canGrantModelRequest(), true);
   } finally {
     fixture.exl3Runtime.releaseTransition();
     await fixture.cleanup();
   }
 });
-
 test('ready-state request readiness does not open a residency transition', async () => {
   const fixture = createCoordinatorFixture();
   let ensurePromise: Promise<void> | null = null;
@@ -366,49 +310,6 @@ test('ready-state request readiness does not open a residency transition', async
   }
 });
 
-test('manual freeze refuses when the installed exllamav3 has no freeze patch', async () => {
-  const fixture = createCoordinatorFixture();
-  try {
-    await fixture.coordinator.ensureActivePresetReady();
-    fixture.exl3Runtime.freezeSupported = false;
-    fixture.events.length = 0;
-    const result = await fixture.coordinator.freezeActivePresetNow();
-    assert.equal(result.status, 'unsupported');
-    assert.match(result.reason ?? '', /exllamav3/u);
-    assert.deepEqual(fixture.events, []);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test('idle freeze fails loudly when the installed exllamav3 has no freeze patch', async () => {
-  const fixture = createCoordinatorFixture({ idleAction: 'freeze' });
-  try {
-    await fixture.coordinator.ensureActivePresetReady();
-    fixture.exl3Runtime.freezeSupported = false;
-    fixture.events.length = 0;
-    await assert.rejects(
-      fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'freeze'),
-      /exllamav3/u,
-    );
-    assert.deepEqual(fixture.events, []);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test('runtime status reports whether freeze is installable on the active backend', async () => {
-  const fixture = createCoordinatorFixture();
-  try {
-    await fixture.coordinator.ensureActivePresetReady();
-    assert.equal(fixture.coordinator.getStatus().freezeSupported, true);
-    fixture.exl3Runtime.freezeSupported = false;
-    assert.equal(fixture.coordinator.getStatus().freezeSupported, false);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
 test('manual unload is a no-op when the model is already unloaded', async () => {
   const fixture = createCoordinatorFixture();
   try {
@@ -422,54 +323,39 @@ test('manual unload is a no-op when the model is already unloaded', async () => 
   }
 });
 
-test('manual load restores from frozen state rather than cold loading', async () => {
+test('manual load cold loads after a manual unload', async () => {
   const fixture = createCoordinatorFixture();
   try {
     await fixture.coordinator.ensureActivePresetReady();
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'done');
+    assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     assert.equal((await fixture.coordinator.loadActivePresetNow()).status, 'done');
-    assert.deepEqual(fixture.events, ['restore:exl3']);
+    assert.deepEqual(fixture.events, ['load:exl3-main']);
   } finally {
     await fixture.cleanup();
   }
 });
-
-test('model request readiness restores from frozen state rather than cold loading', async () => {
+test('model request readiness cold loads after a manual unload', async () => {
   const fixture = createCoordinatorFixture();
   try {
     await fixture.coordinator.ensureActivePresetReady();
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'done');
+    assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'done');
     fixture.events.length = 0;
     await fixture.coordinator.ensureActivePresetReady();
-    assert.deepEqual(fixture.events, ['restore:exl3']);
+    assert.deepEqual(fixture.events, ['load:exl3-main']);
   } finally {
     await fixture.cleanup();
   }
 });
-
-test('manual freeze is a no-op when already frozen', async () => {
-  const fixture = createCoordinatorFixture();
-  try {
-    await fixture.coordinator.ensureActivePresetReady();
-    await fixture.coordinator.freezeActivePresetNow();
-    fixture.events.length = 0;
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'noop');
-    assert.deepEqual(fixture.events, []);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test('manual freeze blocks preset apply without creating a pending switch', async () => {
-  const fixture = createCoordinatorFixture({ blockedTransition: 'freeze' });
+test('manual unload blocks preset apply without creating a pending switch', async () => {
+  const fixture = createCoordinatorFixture({ blockedTransition: 'unload' });
   try {
     await fixture.coordinator.ensureActivePresetReady();
     const config = readConfig(fixture.configPath);
     config.Server.ModelPresets.ActivePresetId = 'exl3-alt';
     writeConfig(fixture.configPath, config);
     fixture.events.length = 0;
-    const freezePromise = fixture.coordinator.freezeActivePresetNow();
+    const unloadPromise = fixture.coordinator.unloadActivePresetNow();
     await fixture.exl3Runtime.transitionStarted.promise;
 
     await assert.rejects(
@@ -481,14 +367,13 @@ test('manual freeze blocks preset apply without creating a pending switch', asyn
     assert.equal(fixture.coordinator.canGrantModelRequest(), false);
 
     fixture.exl3Runtime.releaseTransition();
-    assert.equal((await freezePromise).status, 'done');
+    assert.equal((await unloadPromise).status, 'done');
     assert.equal(fixture.coordinator.canGrantModelRequest(), true);
   } finally {
     fixture.exl3Runtime.releaseTransition();
     await fixture.cleanup();
   }
 });
-
 test('manual unload blocks configured restart without creating a pending switch', async () => {
   const fixture = createCoordinatorFixture({ blockedTransition: 'unload' });
   try {
@@ -523,11 +408,10 @@ test('manual unload blocks configured restart without creating a pending switch'
   }
 });
 
-test('shutdown unloads a frozen external EXL3 model before stopping its process', async () => {
+test('shutdown unloads a ready external EXL3 model before stopping its process', async () => {
   const fixture = createCoordinatorFixture({ externalServerEnabled: true });
   try {
     await fixture.coordinator.ensureActivePresetReady();
-    assert.equal((await fixture.coordinator.freezeActivePresetNow()).status, 'done');
     fixture.events.length = 0;
 
     await fixture.coordinator.shutdown();
@@ -538,13 +422,12 @@ test('shutdown unloads a frozen external EXL3 model before stopping its process'
     await fixture.cleanup();
   }
 });
-
-test('shutdown waits for an active EXL3 freeze before unloading and stopping', async () => {
-  const fixture = createCoordinatorFixture({ blockedTransition: 'freeze' });
+test('shutdown waits for an active EXL3 unload before stopping', async () => {
+  const fixture = createCoordinatorFixture({ blockedTransition: 'unload' });
   try {
     await fixture.coordinator.ensureActivePresetReady();
     fixture.events.length = 0;
-    const freezePromise = fixture.coordinator.freezeActivePresetNow();
+    const unloadPromise = fixture.coordinator.unloadActivePresetNow();
     await fixture.exl3Runtime.transitionStarted.promise;
 
     const shutdownPromise = fixture.coordinator.shutdown();
@@ -556,122 +439,16 @@ test('shutdown waits for an active EXL3 freeze before unloading and stopping', a
     assert.deepEqual(fixture.events, []);
 
     fixture.exl3Runtime.releaseTransition();
-    assert.equal((await freezePromise).status, 'done');
+    assert.equal((await unloadPromise).status, 'done');
     await shutdownPromise;
-    assert.deepEqual([...fixture.events], ['freeze:exl3', 'unload:exl3', 'stop:exl3']);
+    assert.deepEqual([...fixture.events], ['unload:exl3', 'stop:exl3']);
   } finally {
     fixture.exl3Runtime.releaseTransition();
     await fixture.cleanup();
   }
 });
-
-test('tabby client posts to the freeze and restore endpoints', async () => {
-  const seen: string[] = [];
-  const server = await startStubTabby(200, '{}', seen);
-  try {
-    const client = new TabbyModelClient('test-key');
-    await client.freeze(server.baseUrl, 2_000);
-    await client.restore(server.baseUrl, 2_000);
-    assert.deepEqual(seen, ['/v1/model/freeze', '/v1/model/restore']);
-  } finally {
-    await server.close();
-  }
-});
-
-test('tabby client surfaces a freeze failure with its status code', async () => {
-  const server = await startStubTabby(500, 'boom', []);
-  try {
-    const client = new TabbyModelClient('test-key');
-    await assert.rejects(() => client.freeze(server.baseUrl, 2_000), /HTTP 500.*boom/su);
-  } finally {
-    await server.close();
-  }
-});
-
-test('Tabby freeze uses the startup timeout for the host transfer', async () => {
-  const root = createManagedTempDir('tabby-freeze-timeout-');
-  const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-  if (!basePreset) throw new Error('Default model preset is missing');
-  let loaded = false;
-  const server = createServer((request, response) => {
-    if (request.url === '/v1/models') {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end('{"object":"list","data":[]}');
-      return;
-    }
-    if (request.method === 'POST' && request.url === '/v1/model/load') {
-      loaded = true;
-      response.writeHead(200, { 'content-type': 'text/event-stream' });
-      response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
-      return;
-    }
-    if (request.url === '/v1/model') {
-      if (!loaded) {
-        response.writeHead(503);
-        response.end();
-        return;
-      }
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        id: 'model-a',
-        parameters: {
-          max_seq_len: basePreset.NumCtx,
-          cache_size: Math.ceil(basePreset.NumCtx / 256) * 256,
-          chunk_size: basePreset.UBatchSize,
-        },
-      }));
-      return;
-    }
-    if (request.method === 'POST' && request.url === '/v1/model/freeze') {
-      setTimeout(() => {
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end('{}');
-      }, 250);
-      return;
-    }
-    response.writeHead(404);
-    response.end();
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('Stub Tabby server did not bind to TCP.');
-  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-  const fakeExl3 = writeFakeExl3Venv(root, true);
-  const runtime = new ManagedTabbyRuntime({
-    Managed: false,
-    WorkingDirectory: root,
-    PythonPath: fakeExl3.pythonPath,
-    Entrypoint: 'unused',
-    ModelRoot: root,
-    AdminApiKey: '',
-    ShutdownTimeoutMs: 1_000,
-  }, flushQueue, createFakeExl3Capabilities(fakeExl3.pythonPath));
-  const preset = {
-    ...basePreset,
-    id: 'exl3-main',
-    Backend: 'exl3' as const,
-    BaseUrl: `http://127.0.0.1:${address.port}`,
-    ExternalServerEnabled: true,
-    Model: 'model-a',
-    ModelPath: join(root, 'model-a'),
-    SpeculativeEnabled: false,
-    HealthcheckTimeoutMs: 100,
-    StartupTimeoutMs: 1_000,
-  };
-  try {
-    await runtime.ensurePresetReady(preset);
-    await runtime.freezePreset();
-    assert.equal(runtime.getModelState(), 'frozen');
-  } finally {
-    await runtime.stopProcess();
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    await flushQueue.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('idle freeze preempts a blocked assistant drain and waits for it before freezing', async () => {
-  const fixture = createCoordinatorFixture({ idleAction: 'freeze', blockedTransition: 'freeze' });
+test('idle unload preempts a blocked assistant drain and waits for it before unloading', async () => {
+  const fixture = createCoordinatorFixture({ idleAction: 'unload', blockedTransition: 'unload' });
   const inference = new BlockingAssistantInference();
   let drain: Promise<void> | null = null;
   try {
@@ -704,22 +481,22 @@ test('idle freeze preempts a blocked assistant drain and waits for it before fre
     void drain.then(() => order.push('drain'));
     await inference.callStarted.promise;
 
-    let freezeStarted = false;
-    void fixture.exl3Runtime.transitionStarted.promise.then(() => { freezeStarted = true; });
+    let unloadStarted = false;
+    void fixture.exl3Runtime.transitionStarted.promise.then(() => { unloadStarted = true; });
     fixture.controller.armAfterRequest({ ...fixture.preset, SleepIdleSeconds: 0.001 }, Date.now());
     await inference.callAborted.promise;
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(freezeStarted, false, 'freeze must not start while the assistant drain is still blocked');
+    assert.equal(unloadStarted, false, 'unload must not start while the assistant drain is still blocked');
     assert.equal(inference.abortSignal?.aborted, true, 'the preemption must abort the blocked model call');
 
     inference.releaseCall();
     await drain;
-    await fixture.exl3Runtime.transitionStarted.promise.then(() => order.push('freeze'));
-    assert.deepEqual(order, ['drain', 'freeze']);
+    await fixture.exl3Runtime.transitionStarted.promise.then(() => order.push('unload'));
+    assert.deepEqual(order, ['drain', 'unload']);
 
     fixture.exl3Runtime.releaseTransition();
-    await waitForEvent(fixture.events, 'freeze:exl3');
-    assert.deepEqual(fixture.events, ['freeze:exl3']);
+    await waitForEvent(fixture.events, 'unload:exl3');
+    assert.deepEqual(fixture.events, ['unload:exl3']);
   } finally {
     inference.releaseCall();
     fixture.exl3Runtime.releaseTransition();

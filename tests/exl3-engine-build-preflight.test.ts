@@ -4,10 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import {
-  Exl3ModelCapabilities,
-  FREEZE_UNSUPPORTED_REASON,
-} from '../src/inference-presets/exl3-model-capabilities.js';
+import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
@@ -38,7 +35,6 @@ test('Exl3ModelCapabilities reads the package resolved by the configured interpr
     const capabilities = createFakeExl3Capabilities(pythonPath, editablePackageDirectory);
 
     assert.equal(capabilities.inspectDeviceResidentPastIds(pythonPath), 'compatible');
-    assert.equal(capabilities.hasFreezeSupport(pythonPath), true);
   });
 });
 
@@ -59,56 +55,6 @@ test('Exl3ModelCapabilities rejects a venv with no exllamav3 installed', async (
 
 test('Exl3ModelCapabilities reports an executable that cannot run the package probe', () => {
   assert.equal(new Exl3ModelCapabilities().inspectDeviceResidentPastIds(process.execPath), 'interpreter-unavailable');
-});
-
-test('Exl3ModelCapabilities accepts an exllamav3 carrying the host-RAM freeze patch', async () => {
-  await withTempEnv((root) => {
-    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true);
-    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), true);
-  });
-});
-
-test('Exl3ModelCapabilities rejects a stock exllamav3 with no freeze patch', async () => {
-  await withTempEnv((root) => {
-    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false, freezeCoverage: false });
-    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
-  });
-});
-
-test('Exl3ModelCapabilities rejects a freeze overlay missing FrozenTensorSource', async () => {
-  await withTempEnv((root) => {
-    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true, freezeCoverage: true });
-    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
-  });
-});
-
-test('Exl3ModelCapabilities rejects a freeze overlay missing Model.freeze', async () => {
-  await withTempEnv((root) => {
-    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false, freezeCoverage: false });
-    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
-  });
-});
-
-test('Exl3ModelCapabilities rejects a freeze build that does not validate snapshot coverage', async () => {
-  await withTempEnv((root) => {
-    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, {
-      frozenTensorSource: true,
-      modelFreeze: true,
-      freezeCoverage: false,
-    });
-    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
-  });
-});
-
-test('FREEZE_UNSUPPORTED_REASON names the capability that is checked, not a version that is not', () => {
-  // hasFreezeSupport reads source watermarks and never reads a version, so naming a version here
-  // would tell the user to install a build we cannot verify they installed.
-  assert.match(FREEZE_UNSUPPORTED_REASON, /snapshot coverage/u);
-  assert.doesNotMatch(FREEZE_UNSUPPORTED_REASON, /\d+\.\d+\.\d+/u);
-});
-
-test('Exl3ModelCapabilities reports no freeze support for an interpreter outside a venv layout', () => {
-  assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(process.execPath), false);
 });
 
 test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', async () => {
