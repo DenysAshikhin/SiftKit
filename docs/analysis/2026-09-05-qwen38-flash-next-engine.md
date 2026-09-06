@@ -74,8 +74,11 @@ runs exit 0, empty stderr, 12 threads.
 | b1 | merged 58d19c0, defaults | same | 276 / 1247 / 1911 / 1987 | 28.5 / 32.9 / 31.8 / 32.7 |
 | b3 | merged, `STREAM_T=4` | same | 307 / 1198 / 1843 / 1701 | 33.1 / 27.7 / 32.7 / 34.2 |
 | m1 | local engine on f3f7e42 | 155k preset | 316 / 1172 / 1199 / 1222 | 28.3 / 33.0 / 28.1 / 33.0 |
+| p1 | production build, run 1 | same | 172 / 915 / 1536 / 1550 | 32.8 / 34.1 / 33.2 / 33.5 |
+| p2 | production build, run 2 (Tabby smoke boots overlapped) | same | 224 / 1146 / 1912 / 1942 | 26.4 / 15.6 / 28.7 / 27.7 |
+| p3 | production build, run 3 (clean) | same | 243 / 1110 / 1897 / 1949 | 32.8 / 31.2 / 32.1 / 30.9 |
 
-Every run, old and new, dips at one context point around 1792-2048. Merged decode shows more
+Production rows p1-p3 are the installed `1.4.7+unified.1` build on the production import path (`docs/analysis/qwen38-flash-next-engine/production-merged-perf*.txt`). Every run, old and new, dips at one context point around 1792-2048. Merged decode shows more
 run-to-run spread than the f3f7e42 build (b2 was an outlier at 16-25 with no external load in
 telemetry); not attributed. If it recurs, compare `EXL3_MOE_CPU_PROF` phase times between
 58d19c0 and f3f7e42 before blaming the rebase. Peak VRAM at the 155k preset: 23.6 GB.
@@ -138,9 +141,13 @@ bit-exact). Host memcpy ceiling: `scripts/stagebench.py` after building `stagebe
   on `origin/dev` c93f3c6. Touches only `cpu/moe_mul1.{cpp,h}`, `cpu/moe_handoff.{cu,h}`,
   `model/moe_cpu_host.py`, `doc/env_vars.md`, `tests/test_moe_cpu_offload.py`. In-place `.pyd`
   is the 58d19c0 build. `eval/__disk_lru_cache__/` is a regenerable perf.py cache.
-- Production still runs the old engine. Rollout is
-  [this plan](../superpowers/plans/2026-09-05-production-exl3-tabby-upstream-sync-and-freeze-removal.md).
-  A Tabby/SiftKit generation smoke on the merged engine is owed after rollout.
+- Production runs the merged engine as of 2026-09-05: exllamav3 `dev` @ `297711c`
+  (`1.4.7+unified.1`, upstream c93f3c6 plus 58d19c0), TabbyAPI `siftkit` @ `f8b2bec`, SiftKit
+  freeze removal and migration v65. Rollout record:
+  [production-upstream-sync-handoff](2026-09-05-production-upstream-sync-handoff.md), which also
+  holds the SiftKit generation smoke (cached_tokens, idle unload, cold reload).
+- Host-RAM freeze/restore is gone from exllamav3, TabbyAPI and SiftKit; `IdleAction` is `none`
+  or `unload`.
 - Remaining prefill levers: overlap the router sync with the previous layer's tail (4-10 ms per
   layer exposed at 4096 rows); trim host enqueue (11-14 ms per layer, overlapped today).
 - Remaining decode levers: the 0.27 ms per layer GPU critical path (no CUDA graphs in decode; GPU
