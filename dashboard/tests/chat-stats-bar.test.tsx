@@ -6,6 +6,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ChatStatsBar } from '../src/components/ChatStatsBar';
+import type { LiveContextUsage } from '../src/lib/contextBar';
 
 const EMPTY_SESSION_STATS = {
   cacheHitRate: null,
@@ -29,7 +30,7 @@ test('renders placeholders when no telemetry exists yet', () => {
     <ChatStatsBar
       lastTurn={EMPTY_LAST_TURN}
       sessionStats={EMPTY_SESSION_STATS}
-      contextUsage={null}
+      liveContextUsage={null}
       streaming={false}
     />,
   );
@@ -44,19 +45,11 @@ test('renders last-turn rates, session aggregates, and hover explanations', () =
     <ChatStatsBar
       lastTurn={{ promptTokensPerSecond: 1204, generationTokensPerSecond: 38.4, ttftMs: 210 }}
       sessionStats={{ ...EMPTY_SESSION_STATS, cacheHitRate: 0.87, acceptanceRate: 0.62, promptTokensPerSecond: 980 }}
-      contextUsage={{
-        contextWindowTokens: 40000,
+      liveContextUsage={{
         usedTokens: 14200,
-        chatUsedTokens: 14200,
-        thinkingUsedTokens: 0,
-        toolUsedTokens: 0,
-        imageUsedTokens: 0,
-        totalUsedTokens: 14200,
-        remainingTokens: 25800,
-        warnThresholdTokens: 5000,
-        shouldCondense: false,
-        estimatedTokenFallbackTokens: 0,
-        providerOverheadTokens: 0,
+        contextWindowTokens: 40000,
+        ratio: 0.355,
+        exact: true,
       }}
       streaming={false}
     />,
@@ -76,9 +69,27 @@ test('marks the strip as streaming while a turn is in flight', () => {
     <ChatStatsBar
       lastTurn={EMPTY_LAST_TURN}
       sessionStats={EMPTY_SESSION_STATS}
-      contextUsage={null}
+      liveContextUsage={null}
       streaming
     />,
   );
   assert.match(markup, /class="chat-stats streaming"/u);
+});
+
+test('the context chip tracks the live count and marks the streaming tail as an estimate', () => {
+  const live: LiveContextUsage = {
+    usedTokens: 14200,
+    contextWindowTokens: 40000,
+    ratio: 0.355,
+    exact: false,
+  };
+  const markup = renderToStaticMarkup(
+    <ChatStatsBar
+      lastTurn={EMPTY_LAST_TURN}
+      sessionStats={EMPTY_SESSION_STATS}
+      liveContextUsage={live}
+      streaming
+    />,
+  );
+  assert.match(markup, /<span class="chat-stat-value">~14,200<\/span>/u);
 });

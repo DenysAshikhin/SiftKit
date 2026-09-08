@@ -15,7 +15,7 @@ import {
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { resolveLiveContextUsage } from '../lib/contextBar';
+import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar';
 import { deriveSessionIndicator, isSessionBusy, ownsRepoAgentRun, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
@@ -209,8 +209,8 @@ export function ChatTab({
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const planMaxTurnsInput = selectedRuntime?.planMaxTurnsInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
-  const latestUsage = selectedRuntime?.latestUsage ?? null;
-  const streamedCharsSinceUsage = selectedRuntime?.streamedCharsSinceUsage ?? 0;
+  const liveTokenBase = selectedRuntime?.liveTokenBase ?? null;
+  const streamedCharsSinceBase = selectedRuntime?.streamedCharsSinceBase ?? 0;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
   const chatError = selectedRuntime?.error ?? null;
   const warnings = selectedRuntime?.warnings ?? [];
@@ -316,8 +316,8 @@ export function ChatTab({
 
   const liveContextUsage = resolveLiveContextUsage({
     contextUsage,
-    latestUsage,
-    streamedCharsSinceUsage,
+    liveTokenBase,
+    streamedCharsSinceBase,
     busy: selectedSessionBusy,
   });
   const usedRatio = liveContextUsage?.ratio ?? 0;
@@ -507,7 +507,7 @@ export function ChatTab({
               {showSettings ? (
                 <SettingsPopover
                   contextUsage={contextUsage}
-                  liveToolPromptTokenCount={latestUsage?.record.promptTokens ?? null}
+                  liveToolPromptTokenCount={liveTokenBase?.promptTokens ?? null}
                   isRepoToolMode={isRepoToolMode}
                   chatBusy={selectedSessionBusy}
                   onCondense={onCondense}
@@ -573,7 +573,7 @@ export function ChatTab({
                   disabled={selectedSessionBusy}
                 />
                 {liveContextUsage ? (
-                  <span className="ctx-label">{liveContextUsage.exact ? '' : '~'}{formatCompactTokenCount(liveContextUsage.usedTokens)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
+                  <span className="ctx-label">{formatLiveContextTokens(liveContextUsage, formatCompactTokenCount)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
                 ) : null}
                 <label className="mini-btn attach" title="Attach images">
                   Attach
@@ -615,7 +615,7 @@ export function ChatTab({
               <ChatStatsBar
                 lastTurn={lastTurnTelemetry}
                 sessionStats={sessionPromptCacheStats}
-                contextUsage={contextUsage}
+                liveContextUsage={liveContextUsage}
                 streaming={selectedSessionBusy}
               />
             </div>

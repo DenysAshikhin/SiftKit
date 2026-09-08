@@ -192,6 +192,18 @@ export function forwardRepoSearchUsageEvent(
   });
 }
 
+export function forwardRepoSearchPromptEvent(
+  writer: Pick<SseResponseWriter, 'writeEvent'>,
+  event: Extract<RepoSearchProgressEvent, { kind: 'prompt' }>,
+): void {
+  writer.writeEvent('prompt', {
+    turn: event.turn,
+    maxTurns: event.maxTurns,
+    promptTokens: event.promptTokens,
+    charsPerToken: event.charsPerToken,
+  });
+}
+
 function toChatStreamToolEvent(
   event: Extract<RepoSearchProgressEvent, { kind: 'tool_start' | 'tool_result' }>,
 ): ChatStreamToolEvent {
@@ -409,6 +421,13 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     }
     if (event.kind === 'usage') {
       forwardRepoSearchUsageEvent(this.writer, event);
+      return;
+    }
+    if (event.kind === 'prompt') {
+      // The frame rebases the client's streaming tail, so text buffered against the previous
+      // base has to reach the client before it arrives.
+      this.flushPending();
+      forwardRepoSearchPromptEvent(this.writer, event);
       return;
     }
     if (event.kind !== 'tool_start' && event.kind !== 'tool_result') {

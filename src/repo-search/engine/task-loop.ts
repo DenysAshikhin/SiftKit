@@ -478,6 +478,7 @@ export class TaskLoop {
     }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
+    this.progress.promptForTurn(turn, prepared.promptTokenCount, this.tokenUsage.turnRecords());
     this.progress.llmStart(turn, prepared.promptTokenCount, this.tokenUsage.snapshot().thinkingTokens);
     const newMessages = this.transcript.takeNewMessagesForLogging();
     this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokenCount });

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLiveContextUsage } from '../../src/lib/contextBar';
+import { formatLiveContextTokens, resolveLiveContextUsage } from '../../src/lib/contextBar';
 import { sumLiveTokenDisplays } from '../../src/lib/format';
-import type { ChatStreamUsageEvent } from '@siftkit/contracts';
+import type { ChatStreamPromptEvent } from '@siftkit/contracts';
 import type { ChatMessage, ContextUsage } from '../../src/types';
 
 const USAGE: ContextUsage = {
@@ -41,63 +41,63 @@ function liveMessage(overrides: {
   };
 }
 
-function usageFrame(promptTokens: number, charsPerToken = 4): ChatStreamUsageEvent {
-  return {
-    turn: 2,
-    maxTurns: 20,
-    record: {
-      turn: 2, promptTokens, thinkingTokens: 100, outputTokens: 0, toolTokens: 0,
-      generatedChars: 400, thinkingTokensEstimated: false, outputTokensEstimated: false,
-    },
-    totals: {
-      promptTokens, thinkingTokens: 100, outputTokens: 0, toolTokens: 0,
-      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
-    },
-    charsPerToken,
-  };
+function promptFrame(promptTokens: number, charsPerToken = 4): ChatStreamPromptEvent {
+  return { turn: 2, maxTurns: 20, promptTokens, charsPerToken };
 }
 
 test('resolveLiveContextUsage mirrors the persisted total while idle', () => {
   const result = resolveLiveContextUsage({
     contextUsage: USAGE,
-    latestUsage: usageFrame(95),
-    streamedCharsSinceUsage: 40,
+    liveTokenBase: promptFrame(95),
+    streamedCharsSinceBase: 40,
     busy: false,
   });
   assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: true });
 });
 
-test('resolveLiveContextUsage holds the persisted total while a turn streams before the first usage frame', () => {
+test('resolveLiveContextUsage grows from the measured prompt base as text streams', () => {
   const result = resolveLiveContextUsage({
     contextUsage: USAGE,
-    latestUsage: null,
-    streamedCharsSinceUsage: 40,
-    busy: true,
-  });
-  assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: true });
-});
-
-test('resolveLiveContextUsage adds the calibrated streaming tail to the frame prompt count', () => {
-  const result = resolveLiveContextUsage({
-    contextUsage: USAGE,
-    latestUsage: usageFrame(60),
-    streamedCharsSinceUsage: 8,
+    liveTokenBase: promptFrame(60),
+    streamedCharsSinceBase: 8,
     busy: true,
   });
   assert.deepEqual(result, { usedTokens: 62, contextWindowTokens: 100, ratio: 0.62, exact: false });
 });
 
+test('resolveLiveContextUsage holds the persisted total until the turn publishes its base', () => {
+  const result = resolveLiveContextUsage({
+    contextUsage: USAGE,
+    liveTokenBase: null,
+    streamedCharsSinceBase: 0,
+    busy: true,
+  });
+  assert.deepEqual(result, { usedTokens: 20, contextWindowTokens: 100, ratio: 0.2, exact: true });
+});
+
+test('the measured base counts the submitted turn, so the bar never lags the prompt', () => {
+  // The persisted total predates this turn; the frame the backend measured already includes
+  // the user message and its images, which is why the base is taken from the frame.
+  const result = resolveLiveContextUsage({
+    contextUsage: USAGE,
+    liveTokenBase: promptFrame(45),
+    streamedCharsSinceBase: 0,
+    busy: true,
+  });
+  assert.deepEqual(result, { usedTokens: 45, contextWindowTokens: 100, ratio: 0.45, exact: true });
+});
+
 test('the in-flight tail converges to the exact count at the turn boundary', () => {
-  const usage = usageFrame(5000);
+  const base = promptFrame(5000);
   const contextUsage: ContextUsage = { ...USAGE, contextWindowTokens: 155_000, totalUsedTokens: 4000 };
   const mid = resolveLiveContextUsage({
-    contextUsage, latestUsage: usage, streamedCharsSinceUsage: 800, busy: true,
+    contextUsage, liveTokenBase: base, streamedCharsSinceBase: 800, busy: true,
   });
   assert.equal(mid?.usedTokens, 5200);
   assert.equal(mid?.exact, false);
 
   const atBoundary = resolveLiveContextUsage({
-    contextUsage, latestUsage: usage, streamedCharsSinceUsage: 0, busy: true,
+    contextUsage, liveTokenBase: base, streamedCharsSinceBase: 0, busy: true,
   });
   assert.equal(atBoundary?.usedTokens, 5000);
   assert.equal(atBoundary?.exact, true);
@@ -105,12 +105,12 @@ test('the in-flight tail converges to the exact count at the turn boundary', () 
 
 test('resolveLiveContextUsage hides the bar without usage', () => {
   assert.equal(resolveLiveContextUsage({
-    contextUsage: null, latestUsage: usageFrame(50), streamedCharsSinceUsage: 0, busy: true,
+    contextUsage: null, liveTokenBase: promptFrame(50), streamedCharsSinceBase: 0, busy: true,
   }), null);
   assert.equal(resolveLiveContextUsage({
     contextUsage: { ...USAGE, contextWindowTokens: 0 },
-    latestUsage: null,
-    streamedCharsSinceUsage: 0,
+    liveTokenBase: null,
+    streamedCharsSinceBase: 0,
     busy: false,
   }), null);
 });
@@ -118,11 +118,17 @@ test('resolveLiveContextUsage hides the bar without usage', () => {
 test('resolveLiveContextUsage clamps the ratio to 1 when usage exceeds the window', () => {
   const result = resolveLiveContextUsage({
     contextUsage: { ...USAGE, totalUsedTokens: 150 },
-    latestUsage: null,
-    streamedCharsSinceUsage: 0,
+    liveTokenBase: null,
+    streamedCharsSinceBase: 0,
     busy: false,
   });
   assert.equal(result?.ratio, 1);
+});
+
+test('formatLiveContextTokens marks an estimated tail and leaves an exact count bare', () => {
+  const live = { usedTokens: 1200, contextWindowTokens: 4000, ratio: 0.3, exact: false };
+  assert.equal(formatLiveContextTokens(live, (tokens) => String(tokens)), '~1200');
+  assert.equal(formatLiveContextTokens({ ...live, exact: true }, (tokens) => String(tokens)), '1200');
 });
 
 test('sumLiveTokenDisplays totals live bubbles and is exact only when every bubble is', () => {

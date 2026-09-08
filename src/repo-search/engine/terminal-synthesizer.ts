@@ -73,6 +73,11 @@ export class TerminalSynthesizer {
     // Terminal synthesis runs after the loop's last turn, so it is its own turn: the
     // synthesis call must not merge into the last loop turn's record.
     const synthesisTurn = input.turnsUsed + 1;
+    this.options.progress.promptForTurn(
+      synthesisTurn,
+      synthesisPromptTokenCount,
+      this.options.tokenUsage.turnRecords(),
+    );
     for (let attempt = 1; attempt <= MAX_SYNTHESIS_ATTEMPTS; attempt += 1) {
       try {
         const synthesisResponse = await requestTerminalSynthesis({

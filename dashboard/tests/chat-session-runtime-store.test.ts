@@ -6,6 +6,8 @@ import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
 import type { ChatSessionResponse } from '../src/types';
 import { buildUsageFrame } from './usage-frame';
 
+const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
+
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
 const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -116,8 +118,8 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
   assert.equal(runtime.error, null);
   assert.deepEqual(runtime.warnings, []);
   assert.equal(runtime.contextUsage, null);
-  assert.equal(runtime.latestUsage, null);
-  assert.equal(runtime.streamedCharsSinceUsage, 0);
+  assert.equal(runtime.liveTokenBase, null);
+  assert.equal(runtime.streamedCharsSinceBase, 0);
   assert.equal(runtime.draft, '');
   assert.deepEqual(runtime.pendingImages, []);
   assert.equal(runtime.planRepoRootInput, '');
@@ -193,26 +195,57 @@ test('tool start demotes narration and answer promotes the same message identity
   assert.equal(promoted?.content, 'Authoritative answer');
 });
 
-test('thinking and answer deltas accumulate streamed chars and the usage frame resets the counter', () => {
+test('thinking and answer deltas accumulate streamed chars and the next prompt frame rebases them', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcde' } })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcdef' } });
+  assert.equal(store.get('s1').streamedCharsSinceBase, 11);
+
+  const narration = store.apply({ kind: 'narration', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'narrated steps' } });
+  assert.equal(narration.get('s1').streamedCharsSinceBase, 11 + 'narrated steps'.length);
+
+  // The next turn's measured prompt already counts everything streamed against the old base.
+  const rebased = narration.apply({
+    kind: 'prompt',
+    sessionId: 's1',
+    prompt: { turn: 2, maxTurns: 20, promptTokens: 1400, charsPerToken: 4.2 },
+  });
+  assert.equal(rebased.get('s1').streamedCharsSinceBase, 0);
+  assert.deepEqual(rebased.get('s1').liveTokenBase, { turn: 2, maxTurns: 20, promptTokens: 1400, charsPerToken: 4.2 });
+
+  const growing = rebased.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'xyz' } });
+  assert.equal(growing.get('s1').streamedCharsSinceBase, 3);
+});
+
+test('a usage frame settles the transcript without disturbing the streaming base', () => {
   const usage = buildUsageFrame({
     turn: 1,
     record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
   });
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcde' } })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcdef' } });
-  assert.equal(store.get('s1').streamedCharsSinceUsage, 11);
+    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'reasoning' } })
+    .apply({ kind: 'usage', sessionId: 's1', usage });
+  assert.deepEqual(store.get('s1').liveTokenBase, PROMPT_FRAME);
+  assert.equal(store.get('s1').streamedCharsSinceBase, 'reasoning'.length);
+});
 
-  const narration = store.apply({ kind: 'narration', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'narrated steps' } });
-  assert.equal(narration.get('s1').streamedCharsSinceUsage, 11 + 'narrated steps'.length);
+test('begin drops the previous run base so the bar never restarts behind the persisted total', () => {
+  const finished = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'tail' } });
+  assert.deepEqual(finished.get('s1').liveTokenBase, PROMPT_FRAME);
+  assert.equal(finished.get('s1').streamedCharsSinceBase, 4);
 
-  const reset = narration.apply({ kind: 'usage', sessionId: 's1', usage });
-  assert.equal(reset.get('s1').streamedCharsSinceUsage, 0);
-  assert.deepEqual(reset.get('s1').latestUsage, usage);
-
-  const growing = reset.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'xyz' } });
-  assert.equal(growing.get('s1').streamedCharsSinceUsage, 3);
+  const restarted = finished.apply({
+    kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID,
+  });
+  assert.equal(restarted.get('s1').liveTokenBase, null);
+  assert.equal(restarted.get('s1').streamedCharsSinceBase, 0);
 });
 
 test('a usage transition snaps the live thinking row to the measured count and ends the wait', () => {
@@ -687,18 +720,6 @@ test('repo-agent-approval-mode replaces only that field for its own session and 
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'repo-agent', operationId: OPERATION_ID })
     .apply({ kind: 'done', sessionId: 'session-a', response: SAMPLE_RESPONSE });
   assert.equal(afterRun.get('session-a').repoAgentApprovalMode, 'off');
-});
-
-test('a usage transition replaces the stored usage frame', () => {
-  const usage = buildUsageFrame({
-    turn: 2,
-    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
-    totals: { promptTokens: 1800, thinkingTokens: 140, outputTokens: 20, toolTokens: 80 },
-  });
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('session-a', '')
-    .apply({ kind: 'usage', sessionId: 'session-a', usage });
-  assert.deepEqual(store.get('session-a').latestUsage, usage);
 });
 
 test('live thinking bubbles carry no self-derived token estimate', () => {

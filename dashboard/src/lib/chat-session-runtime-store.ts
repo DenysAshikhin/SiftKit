@@ -10,6 +10,7 @@ import {
   type ApprovalMode,
   type ChatStreamApproval,
   type ChatStreamProgress,
+  type ChatStreamPromptEvent,
   type ChatStreamTextDelta,
   type ChatStreamUsageEvent,
   type ChatTranscriptEvent,
@@ -36,9 +37,10 @@ export type ChatSessionRuntime = {
   error: string | null;
   warnings: string[];
   contextUsage: ContextUsage | null;
-  latestUsage: ChatStreamUsageEvent | null;
-  /** Streamed text characters since the last usage frame; sizes the in-flight tail. */
-  streamedCharsSinceUsage: number;
+  /** The backend-measured context the running turn generates against; null before its frame. */
+  liveTokenBase: ChatStreamPromptEvent | null;
+  /** Streamed text characters since that base; sizes the in-flight tail on top of it. */
+  streamedCharsSinceBase: number;
   draft: string;
   pendingImages: PendingImage[];
   submittedInput: SubmittedChatInput | null;
@@ -70,6 +72,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'control-error'; sessionId: string; message: ChatSessionRuntime['error'] }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
+  | { kind: 'prompt'; sessionId: string; prompt: ChatStreamPromptEvent }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
   | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
@@ -84,8 +87,8 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
     error: null,
     warnings: [],
     contextUsage: null,
-    latestUsage: null,
-    streamedCharsSinceUsage: 0,
+    liveTokenBase: null,
+    streamedCharsSinceBase: 0,
     draft: '',
     pendingImages: [],
     submittedInput: null,
@@ -117,17 +120,14 @@ function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEv
   return applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
 }
 
-function applyUsageEvent(runtime: ChatSessionRuntime, usage: ChatStreamUsageEvent): ChatSessionRuntime {
-  const next = applyTranscriptEvent(runtime, { kind: 'usage', usage });
-  return { ...next, latestUsage: usage, streamedCharsSinceUsage: 0 };
-}
-
 function applyTransition(
   runtime: ChatSessionRuntime,
   transition: ChatSessionRuntimeTransition,
 ): ChatSessionRuntime {
   switch (transition.kind) {
     case 'begin':
+      // A new run measures its own prompt: the previous run's base counts a context this one
+      // no longer generates against, so the bar would restart behind itself if it survived.
       return {
         ...runtime,
         activity: {
@@ -135,6 +135,8 @@ function applyTransition(
           operationKind: transition.operationKind,
           operationId: transition.operationId,
         },
+        liveTokenBase: null,
+        streamedCharsSinceBase: 0,
       };
     case 'remote-begin':
       return { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } };
@@ -147,7 +149,7 @@ function applyTransition(
     case 'narration':
     case 'answer': {
       const next = applyTranscriptEvent(runtime, { kind: transition.kind, delta: transition.delta });
-      return { ...next, streamedCharsSinceUsage: next.streamedCharsSinceUsage + transition.delta.text.length };
+      return { ...next, streamedCharsSinceBase: next.streamedCharsSinceBase + transition.delta.text.length };
     }
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
@@ -208,7 +210,11 @@ function applyTransition(
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
     case 'usage':
-      return applyUsageEvent(runtime, transition.usage);
+      return applyTranscriptEvent(runtime, { kind: 'usage', usage: transition.usage });
+    // The turn about to generate measured its own prompt, so the base moves and the tail that
+    // sized the previous base is now counted inside it.
+    case 'prompt':
+      return { ...runtime, liveTokenBase: transition.prompt, streamedCharsSinceBase: 0 };
     case 'draft':
       return { ...runtime, draft: transition.draft };
     case 'images':

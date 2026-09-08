@@ -104,6 +104,16 @@ export class ProgressReporter {
     });
   }
 
+  /** Publishes the exact context occupancy of the prompt `turn` is about to generate against,
+   *  with the ratio that sizes the text streamed after it. Emitted before that turn produces
+   *  any text, so a consumer always holds a measured base before it holds a tail to add. */
+  promptForTurn(turn: number, promptTokens: number, records: readonly TurnTokenRecord[]): void {
+    this.emit({
+      kind: 'prompt', turn, maxTurns: this.maxTurns, promptTokens,
+      charsPerToken: resolveCharsPerToken(records), elapsedMs: this.elapsedMs(),
+    });
+  }
+
   thinking(turn: number, thinkingText: string): void {
     this.emit({ kind: 'thinking', turn, maxTurns: this.maxTurns, thinkingText });
   }

@@ -232,6 +232,7 @@ const LIVE_TEXT_PROGRESS_KINDS: Record<RepoSearchProgressEvent['kind'], boolean>
   tool_start: false,
   tool_result: false,
   usage: false,
+  prompt: false,
 };
 
 export function isLiveTextProgressEvent(event: RepoSearchProgressEvent): boolean {

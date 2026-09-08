@@ -83,6 +83,20 @@ export const ChatStreamUsageEventSchema = z.object({
 });
 export type ChatStreamUsageEvent = z.infer<typeof ChatStreamUsageEventSchema>;
 
+/**
+ * Published before a turn generates anything: `promptTokens` is the context the turn is about
+ * to run against, measured by the backend, and `charsPerToken` is the ratio that sizes the
+ * text streamed after it. Together they let the bar move from the first streamed character
+ * without ever estimating the base.
+ */
+export const ChatStreamPromptEventSchema = z.object({
+  turn: z.number().int().nonnegative(),
+  maxTurns: z.number().int().positive(),
+  promptTokens: z.number().int().nonnegative(),
+  charsPerToken: z.number().positive(),
+});
+export type ChatStreamPromptEvent = z.infer<typeof ChatStreamPromptEventSchema>;
+
 export const ToolCallStatusSchema = z.enum(['running', 'done', 'stopped']);
 export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
 

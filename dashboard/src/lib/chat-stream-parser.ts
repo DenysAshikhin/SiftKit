@@ -3,12 +3,14 @@ import {
   ChatSessionResponseSchema,
   ChatStreamApprovalSchema,
   ChatStreamProgressSchema,
+  ChatStreamPromptEventSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
   ChatStreamUsageEventSchema,
   type ChatSessionResponse,
   type ChatStreamApproval,
   type ChatStreamProgress,
+  type ChatStreamPromptEvent,
   type ChatStreamTextDelta,
   type ChatStreamToolEvent,
   type ChatStreamUsageEvent,
@@ -26,6 +28,7 @@ export type ChatStreamEvent =
   | { kind: 'answer'; delta: ChatStreamTextDelta }
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'usage'; usage: ChatStreamUsageEvent }
+  | { kind: 'prompt'; prompt: ChatStreamPromptEvent }
   | { kind: 'error'; message: string };
 
 type ParsedPacket = { eventName: string; data: JsonValue } | null;
@@ -88,6 +91,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     case 'usage': {
       const result = ChatStreamUsageEventSchema.safeParse(record);
       return result.success ? { kind: 'usage', usage: result.data } : null;
+    }
+    case 'prompt': {
+      const result = ChatStreamPromptEventSchema.safeParse(record);
+      return result.success ? { kind: 'prompt', prompt: result.data } : null;
     }
     default:
       return null;

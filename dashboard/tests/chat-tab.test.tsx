@@ -1448,17 +1448,8 @@ test('the context bar and label grow with the calibrated streaming tail while a 
 
   const streaming = idle
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'usage', sessionId: SESSION_A.id, usage: {
-      turn: 1, maxTurns: 20,
-      record: {
-        turn: 1, promptTokens: 60, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
-        generatedChars: 0, thinkingTokensEstimated: false, outputTokensEstimated: false,
-      },
-      totals: {
-        promptTokens: 60, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
-        thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
-      },
-      charsPerToken: 4,
+    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: {
+      turn: 1, maxTurns: 20, promptTokens: 60, charsPerToken: 4,
     } })
     .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 2, offset: 0, text: 'x'.repeat(40) } });
   const view = renderComponent(<ChatTab {...buildProps({
@@ -1471,7 +1462,7 @@ test('the context bar and label grow with the calibrated streaming tail while a 
   assert.equal(view.container.querySelector('.ctx-label')?.textContent, '~70 / 100');
 });
 
-test('the context bar follows the usage frame prompt count of the latest turn while streaming', () => {
+test('the context bar follows the measured prompt count of the latest turn while streaming', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: { ...CONTEXT_USAGE, totalUsedTokens: 40 } })
@@ -1480,17 +1471,8 @@ test('the context bar follows the usage frame prompt count of the latest turn wh
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
     } })
-    .apply({ kind: 'usage', sessionId: SESSION_A.id, usage: {
-      turn: 1, maxTurns: 2,
-      record: {
-        turn: 1, promptTokens: 88, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
-        generatedChars: 0, thinkingTokensEstimated: false, outputTokensEstimated: false,
-      },
-      totals: {
-        promptTokens: 88, thinkingTokens: 0, outputTokens: 0, toolTokens: 0,
-        thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
-      },
-      charsPerToken: 4,
+    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: {
+      turn: 1, maxTurns: 2, promptTokens: 88, charsPerToken: 4,
     } });
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,

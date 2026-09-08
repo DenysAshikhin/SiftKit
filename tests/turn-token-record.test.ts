@@ -4,6 +4,7 @@ import test from 'node:test';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import {
+  SEED_CHARS_PER_TOKEN,
   foldTurnTokenRecords,
   resolveCharsPerToken,
   type TurnTokenRecord,
@@ -162,6 +163,31 @@ test('usageForTurn emits the turn record with the folded totals and measured rat
   assert.deepEqual(usage.record, records[1]);
   assert.deepEqual(usage.totals, foldTurnTokenRecords(records));
   assert.equal(usage.charsPerToken, resolveCharsPerToken(records));
+});
+
+test('promptForTurn publishes the exact prompt occupancy with the ratio that sizes its tail', () => {
+  const records = [
+    record({ turn: 1, promptTokens: 120, thinkingTokens: 4, outputTokens: 6, generatedChars: 50 }),
+  ];
+  const { events, reporter } = collectingReporter();
+  reporter.promptForTurn(2, 300, records);
+
+  const prompt = events.find((event) => event.kind === 'prompt');
+  assert.ok(prompt);
+  assert.equal(prompt.kind, 'prompt');
+  assert.equal(prompt.turn, 2);
+  assert.equal(prompt.promptTokens, 300);
+  assert.equal(prompt.charsPerToken, resolveCharsPerToken(records));
+});
+
+test('promptForTurn falls back to the seed ratio before any turn has generated', () => {
+  const { events, reporter } = collectingReporter();
+  reporter.promptForTurn(1, 90, []);
+
+  const prompt = events.find((event) => event.kind === 'prompt');
+  assert.ok(prompt);
+  assert.equal(prompt.kind, 'prompt');
+  assert.equal(prompt.charsPerToken, SEED_CHARS_PER_TOKEN);
 });
 
 test('usageForTurn throws when the requested turn has no record', () => {

@@ -90,6 +90,14 @@ export const UsageProgressEventSchema = z.object({
   elapsedMs: z.number(),
 });
 
+export const PromptProgressEventSchema = z.object({
+  ...turnScopedFields,
+  kind: z.literal('prompt'),
+  promptTokens: z.number().int().nonnegative(),
+  charsPerToken: z.number().positive(),
+  elapsedMs: z.number(),
+});
+
 export const ToolResultProgressEventSchema = z.object({
   ...turnScopedFields,
   kind: z.literal('tool_result'),
@@ -136,6 +144,7 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
   LlmStartProgressEventSchema,
   LlmEndProgressEventSchema,
   UsageProgressEventSchema,
+  PromptProgressEventSchema,
   z.object({ ...turnScopedFields, kind: z.literal('thinking'), thinkingText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('narration'), narrationText: z.string() }),
   z.object({ ...turnScopedFields, kind: z.literal('answer'), answerText: z.string() }),

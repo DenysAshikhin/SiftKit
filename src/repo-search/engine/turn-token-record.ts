@@ -15,6 +15,9 @@ export type TurnTokenRecord = {
   outputTokensEstimated: boolean;
 };
 
+/** Characters per token assumed before any turn has completed and measured a real ratio. */
+export const SEED_CHARS_PER_TOKEN = 4;
+
 export type TurnTokenTotals = {
   promptTokens: number;
   thinkingTokens: number;
@@ -23,9 +26,6 @@ export type TurnTokenTotals = {
   thinkingTokensEstimatedCount: number;
   outputTokensEstimatedCount: number;
 };
-
-/** Characters per token assumed before any turn has completed and measured a real ratio. */
-export const SEED_CHARS_PER_TOKEN = 4;
 
 export function foldTurnTokenRecords(records: readonly TurnTokenRecord[]): TurnTokenTotals {
   return records.reduce<TurnTokenTotals>((totals, record) => ({

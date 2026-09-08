@@ -1,8 +1,8 @@
 import React from 'react';
 
+import { formatLiveContextTokens, type LiveContextUsage } from '../lib/contextBar';
 import { formatNumber } from '../lib/format';
 import type { LastTurnTelemetry } from '../lib/format';
-import type { ContextUsage } from '../types';
 
 export type ChatSessionStats = {
   cacheHitRate: number | null;
@@ -46,10 +46,10 @@ function StatChip({ icon, value, tip }: { icon: string; value: string; tip: stri
   );
 }
 
-export function ChatStatsBar({ lastTurn, sessionStats, contextUsage, streaming }: {
+export function ChatStatsBar({ lastTurn, sessionStats, liveContextUsage, streaming }: {
   lastTurn: LastTurnTelemetry;
   sessionStats: ChatSessionStats;
-  contextUsage: ContextUsage | null;
+  liveContextUsage: LiveContextUsage | null;
   streaming: boolean;
 }) {
   return (
@@ -81,7 +81,7 @@ export function ChatStatsBar({ lastTurn, sessionStats, contextUsage, streaming }
       />
       <StatChip
         icon="Σ"
-        value={contextUsage === null ? PLACEHOLDER : formatNumber(contextUsage.totalUsedTokens)}
+        value={liveContextUsage === null ? PLACEHOLDER : formatLiveContextTokens(liveContextUsage, formatNumber)}
         tip="Tokens currently occupying the context window, including attached images and tool output."
       />
     </div>
