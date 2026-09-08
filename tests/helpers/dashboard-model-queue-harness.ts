@@ -326,6 +326,11 @@ export class DashboardModelQueueHarness {
     return sessionId;
   }
 
+  /** Registers a prompt for a request the test sends itself, so the mock engine can route it. */
+  registerChatPrompt(sessionId: string, content: string): void {
+    this.chatSessionIdByContent.set(content, sessionId);
+  }
+
   startChatStream(sessionId: string, content: string, operationId = randomUUID()): Promise<SseResponse> {
     return this.startChatOperationStream('message', sessionId, content, operationId);
   }

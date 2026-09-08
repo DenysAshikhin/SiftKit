@@ -1134,7 +1134,9 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     // Buffered before the queue wait, so a client that attaches while this turn is still queued
     // already sees the prompt that started it.
     stream.writeEvent('submitted', { content: messageRequest.content, images: messageRequest.images });
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
+    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
+    // socket must not cancel a turn that is only waiting for the model lock.
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', undefined, undefined);
     if (!modelRequestLock) {
       stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
       sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
@@ -1384,7 +1386,9 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     // Buffered before the queue wait, so a client that attaches while this turn is still queued
     // already sees the prompt that started it.
     stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
+    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
+    // socket must not cancel a turn that is only waiting for the model lock.
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', undefined, undefined);
     if (!modelRequestLock) {
       stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
       sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
@@ -1548,7 +1552,9 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     // Buffered before the queue wait, so a client that attaches while this turn is still queued
     // already sees the prompt that started it.
     stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
+    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
+    // socket must not cancel a turn that is only waiting for the model lock.
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', undefined, undefined);
     if (!modelRequestLock) {
       stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
       sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { asObject, asObjectArray, requestJson, type SseResponse } from './helpers/dashboard-http.js';
+import { asObject, asObjectArray, fireAndAbortJsonRequest, requestJson, type SseResponse } from './helpers/dashboard-http.js';
 
 function readDoneSessionId(response: SseResponse): string {
   for (const event of response.events) {
@@ -150,6 +151,39 @@ test('condense is rejected while the same session is streaming and allowed once 
     const condensedMessages = asObjectArray(asObject(asObject(settledCondense.body).session).messages);
     assert.equal(condensedMessages.at(-1)?.kind, 'compaction_summary');
     assert.equal(condensedMessages.at(-1)?.content, 'summary-a');
+  } finally {
+    await harness.close();
+  }
+});
+
+test('a stream request that loses its client while queued still completes its turn', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-chat-queued-reload-', { exl3ActivePreset: true, parallelSlots: 1 });
+  await harness.start();
+  try {
+    const sessionA = await harness.createChatSession('A', 'model-a');
+    const sessionB = await harness.createChatSession('B', 'model-a');
+    const streamA = harness.startChatStream(sessionA, 'prompt-a');
+    await harness.waitForActiveRequests('dashboard_chat_stream', 1);
+    harness.registerChatPrompt(sessionB, 'prompt-b');
+    const aborter = new AbortController();
+    const queued = fireAndAbortJsonRequest(
+      `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/messages/stream`,
+      JSON.stringify({ content: 'prompt-b', operationId: randomUUID() }),
+      aborter.signal,
+    );
+    await harness.waitForQueuedRequest('dashboard_chat_stream');
+    aborter.abort();
+    await queued;
+    // The lease survives the socket: the observable proof the turn was not cancelled with its client.
+    const status = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/operation`);
+    assert.equal(status.statusCode, 200);
+    harness.releaseChatResponse('answer-a');
+    await streamA;
+    harness.releaseChatResponse('answer-b');
+    await harness.waitForModelQueueIdle();
+    const session = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}`);
+    const messages = asObjectArray(asObject(session.body.session).messages);
+    assert.equal(messages.some((message) => message.content === 'answer-b'), true);
   } finally {
     await harness.close();
   }
