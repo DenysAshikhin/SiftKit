@@ -34,7 +34,12 @@ export class SseResponseWriter {
   }
 
   writeEvent(eventName: string, payload: JsonSerializable): void {
-    this.writeRaw(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
+    this.writeSerializedEvent(eventName, JSON.stringify(payload));
+  }
+
+  /** Frames a payload that is already JSON text, so a replayed frame is not re-encoded. */
+  writeSerializedEvent(eventName: string, data: string): void {
+    this.writeRaw(`event: ${eventName}\ndata: ${data}\n\n`);
   }
 
   isClientDisconnected(): boolean {

@@ -101,3 +101,21 @@ test('suppresses writes after client disconnect and reports it', async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+test('writes a pre-serialized frame without re-encoding it', async () => {
+  const server = http.createServer((req, res) => {
+    const writer = new SseResponseWriter(req, res, { heartbeatMs: 60_000 });
+    writer.open();
+    writer.writeSerializedEvent('thinking', '{"turn":0,"offset":0,"text":"replayed"}');
+    writer.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const frames = await collectFrames(`http://127.0.0.1:${getAddressInfo(server).port}`);
+    assert.deepEqual(frames, [
+      { event: 'thinking', data: '{"turn":0,"offset":0,"text":"replayed"}' },
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
