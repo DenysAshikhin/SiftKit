@@ -325,6 +325,57 @@ export const ChatStreamApprovalSchema = z.object({
 });
 export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
 
+/** The first frame an attaching client receives; identifies the run it just latched onto. */
+export const ChatOperationAttachedEventSchema = z.strictObject({
+  operationKind: ChatSessionOperationKindSchema,
+  operationId: ChatOperationIdSchema,
+  startedAtUtc: z.string().datetime(),
+  /** True when the replay buffer dropped older frames, so the replayed transcript starts mid-run. */
+  replayTruncated: z.boolean(),
+});
+export type ChatOperationAttachedEvent = z.infer<typeof ChatOperationAttachedEventSchema>;
+
+/**
+ * The prompt that started the run. Persisted only when the turn ends, so without this frame a
+ * client that attaches mid-run would show assistant output with no user message above it.
+ */
+export const ChatStreamSubmittedSchema = z.strictObject({
+  content: z.string(),
+  images: z.array(ImageDataUrlSchema),
+});
+export type ChatStreamSubmitted = z.infer<typeof ChatStreamSubmittedSchema>;
+
+/**
+ * The authoritative pending-approval state, sent once at the end of a replay. Replaying the raw
+ * `approval` frames would resurrect an approval that has since been decided, so the attach path
+ * sends live state instead.
+ */
+export const ChatStreamApprovalStateSchema = z.strictObject({
+  approval: ChatStreamApprovalSchema.nullable(),
+});
+export type ChatStreamApprovalState = z.infer<typeof ChatStreamApprovalStateSchema>;
+
+/** Broadcast when an approval is decided, so every attached client clears the same card. */
+export const ChatStreamApprovalResolvedSchema = z.strictObject({
+  approval: ChatStreamApprovalSchema,
+  decision: RepoAgentDecisionSchema,
+  decidedAtUtc: z.string().datetime(),
+});
+export type ChatStreamApprovalResolved = z.infer<typeof ChatStreamApprovalResolvedSchema>;
+
+export const ActiveChatOperationSchema = z.strictObject({
+  sessionId: z.string().min(1),
+  operationKind: ChatSessionOperationKindSchema,
+  operationId: ChatOperationIdSchema,
+  startedAtUtc: z.string().datetime(),
+});
+export type ActiveChatOperation = z.infer<typeof ActiveChatOperationSchema>;
+
+export const ActiveChatOperationsResponseSchema = z.strictObject({
+  operations: z.array(ActiveChatOperationSchema),
+});
+export type ActiveChatOperationsResponse = z.infer<typeof ActiveChatOperationsResponseSchema>;
+
 const ChatStreamApprovalWithoutRunIdSchema = ChatStreamApprovalSchema.omit({ runId: true });
 export const ActiveChatRepoAgentResponseSchema = z.discriminatedUnion('status', [
   z.strictObject({ runId: z.string().uuid(), status: z.literal('running'), approvalMode: ApprovalModeSchema }),
