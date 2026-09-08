@@ -1,0 +1,12 @@
+{
+  "upstream_base": "c6c45b13f2bb070a2c86fae59f3d7bfe4db9ae94",
+  "source_files": 19,
+  "scratch_files": 641,
+  "patch": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\docs\\analysis\\2026-09-07-grouped-prefill-c6c45b1.patch",
+  "patch_sha256": "f664fec7ea6a2b7b2dd2a438230c976ab575b5912d78f61ee3ff95ff272ad787",
+  "archive": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\docs\\analysis\\staging-after-grouped-prefill-20260907.zip",
+  "archive_sha256": "ee4d14adad5654234b5036159a7bd0fc6aeaae4f0140381c8ca260d76d6ed58d",
+  "verified_entries": 661,
+  "archive_bytes": 95486368,
+  "reference_branch": "staging-ring-artifacts"
+}

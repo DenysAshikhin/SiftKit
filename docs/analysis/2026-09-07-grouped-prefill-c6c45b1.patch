@@ -1,0 +1,1950 @@
+diff --git a/eval/perf.py b/eval/perf.py
+index 9e7aab6..33144ef 100644
+--- a/eval/perf.py
++++ b/eval/perf.py
+@@ -99,7 +99,9 @@ def measure_prefill(args, model, cache, warmup = False):
+                     start = length // 2
+                 chunks = [(i, min(i + chunk_size, end)) for i in range(start, end, chunk_size)]
+                 recurrent = [cache.get_test_state(start)] if is_recurrent else None
+-                for start, end in chunks:
++                groups = [chunks] if args.grouped_prefill and chunks else [[chunk] for chunk in chunks]
++                for group in groups:
++                    start = group[0][0]
+                     params = {
+                         "attn_mode": "flash_attn",
+                         "cache": cache,
+@@ -107,7 +109,12 @@ def measure_prefill(args, model, cache, warmup = False):
+                         "batch_shape": (1, max(length, 256)),
+                         "recurrent_states": recurrent,
+                     }
+-                    model.prefill(workload_ids(start + ids_offset, end - start), params)
++                    if args.grouped_prefill:
++                        ids = torch.cat([workload_ids(a + ids_offset, b - a) for a, b in group], dim=1)
++                        model.prefill_chunked(ids, params, chunk_size)
++                    else:
++                        a, b = group[0]
++                        model.prefill(workload_ids(a + ids_offset, b - a), params)
+                 cuda_sync_active()
+                 if is_recurrent:
+                     recurrent[0].free()
+@@ -215,6 +222,8 @@ if __name__ == "__main__":
+     )
+     parser.add_argument("-max_length", "--max_length", type = int, help = "Max context length to measure (default: 32768)", default = 32768)
+     parser.add_argument("-chunk_size", "--chunk_size", type = int, help = "Max chunk size (default: 4096)", default = 4096)
++    parser.add_argument("--grouped_prefill", action="store_true",
++                        help="Share MLP expert transfers across memory-admitted groups; attention keeps chunk_size")
+     parser.add_argument("-spf", "--skip_prefill", action = "store_true", help = "Skip measuring prefill speed")
+     parser.add_argument("-sg", "--skip_gen", action = "store_true", help = "Skip measuring generaition speed")
+     parser.add_argument("-swu", "--skip_warmup", action = "store_true", help = "Skip warmup passes")
+diff --git a/exllamav3/exllamav3_ext/cpu/moe_handoff.cu b/exllamav3/exllamav3_ext/cpu/moe_handoff.cu
+index 2550b1d..c55707d 100644
+--- a/exllamav3/exllamav3_ext/cpu/moe_handoff.cu
++++ b/exllamav3/exllamav3_ext/cpu/moe_handoff.cu
+@@ -6,6 +6,7 @@
+ #include <cuda.h>
+ #include <atomic>
+ #include <chrono>
++#include <cstdio>
+ #include <cstring>
+ #include <thread>
+ 
+@@ -193,7 +194,9 @@ void exl3_moe_cpu_worker_run
+     int64_t num_wslots,
+     int64_t wslot_size,
+     int64_t threads,
+-    int64_t stage_threads
++    int64_t stage_threads,
++    int64_t cache_offset,
++    int64_t cache_stride
+ )
+ {
+     // GIL is released by the binding's call_guard; do not release it again here
+@@ -213,6 +216,10 @@ void exl3_moe_cpu_worker_run
+     MoeJob* stage_jobs = reinterpret_cast<MoeJob*>(base + MOE_STAGE_JOBS_OFFSET);
+     uint8_t* data = base + MOE_CTRL_SIZE;
+     uint8_t* wstage = base + wstage_offset;
++    // Prototype pinned expert cache (EXL3_MOE_CPU_PIN_CACHE_MB): fixed-stride slots after the
++    // wstage region. A stage job's experts[MOE_JOB_MAX_EXPERTS/2 + i] names expert i's
++    // destination: MOE_DEST_RING for the piece ring, else a cache slot index (a fill).
++    uint8_t* cache = base + cache_offset;
+ 
+     // Dedicated stager: consumes the stage ring so weight memcpys run concurrently with the
+     // compute pool's work on the token tail. Uses its own scratch threads, never the pool.
+@@ -220,26 +227,107 @@ void exl3_moe_cpu_worker_run
+     int stage_threads_ = stage_threads > 0 ? (int) stage_threads : 1;
+     std::thread stager([&]()
+     {
++        exl3_moe_cpu_stage_pin(0);
+         uint32_t shead = load_acquire_u32(stage_head);
+         uint32_t s_last_wake = 0;
++        // Stager timing (EXL3_MOE_STAGE_PROF): gate wait vs copy per ring piece, idle on empty ring
++        const bool sprof = getenv("EXL3_MOE_STAGE_PROF") != nullptr;
++        using sclock = std::chrono::steady_clock;
++        int64_t sp_gate_ns = 0, sp_copy_ns = 0, sp_idle_ns = 0, sp_pieces = 0, sp_bytes = 0;
++        sclock::time_point sp_idle_t0 = sclock::now();
++        bool sp_idling = false;
++        auto sp_report = [&]()
++        {
++            if (!sprof) return;
++            fprintf(stderr, " -- stage prof: %lld ring pieces, %.1f GB, gate wait %.2f s, copy %.2f s "
++                            "(%.1f GB/s while copying), idle on empty ring %.2f s\n",
++                    (long long) sp_pieces, sp_bytes / 1e9, sp_gate_ns / 1e9, sp_copy_ns / 1e9,
++                    sp_copy_ns > 0 ? sp_bytes / (sp_copy_ns / 1e9) / 1e9 : 0.0, sp_idle_ns / 1e9);
++            fflush(stderr);
++        };
++        uint32_t s_gpiece = 0;   // every piece (ring or cache fill): stage_done value - 1
++        uint32_t s_rpiece = 0;   // ring pieces only: slot = r % depth, gate on pinned_free
+         int s_idle = 0;
+         while (true)
+         {
+-            if (load_acquire_u32(quit)) return;
++            if (load_acquire_u32(quit)) { sp_report(); return; }
+             const uint32_t wake = load_acquire_u32(pass_wake);
+             if (wake != s_last_wake) { s_last_wake = wake; s_idle = 0; }
+             if (load_acquire_u32(stage_tail) == shead)
+             {
++                if (sprof && !sp_idling) { sp_idling = true; sp_idle_t0 = sclock::now(); }
+                 if (++s_idle < 65536) { cpu_pause_(); continue; }
+                 std::this_thread::sleep_for(std::chrono::microseconds(50));
+                 continue;
+             }
++            if (sprof && sp_idling)
++            {
++                sp_idling = false;
++                sp_idle_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(sclock::now() - sp_idle_t0).count();
++            }
+             s_idle = 0;
+ 
+             const MoeJob job = stage_jobs[shead % MOE_STAGE_RING];
+             shead++;
+             store_release_u32(stage_head, shead);
+ 
++            if (job.topk > 0)
++            {
++                // Piece mode (prototype): stream the batch through a ring of small pinned
++                // pieces; topk = experts per piece, prev_seq = ring depth. See apply_piece_patch.py
++                const uint32_t pe = job.topk, np = job.prev_seq;
++                const size_t piece_bytes = size_t(pe) * exl3_moe_cpu_expert_bytes(static_cast<int64_t>(job.layer));
++                const uint32_t* dest = job.experts + MOE_JOB_MAX_EXPERTS / 2;
++                for (uint32_t k = 0; k < job.rows; )
++                {
++                    if (dest[k] != MOE_DEST_RING)
++                    {
++                        // Cache fill: one expert into its slot, same piece counter, no ring gate
++                        const uint32_t g = s_gpiece;
++                        exl3_moe_cpu_stage_experts(
++                            static_cast<int64_t>(job.layer), job.experts + k, 1,
++                            cache + size_t(dest[k]) * size_t(cache_stride), stage_threads_);
++                        s_gpiece = g + 1;
++                        store_release_u32(stage_done + size_t(job.slot) * 16, g + 1);
++                        k += 1;
++                        continue;
++                    }
++                    uint32_t n = 0;
++                    while (n < pe && k + n < job.rows && dest[k + n] == MOE_DEST_RING) n++;
++                    const uint32_t g = s_gpiece;
++                    const uint32_t r = s_rpiece;
++                    const uint32_t p = r % np;
++                    uint32_t* pf = pinned_free + size_t(p) * 16;
++                    const uint32_t need = r - np + 1;
++                    sclock::time_point t0 = sprof ? sclock::now() : sclock::time_point();
++                    while ((int32_t)(load_acquire_u32(pf) - need) < 0)
++                    {
++                        if (load_acquire_u32(quit)) { sp_report(); return; }
++                        cpu_pause_();
++                    }
++                    sclock::time_point t1 = sprof ? sclock::now() : sclock::time_point();
++                    exl3_moe_cpu_stage_experts(
++                        static_cast<int64_t>(job.layer),
++                        job.experts + k,
++                        static_cast<int>(n),
++                        wstage + size_t(p) * piece_bytes,
++                        stage_threads_
++                    );
++                    if (sprof)
++                    {
++                        sclock::time_point t2 = sclock::now();
++                        sp_gate_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
++                        sp_copy_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
++                        sp_pieces += 1;
++                        sp_bytes += (int64_t) n * (int64_t) exl3_moe_cpu_expert_bytes(static_cast<int64_t>(job.layer));
++                    }
++                    s_gpiece = g + 1;
++                    s_rpiece = r + 1;
++                    store_release_u32(stage_done + size_t(job.slot) * 16, g + 1);
++                    k += n;
++                }
++                continue;
++            }
+             // Wait until the slot's previous tenant has been DMA'd out
+             uint32_t* pf = pinned_free + size_t(job.slot) * 16;
+             while ((int32_t)(load_acquire_u32(pf) - job.prev_seq) < 0)
+diff --git a/exllamav3/exllamav3_ext/cpu/moe_handoff.h b/exllamav3/exllamav3_ext/cpu/moe_handoff.h
+index e0174a0..c92d82b 100644
+--- a/exllamav3/exllamav3_ext/cpu/moe_handoff.h
++++ b/exllamav3/exllamav3_ext/cpu/moe_handoff.h
+@@ -57,6 +57,8 @@
+ // Python-side tunable (MoeCpuTuning.batch_experts in moe_cpu_host.py, default 24) clamped to
+ // this capacity.
+ #define MOE_JOB_MAX_EXPERTS 256
++// Stage job destination code (experts[MOE_JOB_MAX_EXPERTS/2 + i]): piece ring, else cache slot
++#define MOE_DEST_RING 0xFFFFFFFFu
+ 
+ struct MoeJob
+ {
+@@ -110,5 +112,7 @@ void exl3_moe_cpu_worker_run
+     int64_t num_wslots,
+     int64_t wslot_size,
+     int64_t threads,
+-    int64_t stage_threads
++    int64_t stage_threads,
++    int64_t cache_offset,
++    int64_t cache_stride
+ );
+diff --git a/exllamav3/exllamav3_ext/cpu/moe_mul1.cpp b/exllamav3/exllamav3_ext/cpu/moe_mul1.cpp
+index 2d09ef4..c20e283 100644
+--- a/exllamav3/exllamav3_ext/cpu/moe_mul1.cpp
++++ b/exllamav3/exllamav3_ext/cpu/moe_mul1.cpp
+@@ -1954,6 +1954,114 @@ void stage_phase(void* vctx, int worker, int num_workers)
+ 
+ } // namespace
+ 
++namespace {
++
++// EXL3_MOE_STAGE_CPUS, parsed once: comma-separated logical CPU indices or ranges ("16-22")
++const std::vector<int>& stage_cpus()
++{
++    static const std::vector<int> v = []()
++    {
++        std::vector<int> out;
++        const char* e = getenv("EXL3_MOE_STAGE_CPUS");
++        if (!e) return out;
++        std::string s(e);
++        size_t i = 0;
++        while (i < s.size())
++        {
++            size_t j = s.find(',', i);
++            if (j == std::string::npos) j = s.size();
++            std::string tok = s.substr(i, j - i);
++            size_t dash = tok.find('-');
++            if (dash == std::string::npos) { if (!tok.empty()) out.push_back(atoi(tok.c_str())); }
++            else
++            {
++                int a = atoi(tok.substr(0, dash).c_str()), b = atoi(tok.substr(dash + 1).c_str());
++                for (int c = a; c <= b; ++c) out.push_back(c);
++            }
++            i = j + 1;
++        }
++        return out;
++    }();
++    return v;
++}
++
++} // namespace
++
++void exl3_moe_cpu_stage_pin(int idx)
++{
++    const std::vector<int>& cpus = stage_cpus();
++    if (cpus.empty()) return;
++    const int cpu = cpus[idx % cpus.size()];
++#ifdef __linux__
++    cpu_set_t set;
++    CPU_ZERO(&set);
++    CPU_SET(cpu, &set);
++    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
++#else
++    SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR(1) << cpu);
++#endif
++}
++
++namespace {
++
++// Persistent helper threads for stage_experts: created once (sized by the first call's thread
++// count), parked on a generation counter between jobs. The caller is worker 0.
++struct StagePool
++{
++    int helpers = 0;
++    std::atomic<uint32_t> gen { 0 };
++    std::atomic<int> done { 0 };
++    StageCtx* ctx = nullptr;
++    int num_workers = 1;
++
++    void ensure(int n)
++    {
++        if (helpers > 0 || n <= 0) return;
++        helpers = n;
++        for (int i = 0; i < n; ++i)
++            std::thread([this, i]() { loop(i + 1); }).detach();
++    }
++
++    void loop(int worker)
++    {
++        exl3_moe_cpu_stage_pin(worker);
++        uint32_t seen = 0;
++        int idle = 0;
++        while (true)
++        {
++            uint32_t g = gen.load(std::memory_order_acquire);
++            if (g == seen)
++            {
++                // Spin for tens of ms before parking: a helper that sleeps between pieces pays
++                // the OS timer granularity (>= 1 ms on Windows) on every wake, which is longer
++                // than the piece DMA it is meant to overlap. Park only after the stream has
++                // clearly gone quiet.
++                if (++idle < (1 << 22)) { cpu_pause(); continue; }
++                std::this_thread::sleep_for(std::chrono::microseconds(200));
++                continue;
++            }
++            idle = 0;
++            seen = g;
++            if (worker < num_workers) stage_phase(ctx, worker, num_workers);
++            done.fetch_add(1, std::memory_order_release);
++        }
++    }
++
++    void run(StageCtx* c, int workers)
++    {
++        ctx = c;
++        num_workers = workers;
++        done.store(0, std::memory_order_relaxed);
++        gen.fetch_add(1, std::memory_order_release);
++        stage_phase(c, 0, workers);
++        while (done.load(std::memory_order_acquire) < helpers) cpu_pause();
++    }
++};
++
++StagePool& stage_pool() { static StagePool p; return p; }
++
++} // namespace
++
+ void exl3_moe_cpu_stage_experts
+ (
+     int64_t handle,
+@@ -1974,12 +2082,16 @@ void exl3_moe_cpu_stage_experts
+         stage_phase(&ctx, 0, 1);
+         return;
+     }
+-    std::vector<std::thread> ts;
+-    ts.reserve(nt);
+-    for (int i = 0; i < nt; ++i)
+-        ts.emplace_back(stage_phase, &ctx, i, nt);
+-    for (auto& t : ts)
+-        t.join();
++    StagePool& pool = stage_pool();
++    pool.ensure(nt - 1);
++    pool.run(&ctx, std::min(nt, pool.helpers + 1));
++}
++
++size_t exl3_moe_cpu_expert_bytes(int64_t handle)
++{
++    const MoeCpuLayer* layer = get_layer(handle);
++    const bool gated = !layer->gates.empty();
++    return (gated ? trellis_bytes(layer->gates[0]) : 0) + trellis_bytes(layer->ups[0]) + trellis_bytes(layer->downs[0]);
+ }
+ 
+ bool exl3_moe_cpu_has_avx2() { return g_isa != Isa::Scalar; }
+diff --git a/exllamav3/exllamav3_ext/cpu/moe_mul1.h b/exllamav3/exllamav3_ext/cpu/moe_mul1.h
+index bb2a32b..ad6ef05 100644
+--- a/exllamav3/exllamav3_ext/cpu/moe_mul1.h
++++ b/exllamav3/exllamav3_ext/cpu/moe_mul1.h
+@@ -109,6 +109,14 @@ void exl3_moe_cpu_stage_experts
+     int threads
+ );
+ 
++// Pin the calling stager thread (0 = stager, 1.. = pool helpers) to EXL3_MOE_STAGE_CPUS[idx mod n];
++// no-op when the variable is unset
++void exl3_moe_cpu_stage_pin(int idx);
++
++// Packed bytes of one expert of the layer (gate + up + down trellis), the per-expert stride
++// used by stage_experts and by the parent's VRAM-side views
++size_t exl3_moe_cpu_expert_bytes(int64_t handle);
++
+ // Per-phase profiling of the compute pool, reported to stdout every 512 jobs. Set once at
+ // worker startup from MoeCpuTuning.cpu_prof (EXL3_MOE_CPU_PROF env).
+ void exl3_moe_cpu_set_prof(bool enabled);
+diff --git a/exllamav3/model/model.py b/exllamav3/model/model.py
+index 4b04da4..ae228e2 100644
+--- a/exllamav3/model/model.py
++++ b/exllamav3/model/model.py
+@@ -30,6 +30,9 @@ class Model(Model_TPMixin, Model_LSMixin):
+         self.cache_weakrefs = {}
+         self.recurrent_state_cls = None
+         self.draft_verifier_params = {}
++        self.prefill_memory = {}
++        self.prefill_activation_bytes = {}
++        self.prefill_growth_bytes = {}
+ 
+         # Index of last layer that affects KV cache, used during prefill
+         self.last_kv_module_idx = None
+@@ -211,6 +214,111 @@ class Model(Model_TPMixin, Model_LSMixin):
+             return y
+ 
+ 
++    @torch.inference_mode
++    def prefill_chunked(self, input_ids, params, chunk_size, *, auto_group=True):
++        """Prefill supplied tokens with bounded attention and memory-admitted MLP groups.
++
++        The first full physical chunk observes workspace use. Subsequent groups are
++        bounded by that observation and current free VRAM. auto_group=False is for
++        explicit diagnostic groups; callers are responsible for their memory use.
++        """
++        self._check_chunked_inputs(input_ids, params, chunk_size)
++        devices = self._prefill_devices()
++        if not auto_group or not devices:
++            return self._prefill_group(input_ids, params, chunk_size)
++        from .prefill_budget import group_capacity
++        start = params.get("past_len", 0)
++        offset = 0
++        while offset < input_ids.shape[1]:
++            requested = (input_ids.shape[1] - offset + chunk_size - 1) // chunk_size
++            count = requested
++            for device in devices:
++                observation = self.prefill_memory.get((device, chunk_size))
++                if observation is None:
++                    count = 1
++                    break
++                workspace, activation, growth = observation
++                free, total = torch.cuda.mem_get_info(device)
++                idle = torch.cuda.memory_allocated(device)
++                count = min(count, group_capacity(requested, total, free,
++                    torch.cuda.memory_reserved(device), idle, idle + workspace, activation, growth=growth))
++            size = min(count * chunk_size, input_ids.shape[1] - offset)
++            p = dict(params, past_len=start + offset)
++            p.pop("dev_cache", None)
++            self._prefill_group(input_ids[:, offset:offset + size], p, chunk_size)
++            for key in ("recurrent_states", "recurrent_slots"):
++                if key in p:
++                    params[key] = p[key]
++            if size == chunk_size:
++                for device in devices:
++                    key = (device, chunk_size)
++                    if key not in self.prefill_memory:
++                        torch.cuda.synchronize(device)
++                        workspace = max(0, torch.cuda.max_memory_allocated(device) - torch.cuda.memory_allocated(device))
++                        activation = self.prefill_activation_bytes.get(device, 0) * chunk_size
++                        growth = self.prefill_growth_bytes.get(device)
++                        self.prefill_memory[key] = (workspace, activation, growth * chunk_size if growth else None)
++            offset += size
++
++    def _prefill_devices(self):
++        devices = set()
++        for module, instance, idx in self.fwd_modules:
++            if module.device is not None:
++                device = torch.device(module.device)
++                if device.type == "cuda":
++                    devices.add(device.index if device.index is not None else torch.cuda.current_device())
++            if (idx, instance) == self.last_kv_module_idx_instance:
++                break
++        return sorted(devices)
++
++    def _check_chunked_inputs(self, input_ids, params, chunk_size):
++        """Prefill a supplied group layer-first; attention remains bounded by chunk_size.
++
++        This experimental entrypoint accepts a single rectangular text prompt. Callers own
++        the group size; intermediate activations are retained until every chunk passes a layer.
++        """
++        if (type(chunk_size) is not int or chunk_size <= 0 or input_ids.dim() != 2
++                or input_ids.shape[0] != 1 or input_ids.shape[1] == 0):
++            raise ValueError("grouped prefill requires a positive chunk size and a nonempty single prompt")
++        if self.loaded_tp or params.get("attn_mode") != "flash_attn" or "batch_shape" not in params:
++            raise ValueError("grouped prefill requires local rectangular cached attention")
++        if "past_len" not in params and "cache_seqlens" in params:
++            raise ValueError("grouped prefill requires explicit past_len with cache_seqlens")
++        if params.get("recurrent_history") or params.get("indexed_embeddings") or params.get("export_state_layers"):
++            raise ValueError("grouped prefill does not support history, multimodal embeddings, or state export")
++        if self.recurrent_state_cls is not None and not getattr(self.recurrent_state_cls, "supports_layer_major", False):
++            raise ValueError("recurrent state requires chunk-major execution")
++        if any(not getattr(state, "supports_layer_major", False) for state in params.get("recurrent_states") or []):
++            raise ValueError("recurrent state requires chunk-major execution")
++        start = params.get("past_len", 0)
++        batch, capacity = params["batch_shape"]
++        if (not isinstance(start, int) or start < 0 or batch != 1
++                or start + input_ids.shape[1] > capacity
++                or capacity > params["cache"].max_num_tokens):
++            raise ValueError("grouped prefill exceeds the rectangular cache extent")
++
++    def _prefill_group(self, input_ids, params, chunk_size):
++        start = params.get("past_len", 0)
++        from ..modules.attn import prepare_for_attn
++        x = self.prepare_inputs(input_ids, params)
++        if not params.get("causal", True) or params.get("non_causal_spans"):
++            raise ValueError("grouped prefill requires causal attention")
++        if x.shape[:2] != input_ids.shape:
++            raise ValueError("input preparation changed the token geometry")
++        base_params = dict(params)
++        base_params.pop("dev_cache", None)
++        chunks, chunk_params = [], []
++        for offset in range(0, input_ids.shape[1], chunk_size):
++            ids = input_ids[:, offset:offset + chunk_size]
++            p = dict(base_params, past_len=start + offset, input_ids=ids)
++            prepare_for_attn(ids, p)
++            chunks.append(x[:, offset:offset + chunk_size])
++            chunk_params.append(p)
++        for m in self._get_prefetch_layers:
++            m.prefetch(chunks[0], chunk_params[0])
++        self.prefill_ls_chunked(chunks, chunk_params)
++        advance_recurrent_states(input_ids, params, self)
++
+     @torch.inference_mode
+     def forward(self, input_ids: torch.Tensor, params: dict | None = None):
+         """
+@@ -237,6 +345,9 @@ class Model(Model_TPMixin, Model_LSMixin):
+ 
+ 
+     def unload(self):
++        self.prefill_memory.clear()
++        self.prefill_activation_bytes.clear()
++        self.prefill_growth_bytes.clear()
+         for module in self.modules:
+             module.unload()
+         # The loader's open slab blocks must not outlive the tensors sliced from them
+diff --git a/exllamav3/model/model_ls.py b/exllamav3/model/model_ls.py
+index fbe1f10..cad1a4f 100644
+--- a/exllamav3/model/model_ls.py
++++ b/exllamav3/model/model_ls.py
+@@ -266,6 +266,36 @@ class Model_LSMixin(ABC):
+         return None
+ 
+ 
++    def prefill_ls_chunked(self, chunks, chunk_params):
++        from ..modules import TransformerBlock
++        from .prefill_budget import mlp_row_growth
++        for host in getattr(self.config, "moe_cpu_hosts", {}).values():
++            host.begin_pass()
++        for module, instance, idx in self.fwd_modules:
++            terminal = (idx, instance) == self.last_kv_module_idx_instance
++            for p in chunk_params:
++                p["layer_instance"] = instance
++                p["prefill"] = terminal
++            chunks = [module.prepare_for_device(x, p) for x, p in zip(chunks, chunk_params)]
++            for x in chunks:
++                if x.is_cuda:
++                    per_row = x.numel() * x.element_size() // (x.shape[0] * x.shape[1])
++                    self.prefill_activation_bytes[x.device.index] = max(
++                        per_row, self.prefill_activation_bytes.get(x.device.index, 0))
++                    if isinstance(module, TransformerBlock) and module.mlp is not None:
++                        growth = mlp_row_growth(per_row, module.mlp)
++                        if growth is None:
++                            self.prefill_growth_bytes[x.device.index] = None
++                        elif self.prefill_growth_bytes.get(x.device.index, 0) is not None:
++                            self.prefill_growth_bytes[x.device.index] = max(
++                                growth, self.prefill_growth_bytes.get(x.device.index, 0))
++            if isinstance(module, TransformerBlock) and len(chunks) > 1:
++                chunks = module.forward_chunked(chunks, chunk_params)
++            else:
++                chunks = [module.forward(x, p) for x, p in zip(chunks, chunk_params)]
++            if terminal:
++                break
++
+     def forward_ls(
+         self,
+         x: torch.Tensor,
+diff --git a/exllamav3/model/moe_cpu_host.py b/exllamav3/model/moe_cpu_host.py
+index c9befc2..6f3ca11 100644
+--- a/exllamav3/model/moe_cpu_host.py
++++ b/exllamav3/model/moe_cpu_host.py
+@@ -6,6 +6,7 @@ import numpy as np
+ import torch
+ 
+ from ..ext import exllamav3_ext as ext
++from .moe_staging import detect_l3, piece_geometry, probe_needs_retry
+ from ..util.misc import Cleanupper, install_parent_death_signal
+ from .model_tp_cuda import (
+     cuda_host_register,
+@@ -40,6 +41,7 @@ Shared-memory layout constants mirror cpu/moe_handoff.h.
+ MOE_JOB_RING = 256
+ MOE_MAX_SLOTS = 8
+ MOE_JOB_MAX_EXPERTS = 256   # structural capacity of MoeJob.experts[]; see cpu/moe_handoff.h
++MOE_DEST_RING = 0xFFFFFFFF  # stage job destination code: piece ring (else a cache slot index)
+ # sizeof(MoeJob): 7 uint32 fields + experts[MOE_JOB_MAX_EXPERTS] + one uint32 pad, all 4-byte
+ # fields so no compiler padding -- recompute this if the struct's fixed fields ever change
+ MOE_JOB_BYTES = (7 + MOE_JOB_MAX_EXPERTS + 1) * 4
+@@ -82,6 +84,21 @@ class MoeCpuTuning:
+         self.num_wslots = min(int(os.environ.get("EXL3_MOE_CPU_WSLOTS", 2)), MOE_MAX_WSLOTS)
+         self.wslot_size = int(os.environ.get("EXL3_MOE_CPU_WSLOT_MB", 32)) * 1024 * 1024
+         self.stage_threads = int(os.environ.get("EXL3_MOE_CPU_STAGE_THREADS", 4))
++        # Prototype piece ring (see apply_piece_patch.py): experts per pinned piece (0 = off)
++        # and ring depth. Pinned working set = pieces * piece_experts * expert_bytes
++        piece_setting = os.environ.get("EXL3_MOE_CPU_PIECE_EXPERTS", "auto")
++        self.piece_experts = -1 if piece_setting == "auto" else int(piece_setting)
++        self.pieces = int(os.environ.get("EXL3_MOE_CPU_PIECES", 2))
++        # Prototype pinned expert cache (piece mode only): fixed-stride slots, filled first-come
++        # and never evicted; hits DMA straight from the cache, misses go through the ring
++        self.pin_cache_mb = int(os.environ.get("EXL3_MOE_CPU_PIN_CACHE_MB", 0))
++        self.pin_cache_verify = bool(os.environ.get("EXL3_MOE_CPU_PIN_CACHE_VERIFY"))
++        # Prototype resident subset (piece mode only): whole layers placed in a pinned shared
++        # region at load, DMA'd directly, never staged. Exclusive with the fill cache.
++        self.pin_resident_mb = int(os.environ.get("EXL3_MOE_CPU_PIN_RESIDENT_MB", 0))
++        assert not self.pin_resident_mb or self.piece_experts, "EXL3_MOE_CPU_PIN_RESIDENT_MB needs piece mode"
++        assert not (self.pin_resident_mb and self.pin_cache_mb), "resident subset and fill cache are exclusive"
++        assert not self.pin_cache_mb or self.piece_experts, "EXL3_MOE_CPU_PIN_CACHE_MB needs piece mode"
+         # madvise(MADV_HUGEPAGE) on the expert-weight arena chunks: with defrag=madvise (the
+         # common default), the kernel does SYNCHRONOUS compaction on first touch of a hinted
+         # region once easily-compactable free memory runs low, which can stall loading badly
+@@ -97,10 +114,13 @@ class MoeCpuTuning:
+         self.stream_fused_t = int(os.environ.get("EXL3_MOE_STREAM_FUSED_T", 512))
+         self.stream_min_rows = int(os.environ.get("EXL3_MOE_STREAM_MIN_ROWS", 32))
+         self.batch_experts = max(1, min(
+-            int(os.environ.get("EXL3_MOE_STREAM_BATCH_EXPERTS", 24)), MOE_JOB_MAX_EXPERTS))
++            int(os.environ.get("EXL3_MOE_STREAM_BATCH_EXPERTS", 24)), MOE_JOB_MAX_EXPERTS // 2))
+ 
+         # --- debug / kill switches ---
+         self.stream_debug = bool(os.environ.get("EXL3_MOE_STREAM_DEBUG"))
++        # Prototype: append one line per streamed layer call (layer, rows, expert_bytes, ids)
++        self.stream_trace = os.environ.get("EXL3_MOE_STREAM_TRACE")
++        self.stream_prof = bool(os.environ.get("EXL3_MOE_STREAM_PROF"))
+         self.cpu_prof = bool(os.environ.get("EXL3_MOE_CPU_PROF"))
+         self.memops = os.environ.get("EXL3_MOE_MEMOPS", "1") != "0"
+ 
+@@ -191,7 +211,7 @@ class _HugeArena:
+         return dst.view(tensor.dtype).view(tensor.shape)
+ 
+ 
+-def _moe_cpu_child_main(conn, model_dir, threads, stage_threads):
++def _moe_cpu_child_main(conn, model_dir, threads, stage_threads, resident_shm_name = None):
+     """
+     Child entry point: receives ("layer", spec) messages, loading each layer's expert tensors
+     (deferred, multithreaded) and acking, until ("start", shm_name, layout) switches it into the
+@@ -220,10 +240,19 @@ def _moe_cpu_child_main(conn, model_dir, threads, stage_threads):
+             pass
+ 
+     shm = None
++    res_shm = None
+     try:
+         stc = SafetensorsCollection(model_dir)
+         cpu = torch.device("cpu")
+         arena = _HugeArena()
++        resident = None
++        if resident_shm_name is not None:
++            # Bump allocator over the parent's shared region; the parent's per-layer budget
++            # rule guarantees it never needs a second chunk
++            res_shm = shared_memory.SharedMemory(name = resident_shm_name)
++            resident = _HugeArena()
++            resident.chunks = [res_shm.buf]
++            resident.cur = res_shm.buf
+ 
+         def fetch(keys):
+             out = []
+@@ -266,7 +295,23 @@ def _moe_cpu_child_main(conn, model_dir, threads, stage_threads):
+                 stc.end_deferred_load()
+                 # Copy into the hugepage-backed arena now that the deferred reads have actually
+                 # populated these tensors
+-                g, u, d = rehome_all(g), rehome_all(u), rehome_all(d)
++                if spec.get("resident_base") is not None:
++                    # Pack [gate|up|down] per expert contiguously at resident_base, the byte
++                    # layout the stager produces, so the parent DMAs an expert as one block
++                    assert resident is not None and resident.cur_off == spec["resident_base"], \
++                        "resident region allocation drifted from the parent's plan"
++                    def rehome_res(ts):
++                        return (resident.rehome(ts[0], band_swizzle = swz and ts[0].shape[2] // 16 != 8),
++                                arena.rehome(ts[1]), arena.rehome(ts[2]), arena.rehome(ts[3]))
++                    rg, ru, rd = [], [], []
++                    for e in range(len(u)):
++                        if g:
++                            rg.append(rehome_res(g[e]))
++                        ru.append(rehome_res(u[e]))
++                        rd.append(rehome_res(d[e]))
++                    g, u, d = rg, ru, rd
++                else:
++                    g, u, d = rehome_all(g), rehome_all(u), rehome_all(d)
+                 cext.exl3_moe_cpu_make_layer(
+                     [t[0] for t in g], [t[1] for t in g], [t[2] for t in g],
+                     [t[0] for t in u], [t[1] for t in u], [t[2] for t in u],
+@@ -326,7 +371,7 @@ def _moe_cpu_child_main(conn, model_dir, threads, stage_threads):
+                 layout["num_slots"], layout["slot_size"], layout["cap_rows"],
+                 layout["max_hi"], layout["max_ho"], layout["max_topk"],
+                 layout["wstage_off"], layout["num_wslots"], layout["wslot_size"],
+-                threads, stage_threads,
++                threads, stage_threads, layout["cache_off"], layout["cache_stride"],
+             ),
+             daemon = True,
+         )
+@@ -355,6 +400,12 @@ def _moe_cpu_child_main(conn, model_dir, threads, stage_threads):
+     finally:
+         if shm is not None:
+             shm.close()
++        if res_shm is not None:
++            # Tensor views over the region outlive this scope; the process is exiting anyway
++            try:
++                res_shm.close()
++            except BufferError:
++                pass
+ 
+ 
+ class MoeCpuHost:
+@@ -391,6 +442,16 @@ class MoeCpuHost:
+         self.stream_min_rows = TUNING.stream_min_rows
+         self.batch_experts = TUNING.batch_experts
+         self.wseq = 0
++        self.piece_seq = 0
++        self.ring_seq = 0
++        self.cache_slots = 0          # set in ensure_started; zero keeps shutdown's report quiet
++        self.cache_total_b = 0
++        self.verify_bad = None
++        self.prof = dict(host_s = 0.0, span_s = 0.0, last_t = None, dma_ev = [], dma_b = 0,
++                         pieces = 0, batches = 0, submits = 0, stall_ev = [], comp_ev = [],
++                         tail_s = 0.0)
++        self.piece_experts = TUNING.piece_experts
++        self.pieces = TUNING.pieces
+         self.next_wslot = 0
+         self.wslot_prev_seq = [0] * MOE_MAX_WSLOTS
+         self.aux = {}
+@@ -398,11 +459,17 @@ class MoeCpuHost:
+     def _spawn(self):
+         if self.proc is not None:
+             return
++        self.res_shm = None
++        self.res_bytes = TUNING.pin_resident_mb << 20
++        self.res_used = 0
++        if self.res_bytes:
++            self.res_shm = shared_memory.SharedMemory(create = True, size = self.res_bytes)
+         ctx = multiprocessing.get_context("spawn")
+         self.conn, child_conn = ctx.Pipe(duplex = True)
+         self.proc = ctx.Process(
+             target = _moe_cpu_child_main,
+-            args = (child_conn, self.model_dir, self.threads, self.stage_threads),
++            args = (child_conn, self.model_dir, self.threads, self.stage_threads,
++                    self.res_shm.name if self.res_shm is not None else None),
+             daemon = True,
+         )
+         self.proc.start()
+@@ -458,6 +525,13 @@ class MoeCpuHost:
+             ub, db = tb(proj_dims["u"]), tb(proj_dims["d"])
+             spec["proj_bytes"] = (gb, ub, db)
+             spec["expert_bytes"] = gb + ub + db
++        # Resident subset plan: whole layers in registration order while they fit
++        spec["resident_base"] = None
++        if self.res_bytes and spec.get("expert_bytes"):
++            need = spec["num_experts"] * spec["expert_bytes"]
++            if self.res_used + need <= self.res_bytes:
++                spec["resident_base"] = self.res_used
++                self.res_used += need
+         self.specs.append(spec)
+         self.live_layers += 1
+         idx = len(self.specs) - 1
+@@ -509,11 +583,28 @@ class MoeCpuHost:
+             max_hi = max_hi, max_ho = max_ho, max_topk = max_topk,
+         )
+ 
++        max_expert_bytes = max((sp.get("expert_bytes") or 0) for sp in self.specs)
++        if self.piece_experts < 0:
++            l3_bytes = detect_l3()
++            self.piece_experts = piece_geometry(
++                l3_bytes, max_expert_bytes, self.pieces,
++                min(self.batch_experts, self.wslot_size // max_expert_bytes))
++            print(f" -- auto piece ring: L3 domain {l3_bytes / 2**20:.1f} MiB, "
++                  f"{self.pieces} x {self.piece_experts} experts")
++        stage_count = self.pieces if self.piece_experts else self.num_wslots
++        stage_stride = self.piece_experts * max_expert_bytes if self.piece_experts else self.wslot_size
++        self.stage_bytes = stage_count * stage_stride
+         self.layout["wstage_off"] = MOE_CTRL_SIZE + self.num_slots * slot_size
+         self.layout["num_wslots"] = self.num_wslots
+         self.layout["wslot_size"] = self.wslot_size
+         self.layout["cpu_prof"] = TUNING.cpu_prof
+-        size = MOE_CTRL_SIZE + self.num_slots * slot_size + self.num_wslots * self.wslot_size
++        size = MOE_CTRL_SIZE + self.num_slots * slot_size + self.stage_bytes
++        self.cache_stride = _align64(max((s.get("expert_bytes") or 0) for s in self.specs))
++        self.cache_slots = ((TUNING.pin_cache_mb << 20) // self.cache_stride
++                            if TUNING.pin_cache_mb and self.cache_stride else 0)
++        self.layout["cache_off"] = size
++        self.layout["cache_stride"] = self.cache_stride
++        size += self.cache_slots * self.cache_stride
+         self.shm = shared_memory.SharedMemory(create = True, size = size)
+         buf = np.frombuffer(self.shm.buf, dtype = np.uint8)
+         buf[:MOE_CTRL_SIZE] = 0
+@@ -563,10 +654,10 @@ class MoeCpuHost:
+ 
+         # Weight-staging views, flags and streams for GPU-streamed prefill
+         self.wviews = []
+-        for s in range(self.num_wslots):
++        for s in range(stage_count):
+             self.wviews.append(torch.frombuffer(
+-                self.shm.buf, dtype = torch.int16, count = self.wslot_size // 2,
+-                offset = self.layout["wstage_off"] + s * self.wslot_size))
++                self.shm.buf, dtype = torch.int16, count = stage_stride // 2,
++                offset = self.layout["wstage_off"] + s * stage_stride))
+         # Wslot flag banks sit after data_ready/done/consumed (keep in sync with
+         # moe_handoff.h's layout comment and the watchdog unblock above)
+         fl = self.gpu_base_ptr + MOE_SLOT_FLAGS_OFFSET + 3 * 64 * MOE_MAX_SLOTS
+@@ -577,6 +668,33 @@ class MoeCpuHost:
+         self.v_stage_jobs = np.frombuffer(
+             self.shm.buf, dtype = np.uint32,
+             offset = MOE_STAGE_JOBS_OFFSET, count = MOE_STAGE_RING * (MOE_JOB_BYTES // 4)).reshape(MOE_STAGE_RING, MOE_JOB_BYTES // 4)
++        self.cache_view = torch.frombuffer(
++            self.shm.buf, dtype = torch.int16, count = self.cache_slots * self.cache_stride // 2,
++            offset = self.layout["cache_off"]) if self.cache_slots else None
++        self.cache_map = {}          # (layer, local expert) -> slot
++        self.cache_next = 0
++        if self.res_shm is not None and self.res_used:
++            # Resident subset: the region is the "cache", full from the start, slot stride is
++            # the (uniform) expert size; every resident layer's experts are permanent hits
++            buf = np.frombuffer(self.res_shm.buf, dtype = np.uint8)
++            cuda_host_register(buf.ctypes.data, self.res_bytes,
++                               flags = CUDA_HOST_REGISTER_PORTABLE | CUDA_HOST_REGISTER_MAPPED)
++            self.cache_stride = max(s["expert_bytes"] for s in self.specs if s.get("resident_base") is not None)
++            assert all(s["expert_bytes"] == self.cache_stride for s in self.specs if s.get("resident_base") is not None)
++            self.cache_slots = self.res_used // self.cache_stride
++            self.cache_next = self.cache_slots
++            self.cache_view = torch.frombuffer(self.res_shm.buf, dtype = torch.int16,
++                                               count = self.res_used // 2)
++            for li, sp in enumerate(self.specs):
++                if sp.get("resident_base") is not None:
++                    base = sp["resident_base"] // self.cache_stride
++                    for e in range(sp["num_experts"]):
++                        self.cache_map[(li, e)] = base + e
++            n_res = sum(1 for sp in self.specs if sp.get("resident_base") is not None)
++            print(f" -- resident subset: {n_res}/{len(self.specs)} layers, {self.res_used / 1e9:.1f} GB pinned")
++        self.cache_hit_b = 0
++        self.cache_total_b = 0
++        self.verify_bad = None       # GPU counters: [mismatching experts, checked experts]
+         # Per-device CUDA state for the streamed-prefill path (copy stream, VRAM ring, events)
+         self.sstate = {}
+ 
+@@ -621,6 +739,7 @@ class MoeCpuHost:
+                             u32[(done0 + s * 64) // 4] = seq
+                             u32[(cons0 + s * 64) // 4] = seq
+                         fl = MOE_SLOT_FLAGS_OFFSET + 3 * 64 * MOE_MAX_SLOTS
++                        wseq = max(wseq, self.piece_seq + 1)
+                         for s in range(MOE_MAX_WSLOTS):
+                             u32[(fl + s * 64) // 4] = wseq                          # stage_done
+                             u32[(fl + 64 * MOE_MAX_WSLOTS + s * 64) // 4] = wseq    # pinned_free
+@@ -897,7 +1016,7 @@ class MoeCpuHost:
+         # expert scales inversely with the link's bandwidth, so a chipset-attached x4 card needs
+         # a much hotter expert to justify the weight DMA than a CPU-direct x16 one. An explicit
+         # EXL3_MOE_STREAM_T overrides the scaling.
+-        probe = min(self.wslot_size, 16 << 20)
++        probe = min(self.wslot_size, self.wviews[0].numel() * 2, 16 << 20)
+         ev0, ev1 = torch.cuda.Event(enable_timing = True), torch.cuda.Event(enable_timing = True)
+         bw = 0.0
+         with torch.cuda.stream(st["copy_stream"]):
+@@ -907,20 +1026,23 @@ class MoeCpuHost:
+             # wall-clock budget, then take the best of several timed copies: streaming keeps
+             # the link awake, so the peak is the rate the break-even estimate should use
+             import time
+-            t0 = time.perf_counter()
+-            for _ in range(256):
+-                st["vram_slots"][0][:probe // 2].copy_(self.wviews[0][:probe // 2],
+-                                                       non_blocking = True)
+-                st["copy_stream"].synchronize()
+-                if time.perf_counter() - t0 > 0.25:
++            peaks = []
++            while True:
++                t0 = time.perf_counter()
++                while time.perf_counter() - t0 < 0.25:
++                    st["vram_slots"][0][:probe // 2].copy_(self.wviews[0][:probe // 2], non_blocking=True)
++                    st["copy_stream"].synchronize()
++                peak = 0.0
++                for _ in range(8):
++                    ev0.record(st["copy_stream"])
++                    st["vram_slots"][0][:probe // 2].copy_(self.wviews[0][:probe // 2], non_blocking=True)
++                    ev1.record(st["copy_stream"])
++                    ev1.synchronize()
++                    peak = max(peak, probe / (ev0.elapsed_time(ev1) * 1e-3) / 1e9)
++                peaks.append(peak)
++                if not probe_needs_retry(peaks):
+                     break
+-            for _ in range(8):
+-                ev0.record(st["copy_stream"])
+-                st["vram_slots"][0][:probe // 2].copy_(self.wviews[0][:probe // 2],
+-                                                       non_blocking = True)
+-                ev1.record(st["copy_stream"])
+-                ev1.synchronize()
+-                bw = max(bw, probe / (ev0.elapsed_time(ev1) * 1e-3) / 1e9)   # GB/s
++            bw = max(peaks)
+         st["bw"] = bw
+         if TUNING.stream_t_explicit:
+             st["stream_t"] = self.stream_t
+@@ -977,12 +1099,33 @@ class MoeCpuHost:
+         checkpoint tensors at `keys` (per-projection prefixes, gate first when gated). The
+         caller must have quiesced (full stream sync => job ring drained, worker idle) before
+         calling; blocks until the child acks the in-place arena copy."""
++        # Prototype fill cache: drop the entry (the slot is not reclaimed). Resident entries stay:
++        # the install rewrites the region in place
++        if self.specs[layer_idx].get("resident_base") is None:
++            self.cache_map.pop((layer_idx, local_idx), None)
+         self.conn.send(("install", layer_idx, local_idx, keys))
+         msg = self.conn.recv()
+         if msg[0] != "ok":
+             raise RuntimeError(f"CPU MoE worker expert install failed: {msg[1] if len(msg) > 1 else msg}")
+ 
+     def submit_prefill(self, layer_idx, y, selected_experts, routing_weights):
++        if not TUNING.stream_prof:
++            return self._submit_prefill(layer_idx, y, selected_experts, routing_weights)
++        import time
++        t0 = time.perf_counter()
++        pr = self.prof
++        if pr["last_t"] is not None and t0 - pr["last_t"] < 1.0:
++            pr["span_s"] += t0 - pr["last_t"]
++        try:
++            return self._submit_prefill(layer_idx, y, selected_experts, routing_weights)
++        finally:
++            t1 = time.perf_counter()
++            pr["host_s"] += t1 - t0
++            pr["span_s"] += t1 - t0
++            pr["last_t"] = t1
++            pr["submits"] += 1
++
++    def _submit_prefill(self, layer_idx, y, selected_experts, routing_weights):
+         """
+         Split the routed-expert workload by per-expert token count: hot experts (count >=
+         stream_t) have their weights staged by the worker, DMA'd through the pinned ring to a
+@@ -1016,6 +1159,11 @@ class MoeCpuHost:
+                 n_str = sum(counts_h[e] for e in streamed)
+                 print(f" -- stream L{layer_idx}: rows {rows}, streamed experts "
+                       f"{len(streamed)}/{E}, assignments {n_str}/{sum(counts_h)}")
++            if TUNING.stream_trace:
++                import time
++                with open(TUNING.stream_trace, "a") as tf:
++                    tf.write(f"{time.perf_counter():.4f} {layer_idx} {rows} {spec['expert_bytes']} "
++                             + " ".join(f"{e}:{counts_h[e]}" for e in streamed) + "\n")
+             if not streamed:
+                 return self.submit(layer_idx, y, selected_experts, routing_weights)
+             return self._submit_prefill_streamed(
+@@ -1091,6 +1239,29 @@ class MoeCpuHost:
+ 
+         for i0 in range(0, len(streamed), per_slot):
+             batch = streamed[i0:i0 + per_slot]
++            hits, fills = [], []
++            if self.cache_slots:
++                ring = []
++                for e in batch:
++                    slot = self.cache_map.get((layer_idx, e))
++                    if slot is not None:
++                        hits.append((e, slot))
++                    elif self.cache_next < self.cache_slots:
++                        slot = self.cache_next
++                        self.cache_next += 1
++                        self.cache_map[(layer_idx, e)] = slot
++                        fills.append((e, slot))
++                    else:
++                        ring.append(e)
++                hits.sort(key = lambda x: x[1])
++                batch = [e for e, _ in hits] + [e for e, _ in fills] + ring
++                self.cache_hit_b += len(hits) * exp_b
++                self.cache_total_b += len(batch) * exp_b
++            # Verify mode: cached experts are staged through the ring as well, into the slot
++            # region past the batch, and compared against the cache copy after the DMAs
++            dups = [e for e, _ in hits] + [e for e, _ in fills] if TUNING.pin_cache_verify else []
++            assert (len(batch) + len(dups)) * exp_b <= self.wslot_size, "verify mode needs a larger WSLOT_MB"
++            staged = batch[len(hits):] + dups
+             ws = self.next_wslot
+             self.next_wslot = (self.next_wslot + 1) % self.num_wslots
+             self.wseq += 1
+@@ -1099,31 +1270,102 @@ class MoeCpuHost:
+             # Stage job: its own ring, consumed by the worker's dedicated stager thread, so the
+             # weight memcpys overlap the compute pool's work on the tail
+             stail = int(self.v_stage_tail[0])
+-            while stail - int(self.v_stage_head[0]) >= MOE_STAGE_RING - 2:
++            while staged and stail - int(self.v_stage_head[0]) >= MOE_STAGE_RING - 2:
+                 import time
+                 if self.v_abort[0] or not self.proc.is_alive():
+                     raise RuntimeError("CPU MoE worker failed (stage ring stall)")
+                 time.sleep(0.0002)
+-            job = self.v_stage_jobs[stail % MOE_STAGE_RING]
+-            job[0] = seq
+-            job[1] = layer_idx
+-            job[2] = len(batch)
+-            job[3] = 0
+-            job[4] = ws
+-            job[5] = 1    # MOE_JOB_KIND_STAGE
+-            job[6] = self.wslot_prev_seq[ws]
+-            for bi, e in enumerate(batch):
+-                job[7 + bi] = e
+-            self.v_stage_tail[0] = stail + 1
++            pe = self.piece_experts
++            if staged:
++                job = self.v_stage_jobs[stail % MOE_STAGE_RING]
++                job[0] = seq
++                job[1] = layer_idx
++                job[2] = len(staged)
++                job[3] = pe
++                job[4] = ws
++                job[5] = 1    # MOE_JOB_KIND_STAGE
++                job[6] = self.pieces if pe else self.wslot_prev_seq[ws]
++                dest = 7 + MOE_JOB_MAX_EXPERTS // 2
++                for bi, e in enumerate(staged):
++                    job[7 + bi] = e
++                    job[dest + bi] = fills[bi][1] if bi < len(fills) else MOE_DEST_RING
++                self.v_stage_tail[0] = stail + 1
+             self.wslot_prev_seq[ws] = seq
+ 
+             used = (len(batch) * exp_b) // 2
++            pr = self.prof if TUNING.stream_prof else None
++            if pr is not None:
++                pr["batches"] += 1
+             with torch.cuda.stream(copy_stream):
+                 if st["wslot_used"][ws]:
+                     copy_stream.wait_event(st["wconsumed_ev"][ws])
+-                ext.exl3_moe_flag_wait(self.stage_done_addr[ws], seq, abort)
+-                st["vram_slots"][ws][:used].copy_(self.wviews[ws][:used], non_blocking = True)
+-                ext.exl3_moe_flag_write(self.pinned_free_addr[ws], seq)
++                if pe:
++                    piece_b = pe * exp_b
++                    pviews = st.get("pviews")
++                    if pviews is None or pviews[0].numel() * 2 != piece_b:
++                        assert 1 <= self.pieces <= MOE_MAX_WSLOTS and \
++                            self.pieces * piece_b <= self.stage_bytes, \
++                            "piece ring exceeds the pinned wstage region or MOE_MAX_WSLOTS"
++                        pviews = [torch.frombuffer(self.shm.buf, dtype = torch.int16, count = piece_b // 2,
++                                                   offset = self.layout["wstage_off"] + p * piece_b)
++                                  for p in range(self.pieces)]
++                        st["pviews"] = pviews
++                    # Cache hits: DMA straight from the pinned cache, no stager involvement.
++                    # Runs of consecutive slots coalesce into one copy when slot == expert stride
++                    cs = self.cache_stride // 2
++                    bi = 0
++                    while bi < len(hits):
++                        j = bi
++                        if self.cache_stride == exp_b:
++                            while j + 1 < len(hits) and hits[j + 1][1] == hits[j][1] + 1:
++                                j += 1
++                        s0, n = hits[bi][1], j - bi + 1
++                        st["vram_slots"][ws][(bi * exp_b) // 2 : ((bi + n) * exp_b) // 2].copy_(
++                            self.cache_view[s0 * cs : s0 * cs + (n * exp_b) // 2], non_blocking = True)
++                        bi = j + 1
++                    # Cache fills: the stager wrote the slot, one piece each, same counter
++                    for fi, (e, slot) in enumerate(fills):
++                        g = self.piece_seq
++                        self.piece_seq += 1
++                        bi = len(hits) + fi
++                        ext.exl3_moe_flag_wait(self.stage_done_addr[ws], g + 1, abort)
++                        st["vram_slots"][ws][(bi * exp_b) // 2 : ((bi + 1) * exp_b) // 2].copy_(
++                            self.cache_view[slot * cs : slot * cs + exp_b // 2], non_blocking = True)
++                    for k in range(len(hits) + len(fills), len(batch) + len(dups), pe):
++                        n = min(pe, len(batch) + len(dups) - k)
++                        g = self.piece_seq
++                        self.piece_seq += 1
++                        r = self.ring_seq
++                        self.ring_seq += 1
++                        p = r % self.pieces
++                        pv = pviews[p]
++                        ext.exl3_moe_flag_wait(self.stage_done_addr[ws], g + 1, abort)
++                        if pr is not None:
++                            e0 = torch.cuda.Event(enable_timing = True)
++                            e0.record(copy_stream)
++                        st["vram_slots"][ws][(k * exp_b) // 2 : (k * exp_b + n * exp_b) // 2].copy_(
++                            pv[:(n * exp_b) // 2], non_blocking = True)
++                        if pr is not None:
++                            e1 = torch.cuda.Event(enable_timing = True)
++                            e1.record(copy_stream)
++                            pr["dma_ev"].append((e0, e1))
++                            pr["dma_b"] += n * exp_b
++                            pr["pieces"] += 1
++                        ext.exl3_moe_flag_write(self.pinned_free_addr[p], r + 1)
++                    if dups:
++                        if self.verify_bad is None:
++                            self.verify_bad = torch.zeros(2, dtype = torch.long, device = y.device)
++                        v = st["vram_slots"][ws]
++                        nb = len(batch)
++                        for i in range(len(dups)):
++                            a = v[(i * exp_b) // 2 : ((i + 1) * exp_b) // 2]
++                            b = v[((nb + i) * exp_b) // 2 : ((nb + i + 1) * exp_b) // 2]
++                            self.verify_bad[0] += (a != b).any().long()
++                        self.verify_bad[1] += len(dups)
++                else:
++                    ext.exl3_moe_flag_wait(self.stage_done_addr[ws], seq, abort)
++                    st["vram_slots"][ws][:used].copy_(self.wviews[ws][:used], non_blocking = True)
++                    ext.exl3_moe_flag_write(self.pinned_free_addr[ws], seq)
+                 if st["swz"]:
+                     # Restore the native tile order on the copy stream, one launch per projection
+                     # over the whole batch (K8 matrices were never swizzled: plain copy)
+@@ -1138,7 +1380,14 @@ class MoeCpuHost:
+             st["wslot_used"][ws] = True
+ 
+             # Compute the batch on the current stream once the DMA lands
++            if pr is not None:
++                c0 = torch.cuda.Event(enable_timing = True)
++                c0.record(torch.cuda.current_stream())
+             torch.cuda.current_stream().wait_event(st["wready_ev"][ws])
++            if pr is not None:
++                c1 = torch.cuda.Event(enable_timing = True)
++                c1.record(torch.cuda.current_stream())
++                pr["stall_ev"].append((c0, c1))
+             vslot = st["native_slots"][ws] if st["swz"] else st["vram_slots"][ws]
+             per_e = [(bi, e, token_sorted[offs[e] : offs[e] + counts_h[e]],
+                       weight_sorted[offs[e] : offs[e] + counts_h[e]])
+@@ -1218,10 +1467,19 @@ class MoeCpuHost:
+                                      st["w_scratch"])
+                 out.index_add_(0, idx, dy[:, :h].float() * we)
+             st["wconsumed_ev"][ws].record(torch.cuda.current_stream())
++            if pr is not None:
++                c2 = torch.cuda.Event(enable_timing = True)
++                c2.record(torch.cuda.current_stream())
++                pr["comp_ev"].append((c1, c2))
+ 
+         # Collect the CPU tail (by now usually complete) and merge
+         if tail_jobs:
++            if pr is not None:
++                import time
++                t0 = time.perf_counter()
+             self._collect_compute(tail_jobs, out_t, rtmp, h)
++            if pr is not None:
++                pr["tail_s"] += time.perf_counter() - t0
+             out.index_add_(0, tidx, out_t)
+         return out
+ 
+@@ -1238,6 +1496,31 @@ class MoeCpuHost:
+             self.shutdown()
+ 
+     def shutdown(self):
++        pr = self.prof
++        if TUNING.stream_prof and pr["pieces"]:
++            torch.cuda.synchronize()
++            dma_s = sum(a.elapsed_time(b) for a, b in pr["dma_ev"]) * 1e-3
++            stall_s = sum(a.elapsed_time(b) for a, b in pr["stall_ev"]) * 1e-3
++            comp_s = sum(a.elapsed_time(b) for a, b in pr["comp_ev"]) * 1e-3
++            bws = ", ".join(f"cuda:{k} {v['bw']:.1f} GB/s stream_t {v['stream_t']}" for k, v in self.sstate.items())
++            print(f" -- stream prof: compute stream stalled on wready {stall_s:.2f} s, "
++                  f"streamed-expert compute {comp_s:.2f} s, host blocked on tail collect "
++                  f"{pr['tail_s']:.2f} s; probe {bws}")
++            print(f" -- stream prof: {pr['submits']} submits, {pr['batches']} batches, "
++                  f"{pr['pieces']} ring pieces, {pr['dma_b'] / 1e9:.1f} GB via ring; "
++                  f"DMA active {dma_s:.2f} s ({pr['dma_b'] / max(dma_s, 1e-9) / 1e9:.1f} GB/s while active), "
++                  f"host in submit {pr['host_s']:.2f} s, submit span {pr['span_s']:.2f} s "
++                  f"(DMA duty {100 * dma_s / max(pr['span_s'], 1e-9):.0f}%, host busy "
++                  f"{100 * pr['host_s'] / max(pr['span_s'], 1e-9):.0f}%)")
++        if self.verify_bad is not None:
++            torch.cuda.synchronize()
++            bad, checked = self.verify_bad.tolist()
++            print(f" -- pin cache verify: {bad} mismatching experts of {checked} checked "
++                  f"({'OK' if bad == 0 else 'CORRUPT'})")
++        if self.cache_slots and self.cache_total_b:
++            print(f" -- pin cache: {self.cache_slots} slots x {self.cache_stride / 2**20:.2f} MB, "
++                  f"{self.cache_next} filled, hits {self.cache_hit_b / 1e9:.1f} GB of "
++                  f"{self.cache_total_b / 1e9:.1f} GB streamed ({100 * self.cache_hit_b / self.cache_total_b:.1f}%)")
+         if self.proc is not None:
+             try:
+                 if self.started and self.shm is not None:
+@@ -1249,6 +1532,15 @@ class MoeCpuHost:
+                 elif self.conn is not None:
+                     self.conn.send(("quit",))
+                 self.proc.join(timeout = 5)
++                res = getattr(self, "res_shm", None)
++                if res is not None:
++                    # The torch views over the region are still alive; close is best-effort
++                    try:
++                        res.close()
++                    except BufferError:
++                        pass
++                    res.unlink()
++                    self.res_shm = None
+                 if self.proc.is_alive():
+                     self.proc.terminate()
+                     self.proc.join(timeout = 2)
+diff --git a/exllamav3/modules/gated_delta_net.py b/exllamav3/modules/gated_delta_net.py
+index b87ef4d..41f8676 100644
+--- a/exllamav3/modules/gated_delta_net.py
++++ b/exllamav3/modules/gated_delta_net.py
+@@ -63,6 +63,8 @@ def mp_cache_recurrent_rewind(local_context: dict, cache_id: int, slot: int, las
+ 
+ 
+ class GDNState:
++    # Forward state is independent per layer; global position advances at the API boundary.
++    supports_layer_major = True
+ 
+     def __init__(
+         self,
+diff --git a/exllamav3/modules/short_conv.py b/exllamav3/modules/short_conv.py
+index 26c30f3..bad24f8 100644
+--- a/exllamav3/modules/short_conv.py
++++ b/exllamav3/modules/short_conv.py
+@@ -24,6 +24,7 @@ def mp_cache_short_conv_recurrent_rewind(local_context: dict, cache_id: int, slo
+ 
+ 
+ class ShortConvState:
++    supports_layer_major = True
+ 
+     def __init__(
+         self,
+diff --git a/exllamav3/modules/transformer.py b/exllamav3/modules/transformer.py
+index 4ae7014..00f006b 100644
+--- a/exllamav3/modules/transformer.py
++++ b/exllamav3/modules/transformer.py
+@@ -7,6 +7,23 @@ from . import Module, RMSNorm, LayerNorm, Attention, GatedDeltaNet, GatedMLP, ML
+ from .hyperconnections import HyperConnection
+ from ..util import profile_opt
+ 
++
++def join_chunk_views(chunks):
++    """Rejoin ordered adjacent views without copying their retained activations."""
++    first = chunks[0]
++    offset = first.storage_offset()
++    storage = first.untyped_storage().data_ptr()
++    for chunk in chunks:
++        if (chunk.device != first.device or chunk.dtype != first.dtype
++                or chunk.shape[0] != first.shape[0] or chunk.shape[2:] != first.shape[2:]
++                or chunk.stride() != first.stride() or chunk.storage_offset() != offset
++                or chunk.untyped_storage().data_ptr() != storage):
++            return torch.cat(chunks, dim=1)
++        offset += chunk.shape[1] * first.stride(1)
++    shape = (first.shape[0], sum(chunk.shape[1] for chunk in chunks), *first.shape[2:])
++    return first.as_strided(shape, first.stride())
++
++
+ class TransformerBlock(Module):
+ 
+     def __init__(
+@@ -141,11 +158,16 @@ class TransformerBlock(Module):
+         out_dtype: torch.dtype | None = None
+     ) -> torch.Tensor:
+ 
++        x, y_resid, skip_mlp = self._forward_attention(x, params)
++        if skip_mlp:
++            return x
++        return self._forward_mlp(x, params, y_resid, out_dtype)
++
++    def _forward_attention(self, x, params):
+         export_state = params.get("export_state_layers")
+         export_state = export_state and self.layer_idx in export_state and params.get("layer_instance", 0) == 0
+ 
+-        y_resid = None  # pending attn output whose residual add is folded into the MLP input norm
+-
++        y_resid = None
+         if self.attn:
+             if self.attn_hc:
+                 hc_post, hc_comb, y = self.attn_hc.mix(x, params)
+@@ -158,7 +180,7 @@ class TransformerBlock(Module):
+                 y = x.half()
+             y = self.attn.forward(y, params)
+             if params.get("prefill") and not export_state:
+-                return x
++                return x, None, True
+             if self.attn_resid_scalar is not None:
+                 y *= self.attn_resid_scalar
+             if self.attn_hc:
+@@ -170,25 +192,41 @@ class TransformerBlock(Module):
+             else:
+                 x += y
+ 
++        return x, y_resid, False
++
++    def _forward_mlp(self, x, params, y_resid, out_dtype=None):
++        y = hc = None
+         if self.mlp:
+-            if self.mlp_hc:
+-                hc_post, hc_comb, y = self.mlp_hc.mix(x, params)
+-                y = y.half()
+-                if self.mlp_norm:
+-                    y = self.mlp_norm.forward(y, params, out_dtype = torch.half)
+-            else:
+-                params["residual"] = x
+-                if y_resid is not None:
+-                    y = self.mlp_norm.forward(y_resid, params, out_dtype = torch.half, residual_in = x)
+-                elif self.mlp_norm:
+-                    y = self.mlp_norm.forward(x, params, out_dtype = torch.half)
+-                else:
+-                    y = x.half()
++            y, hc = self._prepare_mlp(x, params, y_resid)
+             y = self.mlp.forward(y, params)
++        return self._finish_mlp(x, y, params, hc, out_dtype)
++
++    def _prepare_mlp(self, x, params, y_resid):
++        hc = None
++        if self.mlp_hc:
++            post, comb, y = self.mlp_hc.mix(x, params)
++            hc = (post, comb)
++            y = y.half()
++            if self.mlp_norm:
++                y = self.mlp_norm.forward(y, params, out_dtype=torch.half)
++        else:
++            params["residual"] = x
++            if y_resid is not None:
++                y = self.mlp_norm.forward(y_resid, params, out_dtype=torch.half, residual_in=x)
++            elif self.mlp_norm:
++                y = self.mlp_norm.forward(x, params, out_dtype=torch.half)
++            else:
++                y = x.half()
++        return y, hc
++
++    def _finish_mlp(self, x, y, params, hc, out_dtype=None):
++        export_state = params.get("export_state_layers")
++        export_state = export_state and self.layer_idx in export_state and params.get("layer_instance", 0) == 0
++        if self.mlp:
+             if self.mlp_resid_scalar is not None:
+                 y *= self.mlp_resid_scalar
+             if self.mlp_hc:
+-                x = self.mlp_hc.apply_(x, y, hc_post, hc_comb, params)
++                x = self.mlp_hc.apply_(x, y, *hc, params)
+             elif self.mlp_post_norm:
+                 self.mlp_post_norm.forward(y, params, residual = x)
+             else:
+@@ -214,6 +252,62 @@ class TransformerBlock(Module):
+         return to2(x, out_dtype, self.out_dtype)
+ 
+ 
++    def forward_chunked(self, chunks, chunk_params):
++        """Keep causal attention chunked, then share MLP expert work across those chunks."""
++        if not chunks or len(chunks) != len(chunk_params):
++            raise ValueError("chunk tensors and params must be nonempty and aligned")
++        if len({bool(p.get("prefill")) for p in chunk_params}) != 1:
++            raise ValueError("all chunks must agree on terminal-prefill behavior")
++        lengths = [x.shape[1] for x in chunks]
++        # Consume the owned list: obsolete per-chunk allocations must not survive
++        # alongside the combined MLP workspace. Adjacent views already share storage.
++        x = join_chunk_views(chunks)
++        chunks[:] = x.split(lengths, dim=1)
++        output = residual = None
++        offset = 0
++        eligibility = None
++        for index, p in enumerate(chunk_params):
++            value, r, skip = self._forward_attention(chunks[index], p)
++            if index == 0:
++                eligibility = skip
++                output = x if value.dtype == x.dtype and value.shape[2:] == x.shape[2:] else torch.empty(
++                    (value.shape[0], sum(lengths), *value.shape[2:]), device=value.device, dtype=value.dtype)
++                if r is not None:
++                    residual = torch.empty((r.shape[0], sum(lengths), *r.shape[2:]), device=r.device, dtype=r.dtype)
++            if skip != eligibility or (r is None) != (residual is None):
++                raise ValueError("mixed MLP eligibility or residual fusion within a chunk group")
++            output[:, offset:offset + lengths[index]].copy_(value)
++            if r is not None:
++                # Attention may reuse its output workspace on the following chunk.
++                residual[:, offset:offset + lengths[index]].copy_(r)
++            offset += lengths[index]
++            del value, r
++        chunks.clear()
++        x = output
++        if eligibility:
++            return list(x.split(lengths, dim=1))
++        if not self.mlp:
++            return [self._finish_mlp(c, None, p, None) for c, p in zip(x.split(lengths, dim=1), chunk_params)]
++        inputs, contexts = [], []
++        offset = 0
++        for length, p in zip(lengths, chunk_params):
++            r = residual[:, offset:offset + length] if residual is not None else None
++            y, hc = self._prepare_mlp(x[:, offset:offset + length], p, r)
++            # A normalization implementation may return shared scratch storage.
++            inputs.append(y.clone())
++            contexts.append(tuple(t.clone() if t is not None else None for t in hc) if hc else None)
++            offset += length
++        y = torch.cat(inputs, dim=1)
++        del inputs, residual, r
++        combined = dict(chunk_params[0])
++        combined.pop("dev_cache", None)
++        combined["residual"] = x
++        if all("input_ids" in p for p in chunk_params):
++            combined["input_ids"] = torch.cat([p["input_ids"] for p in chunk_params], dim=1)
++        y = self.mlp.forward(y, combined)
++        return [self._finish_mlp(c, v, p, hc) for c, v, p, hc in zip(
++            x.split(lengths, dim=1), y.split(lengths, dim=1), chunk_params, contexts)]
++
+     def get_name(self):
+         name = super().get_name()
+         if not self.attn and not self.mlp:
+diff --git a/docs/grouped-prefill.md b/docs/grouped-prefill.md
+new file mode 100644
+--- /dev/null
++++ b/docs/grouped-prefill.md
+@@ -0,0 +1,50 @@
++# Grouped MLP prefill prototype
++
++`Model.prefill_chunked(input_ids, params, chunk_size)` shares MLP expert work across
++several supplied chunks. Each layer runs attention in causal chunk order, combines
++the normalized MLP inputs, computes the MLP once, then completes each chunk's
++residual update. Attention, normalization and residual mixing retain `chunk_size`.
++This gives streamed experts actual reuse within a layer and reduces weight transfers.
++
++The API accepts one local, rectangular, causal text prompt with a KV cache:
++
++```python
++model.prefill_chunked(input_ids, {
++    "attn_mode": "flash_attn",
++    "cache": cache,
++    "past_len": past_len,
++    "batch_shape": (1, cache_capacity),
++    "recurrent_states": recurrent_states,
++}, chunk_size=attention_chunk_size)
++```
++
++The caller must supply the future tokens being grouped. No predictions, stored
++expert profiles, model names, device names or pinned resident weight cache are used.
++Recurrent state types must explicitly support layer-major execution. Gated delta
++and short-convolution states do; states that depend on global position during
++individual layer execution are rejected. TP, paged batches, multimodal input,
++noncausal attention, recurrent history and state export are outside this prototype.
++The existing paged generator has not been migrated to this entrypoint.
++
++Group admission starts with a real physical chunk and records its workspace and
++activation geometry. Later calls use live free VRAM plus reusable allocator blocks,
++capped by physical device capacity. Additional group storage is estimated from the
++loaded MLP's tensor dimensions; attention/normalization workspace stays bounded.
++A prior allocator peak can make admission conservative. Estimates have been tested
++on the recorded workload, not exhaustively across every supported architecture.
++`auto_group=False` bypasses admission for explicit diagnostic groups.
++
++The performance CLI exposes `--grouped_prefill`. It preserves the ordinary workload's
++individual token slices, attention chunk limit, incremental length accounting and
++timing boundaries, including concatenation and admission overhead. Grouping increases
++the scheduler's prefill quantum and retains more activations; it does not increase
++the pinned expert weight budget.
++
++The accompanying piece-ring change sizes the pinned ring from detected per-domain
++L3 capacity and expert byte geometry. The bandwidth probe now completes its warmup
++window and retries until peak readings converge or its bounded retry budget ends.
++
++Validation and measurements are recorded in the enclosing investigation's
++`docs/analysis/2026-09-07-online-prefetch-worklog.md`. Numerical comparisons use repeated
++controls: greedy decoding can diverge at close token decisions even between controls,
++so fixed-continuation logits are also compared.
+diff --git a/exllamav3/model/moe_staging.py b/exllamav3/model/moe_staging.py
+new file mode 100644
+--- /dev/null
++++ b/exllamav3/model/moe_staging.py
+@@ -0,0 +1,85 @@
++"""Validated cache topology and bounded staging/probe policies."""
++
++import ctypes
++import os
++from pathlib import Path
++import re
++import struct
++import sys
++
++
++def parse_windows_l3(records):
++    sizes = []
++    offset = 0
++    while offset < len(records):
++        if len(records) - offset < 20:
++            raise ValueError("truncated Windows cache topology")
++        relationship, length, level, _, _, size, cache_type = struct.unpack_from('<IIBBHII', records, offset)
++        if relationship != 2 or length < 20 or offset + length > len(records):
++            raise ValueError("invalid Windows cache relationship")
++        if level == 3 and cache_type in (0, 2):
++            if size == 0:
++                raise ValueError("empty L3 cache")
++            sizes.append(size)
++        offset += length
++    if not sizes:
++        raise ValueError("no L3 cache reported")
++    return min(sizes)
++
++
++def linux_l3(root, cpus):
++    sizes = []
++    for cpu in cpus:
++        found = False
++        for entry in (Path(root) / f'cpu{cpu}' / 'cache').glob('index*'):
++            if (entry / 'level').read_text().strip() != '3':
++                continue
++            if (entry / 'type').read_text().strip() not in ('Unified', 'Data'):
++                continue
++            raw = (entry / 'size').read_text().strip()
++            match = re.fullmatch(r'([1-9][0-9]*)([KMG]?)', raw)
++            if match is None:
++                raise ValueError(f"invalid cache size: {raw!r}")
++            sizes.append(int(match[1]) * 1024 ** ('', 'K', 'M', 'G').index(match[2]))
++            found = True
++        if not found:
++            raise ValueError(f"no L3 cache reported for CPU {cpu}")
++    if not sizes:
++        raise ValueError("no CPUs available for cache detection")
++    return min(sizes)
++
++
++def detect_l3():
++    if sys.platform == 'win32':
++        api = ctypes.WinDLL('kernel32', use_last_error=True).GetLogicalProcessorInformationEx
++        api.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
++        api.restype = ctypes.c_int
++        length = ctypes.c_ulong()
++        api(2, None, ctypes.byref(length))
++        if ctypes.get_last_error() != 122 or length.value == 0:
++            raise ctypes.WinError(ctypes.get_last_error())
++        records = ctypes.create_string_buffer(length.value)
++        if not api(2, records, ctypes.byref(length)):
++            raise ctypes.WinError(ctypes.get_last_error())
++        return parse_windows_l3(records.raw[:length.value])
++    if sys.platform == 'linux':
++        return linux_l3('/sys/devices/system/cpu', os.sched_getaffinity(0))
++    raise RuntimeError(f"L3 detection unsupported on {sys.platform}; set an explicit piece size")
++
++
++def piece_geometry(cache_bytes, expert_bytes, depth, batch_capacity):
++    if min(cache_bytes, expert_bytes, depth, batch_capacity) <= 0:
++        raise ValueError("cache, expert, depth and batch capacity must be positive")
++    # Retain the ring plus one source piece in the shared cache domain.
++    experts = min(batch_capacity, cache_bytes // ((depth + 1) * expert_bytes))
++    if experts == 0:
++        raise ValueError("L3 cannot hold the ring and one source expert; set an explicit piece size")
++    return experts
++
++
++def probe_needs_retry(samples):
++    if not samples or any(not 0 < x < float('inf') for x in samples):
++        raise ValueError("bandwidth samples must be finite and positive")
++    if len(samples) >= 3:
++        return False
++    return len(samples) < 2 or max(samples[-2:]) > 1.1 * min(samples[-2:])
+diff --git a/exllamav3/model/prefill_budget.py b/exllamav3/model/prefill_budget.py
+new file mode 100644
+--- /dev/null
++++ b/exllamav3/model/prefill_budget.py
+@@ -0,0 +1,43 @@
++def group_capacity(requested, total, free, reserved, idle, peak, activation, *, growth=None):
++    """Bound grouping by live VRAM and an observed single-chunk workspace.
++
++    All sizes are bytes. Cached allocator blocks are reusable, but WDDM may reserve
++    beyond physical capacity. Each additional chunk pays a full observed workspace
++    plus its retained activation; no device or model-specific constants are used.
++    """
++    if requested < 1 or min(total, free, reserved, idle, peak, activation) < 0:
++        raise ValueError("invalid prefill memory observation")
++    workspace = peak - idle
++    if workspace <= 0 or activation == 0:
++        return 1
++    available = min(total, free + reserved)
++    extra = max(0, available - peak)
++    per_chunk = workspace + activation if growth is None else growth
++    if per_chunk <= 0:
++        raise ValueError("invalid grouped workspace growth")
++    return min(requested, 1 + extra // per_chunk)
++
++
++def mlp_row_growth(activation, mlp):
++    """Conservative row-dependent storage for the engine's dense/MoE MLP paths.
++
++    Attention and normalization stay at physical chunk size. Count two residual
++    groups, normalized/gathered half inputs, float output/partial sums, gate/up and
++    converted intermediate arrays, full routing matrices and sorted assignments.
++    Fixed reconstruction and fused-expert buffers are covered by the observed peak.
++    """
++    hidden = getattr(mlp, "hidden_size", None)
++    intermediate = getattr(mlp, "intermediate_size_padded", getattr(mlp, "intermediate_size", None))
++    if hidden is None or intermediate is None:
++        return None
++    dtype = getattr(mlp, "interm_dtype", None)
++    itemsize = max(2, dtype.itemsize if dtype is not None else 2)
++    shared = getattr(mlp, "shared_experts", None)
++    if shared is not None:
++        intermediate += shared.intermediate_size
++        shared_dtype = getattr(shared, "interm_dtype", None)
++        itemsize = max(itemsize, shared_dtype.itemsize if shared_dtype is not None else 2)
++    experts = getattr(mlp, "num_experts", 0)
++    topk = getattr(mlp, "num_experts_per_tok", 0)
++    return (2 * activation + hidden * (6 * 2 + 4 * 4)
++            + 4 * intermediate * itemsize + 8 * experts * 4 + 8 * topk * 8)
+diff --git a/tests/test_chunked_prefill.py b/tests/test_chunked_prefill.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_chunked_prefill.py
+@@ -0,0 +1,267 @@
++import torch
++import pytest
++from types import SimpleNamespace
++
++from exllamav3.modules import Module, TransformerBlock
++from exllamav3.model.model import Model
++from exllamav3.modules.attn import prepare_for_attn
++
++
++class AccumulatingAttention(Module):
++    def __init__(self):
++        super().__init__(None, 'test_attention', None)
++        self.total = None
++        self.lengths = []
++        self.positions = []
++        self.markers = []
++
++    def optimizer_targets(self):
++        return []
++
++    def forward(self, x, params, out_dtype=None):
++        self.lengths.append(x.shape[1])
++        self.positions.append(params.get('past_len', 0))
++        self.markers.append(params.get('prepared_marker'))
++        result = x.cumsum(dim=1)
++        if self.total is not None:
++            result += self.total
++        self.total = result[:, -1:].clone()
++        return result
++
++
++class QuadraticMLP(Module):
++    def __init__(self):
++        super().__init__(None, 'test_mlp', None)
++        self.num_slices = 1
++        self.lengths = []
++
++    def optimizer_targets(self):
++        return []
++
++    def forward(self, x, params, out_dtype=None):
++        self.lengths.append(x.shape[1])
++        return x.square() / 100
++
++
++def blocks():
++    return [TransformerBlock(None, f'block{i}', i, attn=AccumulatingAttention(), mlp=QuadraticMLP())
++            for i in range(2)]
++
++
++def test_layer_major_preserves_causality_and_reuses_mlp_across_uneven_chunks():
++    original = torch.arange(20, dtype=torch.float32).view(1, 5, 4) / 32
++    baseline, grouped = blocks(), blocks()
++    expected = []
++    for chunk in original.split(3, dim=1):
++        x = chunk.clone()
++        for block in baseline:
++            x = block.forward(x, {})
++        expected.append(x)
++    actual = [chunk.clone() for chunk in original.split(3, dim=1)]
++    for block in grouped:
++        actual = block.forward_chunked(actual, [{}, {}])
++    assert torch.equal(torch.cat(actual, dim=1), torch.cat(expected, dim=1))
++    for ref, candidate in zip(baseline, grouped):
++        assert torch.equal(ref.attn.total, candidate.attn.total)
++        assert candidate.attn.lengths == [3, 2]
++        assert candidate.mlp.lengths == [5]
++
++
++def test_chunked_terminal_prefill_updates_attention_without_mlp():
++    block = blocks()[0]
++    chunks = [torch.ones(1, 3, 4), torch.ones(1, 2, 4)]
++    result = block.forward_chunked(chunks, [{'prefill': True}, {'prefill': True}])
++    assert block.attn.lengths == [3, 2]
++    assert block.mlp.lengths == []
++    assert len(result) == 2
++
++
++class TinyModel(Model):
++    def __init__(self):
++        super().__init__(SimpleNamespace(moe_cpu_hosts={}))
++        self.modules = blocks()
++        for block in self.modules:
++            block.device = torch.device('cpu')
++        self.fwd_modules = [(block, 0, i) for i, block in enumerate(self.modules)]
++        self.last_kv_module_idx_instance = (1, 0)
++        self.loaded_tp = False
++
++    def prepare_inputs(self, input_ids, params):
++        prepare_for_attn(input_ids, params)
++        return input_ids.float().unsqueeze(-1) / 32
++
++
++def test_grouped_api_keeps_chunk_positions_and_terminal_state():
++    baseline, grouped = TinyModel(), TinyModel()
++    ids = torch.arange(5).view(1, 5)
++    params = dict(attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256),
++                  batch_shape=(1, 256), past_len=0)
++    for offset in (0, 3):
++        baseline.prefill(ids[:, offset:offset + 3], dict(params, past_len=offset))
++    grouped.prefill_chunked(ids, dict(params), chunk_size=3)
++    for ref, candidate in zip(baseline.modules, grouped.modules):
++        assert torch.equal(ref.attn.total, candidate.attn.total)
++        assert candidate.attn.positions == [0, 3]
++        assert candidate.attn.lengths == [3, 2]
++    assert grouped.modules[0].mlp.lengths == [5]
++    assert grouped.modules[1].mlp.lengths == []
++
++
++def test_grouped_api_rejects_invalid_chunk_size_before_mutating_state():
++    model = TinyModel()
++    with pytest.raises(ValueError):
++        model.prefill_chunked(torch.ones(1, 3, dtype=torch.long), {}, chunk_size=0)
++    assert model.modules[0].attn.lengths == []
++
++
++def test_grouped_api_rejects_state_with_global_position_dependencies():
++    model = TinyModel()
++    params = dict(attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256),
++                  batch_shape=(1, 256), past_len=0,
++                  recurrent_states=[SimpleNamespace(position=0)])
++    with pytest.raises(ValueError, match='recurrent'):
++        model.prefill_chunked(torch.ones(1, 3, dtype=torch.long), params, chunk_size=2)
++    assert model.modules[0].attn.lengths == []
++
++
++def test_adjacent_chunk_views_rejoin_without_duplicate_activation_storage():
++    from exllamav3.modules.transformer import join_chunk_views
++    whole = torch.arange(20).view(1, 5, 4)
++    joined = join_chunk_views(list(whole.split(3, dim=1)))
++    assert torch.equal(joined, whole)
++    assert joined.data_ptr() == whole.data_ptr()
++    reordered = join_chunk_views([whole[:, 3:], whole[:, :3]])
++    assert reordered.flatten().tolist() == list(range(12, 20)) + list(range(12))
++
++
++class PreparingModel(TinyModel):
++    def prepare_inputs(self, ids, params):
++        params['prepared_marker'] = 'kept'
++        return super().prepare_inputs(ids, params)
++
++
++class NonCausalModel(TinyModel):
++    def prepare_inputs(self, ids, params):
++        params['causal'] = False
++        return super().prepare_inputs(ids, params)
++
++
++def test_grouped_api_preserves_architecture_preparation():
++    model = PreparingModel()
++    model.prefill_chunked(torch.ones(1, 5, dtype=torch.long), dict(
++        attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256), batch_shape=(1, 256)), 3)
++    assert model.modules[0].attn.markers == ['kept', 'kept']
++
++
++def test_grouped_api_rejects_noncausal_preparation():
++    model = NonCausalModel()
++    with pytest.raises(ValueError, match='causal'):
++        model.prefill_chunked(torch.ones(1, 5, dtype=torch.long), dict(
++            attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256), batch_shape=(1, 256)), 3)
++    assert model.modules[0].attn.lengths == []
++
++
++def test_grouped_api_rejects_cache_overrun_before_attention():
++    model = TinyModel()
++    with pytest.raises(ValueError, match='cache'):
++        model.prefill_chunked(torch.ones(1, 5, dtype=torch.long), dict(
++            attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256),
++            batch_shape=(1, 256), past_len=254), 3)
++    assert model.modules[0].attn.lengths == []
++
++
++class LifetimeMLP(QuadraticMLP):
++    def __init__(self, refs):
++        super().__init__()
++        self.refs = refs
++
++    def forward(self, x, params, out_dtype=None):
++        assert all(ref() is None for ref in self.refs), 'obsolete chunk allocations survive into grouped MLP'
++        return super().forward(x, params, out_dtype)
++
++
++def test_grouped_block_releases_obsolete_chunk_allocations_before_mlp():
++    import weakref
++    chunks = [torch.ones(1, 3, 4), torch.ones(1, 2, 4)]
++    refs = [weakref.ref(chunk) for chunk in chunks]
++    block = TransformerBlock(None, 'lifetime', 0, attn=AccumulatingAttention(), mlp=LifetimeMLP(refs))
++    result = block.forward_chunked(chunks, [{}, {}])
++    assert [x.shape[1] for x in result] == [3, 2]
++
++
++class ChunkNorm(Module):
++    def __init__(self):
++        super().__init__(None, 'norm', None)
++        self.lengths = []
++
++    def optimizer_targets(self):
++        return []
++
++    def can_fuse_residual(self, x, y):
++        return False
++
++    def forward(self, x, params, out_dtype=None):
++        self.lengths.append(x.shape[1])
++        return (x / 2).to(out_dtype or x.dtype)
++
++
++def test_only_mlp_rows_are_grouped_while_normalization_stays_chunked():
++    block = blocks()[0]
++    block.mlp_norm = ChunkNorm()
++    block.forward_chunked([torch.ones(1, 3, 4), torch.ones(1, 2, 4)], [{}, {}])
++    assert block.mlp_norm.lengths == [3, 2]
++    assert block.mlp.lengths == [5]
++
++
++def test_rectangular_cache_lengths_cannot_silently_override_missing_position():
++    model = TinyModel()
++    with pytest.raises(ValueError, match='past_len'):
++        model.prefill_chunked(torch.ones(1, 5, dtype=torch.long), dict(
++            attn_mode='flash_attn', cache=SimpleNamespace(max_num_tokens=256),
++            batch_shape=(1, 256), cache_seqlens=torch.tensor([32])), 3)
++    assert model.modules[0].attn.lengths == []
++
++
++def test_admission_discovers_cuda_modules_when_loader_active_devices_is_empty():
++    model = TinyModel()
++    model.modules[0].device = torch.device('cuda:0')
++    assert model.active_devices == []
++    assert model._prefill_devices() == [0]
++
++
++def test_single_batch_hyperconnection_chunk_views_remain_contiguous():
++    from exllamav3.modules.transformer import join_chunk_views
++    chunks = list(torch.ones(1, 5, 4, 8).split(3, dim=1))
++    whole = join_chunk_views(chunks)
++    for chunk in whole.split(3, dim=1):
++        assert chunk.is_contiguous()
++        assert chunk.view(-1, 4, 8).shape[0] == chunk.shape[1]
++
++
++def test_admission_resolves_implicit_cuda_device_index(monkeypatch):
++    model = TinyModel()
++    model.modules[0].device = torch.device('cuda')
++    monkeypatch.setattr(torch.cuda, 'current_device', lambda: 2)
++    assert model._prefill_devices() == [2]
++
++
++@pytest.mark.parametrize('chunk_size', [True, 1.5])
++def test_grouped_api_rejects_noninteger_chunk_sizes_before_preparation(chunk_size):
++    model = TinyModel()
++    with pytest.raises(ValueError, match='chunk size'):
++        model.prefill_chunked(torch.ones(1, 3, dtype=torch.long), {}, chunk_size)
++    assert model.modules[0].attn.lengths == []
++
++
++@pytest.mark.parametrize('device', ['cuda:0', 0])
++def test_admission_accepts_loader_device_representations(device):
++    model = TinyModel()
++    model.modules[0].device = device
++    assert model._prefill_devices() == [0]
++
++
++def test_admission_excludes_devices_after_terminal_cache_layer():
++    model = TinyModel()
++    model.modules[0].device = torch.device('cuda:0')
++    model.fwd_modules.append((SimpleNamespace(device=torch.device('cuda:1')), 0, 2))
++    assert model._prefill_devices() == [0]
+diff --git a/tests/test_moe_staging.py b/tests/test_moe_staging.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_moe_staging.py
+@@ -0,0 +1,49 @@
++import struct
++import pytest
++
++from exllamav3.model import moe_staging
++
++
++def cache_record(level, size):
++    return struct.pack('<IIBBHII', 2, 56, level, 255, 64, size, 0) + bytes(36)
++
++
++def test_windows_l3_uses_smallest_domain_not_sum():
++    records = cache_record(2, 1 << 20) + cache_record(3, 32 << 20) + cache_record(3, 64 << 20)
++    assert moe_staging.parse_windows_l3(records) == 32 << 20
++
++
++@pytest.mark.parametrize('records', [b'', bytes(7), cache_record(3, 0), cache_record(3, 32 << 20)[:-1], bytes(56)])
++def test_windows_cache_rejects_absent_or_malformed_io(records):
++    with pytest.raises(ValueError):
++        moe_staging.parse_windows_l3(records)
++
++
++def test_ring_leaves_room_for_source_piece_and_obeys_batch_capacity():
++    assert moe_staging.piece_geometry(32 << 20, 2457600, 2, 24) == 4
++    assert moe_staging.piece_geometry(8 << 20, 1 << 20, 2, 24) == 2
++    assert moe_staging.piece_geometry(256 << 20, 1 << 20, 3, 12) == 12
++    with pytest.raises(ValueError):
++        moe_staging.piece_geometry(1 << 20, 1 << 20, 2, 24)
++
++
++@pytest.mark.parametrize('samples,expected', [
++    ([6.8], True), ([6.8, 26.7], True), ([6.8, 26.7, 26.6], False),
++    ([6.7, 6.8], False), ([26.7, 26.6], False),
++])
++def test_probe_repeats_changes_without_rejecting_a_stable_slow_link(samples, expected):
++    assert moe_staging.probe_needs_retry(samples) == expected
++
++
++def test_linux_discovers_index_and_parses_units(tmp_path):
++    root = tmp_path / 'cpu'
++    for cpu, size in ((0, '32768K'), (1, '64M')):
++        entry = root / f'cpu{cpu}' / 'cache/index7'
++        entry.mkdir(parents=True)
++        (entry / 'level').write_text('3\n')
++        (entry / 'type').write_text('Unified\n')
++        (entry / 'size').write_text(size + '\n')
++    assert moe_staging.linux_l3(root, [0, 1]) == 32 << 20
++    (root / 'cpu1/cache/index7/size').write_text('garbage')
++    with pytest.raises(ValueError):
++        moe_staging.linux_l3(root, [0, 1])
+diff --git a/tests/test_prefill_budget.py b/tests/test_prefill_budget.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_prefill_budget.py
+@@ -0,0 +1,34 @@
++import pytest
++
++from exllamav3.model.prefill_budget import group_capacity
++
++
++def test_capacity_uses_observed_workspace_and_additional_activation_storage():
++    # 300 bytes beyond the observed peak; each extra chunk needs 200+50.
++    assert group_capacity(8, 1000, 100, 900, 500, 700, 50) == 2
++
++
++def test_capacity_is_bounded_by_physical_memory_when_allocator_oversubscribes():
++    assert group_capacity(8, 1000, 100, 1200, 500, 700, 50) == 2
++
++
++def test_live_pressure_can_reduce_capacity_to_one():
++    assert group_capacity(8, 1000, 0, 710, 500, 700, 50) == 1
++
++
++def test_requested_chunks_bound_capacity_and_exact_fit_is_allowed():
++    assert group_capacity(2, 1000, 500, 500, 500, 600, 100) == 2
++
++
++@pytest.mark.parametrize('peak,activation', [(500, 50), (700, 0)])
++def test_missing_observation_uses_one_chunk(peak, activation):
++    assert group_capacity(8, 1000, 100, 900, 500, peak, activation) == 1
++
++
++def test_invalid_capacity_inputs_fail():
++    with pytest.raises(ValueError):
++        group_capacity(0, 1000, 100, 900, 500, 700, 50)
++
++
++def test_bounded_attention_workspace_does_not_scale_with_mlp_rows():
++    assert group_capacity(8, 1000, 100, 900, 500, 700, 50, growth=100) == 4
+diff --git a/tests/test_perf_grouped.py b/tests/test_perf_grouped.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_perf_grouped.py
+@@ -0,0 +1,39 @@
++import importlib.util
++from pathlib import Path
++from types import SimpleNamespace
++import torch
++
++
++class RecordingModel:
++    caps = {}
++
++    def __init__(self):
++        self.calls = []
++
++    def prefill(self, ids, params):
++        self.calls.append((params['batch_shape'][1], params['past_len'], ids.clone(), None))
++
++    def prefill_chunked(self, ids, params, chunk_size):
++        self.calls.append((params['batch_shape'][1], params['past_len'], ids.clone(), chunk_size))
++
++
++def test_cli_grouping_preserves_exact_segmented_workload_and_attention_limit(monkeypatch):
++    spec = importlib.util.spec_from_file_location('test_perf_module', Path(__file__).parents[1] / 'eval/perf.py')
++    perf = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(perf)
++    monkeypatch.setattr(perf, 'cuda_sync_active', lambda: None)
++    # Deliberately wrap: one larger workload_ids request would change the tokens.
++    perf._workload_ids = torch.arange(1500).view(1, -1)
++    models = []
++    for grouped in (False, True):
++        model = RecordingModel()
++        perf.measure_prefill(SimpleNamespace(chunk_size=256, max_length=1024,
++            short_prefill=False, grouped_prefill=grouped), model, None)
++        models.append(model)
++    for length in (256, 512, 1024):
++        ref = [call for call in models[0].calls if call[0] == length]
++        actual = [call for call in models[1].calls if call[0] == length]
++        assert len(actual) == 1
++        assert actual[0][1] == ref[0][1]
++        assert actual[0][3] == 256
++        assert torch.equal(actual[0][2], torch.cat([call[2] for call in ref], dim=1))
+diff --git a/tests/test_moe_host_shutdown.py b/tests/test_moe_host_shutdown.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_moe_host_shutdown.py
+@@ -0,0 +1,10 @@
++from types import SimpleNamespace
++from exllamav3.model.moe_cpu_host import MoeCpuHost
++
++
++def test_shutdown_before_worker_start_preserves_original_load_failure():
++    host = MoeCpuHost(SimpleNamespace(directory='unused', infer_params=SimpleNamespace()))
++    host.shutdown()
++    host.shutdown()
++    assert host.proc is None
++    assert host.specs == []

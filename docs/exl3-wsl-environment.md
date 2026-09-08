@@ -15,6 +15,16 @@ the Windows production engine remains separate.
   14,455,668,736 bytes. The model weights are not duplicated inside it.
 - Upstream source/build: `/opt/exllamav3`, detached at
   `c93f3c61c35ff300df49205f6f60e716172d1398` (upstream `dev` when checked).
+- Patched source/build (added 2026-09-06): `/opt/exllamav3-zc`, branch `engine-zero-copy` at
+  `ba5473b` (was `4bc002a`; the two later commits are Python and docs only) from the fork
+  `DenysAshikhin/exllamav3`, in-place extension
+  `exllamav3_ext.cpython-313-x86_64-linux-gnu.so` SHA-256
+  `6beb1d575822fd61b589ff8325ed8104b86d1caa7291a5ab01a9fd6771ddc9c2`, built with the same
+  settings as the upstream build plus `ninja` on `PATH` (`/opt/exl3/bin`). Select it with
+  `PYTHONPATH=/opt/exllamav3-zc`; the editable install still points at `/opt/exllamav3`.
+  Its arena needs `/dev/shm` larger than the default 54 GB: `mount -o remount,size=100G
+  /dev/shm` before a run (not persistent). Results are in
+  [the PR validation record](analysis/2026-09-06-zero-copy-pr-validation.md).
 - Python environment: `/opt/exl3`, Python 3.13.14, torch `2.13.0+cu132`, editable upstream
   `exllamav3==1.4.7` from `/opt/exllamav3`.
   `/opt/bootstrap` contains `uv` for managing this environment. The installed package snapshot
@@ -78,3 +88,19 @@ wsl -d SiftKit-EXL3-Perf-20260905 --cd /opt/exllamav3 --exec env `
   -m /mnt/d/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6 `
   -mcs 410 -mct 12 -cs 32768 -chunk_size 4096 -ngr -max_length 32768
 ```
+
+## September 7 grouped-prefill prototype
+
+A third independent checkout, `/opt/exllamav3-online-20260907`, is based on
+`c6c45b13f2bb070a2c86fae59f3d7bfe4db9ae94` plus the ring/grouped-prefill prototype.
+The two existing checkouts above are preserved. It built with CUDA 13.2, detected
+GPU architecture 8.9 and MAX_JOBS=12. Extension SHA-256:
+`324202855778cfca89d6e02425d705ae4f57005626ffcf30cdecc8509fb6bcfd`.
+
+43 selected tests passed, including the native CPU pool; the subsequent shutdown
+regression also passed separately. Full-model ring and 10 GB resident measurements
+failed during loading near the Windows commit limit, before throughput measurement.
+No Linux throughput result is claimed. No host/pagefile/THP settings were changed;
+`/dev/shm` was temporarily remounted to 100G for the runs. The distro is stopped.
+See [the result and capacity record](analysis/2026-09-07-grouped-prefill-results.md)
+and [the detailed worklog](analysis/2026-09-07-online-prefetch-worklog.md).
