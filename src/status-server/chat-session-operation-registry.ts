@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import type { ChatSessionOperationKind } from '@siftkit/contracts';
 
+import { ChatOperationBroadcast } from './chat-operation-broadcast.js';
+
 export type ChatSessionOperation = {
   token: string;
   sessionId: string;
@@ -21,6 +23,7 @@ export type ChatSessionOperationCompletion =
 
 class ActiveChatSessionOperation {
   readonly completion: Promise<ChatSessionOperationCompletion>;
+  readonly broadcast = new ChatOperationBroadcast();
   private settleCompletion: ((completion: ChatSessionOperationCompletion) => void) | null = null;
 
   constructor(readonly lease: ChatSessionOperation) {
@@ -72,6 +75,16 @@ export class ChatSessionOperationRegistry {
       return false;
     }
     this.activeBySessionId.delete(lease.sessionId);
+    // Every stream ends with a terminal frame, so an attached reader can always tell "the run
+    // failed" from "the run finished without a payload" from "the socket dropped".
+    if (!active.broadcast.hasTerminalFrame()) {
+      if (completion.kind === 'failed') {
+        active.broadcast.writeEvent('error', { error: completion.error });
+      } else {
+        active.broadcast.writeEvent('ended', {});
+      }
+    }
+    active.broadcast.close();
     active.finish(completion);
     return true;
   }
@@ -101,6 +114,15 @@ export class ChatSessionOperationRegistry {
   getActive(sessionId: string): ChatSessionOperation | undefined {
     requireSessionId(sessionId);
     return this.activeBySessionId.get(sessionId)?.lease;
+  }
+
+  getBroadcast(sessionId: string): ChatOperationBroadcast | null {
+    requireSessionId(sessionId);
+    return this.activeBySessionId.get(sessionId)?.broadcast ?? null;
+  }
+
+  listActive(): ChatSessionOperation[] {
+    return [...this.activeBySessionId.values()].map((active) => active.lease);
   }
 
   getActiveCount(): number {

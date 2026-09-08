@@ -104,3 +104,58 @@ test('leases retain the client operation id used for Stop ownership', () => {
   assert.equal(lease.operationId, OPERATION_A);
   assert.equal(registry.getActiveOperation('session-a')?.operationId, OPERATION_A);
 });
+
+test('each active operation exposes a broadcast that closes when the lease finishes', () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'message', OPERATION_A, 1_000));
+  const broadcast = registry.getBroadcast('session-a');
+  assert.ok(broadcast);
+  assert.equal(broadcast.isClosed(), false);
+  broadcast.writeEvent('done', { ok: true });
+  registry.finish(lease, { kind: 'completed' });
+  assert.equal(broadcast.isClosed(), true);
+  assert.equal(registry.getBroadcast('session-a'), null);
+});
+
+test('a failed lease emits a terminal error frame when the run never sent one', () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'plan', OPERATION_A, 1_000));
+  const broadcast = registry.getBroadcast('session-a');
+  assert.ok(broadcast);
+  assert.equal(broadcast.attach({ onFrame: () => {}, onClosed: () => {} }).frames.length, 0);
+  registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
+  const replay = broadcast.attach({ onFrame: () => {}, onClosed: () => {} });
+  assert.deepEqual(replay.frames.map((frame) => frame.event), ['error']);
+  assert.equal(replay.frames[0]?.data, '{"error":"engine exploded"}');
+});
+
+test('a completed lease without a stream payload emits an ended frame', () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'condense', OPERATION_A, 1_000));
+  const broadcast = registry.getBroadcast('session-a');
+  assert.ok(broadcast);
+  registry.finish(lease, { kind: 'completed' });
+  const replay = broadcast.attach({ onFrame: () => {}, onClosed: () => {} });
+  assert.deepEqual(replay.frames.map((frame) => frame.event), ['ended']);
+  assert.equal(replay.frames[0]?.data, '{}');
+});
+
+test('finishing does not duplicate a terminal frame the run already sent', () => {
+  const registry = new ChatSessionOperationRegistry();
+  const lease = requireAcquired(registry.acquire('session-a', 'plan', OPERATION_A, 1_000));
+  const broadcast = registry.getBroadcast('session-a');
+  assert.ok(broadcast);
+  broadcast.writeEvent('error', { error: 'already reported' });
+  registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
+  assert.equal(broadcast.attach({ onFrame: () => {}, onClosed: () => {} }).frames.length, 1);
+});
+
+test('listActive returns every session that currently holds a lease', () => {
+  const registry = new ChatSessionOperationRegistry();
+  registry.acquire('session-a', 'message', OPERATION_A, 1_000);
+  registry.acquire('session-b', 'repo-agent', OPERATION_B, 1_100);
+  const active = registry.listActive()
+    .map((lease) => `${lease.sessionId}:${lease.operationKind}`)
+    .sort();
+  assert.deepEqual(active, ['session-a:message', 'session-b:repo-agent']);
+});
