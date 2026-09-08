@@ -1,5 +1,7 @@
 # Remove llama.cpp Backend (exl3-only) Implementation Plan
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](../../exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Per repo policy, dispatch tasks to `siftkit repo-agent` in batches of 1–3.
 
 **Goal:** Snapshot the current codebase to a `llama_support` branch, then remove the llama.cpp backend and every live "llama" reference from `main`, leaving exl3 (TabbyAPI/exllamav3) as the only inference backend.
@@ -266,10 +268,9 @@ const defaultPreset: ModelPresetSettings = {
 - Modify: `dashboard/src/api.ts:353-357` — `testEngineBaseUrl` → `POST /config/engine/test`; managed-runs endpoints → `/dashboard/admin/managed-runs`.
 - Modify: `dashboard/src/settings-runtime.ts:19-34` — write `config.Runtime.Engine.*`; drop llama-only keys.
 - Delete: `dashboard/src/managed-llama-restart.ts` (llama OOM modal) + its call sites.
-- Modify: `dashboard/src/settings-draft-editor.ts:131-135,368`, `settings-action-groups.ts:90-94` — keep KV-cache-quantization action (renamed type); delete speculative-type action; delete llama+freeze guard.
+- Modify: `dashboard/src/settings-draft-editor.ts:131-135,368`, `settings-action-groups.ts:90-94` — keep KV-cache-quantization action (renamed type); delete speculative-type action; delete obsolete backend guard.
 - Modify: `dashboard/src/settings-sections.ts:117-160+` — delete llama-only field controls (executable path, bind host, port, threads, NcpuMoe, flash attention, batch/ubatch, ngram speculative, gguf labels); keep exl3 fields.
 - Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx` — remove the backend toggle (`:171`; single backend), remote-llama URL detection (`:27-224`), MTP warnings, ngram helpers, gguf label.
-- Modify: `dashboard/src/tabs/settings/ModelRuntimeResidencyPanel.tsx:100` — freeze message drops the llama mention.
 - Modify tests: `dashboard/tests/model-preset-groups.test.ts`, `model-runtime-control-state.test.ts`, `model-preset-groups-component.test.tsx`, `use-inference-runtime-status.test.tsx` — exl3 fixtures; assertions that llama controls/labels are GONE replace the old llama assertions.
 
 - [ ] **Step 1:** Update dashboard tests first to the exl3-only expectations → run → FAIL.

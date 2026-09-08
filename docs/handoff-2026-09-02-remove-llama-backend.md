@@ -1,5 +1,7 @@
 > Historical handoff, superseded by [the completed main integration](handoff-2026-09-04-exl3-main-integration.md). The unfinished tasks and operational directions below describe the earlier session only.
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 # Handoff: remove llama.cpp backend (plan `docs/superpowers/plans/2026-09-01-remove-llama-backend.md`)
 
 Date: 2026-09-02. Worktree: `.worktrees/remove-llama-backend`, branch `remove-llama-backend`, base `990e1880`.

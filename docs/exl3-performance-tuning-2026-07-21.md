@@ -1,5 +1,7 @@
 # EXL3 Prefill/Decode Performance Investigation & Tuning
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 ## What
 
 Benchmarked SiftKit's EXL3 backend (TabbyAPI + exllamav3 1.1.0) to explain why prompt
@@ -188,9 +190,6 @@ memory from `nvidia-smi` (a fresh process each time, no image encoded before the
 - **Image latency unchanged at 2.1 MP**: 4,008 ms on vs 4,148 ms off for the same screenshot and
   prompt. The streaming cost is small next to encode plus generation at this size; expect it to
   matter more for back-to-back image requests.
-- **Freeze/restore keeps the pinning** (historical: host-RAM freeze was removed on 2026-09-05). With `IdleAction: freeze`, a vision-pinned model froze to
-  1,006 MiB and restored to 21,058 MiB — the tower does not come back into VRAM, and an image
-  request after restore still captions correctly.
 
 Reading total board memory right after an image request overstates residency by roughly a
 gigabyte: the allocator retains the encode blocks. Compare fresh-process readings only.

@@ -4,6 +4,7 @@ import { parseJsonText } from '../../lib/json.js';
 import { tableExists, tableHasColumn } from './schema-introspection.js';
 import {
   migrateAppConfigIdleAction,
+  validatePersistedIdleActions,
   migrateActiveStateRemoveMaxTokens,
   migrateAppConfigRemoveGlobalStartupContext,
   migrateAppConfigToPresetSourceOfTruth,
@@ -553,9 +554,7 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   {
     version: 47,
-    up: (database) => {
-    migrateAppConfigIdleAction(database, 'add-missing');
-    },
+    up: migrateAppConfigIdleAction,
   },
   {
     version: 48,
@@ -821,10 +820,8 @@ export const MIGRATIONS: readonly Migration[] = [
     up: migrateRuntimeToExl3Only,
   },
   {
-    // Host-RAM freeze was removed; presets that idled to `freeze` now idle to `unload`.
-    version: 65,
-    up: (database) => {
-      migrateAppConfigIdleAction(database, 'freeze-to-unload');
-    },
+    // Version 65 is retired. Unsupported residency values must fail without conversion.
+    version: 66,
+    up: validatePersistedIdleActions,
   },
 ];

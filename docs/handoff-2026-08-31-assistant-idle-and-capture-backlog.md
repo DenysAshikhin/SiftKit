@@ -1,5 +1,7 @@
 # Handoff: assistant diagnostics, capture backlog, and broken idle signal (2026-08-31)
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 ## 1. User goal and current decision point
 
 The user wants assistant background work to run only after **all three** signals have been quiet for `Background.IdleSecondsBeforeProcessing` (currently 180 seconds):
@@ -55,11 +57,11 @@ There is **no 1,000-capture count limit**. The count passed 1,000 during live ob
 - The pending-captures endpoint is display-capped at 200 rows per state only: `src/assistant/assistant-service.ts:153-154,475-489`.
 - `desktopState.imageCapability.queueDepth` is an unbounded SQL count over queued + awaiting capability: `src/assistant/assistant-service.ts:398-402`.
 
-Screenshots continue to be captured, encrypted, stored, and queued while the model is frozen or unloaded:
+Screenshots continue to be captured, encrypted, stored, and queued while the model is unloaded:
 
 - Desktop capture gate has no model-state condition: `desktop/src-tauri/src/main.rs:398-420`.
 - Intake encrypts/stores pixels before queue admission: `src/assistant/observation/capture-intake.ts:118-144`.
-- Frozen/unloaded capability maps new captures to `awaiting_image_capability`: `src/assistant/observation/capture-intake.ts:173-176`, `src/status-server/runtime-image-capability.ts:18-26`.
+- Unloaded capability maps new captures to `awaiting_image_capability`: `src/assistant/observation/capture-intake.ts:173-176`, `src/status-server/runtime-image-capability.ts:18-26`.
 - When the model becomes ready, waiting captures receive image-extraction jobs oldest-first: `src/assistant/assistant-service.ts:745-767`.
 - A capability loss during extraction returns the capture to `awaiting_image_capability` without consuming a failure attempt: `src/assistant/images/image-extractor.ts:77-89`.
 

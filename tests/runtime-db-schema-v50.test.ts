@@ -29,7 +29,7 @@ function seedCondensedSessionDb(dbPath: string): void {
       id, title, model_preset_id, model_preset_json, thinking_enabled,
       web_search_enabled, preset_id, mode, plan_repo_root, condensed_summary,
       created_at_utc, updated_at_utc
-    ) VALUES ('session-1', 'Session', 'default', '{}', 0, 1, NULL, 'chat', '.', 'old condensed tail', ?, ?)
+    ) VALUES ('session-1', 'Session', 'default', '{"IdleAction":"unload"}', 0, 1, NULL, 'chat', '.', 'old condensed tail', ?, ?)
   `).run(timestamp, timestamp);
   const insertMessage = database.prepare(`
     INSERT INTO chat_messages (

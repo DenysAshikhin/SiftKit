@@ -453,13 +453,8 @@ test('a failed v47 migration write surfaces and leaves the marker incomplete', (
   }
 });
 
-// A v64 database is the last one that could persist `IdleAction: 'freeze'`; v65 rewrites it to
-// `unload` everywhere a preset snapshot lives and leaves every other value byte-identical.
-function seedFreezeIdleActionSnapshots(dbPath: string): {
-  appPresets: JsonObject[];
-  chatPresetNone: string;
-  benchmarkConfigUnload: string;
-} {
+// Old databases may contain unsupported actions in any persisted execution snapshot.
+function seedFreezeIdleActionSnapshots(dbPath: string): void {
   writeConfig(dbPath, getDefaultConfigObject());
   const database = getRuntimeDatabase(dbPath);
   const basePreset = JsonObjectSchema.parse(JsonValueSchema.parse(
@@ -507,51 +502,82 @@ function seedFreezeIdleActionSnapshots(dbPath: string): {
   database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1').run(JSON.stringify(appPresets));
   database.exec('UPDATE runtime_schema SET version = 64 WHERE id = 1');
   closeRuntimeDatabase();
-  return { appPresets, chatPresetNone, benchmarkConfigUnload };
 }
 
-function readColumn(dbPath: string, sql: string, id: string): string {
-  const database = new Database(dbPath, { readonly: true });
-  try {
-    return z.object({ value: z.string() }).parse(database.prepare(sql).get(id)).value;
-  } finally {
-    database.close();
-  }
-}
-
-test('v65 migrates persisted IdleAction freeze to unload in every snapshot and leaves other values byte-identical', () => {
+test('v66 rejects obsolete residency snapshots without converting data or advancing the marker', () => {
   const dbPath = tempDbPath('sk-idle-action-freeze-to-unload-');
   try {
-    const seeded = seedFreezeIdleActionSnapshots(dbPath);
-
-    getRuntimeDatabase(dbPath);
+    seedFreezeIdleActionSnapshots(dbPath);
+    assert.throws(() => getRuntimeDatabase(dbPath), /IdleAction/u);
     closeRuntimeDatabase();
-
-    assert.equal(readSchemaVersion(dbPath), 65);
-    const appPresets = readStoredPresets(dbPath);
-    assert.deepEqual(appPresets.map((preset) => preset.IdleAction), ['unload', 'none', 'unload']);
-    assert.equal(JSON.stringify(appPresets[1]), JSON.stringify(seeded.appPresets[1]));
-    assert.equal(JSON.stringify(appPresets[2]), JSON.stringify(seeded.appPresets[2]));
-    const chatSql = 'SELECT model_preset_json AS value FROM chat_sessions WHERE id = ?';
-    assert.equal(JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, chatSql, 'session-freeze'))).IdleAction, 'unload');
-    assert.equal(readColumn(dbPath, chatSql, 'session-none'), seeded.chatPresetNone);
-    const benchmarkSql = 'SELECT original_config_json AS value FROM benchmark_sessions WHERE id = ?';
-    const migratedConfig = JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, benchmarkSql, 'benchmark-session-freeze')));
-    const migratedPresets = z.array(JsonObjectSchema).parse(
-      JsonObjectSchema.parse(JsonObjectSchema.parse(migratedConfig.Server).ModelPresets).Presets,
-    );
-    assert.equal(migratedPresets[0]?.IdleAction, 'unload');
-    assert.equal(readColumn(dbPath, benchmarkSql, 'benchmark-session-unload'), seeded.benchmarkConfigUnload);
-    const caseSql = 'SELECT managed_preset_json AS value FROM benchmark_cases WHERE id = ?';
-    assert.equal(JsonObjectSchema.parse(parseJsonValueText(readColumn(dbPath, caseSql, 'benchmark-case-freeze'))).IdleAction, 'unload');
-
-    assert.doesNotThrow(() => readConfig(dbPath));
+    assert.equal(readSchemaVersion(dbPath), 64);
+    assert.deepEqual(readStoredPresets(dbPath).map((preset) => preset.IdleAction), ['freeze', 'none', 'unload']);
   } finally {
     closeRuntimeDatabase();
   }
 });
 
-test('after v65, a persisted IdleAction freeze fails loudly', () => {
+const RESIDENCY_COLUMNS = [
+  { table: 'app_config', column: 'server_model_presets_json' },
+  { table: 'chat_sessions', column: 'model_preset_json' },
+  { table: 'benchmark_sessions', column: 'original_config_json' },
+  { table: 'benchmark_cases', column: 'managed_preset_json' },
+] as const;
+
+for (const version of [64, 65]) {
+  for (const target of RESIDENCY_COLUMNS) {
+    test(`v66 rejects obsolete IdleAction in ${target.table} from v${version}`, () => {
+      const dbPath = tempDbPath('sk-idle-action-rejected-');
+      try {
+        seedFreezeIdleActionSnapshots(dbPath);
+        const database = new Database(dbPath);
+        try {
+          for (const location of RESIDENCY_COLUMNS) {
+            if (location.table === target.table) continue;
+            database.exec(`UPDATE ${location.table} SET ${location.column} = replace(${location.column}, '"IdleAction":"freeze"', '"IdleAction":"unload"')`);
+          }
+          database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(version);
+        } finally {
+          database.close();
+        }
+        assert.throws(() => getRuntimeDatabase(dbPath), new RegExp(`${target.table}.*IdleAction`, 'u'));
+        closeRuntimeDatabase();
+        assert.equal(readSchemaVersion(dbPath), version);
+      } finally {
+        closeRuntimeDatabase();
+      }
+    });
+  }
+  test(`v66 preserves valid v${version} snapshots byte-for-byte`, () => {
+    const dbPath = tempDbPath('sk-idle-action-valid-');
+    try {
+      seedFreezeIdleActionSnapshots(dbPath);
+      const database = new Database(dbPath);
+      const before: string[] = [];
+      try {
+        for (const location of RESIDENCY_COLUMNS) {
+          database.exec(`UPDATE ${location.table} SET ${location.column} = replace(${location.column}, '"IdleAction":"freeze"', '"IdleAction":"unload"')`);
+          before.push(JSON.stringify(database.prepare(`SELECT ${location.column} FROM ${location.table} ORDER BY id`).all()));
+        }
+        database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(version);
+      } finally {
+        database.close();
+      }
+      const migrated = getRuntimeDatabase(dbPath);
+      const after = RESIDENCY_COLUMNS.map((location) => JSON.stringify(
+        migrated.prepare(`SELECT ${location.column} FROM ${location.table} ORDER BY id`).all(),
+      ));
+      assert.deepEqual(after, before);
+      closeRuntimeDatabase();
+      assert.equal(readSchemaVersion(dbPath), 66);
+      assert.doesNotThrow(() => readConfig(dbPath));
+    } finally {
+      closeRuntimeDatabase();
+    }
+  });
+}
+
+test('after the current schema marker, a persisted IdleAction freeze fails loudly', () => {
   const dbPath = tempDbPath('sk-idle-action-freeze-post-marker-');
   try {
     writeConfig(dbPath, getDefaultConfigObject());

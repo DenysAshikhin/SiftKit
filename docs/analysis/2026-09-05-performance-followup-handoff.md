@@ -1,13 +1,13 @@
 # EXL3 production performance follow-up handoff (2026-09-05)
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](../exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 Continued in [the controlled follow-up](2026-09-05-performance-controlled-followup.md),
 which corrects the screenshot workload comparison and records a fresh local A/B.
 
 ## Current state
 
-The production rollout in
-[`2026-09-05-production-upstream-sync-handoff.md`](2026-09-05-production-upstream-sync-handoff.md)
-is complete through Phase 8. SiftKit `main` is at `4389fabf`, five commits ahead of
+The September 5 production rollout completed through Phase 8; its superseded deployment handoff has been removed. SiftKit `main` is at `4389fabf`, five commits ahead of
 `origin/main`; nothing was pushed. Production exllamav3 is at `297711c` and production TabbyAPI
 is at `f8b2bec`.
 

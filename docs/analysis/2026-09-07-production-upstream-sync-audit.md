@@ -1,5 +1,7 @@
 # Production EXL3 and TabbyAPI upstream audit
 
+Follow-up implementation: [September 8 result](2026-09-08-production-upstream-sync-result.md).
+
 Evidence gathered September 7, 2026. This is an investigation handoff, not an implementation record. Upstream branches may advance after these observations.
 
 ## Requested destination
@@ -261,20 +263,20 @@ The audit found model-freeze references in these **16 existing documents**. This
 
 | Document | Anchor | Reference |
 |---|---|---|
-| [Model residency freeze handoff](../superpowers/handoffs/2026-08-16-model-residency-freeze-handoff.md) | Line 1 | Dedicated obsolete feature handoff |
-| [Dashboard freeze fixtures plan](../superpowers/plans/2026-08-16-dashboard-freeze-supported-fixtures.md) | Line 1 | Dedicated obsolete feature plan |
-| [Freeze/restore coverage plan](../superpowers/plans/2026-08-20-exl3-freeze-restore-coverage.md) | Line 1 | Dedicated obsolete feature plan |
+| Model residency freeze handoff (removed September 8; historical path: `../superpowers/handoffs/2026-08-16-model-residency-freeze-handoff.md`) | Line 1 | Dedicated obsolete feature handoff |
+| Dashboard freeze fixtures plan (removed September 8; historical path: `../superpowers/plans/2026-08-16-dashboard-freeze-supported-fixtures.md`) | Line 1 | Dedicated obsolete feature plan |
+| Freeze/restore coverage plan (removed September 8; historical path: `../superpowers/plans/2026-08-20-exl3-freeze-restore-coverage.md`) | Line 1 | Dedicated obsolete feature plan |
 | [Tabby merge handoff](../handoff-2026-08-26-tabby-merge.md) | Line 19 | Says to retain freeze implementation/pins |
-| [Tabby merge plan](../superpowers/plans/2026-08-26-tabby-upstream-merge-and-env-rename.md) | Line 20 | Same |
+| Tabby merge plan (removed September 8; historical path: `../superpowers/plans/2026-08-26-tabby-upstream-merge-and-env-rename.md`) | Line 20 | Same |
 | [Live verification handoff](../handoff-2026-08-26-siftkit-live-verification.md) | Line 150 | Requests freeze/unfreeze validation |
 | [Assistant capture backlog handoff](../handoff-2026-08-31-assistant-idle-and-capture-backlog.md) | Line 58 | Describes frozen model states |
-| [Assistant residency gate plan](../superpowers/plans/2026-08-30-assistant-model-residency-gate.md) | Line 5 | Describes frozen model behavior |
+| Assistant residency gate plan (removed September 8; historical path: `../superpowers/plans/2026-08-30-assistant-model-residency-gate.md`) | Line 5 | Describes frozen model behavior |
 | [Performance tuning](../exl3-performance-tuning-2026-07-21.md) | Line 191 | Historical freeze/pinning behavior |
 | [Autosplit handoff](../exl3-autosplit-reserve-upstream-pr-2026-08-18.md) | Line 194 | Old freeze-build versions |
 | [Backend-removal plan](../superpowers/plans/2026-09-01-remove-llama-backend.md) | Line 269 | Freeze guards/messages |
 | [Backend-removal handoff](../handoff-2026-09-02-remove-llama-backend.md) | Line 68 | Historical freeze-test reference |
-| [Production sync plan](../superpowers/plans/2026-09-05-production-exl3-tabby-upstream-sync-and-freeze-removal.md) | Line 1 | Freeze removal and zero-copy production rollout |
-| [Production sync handoff](2026-09-05-production-upstream-sync-handoff.md) | Line 1 | Same |
+| Production sync plan (removed September 8; historical path: `../superpowers/plans/2026-09-05-production-exl3-tabby-upstream-sync-and-freeze-removal.md`) | Line 1 | Freeze removal and zero-copy production rollout |
+| Production sync handoff (removed September 8; historical path: `2026-09-05-production-upstream-sync-handoff.md`) | Line 1 | Same |
 | [Performance follow-up](2026-09-05-performance-followup-handoff.md) | Line 101 | Freeze-removal history |
 | [Flash-Next engine record](2026-09-05-qwen38-flash-next-engine.md) | Line 146 | Freeze-removal history |
 

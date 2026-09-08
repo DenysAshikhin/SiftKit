@@ -1,5 +1,7 @@
 # Handoff: Tabby upstream merge, env rename, grammar benchmark, Formatron removal (2026-08-26)
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 Everything below is committed and pushed. TabbyAPI work is on `siftkit` @ `92cbf9f`
 (pushed to `fork`, i.e. DenysAshikhin/tabbyAPI — `origin` is upstream theroyallab and
 was not touched). SiftKit work is on `main` through `849511b8` (pushed to origin).

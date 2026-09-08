@@ -1,5 +1,7 @@
 # Upstream PR handoff: autosplit reserve double-counts already-reserved VRAM
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 Target: `turboderp-org/exllamav3`, base branch **`dev`** (the repo default is `master`, but
 merged code PRs go to `dev` — see #280, #276, #274, #257).
 

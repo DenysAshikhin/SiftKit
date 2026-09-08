@@ -1,5 +1,7 @@
 # Qwen3.8 Flash-Next engine: what was tried, what stuck (2026-09-02 to 2026-09-05)
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](../exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 Single record of the Flash-Next performance work. Supersedes the per-session handoffs and the raw
 run outputs, which were deleted on 2026-09-05 (recoverable from SiftKit commit `523f152f`).
 Reusable tooling lives in [`qwen38-flash-next-engine/`](qwen38-flash-next-engine/).
@@ -141,13 +143,7 @@ bit-exact). Host memcpy ceiling: `scripts/stagebench.py` after building `stagebe
   on `origin/dev` c93f3c6. Touches only `cpu/moe_mul1.{cpp,h}`, `cpu/moe_handoff.{cu,h}`,
   `model/moe_cpu_host.py`, `doc/env_vars.md`, `tests/test_moe_cpu_offload.py`. In-place `.pyd`
   is the 58d19c0 build. `eval/__disk_lru_cache__/` is a regenerable perf.py cache.
-- Production runs the merged engine as of 2026-09-05: exllamav3 `dev` @ `297711c`
-  (`1.4.7+unified.1`, upstream c93f3c6 plus 58d19c0), TabbyAPI `siftkit` @ `f8b2bec`, SiftKit
-  freeze removal and migration v65. Rollout record:
-  [production-upstream-sync-handoff](2026-09-05-production-upstream-sync-handoff.md), which also
-  holds the SiftKit generation smoke (cached_tokens, idle unload, cold reload).
-- Host-RAM freeze/restore is gone from exllamav3, TabbyAPI and SiftKit; `IdleAction` is `none`
-  or `unload`.
+- The September 5 measurements used a customized engine. Current production uses upstream source; see [the deployment guide](../exl3-backend-setup.md).
 - Remaining prefill levers: overlap the router sync with the previous layer's tail (4-10 ms per
   layer exposed at 4096 rows); trim host enqueue (11-14 ms per layer, overlapped today).
 - Remaining decode levers: the 0.27 ms per layer GPU critical path (no CUDA graphs in decode; GPU

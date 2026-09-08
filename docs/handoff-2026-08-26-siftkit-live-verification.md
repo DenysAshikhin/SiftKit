@@ -1,5 +1,7 @@
 # Handoff: post-merge live verification, two bug fixes, draft-window benchmark (2026-08-26, PM)
 
+> Historical record. Deployment, dependency pins, and model lifecycle instructions here are superseded by [the current upstream setup](exl3-backend-setup.md). Experimental engine results are retained for comparison only.
+
 Follows `docs/handoff-2026-08-26-tabby-merge.md` (morning session). Everything below is
 **uncommitted** — review, then commit. The SiftKit status server was left **running** on
 127.0.0.1:4765 (rebuilt dist, healthy, model loaded) with the preset back at its
@@ -147,10 +149,7 @@ SiftKit wiring (mirror the 75ebe867 env-rename commit's shape):
    as shared GPU memory on Windows, same caveat as the sysmem KV cache).
 3. A vision request still works (dashboard chat image caption path) — latency hit is
    expected and acceptable.
-4. Interaction with the fork's freeze/restore (`freeze_to_ram`/`restore_from_freeze`
-   + `vision_model` handling in `test_exl3_freeze_residency.py`): freeze/unfreeze a
-   vision-pinned model and confirm no double-pinning or restore regression.
-5. Text-only traffic unaffected: rerun a repo-search smoke and compare decode T/s
+4. Text-only traffic unaffected: rerun a repo-search smoke and compare decode T/s
    (~95–140 T/s at accept-dependent variance is the current normal).
 
 ## Scratch

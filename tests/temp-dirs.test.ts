@@ -79,6 +79,23 @@ test('TempDirRegistry creates a directory under the OS temp dir', () => {
   }
 });
 
+test('TempDirRegistry rejects a temp root inside the application checkout', () => {
+  const registry = new TempDirRegistry();
+  const previous = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  try {
+    process.env.TEMP = process.cwd();
+    process.env.TMP = process.cwd();
+    process.env.TMPDIR = process.cwd();
+    assert.throws(() => registry.create('siftkit-rejected-root-'), /outside.*checkout/u);
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    registry.removeAll();
+  }
+});
+
 test('TempDirRegistry.removeAll deletes every directory it handed out', () => {
   const registry = new TempDirRegistry();
   const first = registry.create('siftkit-registry-test-');

@@ -1,0 +1,732 @@
+{
+  "method": "Isolated vision-only load; snapshot actual allocator blocks before and after rebuilding existing MLP.load_local handles against pinned linears. No production source/config change; no inference in probe.",
+  "sourceHead": "a99c30994f6d9173e505254e81b0e5d784caa36e",
+  "events": [
+    {
+      "kind": "vision_allocation_snapshot",
+      "allocated": 223074816,
+      "reserved": 255852544,
+      "unownedLargeGpuStorages": [
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116045905920,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116049666048,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116053426176,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116057186304,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116060946432,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116064706560,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116068466688,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116072226816,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116075986944,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116779909120,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116783669248,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116787429376,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116791189504,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116794949632,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116798709760,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116802469888,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116806230016,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116809990144,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116813750272,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116817510400,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116821270528,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116825030656,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116828790784,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116832550912,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116836311040,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116840071168,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116843831296,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116847591424,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116851351552,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116855111680,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116858871808,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116862631936,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116866392064,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116870152192,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116876378112,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116880138240,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116883898368,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116887658496,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116891418624,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116895178752,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116898938880,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116902699008,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116906459136,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116910219264,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116913979392,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116917739520,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116921499648,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116925259776,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116929019904,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116932780032,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116936540160,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116940300288,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            72,
+            272,
+            96
+          ],
+          "allocator_block": {
+            "address": 116944060416,
+            "size": 3760128
+          }
+        },
+        {
+          "path": "unowned",
+          "storage_bytes": 3760128,
+          "shape": [
+            272,
+            72,
+            96
+          ],
+          "allocator_block": {
+            "address": 116947820544,
+            "size": 3760128
+          }
+        }
+      ],
+      "gpuWeightBytes": 11299120,
+      "pinnedHostAliasBytes": 335314944
+    },
+    {
+      "kind": "rebind_result",
+      "before": 223074816,
+      "after": 20027904,
+      "freed": 203046912,
+      "rebuilt": 27
+    },
+    {
+      "kind": "vision_allocation_snapshot",
+      "allocated": 20027904,
+      "reserved": 255852544,
+      "unownedLargeGpuStorages": [],
+      "gpuWeightBytes": 11299120,
+      "pinnedHostAliasBytes": 335314944
+    }
+  ]
+}

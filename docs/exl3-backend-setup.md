@@ -2,21 +2,35 @@
 
 ## Installed deployment
 
-- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `siftkit` at `f8b2bec`, merged with `theroyallab/tabbyAPI@e37b9c9` (main). Local delta: usage-stats cache-token counters, exllamav3 pin, draft-mode regression test.
-- ExLlamaV3 checkout: `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench`, branch `dev` at `297711c`, merged with upstream `dev` at `c93f3c6` (v1.4.7) plus the zero-copy MoE CPU-offload engine `58d19c0`. Local delta otherwise: qbench tooling and a `quantize.py` fix.
+- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `92198cca1aa48f83121027f5b9058c24d7c2d894`.
+- ExLlamaV3 checkout: `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench`, branch `production-upstream` tracking official `dev` at `a99c30994f6d9173e505254e81b0e5d784caa36e`. The directory name is retained for deployment continuity; its tracked source is pristine upstream.
 - Python: `C:\envs\rl313-turbo\Scripts\python.exe` (`3.13.14`)
 - Torch: `2.13.0+cu132`; CUDA build: `13.2`
-- ExLlamaV3: `1.4.7+unified.1`, editable install of the checkout above, rebuilt with `update-exllamav3.ps1`
-- Model: `D:\personal\models\elx3\3.8_27b_4.6bpw`
+- ExLlamaV3: `1.4.8`, editable source with its native extension rebuilt against the installed Torch/CUDA stack using `scripts/update-exllamav3.ts`.
+- Model: `D:\personal\models\elx3\3.8_27b_4.9bpw`; active preset `exl3-3-6-27b-2`.
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
-- Managed command: `C:\envs\rl313\Scripts\python.exe main.py`, with the Tabby checkout as its working directory
+- Managed command: `C:\envs\rl313-turbo\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
 - API: `http://127.0.0.1:8098/v1`
 
-The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.6-bit `mul1` quantization with `head_bits: 6`, and one built-in MTP layer. Attention is hybrid: `full_attention_interval: 4` yields 16 full-attention layers out of 64, the rest linear-attention, so the KV cache scales with 16 layers only. The active preset sets `VisionEnabled: true`, so Tabby loads the vision tower as its own component alongside the MTP draft and the main model.
+The active preset enables vision and MTP drafting. Tabby loads the vision tower, draft component, and main model. Deployment settings come from the persisted preset; the ignored `config.yml` has older model defaults and must not be used alone to reproduce the managed deployment.
 
-The Tabby profile uses `max_seq_len: 125000`, `cache_size: 125184`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 125000`. SiftKit accepts concurrent work up to the capacity reported by Tabby. With this one-slot profile, Tabby itself limits execution to one active generation.
+The active profile uses `max_seq_len: 155000`, `cache_size: 155136`, `cache_mode: 8,8`, `chunk_size: 512`, `max_batch_size: 1`, dynamic MTP drafting with up to three draft tokens, and 4096 MiB of recurrent host cache. Vision offload is enabled; CPU-MoE offload is disabled for this dense model. `/props` must report `total_slots: 1` and `n_ctx: 155000`. SiftKit accepts concurrent work up to Tabby's reported capacity.
 
-Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `tools` and `response_format` unchanged to both backends. This Qwen template emits tool calls as `<tool_call>` XML, which SiftKit parses locally into the standard tool-call representation. JSON-schema output is also native; when thinking is enabled, constrained content may begin only after reasoning, so the request needs enough output tokens for both.
+Identify presets by their model paths; labels can be misleading:
+
+| Model directory | Context | KV cache | MTP |
+|---|---:|---|---|
+| `3.8_27b_4.9bpw` | 155000 | Q8 (`8,8`) | Dynamic, maximum 3 |
+| `3.8_27b_sc_5.00bpw_h6` | 145000 | Q8 (`8,8`) | Dynamic, maximum 3 |
+| `td_flash-next_4.05bpw_h6_ng6` | 155000 | FP16 | Disabled |
+
+The dense model files independently report quantization `bits: 4.9` and `bits: 5.0`. All presets store `SpeculativeDraftMax: 3` and `SpeculativeDynamic: true`; the Next preset's `SpeculativeEnabled: false` disables MTP regardless of those dormant fields.
+
+Next uses `NcpuMoe: 416` with the upstream CPU-offload engine. Its former 410-expert split exhausted VRAM at the output layer under the upstream loader; moving six more experts per layer to CPU preserved its 155k context and FP16 cache. Live generation verified zero draft counters.
+
+For these dense recurrent models, each extra draft position reserves approximately 144 MiB of main-model recurrent state per parallel slot, separately from the quantized KV cache. Dynamic drafting reduces work per round but reserves memory for its configured ceiling. The 16-token draft setting failed to load at 155k/Q8; four tokens loaded successfully, and the user subsequently chose three to leave more context headroom. Context limits were not increased automatically.
+
+Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `tools` and `response_format` to Tabby. This Qwen template emits tool calls as `<tool_call>` XML, which SiftKit parses into the standard tool-call representation. JSON-schema output is native; when thinking is enabled, allow enough output tokens for reasoning and constrained content.
 
 ## Configuring a preset
 
@@ -24,7 +38,7 @@ In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)
 
 Set `Server.Engines.Exl3.AdminApiKey` to Tabby's admin API bearer token. SiftKit uses it for readiness checks, model inspection, load, and unload, including idle wake/reload. Leave it empty only when Tabby authentication is disabled. Caller authorization on proxied inference requests remains separate.
 
-The status server persists the active preset only after its runtime is ready. A selection made during inference drains active work, pauses new admission, stops or unloads the old runtime, starts and verifies the target model, then resumes admission. This preset-switch drain is separate from normal request concurrency. Target startup failure restores the prior preset definition and runtime. Runtime state is available from `GET /runtime/inference`.
+Saving settings persists the configuration. `POST /status/restart` applies it to the managed runtime; `GET /runtime/inference` reports the applied state. A runtime switch drains active work, pauses new admission, stops or unloads the old runtime, starts and verifies the target model, then resumes admission. This preset-switch drain is separate from normal request concurrency.
 
 Tabby's per-load API supports model, context/cache size, and cache mode. Managed-only preset fields are disabled for external servers, including parallel slots, host cache budgets, speculative decoding, and vision controls. EXL3-compatible cache modes are `FP16`, `8,8`, `4,4`, `5,5`, `8,4`, and `8,5`.
 
@@ -32,4 +46,33 @@ When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Ta
 
 ## Environment notes
 
-`rl313` is dedicated to the engine and carries NumPy `2.2.6` as TabbyAPI requires. `torchvision` and `torchaudio` are not installed; an older Torch build of those caused a native crash while importing ExLlamaV3.
+`rl313-turbo` is the production environment. Install Tabby's base project without CUDA extras:
+
+```powershell
+& C:\envs\rl313-turbo\Scripts\python.exe -m pip install --no-build-isolation C:\Users\denys\Documents\GitHub\TabbyAPI
+```
+
+Tabby's `cu12`/`cu13` extras select release EXL3/Torch wheels. Those extras do not describe this source-built dev deployment. The updater deliberately uses `--no-deps --no-build-isolation` and fails if `pip check` finds unmet dependencies.
+
+Stop the managed runtime before updating. Run from the SiftKit checkout with the existing CUDA 13.2 toolchain:
+
+```powershell
+node --experimental-strip-types scripts/update-exllamav3.ts --mode update `
+  --repo D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench `
+  --python C:\envs\rl313-turbo\Scripts\python.exe `
+  --cuda D:\personal\models\elx3\.tmp\turbo-match\cuda-13.2.2-build\toolkit `
+  --vcvars "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" `
+  --scratch "$env:TEMP\exl3-production-update"
+```
+
+The updater rejects dirty or divergent source, fetches official `dev`, fast-forwards without a merge commit, and rebuilds against the installed GPU architecture. It installs the native extension into the interpreter's site-packages and records its SHA-256, source revision, import paths, and Torch/CUDA versions in `C:\envs\rl313-turbo\exllamav3-build.json`. Use the same command with `--mode verify` to verify that manifest and `pip check` without updating. Remove the caller's scratch directory after reviewing the build log.
+
+Custom qbench, quantization and zero-copy engine commits remain on the historical EXL3 `dev` branch and in experimental checkouts; they are not selected by production. The previous Tabby customizations remain on its historical `siftkit` branch. The displaced untracked benchmark cache is preserved in `D:\personal\models\elx3\benchmark_tools\experimental-cache-20260908`.
+
+## Usage and persisted residency
+
+SiftKit consumes upstream `usage.prompt_tokens_details.cached_tokens` and `usage.completion_tokens_details.accepted_prediction_tokens` / `rejected_prediction_tokens`, including zero-filled detail objects and final streaming usage. No local Tabby reporting patch is required.
+
+Request `stream_options: { include_usage: true }` for both streaming and non-streaming Tabby requests. SiftKit already sends this field; upstream returns `usage: null` when it is omitted.
+
+Schema v66 validates residency in active presets, chat snapshots, benchmark configurations and benchmark cases. The former v65 conversion is removed. Databases containing obsolete actions or missing required `IdleAction` values fail before their marker advances; stored values are not rewritten. Current lifecycle actions are `load/unload`, and idle actions are `none/unload`.

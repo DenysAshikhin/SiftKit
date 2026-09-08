@@ -65,6 +65,36 @@ function buildStreamingConfig(): SiftConfig {
 
 const streamingConfig = buildStreamingConfig();
 
+for (const scenario of [
+  { name: 'zero defaults', cached: 0, accepted: 0, rejected: 0, evaluated: 10 },
+  { name: 'warm prompt and aggregated drafts', cached: 8, accepted: 12, rejected: 3, evaluated: 2 },
+  { name: 'cached count exceeds prompt', cached: 12, accepted: 0, rejected: 4, evaluated: 0 },
+]) {
+  test(`upstream Tabby final streaming usage preserves ${scenario.name}`, async () => {
+    const http = new StreamingHttpClient([
+      { choices: [{ delta: { content: 'answer' } }] },
+      { choices: [], usage: {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+        prompt_tokens_details: { cached_tokens: scenario.cached },
+        completion_tokens_details: {
+          accepted_prediction_tokens: scenario.accepted,
+          rejected_prediction_tokens: scenario.rejected,
+        },
+      } },
+    ]);
+    const response = await new InferenceClient(http).chat({
+      config: streamingConfig, model: 'local', messages: [{ role: 'user', content: 'hello' }],
+      tools: [], maxTokens: 64, allowedToolNames: [],
+    });
+    assert.equal(response.usage.promptCacheTokens, scenario.cached);
+    assert.equal(response.usage.promptEvalTokens, scenario.evaluated);
+    assert.equal(response.usage.speculativeAcceptedTokens, scenario.accepted);
+    assert.equal(response.usage.speculativeGeneratedTokens, scenario.accepted + scenario.rejected);
+  });
+}
+
 test('inference streaming client assembles reasoning, content, timings, and native tool chunks', async () => {
   const thinkingUpdates: string[] = [];
   const contentUpdates: LiveContentSnapshot[] = [];

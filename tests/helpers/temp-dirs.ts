@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { findNearestSiftKitRepoRoot } from '../../src/lib/paths.js';
 
 /** The one wording for a leaked temp directory, so acceptance checks grep for a single string. */
 export const TEMP_DIR_LEAK_HEADER = 'TEMP DIRECTORIES LEFT BEHIND';
@@ -77,7 +78,11 @@ export class TempDirRegistry {
   }
 
   create(prefix: string): string {
-    const directory = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), prefix));
+    const tempRoot = fs.realpathSync(os.tmpdir());
+    if (findNearestSiftKitRepoRoot(tempRoot) !== null) {
+      throw new Error('Test temp directories must be outside the SiftKit checkout to isolate runtime state.');
+    }
+    const directory = fs.mkdtempSync(path.join(tempRoot, prefix));
     this.directories.push(directory);
     return directory;
   }

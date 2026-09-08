@@ -38,6 +38,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
       id: 'one',
       label: 'One',
       Backend: 'exl3',
+      IdleAction: 'unload',
       Model: 'one.exl3',
       NumCtx: 155_000,
       MaxTokens: 15_000,
@@ -46,6 +47,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
       id: 'two',
       label: 'Two',
       Backend: 'exl3',
+      IdleAction: 'unload',
       Model: 'two.exl3',
       NumCtx: 32_000,
       MaxTokens: 4_096,
@@ -133,8 +135,8 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
       const migratedPresets = parseJsonValueText(presetJson);
       assert.ok(Array.isArray(migratedPresets));
       assert.deepEqual(migratedPresets, [
-        { id: 'one', label: 'One', Backend: 'exl3', Model: 'one.exl3', NumCtx: 155_000 },
-        { id: 'two', label: 'Two', Backend: 'exl3', Model: 'two.exl3', NumCtx: 32_000 },
+        { id: 'one', label: 'One', Backend: 'exl3', IdleAction: 'unload', Model: 'one.exl3', NumCtx: 155_000 },
+        { id: 'two', label: 'Two', Backend: 'exl3', IdleAction: 'unload', Model: 'two.exl3', NumCtx: 32_000 },
       ]);
 
       const migratedSession = StringValueRowSchema.parse(
@@ -148,6 +150,7 @@ test('v59 strips model MaxTokens from executable state but preserves historical 
         id: 'one',
         label: 'One',
         Backend: 'exl3',
+        IdleAction: 'unload',
         Model: 'one.exl3',
         NumCtx: 155_000,
         Temperature: 0.6,
