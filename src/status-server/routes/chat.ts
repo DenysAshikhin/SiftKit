@@ -124,6 +124,10 @@ import {
 } from './chat-session-operation-endpoint.js';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
 import {
+  GetActiveChatOperationsEndpoint,
+  GetChatOperationStreamEndpoint,
+} from './chat-operation-attach.js';
+import {
   ChatRepoAgentApprovalModeEndpoint,
   ChatRepoAgentDecideEndpoint,
   GetChatRepoAgentActiveEndpoint,
@@ -1736,6 +1740,8 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/approval-mode$/u, endpoint: new ChatRepoAgentApprovalModeEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation$/u, endpoint: new GetChatOperationEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/operations$/u, endpoint: new GetActiveChatOperationsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation\/stream$/u, endpoint: new GetChatOperationStreamEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/stop$/u, endpoint: new StopChatOperationEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
 ]);
