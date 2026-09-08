@@ -50,7 +50,8 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
-import { ChatStreamProgressWriter, buildChatSessionResponse } from './chat.js';
+import { ChatStreamProgressWriter, buildChatSessionResponse, requireChatOperationBroadcast } from './chat.js';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
@@ -153,14 +154,17 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     }
     const binding: ChatRepoAgentRunBinding = { runId: started.runId, decisions: [] };
     ctx.chatRepoAgentRuns.set(request.sessionId, binding);
+    const stream = requireChatOperationBroadcast(ctx, request);
+    stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
     const sse = new SseResponseWriter(req, res);
     sse.open();
-    const progressWriter = new ChatStreamProgressWriter(sse, null, 'rs', started.admission.requestId, false);
+    stream.attach(new ChatOperationSseSubscriber(sse));
+    const progressWriter = new ChatStreamProgressWriter(stream, null, 'rs', started.admission.requestId, false);
     const detach = started.session.attach({
       wantsLiveText: true,
       writeProgress: (event) => {
         if (event.kind === 'approval_request') {
-          sse.writeEvent('approval', {
+          stream.writeEvent('approval', {
             runId: started.runId,
             approvalId: event.approvalId,
             toolName: event.toolName,
@@ -193,10 +197,10 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(activeSession),
       });
       progressWriter.flushPending();
-      sse.writeEvent('done', buildChatSessionResponse(config, updatedSession));
+      stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
-      sse.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      stream.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     } finally {
       detach();

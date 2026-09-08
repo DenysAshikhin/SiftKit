@@ -70,6 +70,8 @@ import { buildChatPromptContext } from '../chat-prompt-context.js';
 import { ChatMemorySeam } from '../chat-memory-seam.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
+import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
 import {
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
@@ -146,8 +148,11 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
+/** Anything that accepts a chat stream frame. Structural, so tests can pass a recording stub. */
+export type ChatFrameWriter = Pick<ChatOperationBroadcast, 'writeEvent'>;
+
 function forwardRepoSearchToolEvent(
-  writer: SseResponseWriter,
+  writer: ChatFrameWriter,
   event: ChatStreamToolEvent,
 ): void {
   if (event.kind === 'tool_start') {
@@ -180,7 +185,7 @@ function forwardRepoSearchToolEvent(
 }
 
 export function forwardRepoSearchUsageEvent(
-  writer: Pick<SseResponseWriter, 'writeEvent'>,
+  writer: ChatFrameWriter,
   event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
 ): void {
   writer.writeEvent('usage', {
@@ -193,7 +198,7 @@ export function forwardRepoSearchUsageEvent(
 }
 
 export function forwardRepoSearchPromptEvent(
-  writer: Pick<SseResponseWriter, 'writeEvent'>,
+  writer: ChatFrameWriter,
   event: Extract<RepoSearchProgressEvent, { kind: 'prompt' }>,
 ): void {
   writer.writeEvent('prompt', {
@@ -340,7 +345,7 @@ type SessionSpeculativeMetrics = {
 
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
-    private readonly writer: SseResponseWriter,
+    private readonly writer: ChatFrameWriter,
     private readonly phaseTracker: ChatTurnPhaseTracker | null,
     private readonly scope: 'plan' | 'rs',
     private readonly requestId: string,
@@ -504,6 +509,17 @@ function registerChatAbort<T>(
   }
 }
 
+export function requireChatOperationBroadcast<T>(
+  ctx: ServerContext,
+  request: ChatSessionOperationRequest<T>,
+): ChatOperationBroadcast {
+  const broadcast = request.lease ? ctx.chatSessionOperations.getBroadcast(request.lease.sessionId) : null;
+  if (!broadcast) {
+    throw new Error(`Chat session ${request.sessionId} has no active operation broadcast.`);
+  }
+  return broadcast;
+}
+
 function finishStoppedChatStream(options: {
   signal: AbortSignal;
   runtimeRoot: string;
@@ -513,7 +529,7 @@ function finishStoppedChatStream(options: {
   imageMeta: ImageMetadata[];
   stoppedMessages: PersistedChatTranscriptMessage[];
   configPath: string;
-  writer: SseResponseWriter;
+  writer: ChatFrameWriter;
 }): boolean {
   if (!options.signal.aborted) {
     return false;
@@ -1110,13 +1126,20 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const messageRequest = request.value;
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
+    const stream = requireChatOperationBroadcast(ctx, request);
+    // Buffered before the queue wait, so a client that attaches while this turn is still queued
+    // already sees the prompt that started it.
+    stream.writeEvent('submitted', { content: messageRequest.content, images: messageRequest.images });
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
+      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
+      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
       return;
     }
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
+      stream.writeEvent('error', { error: 'Session not found.' });
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
@@ -1124,17 +1147,20 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      stream.writeEvent('error', { error: message });
+      sendJson(res, 503, { error: message });
       return;
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
+    stream.attach(new ChatOperationSseSubscriber(sseWriter));
     const userContent = messageRequest.content;
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, true);
+    const progressWriter = new ChatStreamProgressWriter(stream, phaseTracker, 'plan', engineRequestId, true);
     let selectedImagesForError: { images: string[]; imageMeta: ImageMetadata[]; visionMaxImagePixels: number } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
@@ -1237,7 +1263,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         updatedSession.messages ?? [],
       );
       progressWriter.flushPending();
-      sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
+      stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
       if (!finishStoppedChatStream({
@@ -1249,9 +1275,9 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         imageMeta: selectedImagesForError?.imageMeta ?? [],
         stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
-        writer: sseWriter,
+        writer: stream,
       })) {
-        sseWriter.writeEvent('error', {
+        stream.writeEvent('error', {
           error: formatChatEngineError(error instanceof Error ? error : String(error)),
         });
       }
@@ -1350,13 +1376,20 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     const runtimeRoot = getRuntimeRoot();
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
+    const stream = requireChatOperationBroadcast(ctx, request);
+    // Buffered before the queue wait, so a client that attaches while this turn is still queued
+    // already sees the prompt that started it.
+    stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
+      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
+      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
       return;
     }
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
+      stream.writeEvent('error', { error: 'Session not found.' });
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
@@ -1364,13 +1397,16 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      stream.writeEvent('error', { error: message });
+      sendJson(res, 503, { error: message });
       return;
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
+    stream.attach(new ChatOperationSseSubscriber(sseWriter));
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'plan', engineRequestId, false);
+    const progressWriter = new ChatStreamProgressWriter(stream, null, 'plan', engineRequestId, false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
@@ -1390,7 +1426,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();
-      sseWriter.writeEvent('done', {
+      stream.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
       });
@@ -1405,9 +1441,9 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         imageMeta: [],
         stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
-        writer: sseWriter,
+        writer: stream,
       })) {
-        sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+        stream.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       }
     } finally {
       progressWriter.flushPending();
@@ -1504,13 +1540,20 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     const runtimeRoot = getRuntimeRoot();
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
+    const stream = requireChatOperationBroadcast(ctx, request);
+    // Buffered before the queue wait, so a client that attaches while this turn is still queued
+    // already sees the prompt that started it.
+    stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
+      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
+      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
       return;
     }
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
+      stream.writeEvent('error', { error: 'Session not found.' });
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
@@ -1518,13 +1561,16 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      stream.writeEvent('error', { error: message });
+      sendJson(res, 503, { error: message });
       return;
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
+    stream.attach(new ChatOperationSseSubscriber(sseWriter));
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'rs', engineRequestId, false);
+    const progressWriter = new ChatStreamProgressWriter(stream, null, 'rs', engineRequestId, false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
@@ -1544,7 +1590,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();
-      sseWriter.writeEvent('done', {
+      stream.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
       });
@@ -1559,9 +1605,9 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         imageMeta: [],
         stoppedMessages: progressWriter.getStoppedMessages(),
         configPath,
-        writer: sseWriter,
+        writer: stream,
       })) {
-        sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+        stream.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       }
     } finally {
       progressWriter.flushPending();
