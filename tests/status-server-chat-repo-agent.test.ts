@@ -6,6 +6,7 @@ import {
   ActiveChatRepoAgentResponseSchema,
   ChatRepoAgentApprovalModeResponseSchema,
   ChatSessionResponseSchema,
+  ChatStreamApprovalResolvedSchema,
   ChatStreamApprovalSchema,
   ChatStreamTextDeltaSchema,
 } from '@siftkit/contracts';
@@ -815,4 +816,28 @@ test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame 
   assert.equal(response.events.some((event) => event.event === 'approval'), true);
   assert.equal(response.events.some((event) => event.event === 'error'), false);
   assert.equal(readDoneResponse(response).session.messages.at(-1)?.content.includes('escalated and approved'), true);
+});
+
+test('deciding an approval broadcasts an approval_resolved frame to attached readers', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-resolved-', t);
+  const sessionId = await createSession(harness, 'Resolved');
+  const run = startApprovalRun(harness, sessionId, 'resolved.txt');
+  await waitForApproval(harness, sessionId);
+  const attached = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/operation/stream`,
+    { method: 'GET', timeoutMs: 20_000 },
+  );
+  const decide = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/decide`,
+    { method: 'POST', body: JSON.stringify({ decision: 'approve' }) },
+  );
+  assert.equal(decide.statusCode, 200);
+  await run;
+  const frames = await attached;
+  const resolved = frames.events.filter((event) => event.event === 'approval_resolved');
+  assert.equal(resolved.length, 1);
+  const parsed = ChatStreamApprovalResolvedSchema.parse(resolved[0]?.payload);
+  assert.equal(parsed.decision.decision, 'approve');
+  assert.equal(frames.events.some((event) => event.event === 'attached'), true);
+  assert.equal(frames.events.some((event) => event.event === 'approval'), false);
 });

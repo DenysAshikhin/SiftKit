@@ -238,6 +238,32 @@ function recordChatRepoAgentDecision(
   return record;
 }
 
+/** Tells every reader of this session's stream that a parked approval is now decided. */
+function broadcastApprovalResolved(
+  ctx: ServerContext,
+  sessionId: string,
+  runId: string,
+  approval: RepoAgentApproval,
+  decision: RepoAgentDecision,
+  decidedAtUtc: string,
+): void {
+  const broadcast = ctx.chatSessionOperations.getBroadcast(sessionId);
+  if (!broadcast) {
+    return;
+  }
+  broadcast.writeEvent('approval_resolved', {
+    approval: {
+      runId,
+      approvalId: approval.approvalId,
+      toolName: approval.toolName,
+      command: approval.command,
+      reviewPayload: approval.reviewPayload ?? null,
+    },
+    decision,
+    decidedAtUtc,
+  });
+}
+
 export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -274,6 +300,7 @@ export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
       return;
     }
     const record = recordChatRepoAgentDecision(binding, parsed.data, approval);
+    broadcastApprovalResolved(ctx, sessionId, binding.runId, approval, parsed.data, record.decidedAtUtc);
     sendJson(res, 200, ChatRepoAgentDecideResponseSchema.parse({
       ok: true, runId: binding.runId, decidedAtUtc: record.decidedAtUtc,
     }));
@@ -307,6 +334,9 @@ export class ChatRepoAgentApprovalModeEndpoint implements RouteEndpoint {
     const { binding, session } = active;
     const released = session.setApprovalMode(parsed.data.approval);
     const record = released ? recordChatRepoAgentDecision(binding, { decision: 'approve' }, released) : null;
+    if (released && record) {
+      broadcastApprovalResolved(ctx, sessionId, binding.runId, released, { decision: 'approve' }, record.decidedAtUtc);
+    }
     sendJson(res, 200, ChatRepoAgentApprovalModeResponseSchema.parse({
       ok: true,
       runId: binding.runId,
