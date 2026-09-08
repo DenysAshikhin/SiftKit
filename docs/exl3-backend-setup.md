@@ -3,14 +3,16 @@
 ## Installed deployment
 
 - TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `92198cca1aa48f83121027f5b9058c24d7c2d894`.
-- ExLlamaV3 checkout: `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench`, branch `production-upstream` tracking official `dev` at `a99c30994f6d9173e505254e81b0e5d784caa36e`. The directory name is retained for deployment continuity; its tracked source is pristine upstream.
-- Python: `C:\envs\rl313-turbo\Scripts\python.exe` (`3.13.14`)
+- ExLlamaV3 checkout: `C:\Users\denys\Documents\GitHub\SiftKit\pristine_exle\pr341-current-dev`, branch `deployment/pr341-pr346` at `dfd22713fa31bb2a2a743e90aaf2f2ea69736645`: official `dev` (`a99c309`) merged with complete PRs #341 (`ba5473b`, page-locked expert arena) and #346 (`2f131dc`, pinned vision MLP handles).
+- Python: `C:\envs\rl313-pr341-pr346\Scripts\python.exe` (`3.13.14`)
 - Torch: `2.13.0+cu132`; CUDA build: `13.2`
-- ExLlamaV3: `1.4.8`, editable source with its native extension rebuilt against the installed Torch/CUDA stack using `scripts/update-exllamav3.ts`.
+- ExLlamaV3: `1.4.8`, editable source with its native extension rebuilt against the installed Torch/CUDA stack. Build provenance is in `C:\envs\rl313-pr341-pr346\exllamav3-build.json`.
 - Model: `D:\personal\models\elx3\3.8_27b_4.9bpw`; active preset `exl3-3-6-27b-2`.
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
-- Managed command: `C:\envs\rl313-turbo\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
+- Managed command: `C:\envs\rl313-pr341-pr346\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
 - API: `http://127.0.0.1:8098/v1`
+
+This is a temporary experimental deployment; retain the checkout and its environment while selected. The previous pristine upstream checkout at `D:\personal\models\elx3\benchmark_tools\exllamav3-dev-qbench` and environment `C:\envs\rl313-turbo` are preserved for rollback. See the [deployment and validation record](analysis/2026-09-08-pr341-pr346-deployment.md).
 
 The active preset enables vision and MTP drafting. Tabby loads the vision tower, draft component, and main model. Deployment settings come from the persisted preset; the ignored `config.yml` has older model defaults and must not be used alone to reproduce the managed deployment.
 
@@ -40,13 +42,15 @@ Set `Server.Engines.Exl3.AdminApiKey` to Tabby's admin API bearer token. SiftKit
 
 Saving settings persists the configuration. `POST /status/restart` applies it to the managed runtime; `GET /runtime/inference` reports the applied state. A runtime switch drains active work, pauses new admission, stops or unloads the old runtime, starts and verifies the target model, then resumes admission. This preset-switch drain is separate from normal request concurrency.
 
+Changing the engine interpreter (`Server.Engines.Exl3.PythonPath`) requires a full SiftKit status-server restart after unloading the managed model. The runtime captures engine configuration at server startup; a backend-only restart continues using the previously captured interpreter.
+
 Tabby's per-load API supports model, context/cache size, and cache mode. Managed-only preset fields are disabled for external servers, including parallel slots, host cache budgets, speculative decoding, and vision controls. EXL3-compatible cache modes are `FP16`, `8,8`, `4,4`, `5,5`, `8,4`, and `8,5`.
 
 When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Tabby running. The next chat or tokenization request reloads it before proxying. This also applies to remote callers and other SiftKit instances. `GET /v1/models` is deliberately no-wake.
 
 ## Environment notes
 
-`rl313-turbo` is the production environment. Install Tabby's base project without CUDA extras:
+`rl313-pr341-pr346` is the selected temporary environment. `rl313-turbo` is the preserved upstream environment. The commands below maintain that upstream environment only; the updater rejects the merged experimental checkout. Install Tabby's base project without CUDA extras:
 
 ```powershell
 & C:\envs\rl313-turbo\Scripts\python.exe -m pip install --no-build-isolation C:\Users\denys\Documents\GitHub\TabbyAPI
@@ -67,7 +71,7 @@ node --experimental-strip-types scripts/update-exllamav3.ts --mode update `
 
 The updater rejects dirty or divergent source, fetches official `dev`, fast-forwards without a merge commit, and rebuilds against the installed GPU architecture. It installs the native extension into the interpreter's site-packages and records its SHA-256, source revision, import paths, and Torch/CUDA versions in `C:\envs\rl313-turbo\exllamav3-build.json`. Use the same command with `--mode verify` to verify that manifest and `pip check` without updating. Remove the caller's scratch directory after reviewing the build log.
 
-Custom qbench, quantization and zero-copy engine commits remain on the historical EXL3 `dev` branch and in experimental checkouts; they are not selected by production. The previous Tabby customizations remain on its historical `siftkit` branch. The displaced untracked benchmark cache is preserved in `D:\personal\models\elx3\benchmark_tools\experimental-cache-20260908`.
+Historical qbench and quantization commits remain on the historical EXL3 `dev` branch and are not selected. The temporary deployment adds only PRs #341 and #346 to current upstream. The previous Tabby customizations remain on its historical `siftkit` branch. The displaced untracked benchmark cache is preserved in `D:\personal\models\elx3\benchmark_tools\experimental-cache-20260908`.
 
 ## Usage and persisted residency
 
