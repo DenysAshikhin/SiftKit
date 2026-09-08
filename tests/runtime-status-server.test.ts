@@ -7,6 +7,8 @@ import { z } from 'zod';
 import type { ActiveStatusRun } from '@siftkit/contracts';
 
 import { loadConfig, getConfigPath } from '../src/config/index.js';
+import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getDefaultMetrics, writeMetrics } from '../src/status-server/metrics.js';
 
 const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
 const RequestJsonRowSchema = z.object({ request_json: z.string().nullish() }).optional();
@@ -680,37 +682,16 @@ test('real status server resets metrics when metrics schema is outdated', async 
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-
-    fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
-    fs.writeFileSync(metricsPath, JSON.stringify({
+    writeMetrics(idleSummaryDbPath, {
+      ...getDefaultMetrics(),
       inputCharactersTotal: 99,
       inputTokensTotal: 22,
       outputTokensTotal: 11,
-    }, null, 2), 'utf8');
-
-    fs.mkdirSync(path.dirname(idleSummaryDbPath), { recursive: true });
-    const database = new Database(idleSummaryDbPath);
+    });
+    const database = getRuntimeDatabase(idleSummaryDbPath);
     try {
-      database.exec(`
-        CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          emitted_at_utc TEXT NOT NULL,
-          completed_request_count INTEGER NOT NULL,
-          input_characters_total INTEGER NOT NULL,
-          output_characters_total INTEGER NOT NULL,
-          input_tokens_total INTEGER NOT NULL,
-          output_tokens_total INTEGER NOT NULL,
-          thinking_tokens_total INTEGER NOT NULL,
-          saved_tokens INTEGER NOT NULL,
-          saved_percent REAL,
-          compression_ratio REAL,
-          request_duration_ms_total INTEGER NOT NULL,
-          avg_request_ms REAL,
-          avg_tokens_per_second REAL
-        );
-      `);
+      database.exec('UPDATE runtime_metrics_totals SET schema_version = 1 WHERE id = 1');
       database.prepare(`
         INSERT INTO idle_summary_snapshots (
           emitted_at_utc,
@@ -743,7 +724,7 @@ test('real status server resets metrics when metrics schema is outdated', async 
         10.0,
       );
     } finally {
-      database.close();
+      closeRuntimeDatabase();
     }
 
     await withRealStatusServer(async ({ statusUrl }) => {

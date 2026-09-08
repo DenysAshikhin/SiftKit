@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 
 import type { KeyCustody } from '@siftkit/contracts';
 import { z } from '../src/lib/zod.js';
@@ -279,6 +280,27 @@ test('restore refuses a tampered manifest hash before touching anything', async 
   });
 });
 
+test('restore preserves sparse FTS rowids and their canonical assertion mappings', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const seeded = seedOwnerAssertion(context, { objectName: 'SparseSearchToken' });
+    context.database.prepare('UPDATE graph_assertions_fts SET rowid = 101 WHERE assertion_id = ?').run(seeded.assertion.id);
+    context.database.prepare('UPDATE graph_assertions SET fts_rowid = 101 WHERE id = ?').run(seeded.assertion.id);
+    const backup = await archiveBytes(backupServiceFor(context).createBackup());
+    const resets = factoryResetServiceFor(context);
+    resets.confirm(context.ownerId, resets.preview(context.ownerId).previewToken);
+    const restores = restoreServiceFor(context);
+    const preview = await restores.preview(archiveUploadPath(backup));
+    await restores.confirm(preview.uploadId, preview.confirmToken);
+    const matches = z.array(z.object({ id: z.string(), rowid: z.number() })).parse(context.database.prepare(`
+      SELECT graph_assertions.id, graph_assertions_fts.rowid
+      FROM graph_assertions_fts JOIN graph_assertions ON graph_assertions.fts_rowid = graph_assertions_fts.rowid
+      WHERE graph_assertions_fts MATCH 'SparseSearchToken'
+    `).all());
+    assert.deepEqual(matches, [{ id: seeded.assertion.id, rowid: 101 }]);
+    assert.deepEqual(context.graph.assertions.searchAssertions(context.ownerId, 'SparseSearchToken', 10), [seeded.assertion.id]);
+  });
+});
+
 test('restore refuses a newer schema version', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Psi Tool' });
@@ -294,6 +316,59 @@ test('restore refuses a newer schema version', async () => {
     await assert.rejects(restoreServiceFor(context).preview(rebuild(archive)), /schema/iu);
   });
 });
+
+for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot', 'missing marker', 'missing table', 'missing column', 'view replacing table'] as const) {
+  test(`restore rejects ${invalidFormat} and preserves rows, blobs, and custody`, async () => {
+    await withAssistantContextAsync(async (context) => {
+      const seeded = seedOwnerAssertion(context, { objectName: 'Preserved Tool' });
+      const custody = custodyFor(context);
+      const beforeCustody = custody.exportForBackup();
+      const beforeCustodyStatus = custody.status();
+      const blob = context.graph.evidence.findLatestBlob(context.ownerId);
+      assert.ok(blob !== null);
+      const beforeBlob = context.graph.evidence.readBlobEnvelope(blob);
+      const archive = await archiveEntries(backupServiceFor(context).createBackup());
+      const manifest = ManifestSchema.parse(JSON.parse(archive.get('manifest.json')?.toString('utf8') ?? ''));
+      if (invalidFormat === 'older manifest' || invalidFormat === 'newer manifest') {
+        manifest.schemaVersion = CURRENT_SCHEMA_VERSION + (invalidFormat === 'older manifest' ? -1 : 1);
+      } else {
+        const snapshot = archive.get('snapshot.sqlite');
+        assert.ok(snapshot !== undefined);
+        const snapshotPath = path.join(createManagedTempDir('siftkit-invalid-snapshot-'), 'snapshot.sqlite');
+        fs.writeFileSync(snapshotPath, snapshot);
+        const database = new Database(snapshotPath);
+        try {
+          switch (invalidFormat) {
+            case 'older snapshot': database.prepare('UPDATE runtime_schema SET version = ?').run(CURRENT_SCHEMA_VERSION - 1); break;
+            case 'missing marker': database.exec('DROP TABLE runtime_schema'); break;
+            case 'missing table': database.exec('DROP TABLE assistant_jobs'); break;
+            case 'missing column': database.exec('ALTER TABLE candidate_assertions DROP COLUMN hold_json'); break;
+            case 'view replacing table': {
+              const columns = z.array(z.object({ name: z.string() })).parse(database.prepare('PRAGMA table_info(assistant_jobs)').all());
+              database.exec(`DROP TABLE assistant_jobs; CREATE VIEW assistant_jobs AS SELECT ${columns.map((column) => `NULL AS "${column.name}"`).join(', ')} WHERE 0`);
+              break;
+            }
+          }
+        } finally {
+          database.close();
+        }
+        const changed = fs.readFileSync(snapshotPath);
+        archive.set('snapshot.sqlite', changed);
+        manifest.files['snapshot.sqlite'] = createHash('sha256').update(changed).digest('hex');
+      }
+      archive.set('manifest.json', Buffer.from(JSON.stringify(manifest)));
+      const restores = restoreServiceFor(context, custody);
+      await assert.rejects(async () => {
+        const preview = await restores.preview(rebuild(archive));
+        await restores.confirm(preview.uploadId, preview.confirmToken);
+      }, /schema|column|table|version/iu);
+      assert.deepEqual(context.graph.assertions.requireAssertion(seeded.assertion.id), seeded.assertion);
+      assert.deepEqual(context.graph.evidence.readBlobEnvelope(blob), beforeBlob);
+      assert.deepEqual(custody.exportForBackup(), beforeCustody);
+      assert.deepEqual(custody.status(), beforeCustodyStatus);
+    });
+  });
+}
 
 test('a wrong confirm token is a conflict and an unknown upload is a not-found', async () => {
   await withAssistantContextAsync(async (context) => {

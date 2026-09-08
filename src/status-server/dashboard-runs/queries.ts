@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 import { z } from '../../lib/zod.js';
 import { getRuntimeDatabasePath } from '../../config/paths.js';
 import { type JsonlEvent } from '../../state/jsonl-transcript.js';
-import { ensureRunLogsTable } from './table.js';
 import {
   RunLogDbRowSchema,
   type DashboardRunsQueryOptions,
@@ -133,7 +132,6 @@ export function queryDashboardRunsFromDb(
   database: DatabaseInstance,
   options: DashboardRunsQueryOptions = {},
 ): RunRecord[] {
-  ensureRunLogsTable(database);
   const search = normalizeSearchToken(options.search);
   const kind = normalizeSearchToken(options.kind);
   const status = normalizeSearchToken(options.status);
@@ -177,7 +175,6 @@ export function queryDashboardRunDetailFromDb(
   database: DatabaseInstance,
   runId: string,
 ): { run: RunRecord; events: JsonlEvent[] } | null {
-  ensureRunLogsTable(database);
   const rawRow = database.prepare(`
     SELECT ${RUN_LOG_DETAIL_SELECT_COLUMNS}
     FROM run_logs

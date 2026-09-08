@@ -24,34 +24,7 @@ export function createRuntimeErrorEventId(): string {
   return crypto.randomUUID();
 }
 
-export function ensureRuntimeErrorEventsTable(database: DatabaseInstance): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS runtime_error_events (
-      id TEXT PRIMARY KEY,
-      created_at_utc TEXT NOT NULL,
-      source TEXT NOT NULL,
-      route TEXT NOT NULL,
-      method TEXT NOT NULL,
-      request_id TEXT,
-      task_kind TEXT,
-      status_code INTEGER NOT NULL,
-      error_name TEXT NOT NULL,
-      error_message TEXT NOT NULL,
-      error_stack TEXT,
-      cause_name TEXT,
-      cause_message TEXT,
-      cause_stack TEXT,
-      diagnostic_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_created
-      ON runtime_error_events(created_at_utc DESC);
-    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_route_created
-      ON runtime_error_events(route, created_at_utc DESC);
-  `);
-}
-
 export function insertRuntimeErrorEvent(database: DatabaseInstance, input: RuntimeErrorEventInput): string {
-  ensureRuntimeErrorEventsTable(database);
   const id = input.id?.trim() || createRuntimeErrorEventId();
   const diagnostic: ErrorDiagnostic = serializeErrorDiagnostic(toError(input.error));
   const cause = getPrimaryCauseDiagnostic(diagnostic);

@@ -2,37 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 
 import {
-  ensureRunLogsTable,
   normalizeIdleSummarySnapshotRow,
 } from '../src/status-server/dashboard-runs.js';
 import {
-  ensureIdleSummarySnapshotsTable,
   IdleSummarySnapshotDbRowSchema,
 } from '../src/status-server/idle-summary.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectorySync } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
-  readMetrics,
-} from '../src/status-server/metrics.js';
-import {
-  CURRENT_SCHEMA_VERSION,
   closeRuntimeDatabase,
   getRuntimeDatabase,
-  getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
-import {
-  LEGACY_ACTIVE_MODEL_PRESET_COLUMN,
-  LEGACY_MODEL_PRESETS_COLUMN,
-} from '../src/state/migrations/constants.js';
-
-const LEGACY_PRESETS_COLUMN = LEGACY_MODEL_PRESETS_COLUMN;
-const LEGACY_ACTIVE_PRESET_COLUMN = LEGACY_ACTIVE_MODEL_PRESET_COLUMN;
 
 // SQLite .get()/.all() return `unknown`; narrow rows to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {
@@ -70,10 +53,10 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
   }
 }
 
-test('ensureRunLogsTable preserves existing run token fields', () => {
-  const database = new Database(':memory:');
+test('runtime initialization preserves existing run token fields', () => {
+  const databasePath = path.join(createManagedTempDir('siftkit-current-store-'), 'runtime.sqlite');
+  let database = getRuntimeDatabase(databasePath);
   try {
-    ensureRunLogsTable(database);
     database.prepare(`
       INSERT INTO run_logs (
         run_id, request_id, run_kind, run_group, terminal_state,
@@ -112,7 +95,8 @@ test('ensureRunLogsTable preserves existing run token fields', () => {
       null,
     );
 
-    ensureRunLogsTable(database);
+    closeRuntimeDatabase();
+    database = getRuntimeDatabase(databasePath);
 
     const row = asRow(database.prepare(`
       SELECT input_tokens, prompt_eval_tokens
@@ -122,14 +106,14 @@ test('ensureRunLogsTable preserves existing run token fields', () => {
     assert.equal(row.input_tokens, 123);
     assert.equal(row.prompt_eval_tokens, null);
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 });
 
-test('ensureRunLogsTable does not rewrite existing run rows', () => {
-  const database = new Database(':memory:');
+test('runtime initialization does not rewrite existing run rows', () => {
+  const databasePath = path.join(createManagedTempDir('siftkit-current-store-'), 'runtime.sqlite');
+  let database = getRuntimeDatabase(databasePath);
   try {
-    ensureRunLogsTable(database);
     database.prepare(`
       INSERT INTO run_logs (
         run_id, request_id, run_kind, run_group, terminal_state,
@@ -168,21 +152,20 @@ test('ensureRunLogsTable does not rewrite existing run rows', () => {
       null,
     );
 
-    ensureRunLogsTable(database);
-    const before = Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes);
-    ensureRunLogsTable(database);
-    const after = Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes);
-
-    assert.equal(after - before, 0);
+    const before = asRows(database.prepare('SELECT * FROM run_logs').all());
+    closeRuntimeDatabase();
+    database = getRuntimeDatabase(databasePath);
+    assert.deepEqual(asRows(database.prepare('SELECT * FROM run_logs').all()), before);
+    assert.equal(Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes), 0);
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 });
 
-test('ensureRunLogsTable creates indexes for request lookup and dashboard ordering', () => {
-  const database = new Database(':memory:');
+test('runtime initialization creates indexes for request lookup and dashboard ordering', () => {
+  const databasePath = path.join(createManagedTempDir('siftkit-current-store-'), 'runtime.sqlite');
+  const database = getRuntimeDatabase(databasePath);
   try {
-    ensureRunLogsTable(database);
 
     const indexes = asRows(database.prepare("PRAGMA index_list('run_logs')").all());
     assert.equal(indexes.some((row) => row.name === 'idx_run_logs_request_id'), true);
@@ -212,14 +195,14 @@ test('ensureRunLogsTable creates indexes for request lookup and dashboard orderi
       true,
     );
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 });
 
-test('ensureIdleSummarySnapshotsTable preserves existing token totals and exposes inputOutputRatio', () => {
-  const database = new Database(':memory:');
+test('runtime initialization preserves existing token totals and exposes inputOutputRatio', () => {
+  const databasePath = path.join(createManagedTempDir('siftkit-current-store-'), 'runtime.sqlite');
+  let database = getRuntimeDatabase(databasePath);
   try {
-    ensureIdleSummarySnapshotsTable(database);
     database.prepare(`
       INSERT INTO idle_summary_snapshots (
         emitted_at_utc,
@@ -311,7 +294,8 @@ test('ensureIdleSummarySnapshotsTable preserves existing token totals and expose
       45,
     );
 
-    ensureIdleSummarySnapshotsTable(database);
+    closeRuntimeDatabase();
+    database = getRuntimeDatabase(databasePath);
 
     const row = IdleSummarySnapshotDbRowSchema.parse(database.prepare('SELECT * FROM idle_summary_snapshots').get());
     assert.equal(Number(row.input_tokens_total), 123);
@@ -323,14 +307,14 @@ test('ensureIdleSummarySnapshotsTable preserves existing token totals and expose
     assert.equal(snapshot?.taskTotals.summary.promptEvalTokensTotal, 0);
     assert.equal(snapshot?.inputOutputRatio, 2.733);
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 });
 
-test('ensureIdleSummarySnapshotsTable creates emitted-at ordering index', () => {
-  const database = new Database(':memory:');
+test('runtime initialization creates emitted-at ordering index', () => {
+  const databasePath = path.join(createManagedTempDir('siftkit-current-store-'), 'runtime.sqlite');
+  const database = getRuntimeDatabase(databasePath);
   try {
-    ensureIdleSummarySnapshotsTable(database);
 
     const indexes = asRows(database.prepare("PRAGMA index_list('idle_summary_snapshots')").all());
     assert.equal(indexes.some((row) => row.name === 'idx_idle_summary_snapshots_emitted'), true);
@@ -348,7 +332,7 @@ test('ensureIdleSummarySnapshotsTable creates emitted-at ordering index', () => 
       true,
     );
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 });
 
@@ -370,114 +354,5 @@ test('runtime database creates runtime artifact updated-at ordering index', () =
       planRows.some((row) => String(row.detail || '').includes('idx_runtime_artifacts_updated')),
       true,
     );
-  });
-});
-
-test('readMetrics backfills timing columns for already-current runtime databases', () => {
-  withTempRepo(() => {
-    const database = getRuntimeDatabase();
-    const databasePath = getRuntimeDatabasePath();
-    database.exec('DROP TABLE runtime_metrics_totals;');
-    database.exec(`
-      CREATE TABLE runtime_metrics_totals (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        schema_version INTEGER NOT NULL,
-        input_characters_total INTEGER NOT NULL,
-        output_characters_total INTEGER NOT NULL,
-        input_tokens_total INTEGER NOT NULL,
-        output_tokens_total INTEGER NOT NULL,
-        thinking_tokens_total INTEGER NOT NULL,
-        tool_tokens_total INTEGER NOT NULL,
-        prompt_cache_tokens_total INTEGER NOT NULL,
-        prompt_eval_tokens_total INTEGER NOT NULL,
-        speculative_accepted_tokens_total INTEGER NOT NULL,
-        speculative_generated_tokens_total INTEGER NOT NULL,
-        request_duration_ms_total INTEGER NOT NULL,
-        completed_request_count INTEGER NOT NULL,
-        task_totals_json TEXT NOT NULL,
-        tool_stats_json TEXT NOT NULL,
-        updated_at_utc TEXT
-      );
-    `);
-    database.prepare(`
-      INSERT INTO runtime_metrics_totals (
-        id, schema_version, input_characters_total, output_characters_total,
-        input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total,
-        prompt_cache_tokens_total, prompt_eval_tokens_total, speculative_accepted_tokens_total,
-        speculative_generated_tokens_total, request_duration_ms_total, completed_request_count,
-        task_totals_json, tool_stats_json, updated_at_utc
-      ) VALUES (1, 2, 10, 5, 4, 2, 0, 0, 0, 0, 0, 0, 1000, 1, '{}', '{}', NULL)
-    `).run();
-    closeRuntimeDatabase();
-
-    const metrics = readMetrics(databasePath);
-
-    assert.equal(metrics.requestDurationMsTotal, 1000);
-    assert.equal(metrics.wallDurationMsTotal, 0);
-    const reopened = getRuntimeDatabase(databasePath);
-    const columns = asRows(reopened.prepare('PRAGMA table_info(runtime_metrics_totals)').all());
-    assert.ok(columns.some((column) => column.name === 'wall_duration_ms_total'));
-  });
-});
-
-test('runtime database schema migration preserves existing metrics token totals', () => {
-  withTempRepo(() => {
-    const databasePath = getRuntimeDatabasePath();
-    getRuntimeDatabase(databasePath);
-    closeRuntimeDatabase();
-
-    const legacy = new Database(databasePath);
-    legacy.exec(`
-      ALTER TABLE app_config RENAME COLUMN server_model_presets_json TO ${LEGACY_PRESETS_COLUMN};
-      ALTER TABLE app_config RENAME COLUMN server_model_active_preset_id TO ${LEGACY_ACTIVE_PRESET_COLUMN};
-      UPDATE runtime_schema SET version = 11 WHERE id = 1;
-      INSERT INTO runtime_metrics_totals (
-        id, schema_version, input_characters_total, output_characters_total, input_tokens_total, output_tokens_total,
-        thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total, prompt_eval_tokens_total,
-        speculative_accepted_tokens_total, speculative_generated_tokens_total,
-        request_duration_ms_total, completed_request_count, task_totals_json, tool_stats_json, updated_at_utc
-      ) VALUES (
-        1, 2, 200, 80, 123, 45,
-        0, 0, 100, 0,
-        0, 0,
-        1000, 1,
-        '{"summary":{"inputCharactersTotal":200,"outputCharactersTotal":80,"inputTokensTotal":123,"outputTokensTotal":45,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":100,"promptEvalTokensTotal":0,"requestDurationMsTotal":1000,"completedRequestCount":1},"plan":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0},"repo-search":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0},"chat":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0}}',
-        '{}',
-        '2026-04-17T00:00:00.000Z'
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        schema_version = excluded.schema_version,
-        input_characters_total = excluded.input_characters_total,
-        output_characters_total = excluded.output_characters_total,
-        input_tokens_total = excluded.input_tokens_total,
-        output_tokens_total = excluded.output_tokens_total,
-        thinking_tokens_total = excluded.thinking_tokens_total,
-        tool_tokens_total = excluded.tool_tokens_total,
-        prompt_cache_tokens_total = excluded.prompt_cache_tokens_total,
-        prompt_eval_tokens_total = excluded.prompt_eval_tokens_total,
-        request_duration_ms_total = excluded.request_duration_ms_total,
-        completed_request_count = excluded.completed_request_count,
-        task_totals_json = excluded.task_totals_json,
-        tool_stats_json = excluded.tool_stats_json,
-        updated_at_utc = excluded.updated_at_utc;
-    `);
-    legacy.close();
-
-    const migrated = getRuntimeDatabase(databasePath);
-    const schemaVersionRow = asRow(migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get());
-    const metricsRow = asRow(migrated.prepare(`
-      SELECT input_tokens_total, prompt_eval_tokens_total, task_totals_json
-      FROM runtime_metrics_totals
-      WHERE id = 1
-    `).get());
-
-    assert.equal(schemaVersionRow.version, CURRENT_SCHEMA_VERSION);
-    assert.equal(metricsRow.input_tokens_total, 123);
-    assert.equal(metricsRow.prompt_eval_tokens_total, 0);
-    const taskTotals = asObject(parseJsonValueText(String(metricsRow.task_totals_json)));
-    const summaryTotals = asObject(taskTotals.summary);
-    assert.equal(summaryTotals.inputTokensTotal, 123);
-    assert.equal(summaryTotals.promptEvalTokensTotal, 0);
-    closeRuntimeDatabase();
   });
 });

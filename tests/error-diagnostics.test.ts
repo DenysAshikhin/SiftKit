@@ -10,7 +10,6 @@ import {
 } from '../src/lib/error-diagnostics.js';
 import {
   insertRuntimeErrorEvent,
-  ensureRuntimeErrorEventsTable,
 } from '../src/state/runtime-error-events.js';
 import {
   closeRuntimeDatabase,
@@ -63,7 +62,6 @@ test('runtime error events schema stores serialized diagnostics', () => {
     fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'siftkit' }), 'utf8');
     process.chdir(tempRoot);
     const database = getRuntimeDatabase();
-    ensureRuntimeErrorEventsTable(database);
     const cause = new Error('Request timed out after 130000 ms.');
     const error = new StatusServerUnavailableError('http://127.0.0.1:4765/health', {
       cause,

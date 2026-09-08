@@ -381,69 +381,6 @@ function normalizeSqlNumber(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) ? Number(value) : null;
 }
 
-const PragmaColumnRowSchema = z.object({ name: z.string() });
-
-export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): void {
-  try {
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        emitted_at_utc TEXT NOT NULL,
-        completed_request_count INTEGER NOT NULL,
-        input_characters_total INTEGER NOT NULL,
-        output_characters_total INTEGER NOT NULL,
-        input_tokens_total INTEGER NOT NULL,
-        output_tokens_total INTEGER NOT NULL,
-        thinking_tokens_total INTEGER NOT NULL,
-        tool_tokens_total INTEGER NOT NULL DEFAULT 0,
-        prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
-        prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
-        speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0,
-        speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0,
-        task_totals_json TEXT NOT NULL DEFAULT '{}',
-        tool_stats_json TEXT NOT NULL DEFAULT '{}',
-        saved_tokens INTEGER NOT NULL,
-        saved_percent REAL,
-        compression_ratio REAL,
-        request_duration_ms_total INTEGER NOT NULL,
-        avg_request_ms REAL,
-        avg_tokens_per_second REAL
-      );
-      CREATE INDEX IF NOT EXISTS idx_idle_summary_snapshots_emitted
-        ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);
-    `);
-    const existingColumns = z.array(PragmaColumnRowSchema)
-      .parse(database.prepare('PRAGMA table_info(idle_summary_snapshots)').all())
-      .map((column) => column.name);
-    if (!existingColumns.includes('thinking_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('prompt_cache_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('prompt_eval_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('speculative_accepted_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('speculative_generated_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('tool_tokens_total')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_tokens_total INTEGER NOT NULL DEFAULT 0;');
-    }
-    if (!existingColumns.includes('task_totals_json')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN task_totals_json TEXT NOT NULL DEFAULT \'{}\';');
-    }
-    if (!existingColumns.includes('tool_stats_json')) {
-      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
-    }
-  } catch {
-    return;
-  }
-}
-
 export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot: IdleSummarySnapshot): void {
   database.prepare(`
     INSERT INTO idle_summary_snapshots (

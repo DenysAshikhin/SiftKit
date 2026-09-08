@@ -6,13 +6,15 @@ import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../
 import { isReadExpansionEnabled } from '../src/config/index.js';
 import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.js';
 import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_ENGINE_CACHE_RAM } from '../src/config/constants.js';
-import { LEGACY_ENGINE_CONFIG_KEY } from '../src/state/migrations/constants.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
 import { makeTestPreset } from './helpers/model-presets.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
-import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
+import {
+  REMOVED_BACKEND_ENGINE_CONFIG_KEY,
+  REMOVED_BACKEND_ID,
+} from './helpers/legacy-backend-fixtures.js';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
@@ -112,11 +114,11 @@ test('normalization rejects removed global and backend-specific configuration sh
 test('normalization rejects the legacy engine configuration key with its field path', () => {
   const config = defaultConfigObject();
   const server = asObject(config.Server);
-  server[LEGACY_ENGINE_CONFIG_KEY] = {};
+  server[REMOVED_BACKEND_ENGINE_CONFIG_KEY] = {};
 
   assert.throws(
     () => normalizeConfig(JsonValueSchema.parse(config)),
-    new RegExp(`Unsupported configuration field Server\\.${LEGACY_ENGINE_CONFIG_KEY}`, 'u'),
+    new RegExp(`Unsupported configuration field Server\\.${REMOVED_BACKEND_ENGINE_CONFIG_KEY}`, 'u'),
   );
 });
 

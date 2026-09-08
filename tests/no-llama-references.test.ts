@@ -62,7 +62,7 @@ function findForbiddenReferences(repoRoot: string): string[] {
 
 function isAllowedPath(path: string): boolean {
   const normalizedPath = path.replaceAll('\\', '/');
-  return normalizedPath.startsWith('src/state/migrations/') || ALLOWED_PATHS.has(normalizedPath);
+  return ALLOWED_PATHS.has(normalizedPath);
 }
 
 function createGitAuditRepository(): string {
@@ -109,7 +109,7 @@ test('reference audit reports forbidden text in tracked and untracked source fil
   ]);
 });
 
-test('reference audit exempts only the migration tree and named legacy fixture helper', () => {
+test('reference audit exempts only the named legacy fixture helper', () => {
   const repoRoot = createGitAuditRepository();
   const migrationFixture = join(repoRoot, 'src', 'state', 'migrations', 'legacy-fixture.ts');
   const legacyHelper = join(repoRoot, 'tests', 'helpers', 'legacy-backend-fixtures.ts');
@@ -121,5 +121,8 @@ test('reference audit exempts only the migration tree and named legacy fixture h
   writeFileSync(unrelatedHelper, 'const unexpected = "llama";\n', 'utf8');
   execFileSync('git', ['add', '--', 'src/state/migrations/legacy-fixture.ts', 'tests/helpers/legacy-backend-fixtures.ts', 'tests/helpers/other-fixtures.ts'], { cwd: repoRoot, stdio: 'pipe' });
 
-  assert.deepEqual(findForbiddenReferences(repoRoot), ['tests/helpers/other-fixtures.ts']);
+  assert.deepEqual(findForbiddenReferences(repoRoot), [
+    'src/state/migrations/legacy-fixture.ts',
+    'tests/helpers/other-fixtures.ts',
+  ]);
 });

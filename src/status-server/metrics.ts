@@ -4,7 +4,6 @@ import { JsonObjectSchema, type JsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
-const PragmaColumnRowSchema = z.object({ name: z.string() });
 
 export type { MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
 import type { TaskMetricKind, MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
@@ -294,29 +293,6 @@ function isCurrentSchema(input: JsonValue): boolean {
   );
 }
 
-type RuntimeMetricsDatabase = ReturnType<typeof getRuntimeDatabase>;
-
-const TIMING_TOTAL_COLUMNS: Array<{ name: string; sql: string }> = [
-  { name: 'wall_duration_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN wall_duration_ms_total INTEGER NOT NULL DEFAULT 0;' },
-  { name: 'stdin_wait_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN stdin_wait_ms_total INTEGER NOT NULL DEFAULT 0;' },
-  { name: 'server_preflight_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN server_preflight_ms_total INTEGER NOT NULL DEFAULT 0;' },
-  { name: 'lock_wait_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN lock_wait_ms_total INTEGER NOT NULL DEFAULT 0;' },
-  { name: 'status_running_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN status_running_ms_total INTEGER NOT NULL DEFAULT 0;' },
-  { name: 'terminal_status_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN terminal_status_ms_total INTEGER NOT NULL DEFAULT 0;' },
-];
-
-function ensureRuntimeMetricsTimingColumns(database: RuntimeMetricsDatabase): void {
-  const columns = z.array(PragmaColumnRowSchema)
-    .parse(database.prepare('PRAGMA table_info(runtime_metrics_totals)').all())
-    .map((column) => String(column.name));
-  const missing = TIMING_TOTAL_COLUMNS
-    .filter((column) => !columns.includes(column.name))
-    .map((column) => column.sql);
-  if (missing.length > 0) {
-    database.exec(missing.join('\n'));
-  }
-}
-
 export function normalizeMetrics(input: JsonValue): Metrics {
   const metrics = getDefaultMetrics();
   if (!isCurrentSchema(input)) {
@@ -355,7 +331,6 @@ export function normalizeMetrics(input: JsonValue): Metrics {
 
 export function readMetrics(metricsPath: string): Metrics {
   const database = getRuntimeDatabase(metricsPath);
-  ensureRuntimeMetricsTimingColumns(database);
   const row = database.prepare(`
     SELECT
       schema_version,
@@ -427,7 +402,6 @@ export function readMetrics(metricsPath: string): Metrics {
 
 export function writeMetrics(metricsPath: string, metrics: Metrics): void {
   const database = getRuntimeDatabase(metricsPath);
-  ensureRuntimeMetricsTimingColumns(database);
   const normalized = normalizeMetrics(metrics);
   database.prepare(`
     INSERT INTO runtime_metrics_totals (

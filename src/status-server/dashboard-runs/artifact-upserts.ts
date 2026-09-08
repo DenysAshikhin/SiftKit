@@ -5,7 +5,6 @@ import type { InferenceBackendId } from '../../config/types.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
-import { ensureRunLogsTable } from './table.js';
 import {
   type RunArtifactPayload,
   type RunLogGroup,
@@ -34,7 +33,6 @@ function readPersistedRunLogSpeculativeMetrics(
       speculativeGeneratedTokens: null,
     };
   }
-  ensureRunLogsTable(database);
   const rawRow = database.prepare(`
     SELECT speculative_accepted_tokens, speculative_generated_tokens
     FROM run_logs
@@ -64,7 +62,6 @@ function getProcessedInputTokensValue(
 }
 
 export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): void {
-  ensureRunLogsTable(database);
   database.prepare(`
     INSERT INTO run_logs (
       run_id, request_id, run_kind, run_group,
@@ -361,7 +358,6 @@ export function updateRunLogSpeculativeMetricsByRequestId(options: {
   if (!requestId) {
     return;
   }
-  ensureRunLogsTable(options.database);
   options.database.prepare(`
     UPDATE run_logs
     SET

@@ -4,6 +4,14 @@
 
 **Goal:** Remove historical database compatibility machinery while preserving the current database and all current functionality.
 
+**Execution update (2026-09-08):** The current code and a read-only check of `.siftkit/runtime.sqlite` both report v66. Implementation preserves v66 and rejects incompatible versions (including v65 and v67); the v65 references below describe the planning-time state. Per the user's execution instructions, work stays on `main`, without SiftKit, worktrees, or commits, with at most one Luna subagent active. Database validation uses a consistent SQLite backup and a separate copy; the live database is not opened through the new application code.
+
+**Completed (2026-09-08):** All three tasks are implemented. A single Luna agent handled the core replacement; the primary agent completed restore, coverage transfer, store cleanup, review, and verification. Current DDL comparison checked 121 existing objects with no omissions or unexpected changes; the domain-owned operation-mode default is the intended difference. Copy validation preserved 69 tables, 71,935 rows, identities, and three nonempty FTS query results.
+
+**Validation:** `npm run build:test`, `npm test` (3,487 passed, five skipped), `npm run test:dashboard` (399 passed), `npm run typecheck`, `npm run lint`, and `git diff --check` passed. The full suite initially found three raw-database fixtures, which were updated to normal initialization while preserving their assertions. The initial bootstrap RED build was blocked by obsolete migration-test imports; independent replay against the original implementation later demonstrated 13 failing schema regressions. Restore and store regressions were also observed failing before their corresponding changes. No live rollout or commit was performed.
+
+**Cleanup exception:** Temporary verification files and database copies remain in `.scratch/runtime-schema`. Automatic approval review rejected both recursive and file-by-file deletion with only “blocked by policy”; cleanup could not be completed.
+
 **Architecture:** Define the current runtime schema once, retain the existing assistant schema module, and use a small initializer with an explicit version check. Delete migration replay, version inference, historical data transformations, and store-local schema repairs. Backups restore only into the same current format.
 
 **Tech stack:** Existing TypeScript, `better-sqlite3`, Zod, and Node test runner. No new dependencies, ORM, migration framework, or schema generator.
@@ -79,13 +87,13 @@ Delete the entire `src/state/migrations/` directory. Delete `src/status-server/d
 
 **Interfaces:** Preserve preview/confirm responses and the `schemaVersion` manifest field. Remove `migrateDatabaseFile` and its only production caller; introduce no replacement migration API.
 
-- [ ] Add failing restore regression cases: manifest version 64 and 66 are rejected; a manifest marked 65 with a snapshot marked 64 is rejected; missing snapshot marker or a missing assistant table/column is rejected; all failures preserve target rows, blob files, and custody state.
-- [ ] Retain the successful current backup round trip, wrong-token, hash-verification, and FTS/search coverage. When testing a modified snapshot, recompute its manifest hash so schema validation is actually reached.
-- [ ] Run `npm run build:test`, then `npm test -- assistant-backup-restore`; verify failures specifically reach the newly required rejection behavior.
-- [ ] Change the manifest check from `>` to `!== CURRENT_SCHEMA_VERSION`. After extraction, open the snapshot with `{ readonly: true, fileMustExist: true }`, validate its own marker, and close it. Do not configure or initialize the snapshot.
-- [ ] Before deleting target rows, validate that every copied assistant table exists and that source and target column sets match. Keep explicit named-column copying; remove intersection/filter behavior and the zero-columns early return. Preserve FTS rowid relationships and existing FK-safe copy ordering.
-- [ ] Delete `migrateDatabaseFile` from `runtime-db.ts`. Leave backup/export version publication and archive contracts intact.
-- [ ] Rebuild and run `npm test -- assistant-backup-restore assistant-export`. Confirm current round trips succeed and rejected snapshots do not touch target data.
+- [x] Add failing restore regression cases: manifest version 64 and 66 are rejected; a manifest marked 65 with a snapshot marked 64 is rejected; missing snapshot marker or a missing assistant table/column is rejected; all failures preserve target rows, blob files, and custody state.
+- [x] Retain the successful current backup round trip, wrong-token, hash-verification, and FTS/search coverage. When testing a modified snapshot, recompute its manifest hash so schema validation is actually reached.
+- [x] Run `npm run build:test`, then `npm test -- assistant-backup-restore`; verify failures specifically reach the newly required rejection behavior.
+- [x] Change the manifest check from `>` to `!== CURRENT_SCHEMA_VERSION`. After extraction, open the snapshot with `{ readonly: true, fileMustExist: true }`, validate its own marker, and close it. Do not configure or initialize the snapshot.
+- [x] Before deleting target rows, validate that every copied assistant table exists and that source and target column sets match. Keep explicit named-column copying; remove intersection/filter behavior and the zero-columns early return. Preserve FTS rowid relationships and existing FK-safe copy ordering.
+- [x] Delete `migrateDatabaseFile` from `runtime-db.ts`. Leave backup/export version publication and archive contracts intact.
+- [x] Rebuild and run `npm test -- assistant-backup-restore assistant-export`. Confirm current round trips succeed and rejected snapshots do not touch target data.
 
 **Acceptance:** Restore has no upgrade path, no partial-column compatibility, and no mutation of an incompatible snapshot or target.
 
@@ -99,9 +107,9 @@ Delete the entire `src/state/migrations/` directory. Delete `src/status-server/d
 
 **Interfaces:** Keep `getRuntimeDatabase`, `closeRuntimeDatabase`, `getSchemaVersion`, `CURRENT_SCHEMA_VERSION`, and `RuntimeDatabase`. Add only `initializeRuntimeSchema(database: RuntimeDatabase): void`; it creates current objects and does not own version checks or seed timing.
 
-- [ ] Add failing bootstrap tests for unversioned nonempty, v64, v66, malformed markers, and unreadable files. Assert failed opens preserve file contents and sentinel data. Test that the version accessor performs no writes.
-- [ ] Add a bootstrap rollback test using Node's test mock API to make `SystemClock.prototype.nowUtc` from `src/assistant/clock.ts` throw during seeding. Restore the mock in `finally`; inspect the failed file with a raw read-only SQLite handle. Assert no partial schema/seed rows or current marker survive. Do not add a production injection interface.
-- [ ] Add success tests for fresh creation, current reopen with unchanged rows/identity, and complete bootstrap-owned tables. Task 3 extends this to the remaining lazy tables. Reuse `createManagedTempDir`; close handles in `finally`.
+- [x] Add failing bootstrap tests for unversioned nonempty, v64, v66, malformed markers, and unreadable files. Assert failed opens preserve file contents and sentinel data. Test that the version accessor performs no writes.
+- [x] Add a bootstrap rollback test using Node's test mock API to make `SystemClock.prototype.nowUtc` from `src/assistant/clock.ts` throw during seeding. Restore the mock in `finally`; inspect the failed file with a raw read-only SQLite handle. Assert no partial schema/seed rows or current marker survive. Do not add a production injection interface.
+- [x] Add success tests for fresh creation, current reopen with unchanged rows/identity, and complete bootstrap-owned tables. Task 3 extends this to the remaining lazy tables. Reuse `createManagedTempDir`; close handles in `finally`.
 
 Example test to add to `tests/runtime-db-schema.test.ts`:
 
@@ -133,14 +141,14 @@ test('opening a current database preserves stored values and device identity', (
 });
 ```
 
-- [ ] Run the focused tests and confirm the new failure cases expose current migration/reset behavior before replacing it.
-- [ ] Move final DDL out of `applyBaseSchema` and `schema-helpers.ts` into `runtime-schema.ts`, removing duplicate definitions. Move inference/benchmark DDL intact. Fold `assistant_json`, chat `images`/`image_meta`/`removed_image_count`, and assistant `user_demoted` into their actual CREATE TABLE definitions. Preserve existing `user_notes`, `hold_json`, FTS rowids, current token fields, and all current checks/indexes.
-- [ ] Compose the existing assistant SQL blocks directly. Keep `seedAssistantRegistries` and invoke it only during new-database initialization, with the existing clock/device-ID dependencies. Delete `backfillAssistantFtsRowids` and historical migration comments.
-- [ ] Remove the hardcoded migration copy of operation-mode defaults. Source the SQL default from `getDefaultOperationModeAllowedTools()` in `src/presets.ts`, serializing it with correct SQL string quoting. Keep config defaults owned by the existing domain function.
-- [ ] Implement the initialization contract above. Delete registry iteration, version detection, FK-disable/rebuild machinery, redundant ensure helpers, obsolete-table DROP statements, and corruption-triggered removal of the DB/WAL/SHM files.
-- [ ] Redirect the existing retention table-existence check to the existing `tableExists` in `src/status-server/dashboard-runs/table.ts` until Task 3 removes both. Do not create another helper or retain historical column-introspection code. Task 3 makes the currently lazy tables mandatory and removes their absence guards.
-- [ ] Transfer current behavior tests before deleting historical tests; use the coverage mapping below. Update imports so no code/test depends on deleted migration files.
-- [ ] Rebuild and run `npm test -- runtime-db-schema assistant-schema chat-sessions-db config-no-top-level-backend model-idle-action processed-input-metrics runtime-results-db`. All selected names must resolve to existing tests.
+- [x] Run the focused tests and confirm the new failure cases expose current migration/reset behavior before replacing it.
+- [x] Move final DDL out of `applyBaseSchema` and `schema-helpers.ts` into `runtime-schema.ts`, removing duplicate definitions. Move inference/benchmark DDL intact. Fold `assistant_json`, chat `images`/`image_meta`/`removed_image_count`, and assistant `user_demoted` into their actual CREATE TABLE definitions. Preserve existing `user_notes`, `hold_json`, FTS rowids, current token fields, and all current checks/indexes.
+- [x] Compose the existing assistant SQL blocks directly. Keep `seedAssistantRegistries` and invoke it only during new-database initialization, with the existing clock/device-ID dependencies. Delete `backfillAssistantFtsRowids` and historical migration comments.
+- [x] Remove the hardcoded migration copy of operation-mode defaults. Source the SQL default from `getDefaultOperationModeAllowedTools()` in `src/presets.ts`, serializing it with correct SQL string quoting. Keep config defaults owned by the existing domain function.
+- [x] Implement the initialization contract above. Delete registry iteration, version detection, FK-disable/rebuild machinery, redundant ensure helpers, obsolete-table DROP statements, and corruption-triggered removal of the DB/WAL/SHM files.
+- [x] Redirect the existing retention table-existence check to the existing `tableExists` in `src/status-server/dashboard-runs/table.ts` until Task 3 removes both. Do not create another helper or retain historical column-introspection code. Task 3 makes the currently lazy tables mandatory and removes their absence guards.
+- [x] Transfer current behavior tests before deleting historical tests; use the coverage mapping below. Update imports so no code/test depends on deleted migration files.
+- [x] Rebuild and run `npm test -- runtime-db-schema assistant-schema chat-sessions-db config-no-top-level-backend model-idle-action processed-input-metrics runtime-results-db`. All selected names must resolve to existing tests.
 
 **Acceptance:** Empty/current databases work; incompatible/unreadable files fail without destructive recovery; current records are preserved; `src/state/migrations/` is gone; current schema contains no historical transformation SQL.
 
@@ -165,24 +173,25 @@ test('opening a current database preserves stored values and device identity', (
 
 **Tests:** `tests/runtime-db-schema.test.ts`, `tests/error-diagnostics.test.ts`, `tests/processed-input-metrics.test.ts`, `tests/dashboard-runs-partition.test.ts`, `tests/runtime-history-prune.test.ts`, `tests/runtime-status-server.idle-summary.test.ts`.
 
-- [ ] Add failing tests asserting `run_logs` and `idle_summary_snapshots` exist immediately after opening a fresh runtime DB, without first calling a store. Check their current columns and indexes. Retain real store read/write tests to prove consumers work with this schema.
-- [ ] Add a regression that removes a current required column in an isolated DB and verifies the relevant consumer errors instead of repairing it. Test error recording on a current DB and failure on an uninitialized DB; error insertion must not silently create its own schema.
-- [ ] Run the targeted tests and record the intended failures.
-- [ ] Move current run-log and idle-summary DDL into `runtime-schema.ts`. Keep error-event DDL only there. Delete `ensureRunLogsTable`, `ensureIdleSummarySnapshotsTable`, `ensureRuntimeErrorEventsTable`, timing-column ALTER lists, schema-probe row schemas used only by these functions, and all ensure calls.
-- [ ] Remove `tableExists` guards for canonical tables in retention/deletion; absent required tables must produce SQL errors. Keep unrelated checks for optional files/artifacts and ordinary row-not-found behavior.
-- [ ] Update tests using raw `new Database(...)` plus a removed ensure function to open a normal initialized runtime DB. For tests intentionally exercising invalid databases, keep raw construction and assert the failure.
-- [ ] Rebuild and run `npm test -- runtime-db-schema error-diagnostics processed-input-metrics dashboard-runs-partition dashboard-runs-controller-e2e runtime-history-prune runtime-status-server.idle-summary`.
+- [x] Add failing tests asserting `run_logs` and `idle_summary_snapshots` exist immediately after opening a fresh runtime DB, without first calling a store. Check their current columns and indexes. Retain real store read/write tests to prove consumers work with this schema.
+- [x] Add a regression that removes a current required column in an isolated DB and verifies the relevant consumer errors instead of repairing it. Test error recording on a current DB and failure on an uninitialized DB; error insertion must not silently create its own schema.
+- [x] Run the targeted tests and record the intended failures.
+- [x] Move current run-log and idle-summary DDL into `runtime-schema.ts`. Keep error-event DDL only there. Delete `ensureRunLogsTable`, `ensureIdleSummarySnapshotsTable`, `ensureRuntimeErrorEventsTable`, timing-column ALTER lists, schema-probe row schemas used only by these functions, and all ensure calls.
+- [x] Remove `tableExists` guards for canonical tables in retention/deletion; absent required tables must produce SQL errors. Keep unrelated checks for optional files/artifacts and ordinary row-not-found behavior.
+- [x] Update tests using raw `new Database(...)` plus a removed ensure function to open a normal initialized runtime DB. For tests intentionally exercising invalid databases, keep raw construction and assert the failure.
+- [x] Rebuild and run `npm test -- runtime-db-schema error-diagnostics processed-input-metrics dashboard-runs-partition dashboard-runs-controller-e2e runtime-history-prune runtime-status-server.idle-summary`.
 
 **Acceptance:** One schema initialization path owns all current DDL. Stores issue queries/writes only; no ALTER-on-read, lazy ensure wrappers, or suppressed schema-repair errors remain.
 
 ## Final validation and delivery
 
-- [ ] Recheck the user's selected DB version read-only before any eventual rollout. If it differs from v65, report the mismatch and stop that rollout without changing the data. Do not resurrect compatibility code.
-- [ ] Before opening real user data with the new implementation, make a consistent SQLite backup using the existing backup API; do not copy a live WAL database as a lone file. Keep it outside the active runtime path. Validate the new implementation against a copy first, comparing current records, identities, and FTS results.
-- [ ] Run `npm run build:test`, the focused suites above, then `npm test`, `npm run test:dashboard`, `npm run typecheck`, and `npm run lint`. Report pre-existing failures separately; never weaken valid tests to finish the cleanup.
-- [ ] Search active source/tests for `MIGRATIONS`, `detectEffectiveSchemaVersion`, `migrateDatabaseFile`, `backfillAssistantFtsRowids`, imports from `state/migrations`, the removed ensure functions, and `ALTER TABLE`. Expected: no production historical upgrades or store repairs; ALTER may remain in isolated negative-test setup only.
-- [ ] Review current DDL ownership: each table/index is defined once across `runtime-schema.ts` and `assistant/storage/schema.ts`. No migration directory, historical fixtures, compatibility wrappers, database reset path, or temporary helper remains.
-- [ ] Review the final diff independently against the acceptance criteria. Remove scratch artifacts; preserve unrelated changes; do not commit unless requested.
+- [x] Recheck the user's selected DB version read-only before any eventual rollout. If it differs from v65, report the mismatch and stop that rollout without changing the data. Do not resurrect compatibility code.
+- [x] Before opening real user data with the new implementation, make a consistent SQLite backup using the existing backup API; do not copy a live WAL database as a lone file. Keep it outside the active runtime path. Validate the new implementation against a copy first, comparing current records, identities, and FTS results.
+- [x] Run `npm run build:test`, the focused suites above, then `npm test`, `npm run test:dashboard`, `npm run typecheck`, and `npm run lint`. Report pre-existing failures separately; never weaken valid tests to finish the cleanup.
+- [x] Search active source/tests for `MIGRATIONS`, `detectEffectiveSchemaVersion`, `migrateDatabaseFile`, `backfillAssistantFtsRowids`, imports from `state/migrations`, the removed ensure functions, and `ALTER TABLE`. Expected: no production historical upgrades or store repairs; ALTER may remain in isolated negative-test setup only.
+- [x] Review current DDL ownership: each table/index is defined once across `runtime-schema.ts` and `assistant/storage/schema.ts`. No migration directory, historical fixtures, compatibility wrappers, database reset path, or temporary helper remains.
+- [x] Review the final diff independently against the acceptance criteria; preserve unrelated changes; do not commit unless requested.
+- [ ] Remove scratch artifacts from `.scratch/runtime-schema`: blocked by automatic approval review as recorded above.
 
 **Risks to verify:** Omitted final columns currently supplied by helpers; dropped current assertions hidden in version-named tests; raw-database tests bypassing initialization; restore column/FTS mapping regressions. Current user data must remain intact. Removing support for old database/backup formats is intentional.
 

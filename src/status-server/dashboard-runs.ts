@@ -41,7 +41,6 @@ export {
   parseJsonObjectText,
   parseOptionalIsoDate,
 } from './dashboard-runs/run-records.js';
-export { ensureRunLogsTable } from './dashboard-runs/table.js';
 export type { IdleSummarySnapshotDbRow } from './idle-summary.js';
 export type {
   DashboardRunLogDeleteCriteria,

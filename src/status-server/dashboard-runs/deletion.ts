@@ -5,7 +5,6 @@ import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { commandMatchesDisplayText } from '../tool-command-display.js';
-import { ensureRunLogsTable, tableExists } from './table.js';
 import type { DashboardRunLogDeleteCriteria, DashboardRunLogType } from './types.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
@@ -111,7 +110,6 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
   if (!normalizedRunId || !normalizedCommand) {
     return;
   }
-  ensureRunLogsTable(database);
   database.transaction(() => {
     const rawTranscriptRow = database.prepare(`
       SELECT repo_search_transcript_jsonl
@@ -130,33 +128,31 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
           .run(rewritten.text, normalizedRunId);
       }
     }
-    if (tableExists(database, 'runtime_artifacts')) {
-      const artifactRows = z.array(ArtifactRowSchema).parse(database.prepare(`
-        SELECT id, content_json
-        FROM runtime_artifacts
-        WHERE request_id = ? AND content_json IS NOT NULL
-      `).all(normalizedRunId));
-      for (const artifactRow of artifactRows) {
-        if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
-          continue;
-        }
-        let parsed: JsonObject | null;
-        try {
-          parsed = JsonRecordReader.asObject(parseJsonValueText(artifactRow.content_json));
-        } catch {
-          continue;
-        }
-        if (!parsed) {
-          continue;
-        }
-        const rewrittenScorecard = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
-        if (rewrittenScorecard?.changed) {
-          const rewrittenArtifact = parsed.scorecard
-            ? { ...parsed, scorecard: rewrittenScorecard.scorecard }
-            : rewrittenScorecard.scorecard;
-          database.prepare('UPDATE runtime_artifacts SET content_json = ?, updated_at_utc = ? WHERE id = ?')
-            .run(JSON.stringify(rewrittenArtifact), new Date().toISOString(), artifactRow.id);
-        }
+    const artifactRows = z.array(ArtifactRowSchema).parse(database.prepare(`
+      SELECT id, content_json
+      FROM runtime_artifacts
+      WHERE request_id = ? AND content_json IS NOT NULL
+    `).all(normalizedRunId));
+    for (const artifactRow of artifactRows) {
+      if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
+        continue;
+      }
+      let parsed: JsonObject | null;
+      try {
+        parsed = JsonRecordReader.asObject(parseJsonValueText(artifactRow.content_json));
+      } catch {
+        continue;
+      }
+      if (!parsed) {
+        continue;
+      }
+      const rewrittenScorecard = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
+      if (rewrittenScorecard?.changed) {
+        const rewrittenArtifact = parsed.scorecard
+          ? { ...parsed, scorecard: rewrittenScorecard.scorecard }
+          : rewrittenScorecard.scorecard;
+        database.prepare('UPDATE runtime_artifacts SET content_json = ?, updated_at_utc = ? WHERE id = ?')
+          .run(JSON.stringify(rewrittenArtifact), new Date().toISOString(), artifactRow.id);
       }
     }
   })();
@@ -177,7 +173,6 @@ function buildRunLogTimestampSql(): string {
 }
 
 function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: DashboardRunLogDeleteCriteria): string[] {
-  ensureRunLogsTable(database);
   const { clause, params } = buildRunLogTypeWhereClause(criteria.type);
   if (criteria.mode === 'count') {
     return z.array(RunIdRowSchema).parse(database.prepare(`
@@ -196,24 +191,20 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
   `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`)).map((row) => String(row.run_id || ''));
 }
 
-const AUX_RUN_HISTORY_DELETE_STATEMENTS: { table: string; countSql: string; deleteSql: string }[] = [
+const AUX_RUN_HISTORY_DELETE_STATEMENTS: { countSql: string; deleteSql: string }[] = [
   {
-    table: 'runtime_artifacts',
     countSql: "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
     deleteSql: "DELETE FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
   },
   {
-    table: 'inference_runs',
     countSql: "SELECT COUNT(*) AS count FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
     deleteSql: "DELETE FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
   },
   {
-    table: 'idle_summary_snapshots',
     countSql: 'SELECT COUNT(*) AS count FROM idle_summary_snapshots WHERE emitted_at_utc < ?',
     deleteSql: 'DELETE FROM idle_summary_snapshots WHERE emitted_at_utc < ?',
   },
   {
-    table: 'runtime_error_events',
     countSql: 'SELECT COUNT(*) AS count FROM runtime_error_events WHERE created_at_utc < ?',
     deleteSql: 'DELETE FROM runtime_error_events WHERE created_at_utc < ?',
   },
@@ -226,7 +217,7 @@ function isFullHistoryDateWipe(
 }
 
 function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: string[]): number {
-  if (runLogIds.length === 0 || !tableExists(database, 'runtime_artifacts')) {
+  if (runLogIds.length === 0) {
     return 0;
   }
   const placeholders = runLogIds.map(() => '?').join(', ');
@@ -285,15 +276,11 @@ export function previewDashboardRunLogDeletion(
   database: DatabaseInstance,
   criteria: DashboardRunLogDeleteCriteria,
 ): { matchCount: number } {
-  ensureRunLogsTable(database);
   const runLogIds = listRunLogIdsForDeletion(database, criteria);
   if (isFullHistoryDateWipe(criteria)) {
     const cutoff = `${criteria.beforeDate}T00:00:00.000Z`;
     let matchCount = runLogIds.length;
-    for (const { table, countSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
-      if (!tableExists(database, table)) {
-        continue;
-      }
+    for (const { countSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
       const row = CountRowSchema.parse(database.prepare(countSql).get(cutoff));
       matchCount += Number(row.count || 0);
     }
@@ -306,7 +293,6 @@ export function deleteDashboardRunLogs(
   database: DatabaseInstance,
   criteria: DashboardRunLogDeleteCriteria,
 ): { deletedCount: number; deletedRunIds: string[] } {
-  ensureRunLogsTable(database);
   const deletedRunIds = listRunLogIdsForDeletion(database, criteria);
   const sourcePaths = listRunLogSourcePaths(database, deletedRunIds);
   deleteRunLogSourceFiles(sourcePaths);
@@ -321,14 +307,11 @@ export function deleteDashboardRunLogs(
     }
     if (isFullHistoryDateWipe(criteria)) {
       const cutoff = `${criteria.beforeDate}T00:00:00.000Z`;
-      for (const { table, deleteSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
-        if (!tableExists(database, table)) {
-          continue;
-        }
+      for (const { deleteSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
         const result = database.prepare(deleteSql).run(cutoff);
         deletedCount += Number(result.changes) || 0;
       }
-    } else if (deletedRunIds.length > 0 && tableExists(database, 'runtime_artifacts')) {
+    } else if (deletedRunIds.length > 0) {
       const placeholders = deletedRunIds.map(() => '?').join(', ');
       const artifactResult = database
         .prepare(`DELETE FROM runtime_artifacts WHERE request_id IN (${placeholders})`)

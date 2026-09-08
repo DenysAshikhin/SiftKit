@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import Database from 'better-sqlite3';
+import { join } from 'node:path';
+import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 import test from 'node:test';
 
 import {
@@ -17,14 +19,14 @@ import {
   type RunIdentity,
 } from '../src/status-server/dashboard-runs/run-identity.js';
 
-type DatabaseInstance = InstanceType<typeof Database>;
+type DatabaseInstance = RuntimeDatabase;
 
 function withDatabase(callback: (database: DatabaseInstance) => void): void {
-  const database = new Database(':memory:');
+  const database = getRuntimeDatabase(join(createManagedTempDir('siftkit-dashboard-runs-'), 'runtime.sqlite'));
   try {
     callback(database);
   } finally {
-    database.close();
+    closeRuntimeDatabase();
   }
 }
 

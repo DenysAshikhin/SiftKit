@@ -1,4 +1,3 @@
-import { restoreLegacyPresetColumns, createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
@@ -9,7 +8,6 @@ import { RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
 import { NODE_TYPES } from '../src/assistant/domain/node-types.js';
 import { JobRowSchema, ProjectionRowSchema } from '../src/assistant/storage/rows.js';
 import {
-  backfillAssistantFtsRowids,
   LOCAL_OWNER_ID,
 } from '../src/assistant/storage/schema.js';
 import {
@@ -62,7 +60,7 @@ const EXPECTED_ASSISTANT_TABLES = [
 ];
 
 test('a fresh database lands on the current schema version with every assistant table', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-fresh-');
+  const dbPath = tempDbPath('siftkit-assistant-schema-fresh-');
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
@@ -76,7 +74,7 @@ test('a fresh database lands on the current schema version with every assistant 
   }
 });
 
-test('v42 adds proactive assistant tables and durable Gate C columns', () => {
+test('current schema contains proactive assistant fields and question constraints', () => {
   withAssistantContext(({ database, ownerId }) => {
     const appConfigColumns = ColumnRowSchema.parse(
       database.prepare("SELECT name FROM pragma_table_info('app_config')").all(),
@@ -104,7 +102,7 @@ test('v42 adds proactive assistant tables and durable Gate C columns', () => {
 });
 
 test('registries, the owner row, and the local device row are seeded from TypeScript', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-seed-');
+  const dbPath = tempDbPath('siftkit-assistant-schema-seed-');
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
@@ -124,8 +122,8 @@ test('registries, the owner row, and the local device row are seeded from TypeSc
   assert.equal(graphVersion, '0');
 });
 
-test('re-opening an already-migrated database is a no-op, not a duplicate seed', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-reapply-');
+test('reopening a current database does not duplicate seeded rows', () => {
+  const dbPath = tempDbPath('siftkit-assistant-schema-reapply-');
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
   getRuntimeDatabase(dbPath);
@@ -137,33 +135,8 @@ test('re-opening an already-migrated database is a no-op, not a duplicate seed',
   assert.equal(countRows(dbPath, 'assistant_devices'), 1);
 });
 
-test('a v38 database upgrades in place and keeps its pre-existing rows', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-upgrade-');
-  const seed = new Database(dbPath);
-  createAppConfigMigrationFixture(seed);
-  seed.exec(`
-    CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
-    INSERT INTO runtime_schema (id, version) VALUES (1, 38);
-    CREATE TABLE runtime_metadata (
-      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at_utc TEXT NOT NULL);
-    INSERT INTO runtime_metadata (key, value, updated_at_utc)
-      VALUES ('carried.over', 'kept', '2026-08-05T00:00:00.000Z');
-  `);
-  seed.close();
-
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  const tables = new Set(tableNames(dbPath));
-  assert.ok(tables.has('graph_assertions'));
-  assert.ok(tables.has('graph_nodes_fts'));
-  const carried = withReadonlyDb(dbPath, (database) => z.object({ value: z.string() })
-    .parse(database.prepare("SELECT value FROM runtime_metadata WHERE key = 'carried.over'").get()).value);
-  assert.equal(carried, 'kept');
-});
-
 test('the relation registry table matches the TypeScript descriptor exactly', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-descriptor-');
+  const dbPath = tempDbPath('siftkit-assistant-schema-descriptor-');
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
@@ -184,7 +157,7 @@ test('the relation registry table matches the TypeScript descriptor exactly', ()
 });
 
 test('FTS5 virtual tables accept a match query', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-fts-');
+  const dbPath = tempDbPath('siftkit-assistant-schema-fts-');
   const database = getRuntimeDatabase(dbPath);
   database.prepare(`
     INSERT INTO graph_nodes_fts (node_id, owner_id, display_name, aliases, description)
@@ -197,7 +170,7 @@ test('FTS5 virtual tables accept a match query', () => {
   assert.deepEqual(hits, [{ node_id: 'node_1' }]);
 });
 
-test('the v41 projection and job tables remain present after the v42 migration', () => {
+test('current schema contains projection, job, and projection search tables', () => {
   withAssistantContext(({ database }) => {
     const tables = z.array(z.object({ name: z.string() })).parse(
       database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table') ORDER BY name").all(),
@@ -284,7 +257,7 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
   });
 });
 
-test('v43 adds the desktop observation tables with their guards and indexes', () => {
+test('desktop observation tables enforce current constraints and indexes', () => {
   withAssistantContext(({ database, ownerId }) => {
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
 
@@ -328,22 +301,7 @@ test('v43 adds the desktop observation tables with their guards and indexes', ()
   });
 });
 
-test('re-running the v43 migration is a no-op', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-v43-');
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  assert.equal(countRows(dbPath, 'assistant_activity_events'), 0);
-  assert.equal(countRows(dbPath, 'assistant_activity_sessions'), 0);
-  assert.equal(countRows(dbPath, 'assistant_capture_queue'), 0);
-  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
-    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, CURRENT_SCHEMA_VERSION);
-});
-
-test('v44 adds the device nonce table with its replay-protection key and index', () => {
+test('device nonce table enforces replay protection and device references', () => {
   withAssistantContext(({ database, ownerId }) => {
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
 
@@ -373,82 +331,7 @@ test('v44 adds the device nonce table with its replay-protection key and index',
   });
 });
 
-test('a v43 database gains the device nonce table when it migrates forward', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-v44-');
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  const downgrade = new Database(dbPath);
-  downgrade.exec('DROP TABLE assistant_device_nonces;');
-  restoreLegacyPresetColumns(downgrade);
-  downgrade.prepare('UPDATE runtime_schema SET version = 43 WHERE id = 1').run();
-  downgrade.close();
-  assert.equal(tableNames(dbPath).includes('assistant_device_nonces'), false);
-
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  assert.ok(tableNames(dbPath).includes('assistant_device_nonces'));
-  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
-    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, CURRENT_SCHEMA_VERSION);
-});
-
-test('re-running the v44 migration is a no-op', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-v44-reapply-');
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  assert.equal(countRows(dbPath, 'assistant_device_nonces'), 0);
-  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
-    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, CURRENT_SCHEMA_VERSION);
-});
-
-test('a v44 database gains the assertion recency indexes when it migrates forward', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-v45-');
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  const downgrade = new Database(dbPath);
-  downgrade.exec(`
-    DROP INDEX graph_assertions_subject_recency_idx;
-    DROP INDEX graph_assertions_object_recency_idx;
-  `);
-  restoreLegacyPresetColumns(downgrade);
-  downgrade.prepare('UPDATE runtime_schema SET version = 44 WHERE id = 1').run();
-  downgrade.close();
-
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  const indexes = withReadonlyDb(dbPath, (database) => NameRowSchema.parse(
-    database.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all(),
-  ).map((row) => row.name));
-  assert.ok(indexes.includes('graph_assertions_subject_recency_idx'));
-  assert.ok(indexes.includes('graph_assertions_object_recency_idx'));
-  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
-    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, CURRENT_SCHEMA_VERSION);
-});
-
-test('re-running the v45 migration is a no-op', () => {
-  const dbPath = tempDbPath('siftkit-assistant-migration-v45-reapply-');
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-  getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
-
-  assert.equal(countRows(dbPath, 'graph_assertions'), 0);
-  assert.equal(countRows(dbPath, 'assistant_owners'), 1);
-  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
-    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, CURRENT_SCHEMA_VERSION);
-});
-
-test('v46 adds the hot-path indexes and fts_rowid columns', () => {
+test('current schema contains query indexes and FTS rowid mappings', () => {
   withAssistantContext(({ database }) => {
     const indexes = NameRowSchema.parse(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index'",
@@ -473,7 +356,7 @@ test('v46 adds the hot-path indexes and fts_rowid columns', () => {
   });
 });
 
-test('hot-path lookups use the v46 indexes', () => {
+test('assistant lookups use their query indexes', () => {
   withAssistantContext(({ database }) => {
     const plans: Array<{ sql: string; index: string }> = [
       {
@@ -511,23 +394,5 @@ test('hot-path lookups use the v46 indexes', () => {
       ).map((row) => row.detail).join(' | ');
       assert.ok(detail.includes(index), `expected ${index} in plan: ${detail}`);
     }
-  });
-});
-
-test('backfillAssistantFtsRowids repopulates fts_rowid from existing FTS rows', () => {
-  withAssistantContext(({ database, graph, ownerId }) => {
-    const node = graph.nodes.createNode({
-      ownerId, type: 'software', canonicalKey: null, displayName: 'Backfill Target',
-      description: null, sensitivity: 'personal', properties: {},
-    });
-    database.prepare('UPDATE graph_nodes SET fts_rowid = NULL WHERE id = ?').run(node.id);
-    backfillAssistantFtsRowids(database);
-    const stored = z.object({ fts_rowid: z.number().int() }).parse(
-      database.prepare('SELECT fts_rowid FROM graph_nodes WHERE id = ?').get(node.id),
-    );
-    const ftsRow = z.object({ rowid: z.number().int() }).parse(
-      database.prepare('SELECT rowid FROM graph_nodes_fts WHERE node_id = ?').get(node.id),
-    );
-    assert.equal(stored.fts_rowid, ftsRow.rowid);
   });
 });

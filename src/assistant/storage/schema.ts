@@ -9,8 +9,7 @@ export const LOCAL_OWNER_ID = 'own_local';
 const LOCAL_OWNER_DISPLAY_NAME = 'Local user';
 /** Placeholder for this machine's device row, named on the same terms as the owner row. */
 const LOCAL_DEVICE_DISPLAY_NAME = 'This device';
-/**
- * Every assistant-owned `runtime_metadata` key starts with this prefix. Restore and factory
+/** Every assistant-owned `runtime_metadata` key starts with this prefix. Restore and factory
  * reset select by it, so a key minted without it silently escapes both.
  */
 export const ASSISTANT_METADATA_PREFIX = 'assistant.';
@@ -215,6 +214,7 @@ CREATE TABLE IF NOT EXISTS graph_assertions (
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL,
     fts_rowid INTEGER,
+    user_demoted INTEGER NOT NULL DEFAULT 0 CHECK (user_demoted IN (0, 1)),
     CHECK (
         (object_kind = 'node' AND object_node_id IS NOT NULL AND object_value_json IS NULL)
         OR
@@ -321,9 +321,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS graph_assertions_fts USING fts5(
     subject_text, predicate_text, object_text, scope_text, tokenize = 'unicode61');
 `;
 
-/**
- * Gate B (migration v41): memory projections and the durable job queue. Projections are rows,
- * not files — `relative_path` exists only so a future export can render a stable .md tree.
+/** Memory projections and the durable job queue.
  */
 export const ASSISTANT_MEMORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memory_projections (
@@ -381,7 +379,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_projections_fts USING fts5(
     topic_key, content, tokenize = 'unicode61');
 `;
 
-/** Gate C (migration v42): proactive questions and retrieval feedback. */
+/** Proactive questions and retrieval feedback. */
 export const ASSISTANT_PROACTIVE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS assistant_questions (
     id TEXT PRIMARY KEY,
@@ -439,7 +437,7 @@ CREATE INDEX IF NOT EXISTS retrieval_usage_owner_time_idx
 `;
 
 /**
- * Gate D (v43). Desktop observation: activity metadata and its sessionization, plus the capture
+ * Desktop observation: activity metadata and its sessionization, plus the capture
  * queue that holds screenshot evidence until a vision-capable runtime is actually loaded. Pixels
  * live in encrypted evidence blobs; only hashes and non-content facts are stored here.
  */
@@ -498,7 +496,7 @@ CREATE INDEX IF NOT EXISTS assistant_capture_queue_pixel_idx
 `;
 
 /**
- * Gate E (v44). Mobile envelope replay protection: a device may never reuse a nonce, and its
+ * Mobile envelope replay protection: a device may never reuse a nonce, and its
  * monotonic timestamp must strictly increase. Contract only — no mobile client exists yet, and
  * the route stays 404 until `Assistant.Mobile.Enabled` (§7.6).
  */
@@ -613,27 +611,4 @@ export function seedAssistantRegistries(
     VALUES (?, ?, ?)
     ON CONFLICT(key) DO NOTHING
   `).run(LOCAL_DEVICE_METADATA_KEY, localDeviceId, nowUtc);
-}
-
-/**
- * v46 backfill: records each FTS row's rowid on its canonical row so deletes can address the
- * FTS index by rowid instead of scanning an UNINDEXED column. Content-preserving — FTS text is
- * caller-rendered at write time and is not rebuilt here.
- */
-export function backfillAssistantFtsRowids(database: RuntimeDatabase): void {
-  const targets = [
-    { table: 'graph_nodes', fts: 'graph_nodes_fts', idColumn: 'node_id' },
-    { table: 'graph_assertions', fts: 'graph_assertions_fts', idColumn: 'assertion_id' },
-    { table: 'memory_projections', fts: 'memory_projections_fts', idColumn: 'projection_id' },
-  ] as const;
-  for (const target of targets) {
-    database.exec(`
-      CREATE TEMP TABLE fts_backfill AS
-        SELECT rowid AS fts_rowid, ${target.idColumn} AS row_id FROM ${target.fts};
-      CREATE INDEX fts_backfill_idx ON fts_backfill(row_id);
-      UPDATE ${target.table} SET fts_rowid =
-        (SELECT fts_rowid FROM fts_backfill WHERE row_id = ${target.table}.id);
-      DROP TABLE fts_backfill;
-    `);
-  }
 }

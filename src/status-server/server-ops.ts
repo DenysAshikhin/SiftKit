@@ -20,11 +20,9 @@ import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
-  ensureIdleSummarySnapshotsTable,
   persistIdleSummarySnapshot,
 } from './idle-summary.js';
 import {
-  ensureRunLogsTable,
   upsertRunArtifactPayload,
 } from './dashboard-runs.js';
 import {
@@ -208,8 +206,6 @@ export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
   }
   ensureDirectory(dirname(ctx.idleSummarySnapshotsPath));
   ctx.idleSummary.database = new Database(ctx.idleSummarySnapshotsPath);
-  ensureIdleSummarySnapshotsTable(ctx.idleSummary.database);
-  ensureRunLogsTable(ctx.idleSummary.database);
   return ctx.idleSummary.database;
 }
 

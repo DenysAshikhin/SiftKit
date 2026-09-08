@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 import {
   queryDashboardRunDetailFromDb,
@@ -21,7 +22,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
 
     fs.mkdirSync(runtimeRoot, { recursive: true });
 
-    const database = new Database(runtimeDbPath);
+    const database = getRuntimeDatabase(runtimeDbPath);
     try {
       upsertRepoSearchRun({
         database,
@@ -68,7 +69,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         },
       });
     } finally {
-      database.close();
+      closeRuntimeDatabase();
     }
 
     const verifyDb = new Database(runtimeDbPath);
@@ -95,7 +96,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
 
     fs.mkdirSync(runtimeRoot, { recursive: true });
 
-    const database = new Database(runtimeDbPath);
+    const database = getRuntimeDatabase(runtimeDbPath);
     try {
       upsertRepoSearchRun({
         database,
@@ -142,7 +143,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         },
       });
     } finally {
-      database.close();
+      closeRuntimeDatabase();
     }
 
     const verifyDb = new Database(runtimeDbPath);

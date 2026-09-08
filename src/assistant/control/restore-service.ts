@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 
 import {
   KeyMaterialDtoSchema,
@@ -10,7 +11,7 @@ import {
 import { parseJsonText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
 import { ZipFileReader } from '../../lib/zip-file-reader.js';
-import { CURRENT_SCHEMA_VERSION, migrateDatabaseFile, type RuntimeDatabase } from '../../state/runtime-db.js';
+import { CURRENT_SCHEMA_VERSION, getSchemaVersion, type RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { DpapiUnavailableError, dpapiUnprotect } from '../crypto/dpapi.js';
 import type { KeyCustodyService } from '../crypto/key-custody.js';
@@ -188,28 +189,38 @@ export class RestoreService {
 
   private async readManifest(reader: ZipFileReader): Promise<BackupManifest> {
     const manifest = await this.readManifestOnly(reader);
-    if (manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
+    if (manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
       throw new Error(
-        `Backup schema version ${manifest.schemaVersion} is newer than this build's `
-        + `${CURRENT_SCHEMA_VERSION}; upgrade SiftKit before restoring.`,
+        `Backup schema version ${manifest.schemaVersion} is unsupported; expected ${CURRENT_SCHEMA_VERSION}.`,
       );
     }
     if (!reader.hasEntry(SNAPSHOT_ENTRY)) throw new Error('Backup is missing its database snapshot.');
     return manifest;
   }
 
-  /**
-   * Copies the assistant tables out of the snapshot, table by table, over an explicit column
-   * intersection so an older backup restores into today's columns without silently dropping
-   * anything the two schemas share.
-   */
+  /** Validate the current snapshot before replacing any assistant data. */
   private async replaceRows(reader: ZipFileReader, snapshotPath: string): Promise<void> {
     await reader.extractTo(SNAPSHOT_ENTRY, snapshotPath);
-    migrateDatabaseFile(snapshotPath);
+    const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+    try {
+      const version = getSchemaVersion(snapshot);
+      if (version !== CURRENT_SCHEMA_VERSION) {
+        throw new Error(`Backup snapshot schema version ${version} is unsupported; expected ${CURRENT_SCHEMA_VERSION}.`);
+      }
+    } finally {
+      snapshot.close();
+    }
 
     // ATTACH cannot run inside a transaction, so it brackets the whole copy.
     this.database.exec(`ATTACH DATABASE '${snapshotPath.replace(/'/gu, "''")}' AS ${ATTACHED}`);
     try {
+      for (const table of [...ASSISTANT_TABLE_NAMES, ...ASSISTANT_FTS_TABLE_NAMES, 'runtime_metadata']) {
+        const target = this.columnsOf('main', table);
+        const source = this.columnsOf(ATTACHED, table);
+        if (target.length === 0 || source.length !== target.length || !target.every((column) => source.includes(column))) {
+          throw new Error(`Backup snapshot schema columns do not match the current table ${table}.`);
+        }
+      }
       const transaction = this.graph.transactions.begin();
       try {
         for (const table of ASSISTANT_FTS_TABLE_NAMES) {
@@ -220,10 +231,10 @@ export class RestoreService {
         }
         // Parents first, so every foreign key has its target by the time children land.
         for (const table of [...ASSISTANT_TABLE_NAMES].reverse()) this.copyTable(table);
-        for (const table of ASSISTANT_FTS_TABLE_NAMES) this.copyTable(table);
+        for (const table of ASSISTANT_FTS_TABLE_NAMES) this.copyTable(table, true);
         this.database.prepare(`
-          INSERT OR REPLACE INTO main.runtime_metadata
-          SELECT * FROM ${ATTACHED}.runtime_metadata WHERE key LIKE '${ASSISTANT_METADATA_PREFIX}%'
+          INSERT OR REPLACE INTO main.runtime_metadata (key, value, updated_at_utc)
+          SELECT key, value, updated_at_utc FROM ${ATTACHED}.runtime_metadata WHERE key LIKE '${ASSISTANT_METADATA_PREFIX}%'
         `).run();
         transaction.commit();
       } catch (error) {
@@ -234,17 +245,20 @@ export class RestoreService {
     }
   }
 
-  private copyTable(table: string): void {
-    const columns = this.columnsOf('main', table)
-      .filter((column) => this.columnsOf(ATTACHED, table).includes(column));
-    if (columns.length === 0) return;
-    const list = columns.join(', ');
+  private copyTable(table: string, includeRowid = false): void {
+    const columns = this.columnsOf('main', table);
+    if (includeRowid) columns.unshift('rowid');
+    const list = columns.map((column) => `"${column.replace(/"/gu, '""')}"`).join(', ');
     this.database.prepare(
       `INSERT INTO main.${table} (${list}) SELECT ${list} FROM ${ATTACHED}.${table}`,
     ).run();
   }
 
   private columnsOf(schema: string, table: string): string[] {
+    const row = this.database.prepare(`SELECT type FROM ${schema}.sqlite_schema WHERE name = ?`).get(table);
+    if (!z.object({ type: z.literal('table') }).safeParse(row).success) {
+      throw new Error(`Backup restore requires table ${schema}.${table}.`);
+    }
     return z.array(ColumnRowSchema)
       .parse(this.database.pragma(`${schema}.table_info(${table})`))
       .map((column) => column.name);
