@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { PresetCatalog } from '../src/preset-catalog.js';
 import { closeRuntimeDatabase, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -55,7 +54,6 @@ test('fresh database uses current backend-neutral schema columns', () => {
       assert.equal(VersionRowSchema.parse(database.prepare(
         'SELECT version FROM runtime_schema WHERE id = 1',
       ).get()).version, CURRENT_SCHEMA_VERSION);
-      assert.equal(PresetCatalog.createDefault().list().length > 0, true);
     } finally {
       database.close();
     }

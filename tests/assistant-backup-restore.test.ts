@@ -317,7 +317,7 @@ test('restore refuses a newer schema version', async () => {
   });
 });
 
-for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot', 'missing marker', 'missing table', 'missing column', 'view replacing table'] as const) {
+for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot', 'missing marker', 'empty marker', 'malformed marker', 'missing table', 'missing column', 'view replacing table'] as const) {
   test(`restore rejects ${invalidFormat} and preserves rows, blobs, and custody`, async () => {
     await withAssistantContextAsync(async (context) => {
       const seeded = seedOwnerAssertion(context, { objectName: 'Preserved Tool' });
@@ -341,6 +341,8 @@ for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot
           switch (invalidFormat) {
             case 'older snapshot': database.prepare('UPDATE runtime_schema SET version = ?').run(CURRENT_SCHEMA_VERSION - 1); break;
             case 'missing marker': database.exec('DROP TABLE runtime_schema'); break;
+            case 'empty marker': database.exec('DELETE FROM runtime_schema'); break;
+            case 'malformed marker': database.exec("UPDATE runtime_schema SET version = 'bad'"); break;
             case 'missing table': database.exec('DROP TABLE assistant_jobs'); break;
             case 'missing column': database.exec('ALTER TABLE candidate_assertions DROP COLUMN hold_json'); break;
             case 'view replacing table': {
@@ -361,7 +363,19 @@ for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot
       await assert.rejects(async () => {
         const preview = await restores.preview(rebuild(archive));
         await restores.confirm(preview.uploadId, preview.confirmToken);
-      }, /schema|column|table|version/iu);
+      }, (error) => {
+        assert.ok(error instanceof Error);
+        if (invalidFormat === 'missing marker' || invalidFormat === 'empty marker' || invalidFormat === 'malformed marker') {
+          assert.equal(error.name, 'Error');
+          assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
+          assert.ok(error.message.includes(context.runtimeRoot));
+          assert.match(error.message, /expected.*66/iu);
+          assert.ok(error.cause instanceof Error);
+        } else {
+          assert.match(error.message, /schema|column|table|version/iu);
+        }
+        return true;
+      });
       assert.deepEqual(context.graph.assertions.requireAssertion(seeded.assertion.id), seeded.assertion);
       assert.deepEqual(context.graph.evidence.readBlobEnvelope(blob), beforeBlob);
       assert.deepEqual(custody.exportForBackup(), beforeCustody);

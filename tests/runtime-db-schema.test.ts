@@ -216,23 +216,6 @@ test('opening a current database preserves stored values and device identity', (
   }
 });
 
-test('unversioned nonempty databases are rejected without changing their contents', () => {
-  const dbPath = tempDbPath('siftkit-runtime-schema-unversioned-');
-  const database = new Database(dbPath);
-  try {
-    database.exec("CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('preserve');");
-  } finally {
-    database.close();
-  }
-
-  try {
-    assert.throws(() => getRuntimeDatabase(dbPath));
-    assert.equal(readSentinel(dbPath), 'preserve');
-  } finally {
-    closeRuntimeDatabase();
-  }
-});
-
 test('historical and future schema markers are rejected without changing their contents', () => {
   for (const version of [64, 65, 67]) {
     const dbPath = tempDbPath(`siftkit-runtime-schema-version-${String(version)}-`);
@@ -251,38 +234,6 @@ test('historical and future schema markers are rejected without changing their c
     } finally {
       closeRuntimeDatabase();
     }
-  }
-});
-
-test('missing and malformed schema markers are rejected without changing their contents', () => {
-  const missingMarkerPath = tempDbPath('siftkit-runtime-schema-missing-marker-');
-  const missingMarker = new Database(missingMarkerPath);
-  try {
-    missingMarker.exec("CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('preserve');");
-  } finally {
-    missingMarker.close();
-  }
-  assert.throws(() => getRuntimeDatabase(missingMarkerPath));
-  assert.equal(readSentinel(missingMarkerPath), 'preserve');
-  closeRuntimeDatabase();
-
-  const malformedPath = tempDbPath('siftkit-runtime-schema-malformed-marker-');
-  const malformed = new Database(malformedPath);
-  try {
-    malformed.exec(`
-      CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version TEXT NOT NULL);
-      INSERT INTO runtime_schema (id, version) VALUES (1, 'bad');
-      CREATE TABLE sentinel (value TEXT NOT NULL);
-      INSERT INTO sentinel VALUES ('preserve');
-    `);
-  } finally {
-    malformed.close();
-  }
-  try {
-    assert.throws(() => getRuntimeDatabase(malformedPath));
-    assert.equal(readSentinel(malformedPath), 'preserve');
-  } finally {
-    closeRuntimeDatabase();
   }
 });
 
@@ -344,6 +295,8 @@ for (const marker of [
   { label: 'wrong id', sql: 'CREATE TABLE runtime_schema (id INTEGER, version INTEGER); INSERT INTO runtime_schema VALUES (2, 66)' },
   { label: 'fractional', sql: 'CREATE TABLE runtime_schema (id INTEGER, version REAL); INSERT INTO runtime_schema VALUES (1, 66.5)' },
   { label: 'text', sql: "CREATE TABLE runtime_schema (id INTEGER, version TEXT); INSERT INTO runtime_schema VALUES (1, '66')" },
+  { label: 'nonnumeric text', sql: "CREATE TABLE runtime_schema (id INTEGER, version TEXT); INSERT INTO runtime_schema VALUES (1, 'bad')" },
+  { label: 'missing version column', sql: 'CREATE TABLE runtime_schema (id INTEGER)' },
   { label: 'view', sql: 'CREATE VIEW runtime_schema AS SELECT 1 AS id, 66 AS version' },
 ] as const) {
   test(`invalid ${marker.label} marker rejects without changing database bytes or caching the handle`, () => {
@@ -354,17 +307,27 @@ for (const marker of [
       if (marker.sql !== '') raw.exec(marker.sql);
     } finally { raw.close(); }
     const before = readFileSync(dbPath);
+    const reader = new Database(dbPath, { readonly: true, fileMustExist: true });
     try {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        assert.throws(() => getRuntimeDatabase(dbPath), (error) => {
-          assert.ok(error instanceof Error);
-          assert.ok(error.message.includes(dbPath));
-          assert.match(error.message, /expected.*66/iu);
-          return true;
-        });
-        assert.deepEqual(readFileSync(dbPath), before);
+      for (const entryPoint of ['version accessor', 'database opener'] as const) {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          assert.throws(() => entryPoint === 'version accessor' ? getSchemaVersion(reader) : getRuntimeDatabase(dbPath), (error) => {
+            assert.ok(error instanceof Error);
+            assert.equal(error.name, 'Error');
+            assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
+            assert.ok(error.message.includes(dbPath));
+            assert.match(error.message, /expected.*66/iu);
+            assert.ok(error.cause instanceof Error);
+            return true;
+          });
+          assert.deepEqual(readFileSync(dbPath), before);
+          assert.equal(readSentinel(dbPath), 'preserve');
+        }
       }
-    } finally { closeRuntimeDatabase(); }
+    } finally {
+      reader.close();
+      closeRuntimeDatabase();
+    }
   });
 }
 

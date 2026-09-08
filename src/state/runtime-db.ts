@@ -10,7 +10,7 @@ import { initializeRuntimeSchema } from './runtime-schema.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
-const VersionRowsSchema = z.array(z.object({ id: z.literal(1), version: z.number().int() })).length(1);
+const VersionRowsSchema = z.tuple([z.object({ id: z.literal(1), version: z.number().int() })]);
 const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
@@ -23,16 +23,21 @@ let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
 
 export function getSchemaVersion(database: RuntimeDatabase): number {
-  const marker = RuntimeSchemaTableRowSchema.safeParse(database.prepare(
-    "SELECT type FROM sqlite_schema WHERE name = 'runtime_schema'",
-  ).get());
-  if (!marker.success) throw new Error('Runtime schema marker table is missing or invalid.', { cause: marker.error });
-  const rows = VersionRowsSchema.parse(database.prepare(
-    'SELECT id, version FROM runtime_schema ORDER BY id',
-  ).all());
-  const row = rows[0];
-  if (row === undefined) throw new Error('Runtime schema marker is missing.');
-  return row.version;
+  try {
+    RuntimeSchemaTableRowSchema.parse(database.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'runtime_schema'",
+    ).get());
+    const [row] = VersionRowsSchema.parse(database.prepare(
+      'SELECT id, version FROM runtime_schema ORDER BY id',
+    ).all());
+    return row.version;
+  } catch (error) {
+    throw new Error(
+      `Runtime schema marker is missing or invalid at ${database.name}; expected schema version ${CURRENT_SCHEMA_VERSION}`
+      + ' in one runtime_schema row with id 1 and an integer version.',
+      { cause: error },
+    );
+  }
 }
 
 function hasDatabaseObjects(database: RuntimeDatabase): boolean {
@@ -49,13 +54,7 @@ type RuntimeDatabaseState = 'fresh' | 'current';
 function inspectRuntimeDatabase(database: RuntimeDatabase, databasePath: string): RuntimeDatabaseState {
   if (!hasDatabaseObjects(database)) return 'fresh';
 
-  let version: number;
-  try {
-    version = getSchemaVersion(database);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Runtime schema marker is missing or invalid at ${databasePath}; expected schema version ${CURRENT_SCHEMA_VERSION}: ${message}`, { cause: error });
-  }
+  const version = getSchemaVersion(database);
   if (version !== CURRENT_SCHEMA_VERSION) {
     throw new Error(
       `Runtime schema version ${String(version)} is incompatible at ${databasePath}; expected ${String(CURRENT_SCHEMA_VERSION)}.`,

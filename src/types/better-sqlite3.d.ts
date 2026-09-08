@@ -7,6 +7,7 @@ declare module 'better-sqlite3' {
   }
 
   export interface Database {
+    readonly name: string;
     prepare(sql: string): Statement;
     exec(sql: string): this;
     pragma(source: string, options?: { simple?: boolean }): unknown;
