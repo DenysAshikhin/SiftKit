@@ -61,7 +61,7 @@ export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
   NumCtx: z.number(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
-  CacheRecurrentRam: z.number(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
+  CacheRecurrentRam: z.number(), NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
   Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
@@ -76,7 +76,7 @@ const ModelPresetSettingsShape = {
 
 export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
-  'CacheRecurrentRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'CacheRecurrentRam', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeDraftMax', 'SpeculativeDynamic', 'ReasoningBudget',

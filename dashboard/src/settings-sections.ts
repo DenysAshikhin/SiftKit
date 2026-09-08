@@ -25,6 +25,7 @@ export type SettingsSectionDescriptor = {
 
 export const POLICY_MODE_OPTIONS = ['conservative', 'aggressive'] as const;
 export const VISION_OFFLOAD_LABEL = 'Keep vision weights in RAM';
+export const NGRAM_RAM_LABEL = 'Keep n-gram table in RAM';
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
@@ -126,6 +127,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'UBatchSize', layout: 'quarter', helpText: 'Prompt-ingestion chunk size used by EXL3.' },
       { label: 'CacheRam', layout: 'quarter', helpText: 'Host RAM reserved for the exllamav3 pinned second-tier page cache (`TABBY_MEMORY_SYSMEM_KV_CACHE`), which tensor parallel rejects. Counts as shared GPU memory on Windows because the tier is page-locked.' },
       { label: 'CacheRecurrentRam', layout: 'quarter', helpText: 'Host RAM for exllamav3 recurrent (linear-attention) states, in MiB; maps to `TABBY_MEMORY_SYSMEM_RECURRENT_CACHE`. Only allocated for hybrid/linear-attention models, which need one state per ParallelSlots lane, so raise it alongside ParallelSlots.' },
+      { label: NGRAM_RAM_LABEL, layout: 'quarter', helpText: 'Holds the hashed n-gram embedding table of a PLE model in host RAM (`TABBY_MODEL_NGRAM_RAM`) instead of streaming rows from disk on every forward. Costs tens of GB of RAM and no VRAM; models without such a table ignore it.' },
       { label: 'KV cache quant', layout: 'quarter', helpText: 'Selects the TabbyAPI cache and draft-cache modes for the managed model.' },
       { label: 'Temperature', layout: 'quarter', helpText: 'Lower is more deterministic; higher adds variance.' },
       { label: 'TopP', layout: 'quarter', helpText: 'Probability mass retained during nucleus sampling.' },

@@ -118,6 +118,30 @@ test('PUT /config preserves zero CacheRam and CacheRecurrentRam', async () => {
   }
 });
 
+test('PUT /config round-trips an enabled NgramRam', async () => {
+  const { server, close } = await startServerWithRuntime('siftkit-config-ngram-ram-');
+  try {
+    const config = await readConfigBody(server.baseUrl);
+    const modelPresets = asObject(asObject(config.Server).ModelPresets);
+    const presets = asObjectArray(modelPresets.Presets);
+    const activePreset = presets[0];
+    assert.ok(activePreset, 'expected at least one model preset');
+    assert.equal(activePreset.NgramRam, false, 'NgramRam must default to false');
+    activePreset.NgramRam = true;
+
+    const saved = await requestJson(`${server.baseUrl}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+    assert.equal(saved.statusCode, 200);
+
+    const persisted = asObjectArray(asObject(asObject((await readConfigBody(server.baseUrl)).Server).ModelPresets).Presets);
+    assert.equal(persisted[0]?.NgramRam, true, 'NgramRam must persist as true');
+  } finally {
+    await close();
+  }
+});
+
 test('rejects a config payload that normalization refuses', async () => {
   const server = await DashboardTestServer.start('siftkit-config-invalid-');
   try {

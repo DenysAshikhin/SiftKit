@@ -165,6 +165,7 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_MODEL_VISION: 'false',
         TABBY_MODEL_VISION_OFFLOAD: 'false',
         TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
+        TABBY_MODEL_NGRAM_RAM: 'false',
     });
     assert.equal(fs.existsSync(fixture.loadRequestsPath), false);
   });

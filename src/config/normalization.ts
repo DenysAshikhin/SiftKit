@@ -518,6 +518,7 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
     ),
+    NgramRam: getBooleanWithDefault(input.NgramRam, defaults.NgramRam),
     KvCacheQuantization: getModelKvCacheQuantization(
       input.KvCacheQuantization,
       defaults.KvCacheQuantization ?? SIFT_DEFAULT_ENGINE_KV_CACHE_QUANTIZATION,

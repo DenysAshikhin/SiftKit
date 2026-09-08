@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  NGRAM_RAM_LABEL,
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
   SETTINGS_SECTIONS,
   SETTINGS_TOOLTIP_LABELS,
+  VISION_OFFLOAD_LABEL,
 } from '../dashboard/src/settings-sections.js';
 
 test('settings section order matches the integrated layout', () => {
@@ -56,6 +58,7 @@ test('settings tooltip labels include the documented fields', () => {
       'UBatchSize',
       'CacheRam',
       'CacheRecurrentRam',
+      NGRAM_RAM_LABEL,
       'KV cache quant',
       'Temperature',
       'TopP',
@@ -79,7 +82,7 @@ test('settings tooltip labels include the documented fields', () => {
       'IdleAction',
       'SleepIdleSeconds',
       'Vision enabled',
-      'Keep vision weights in RAM',
+      VISION_OFFLOAD_LABEL,
       'Max image size (MP)',
       'Vision image retention',
       'Export memory',

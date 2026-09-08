@@ -204,6 +204,19 @@ test('set-model-boolean VisionEnabled toggles the targeted preset and leaves oth
   assert.equal(qwenPreset?.VisionEnabled, true);
 });
 
+test('every contract boolean is settable through set-model-boolean except ReasoningContent', () => {
+  const editor = new DashboardSettingsDraftEditor(createConfig());
+
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'NgramRam', value: true });
+  // ReasoningContent owns set-model-reasoning-content, which also clears the dependent thinking
+  // fields, so routing it here is a compile error. @ts-expect-error fails loud if that ban regresses.
+  // @ts-expect-error ReasoningContent is excluded from ModelBooleanField
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'ReasoningContent', value: true });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets.find((candidate) => candidate.id === 'qwen-27b');
+  assert.equal(preset?.NgramRam, true);
+});
+
 test('disabling vision clears vision offload on the targeted preset', () => {
   const config = createConfig();
   const editor = new DashboardSettingsDraftEditor(config);

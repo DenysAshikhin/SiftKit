@@ -46,8 +46,15 @@ export const Exl3LaunchEnvironmentSchema = z.object({
    * models and layers that fail exllamav3's eligibility probes ignore it.
    */
   TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: z.string(),
+  /** `NgramRam`; the tradeoff is stated once in the dashboard help text for the field. */
+  TABBY_MODEL_NGRAM_RAM: z.enum(['true', 'false']),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
+
+/** TabbyAPI reads its env overrides as text, so every boolean setting ships as this exact pair. */
+function envFlag(value: boolean): 'true' | 'false' {
+  return value ? 'true' : 'false';
+}
 
 export class Exl3PresetAdapter {
   private readonly capabilities = new Exl3ModelCapabilities();
@@ -103,10 +110,11 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
-      TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: preset.SpeculativeEnabled && preset.SpeculativeDynamic ? 'true' : 'false',
-      TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
-      TABBY_MODEL_VISION_OFFLOAD: preset.VisionOffload ? 'true' : 'false',
+      TABBY_DRAFT_MODEL_DYNAMIC_DRAFT: envFlag(preset.SpeculativeEnabled && preset.SpeculativeDynamic),
+      TABBY_MODEL_VISION: envFlag(preset.VisionEnabled),
+      TABBY_MODEL_VISION_OFFLOAD: envFlag(preset.VisionOffload),
       TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: String(preset.NcpuMoe),
+      TABBY_MODEL_NGRAM_RAM: envFlag(preset.NgramRam),
     });
   }
 

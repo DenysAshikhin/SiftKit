@@ -41,6 +41,8 @@ export const SIFT_DEFAULT_ENGINE_SLEEP_IDLE_SECONDS = 600;
 export const SIFT_DEFAULT_VISION_ENABLED = false;
 /** Vision weights stay in VRAM by default; offloading them to pinned host RAM trades vision speed for VRAM. */
 export const SIFT_DEFAULT_VISION_OFFLOAD = false;
+/** Streaming the n-gram table from disk is exllamav3's own default; residency costs host RAM. */
+export const SIFT_DEFAULT_NGRAM_RAM = false;
 /** New presets do not feed the assistant until the user opts them in (§6.3). */
 export const SIFT_DEFAULT_ASSISTANT_MEMORY = false;
 /** Images kept live in context. -1 is unbounded; 0 refuses images on every path. */

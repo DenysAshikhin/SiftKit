@@ -78,6 +78,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
+    TABBY_MODEL_NGRAM_RAM: 'false',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -115,6 +116,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_VISION: 'false',
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
+    TABBY_MODEL_NGRAM_RAM: 'false',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -188,6 +190,17 @@ test('EXL3 adapter rejects vision offload when vision is disabled', () => {
     () => adapter.validatePreset(preset),
     /VisionOffload=true requires VisionEnabled=true/u,
   );
+});
+
+test('EXL3 adapter maps NgramRam onto TABBY_MODEL_NGRAM_RAM', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const base = { Backend: 'exl3' as const, ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' };
+
+  const streamed = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: false }));
+  assert.equal(streamed.TABBY_MODEL_NGRAM_RAM, 'false');
+
+  const resident = adapter.buildLaunchEnvironment(createModelPreset({ ...base, NgramRam: true }));
+  assert.equal(resident.TABBY_MODEL_NGRAM_RAM, 'true');
 });
 
 test('EXL3 adapter maps NcpuMoe onto TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS', () => {
@@ -308,6 +321,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   UBatchSize: ALWAYS,
   CacheRam: MANAGED_ONLY,
   CacheRecurrentRam: MANAGED_ONLY,
+  NgramRam: MANAGED_ONLY,
   KvCacheQuantization: ALWAYS,
 
   Temperature: ALWAYS,

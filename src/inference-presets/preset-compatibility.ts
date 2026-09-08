@@ -92,6 +92,7 @@ const PRESET_FIELD_SUPPORT = {
   UBatchSize: 'always',
   CacheRam: 'managed-only',
   CacheRecurrentRam: 'managed-only',
+  NgramRam: 'managed-only',
   KvCacheQuantization: 'always',
 
   Temperature: 'always',

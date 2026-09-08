@@ -5,6 +5,7 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
+import { NGRAM_RAM_LABEL } from '../../settings-sections';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   DashboardConfig,
@@ -172,6 +173,17 @@ export function ModelPresetsSection({
           </ModelPresetControl>
           <ModelPresetControl preset={preset} field="CacheRecurrentRam" label="CacheRecurrentRam">
             <input type="number" value={preset.CacheRecurrentRam} onChange={(event) => modelPresetActions.setInteger('CacheRecurrentRam', parseIntegerInput(event.target.value, preset.CacheRecurrentRam))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="NgramRam" label={NGRAM_RAM_LABEL}>
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                aria-label={NGRAM_RAM_LABEL}
+                checked={preset.NgramRam}
+                onChange={(event) => modelPresetActions.setBoolean('NgramRam', event.target.checked)}
+              />
+              <span>{preset.NgramRam ? 'System RAM' : 'Stream from disk'}</span>
+            </label>
           </ModelPresetControl>
           <ModelPresetControl preset={preset} field="KvCacheQuantization" label="KV cache quant">
             <select value={preset.KvCacheQuantization} onChange={(event) => {

@@ -426,6 +426,22 @@ test('VisionOffload defaults to false when omitted from a persisted preset', () 
   assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).VisionOffload, false);
 });
 
+test('NgramRam defaults to false and schema accepts true', () => {
+  const normalized = normalizeConfig(getDefaultConfig());
+  assert.equal(activePreset(normalized).NgramRam, false);
+
+  const config = defaultConfigObject();
+  activePresetObject(config).NgramRam = true;
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NgramRam, true);
+});
+
+test('NgramRam defaults to false when omitted from a persisted preset', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).NgramRam;
+
+  assert.equal(activePreset(normalizeConfig(JsonValueSchema.parse(config))).NgramRam, false);
+});
+
 test('VisionImageRetention defaults to 8 when omitted from a persisted preset', () => {
   const config = defaultConfigObject();
   delete activePresetObject(config).VisionImageRetention;

@@ -24,6 +24,7 @@ import type {
   DashboardPresetToolName,
   ModelKvCacheQuantization,
   ModelIdleAction,
+  ModelPresetSettings,
   ReasoningEffort,
   WebSearchProviderId,
 } from './types.js';
@@ -61,14 +62,15 @@ export type ModelFloatField =
   | 'MinP'
   | 'PresencePenalty'
   | 'RepetitionPenalty';
-export type ModelBooleanField =
-  | 'ExternalServerEnabled'
-  | 'PreserveThinking'
-  | 'MaintainPerStepThinking'
-  | 'SpeculativeEnabled'
-  | 'SpeculativeDynamic'
-  | 'VisionEnabled'
-  | 'VisionOffload';
+/**
+ * Every boolean the preset contract declares is settable through `set-model-boolean`, so a field
+ * added to the contract cannot be silently left un-editable. `ReasoningContent` is the one
+ * exception: it owns `set-model-reasoning-content`, which also clears dependent thinking fields.
+ */
+export type ModelBooleanField = Exclude<
+  { [K in keyof ModelPresetSettings]: ModelPresetSettings[K] extends boolean ? K : never }[keyof ModelPresetSettings],
+  'ReasoningContent'
+>;
 
 export type DashboardSettingsDraftAction =
   | { type: 'set-assistant'; value: AssistantConfig }
