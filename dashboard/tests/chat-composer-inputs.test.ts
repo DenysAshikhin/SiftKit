@@ -23,11 +23,28 @@ test('parsePlanMaxTurnsOverride returns maxTurns when input is a positive number
   assert.deepEqual(parsePlanMaxTurnsOverride('45'), { maxTurns: 45 });
 });
 
-test('parsePlanMaxTurnsOverride returns empty object for invalid values', () => {
-  assert.deepEqual(parsePlanMaxTurnsOverride('0'), {});
-  assert.deepEqual(parsePlanMaxTurnsOverride('-5'), {});
-  assert.deepEqual(parsePlanMaxTurnsOverride('abc'), {});
+test('parsePlanMaxTurnsOverride treats blank input as no override', () => {
   assert.deepEqual(parsePlanMaxTurnsOverride(''), {});
+  assert.deepEqual(parsePlanMaxTurnsOverride('  '), {});
+});
+
+for (const value of ['1', '1000', '10000', '9007199254740991']) {
+  test(`parsePlanMaxTurnsOverride accepts ${value}`, () => {
+    assert.deepEqual(parsePlanMaxTurnsOverride(value), { maxTurns: Number(value) });
+  });
+}
+
+for (const value of ['0', '-5', '1.5', '1k', '1e3', '0x10', '+1', 'NaN', 'Infinity', '9007199254740992']) {
+  test(`parsePlanMaxTurnsOverride rejects ${JSON.stringify(value)}`, () => {
+    assert.throws(
+      () => parsePlanMaxTurnsOverride(value),
+      /whole number from 1 to 9007199254740991/u,
+    );
+  });
+}
+
+test('parsePlanMaxTurnsOverride trims valid decimal digits', () => {
+  assert.deepEqual(parsePlanMaxTurnsOverride('  001000  '), { maxTurns: 1000 });
 });
 
 test('resolveRepoRoot trims input and falls back for blanks', () => {

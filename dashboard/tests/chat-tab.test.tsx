@@ -114,7 +114,7 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     isThinkingEnabledForCurrentSession: true,
     webSearchEnabled: true,
     showSettings: false,
-    onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {},
+    onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {}, onChangePlanMaxTurns: () => {},
     onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
@@ -137,6 +137,94 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
 
 test('repo-agent composer uses the Run Agent label', () => {
   assert.match(render({ chatMode: 'repo-agent', isRepoToolMode: true }), />Run Agent<\/button>/u);
+});
+
+test('repo-agent turns control is visible only in repo-agent mode', () => {
+  assert.equal(screen.queryByRole('button', { name: /Turns:/u }), null);
+  renderComponent(<ChatTab {...buildProps({ chatMode: 'repo-agent', isRepoToolMode: true })} />);
+  assert.ok(screen.getByRole('button', { name: 'Turns: 100' }));
+});
+
+test('repo-agent turns control shows the selected preset default', () => {
+  const preset = { ...REPO_AGENT_PRESET, maxTurns: 250 } satisfies DashboardPreset;
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    selectedChatPreset: preset,
+  })} />);
+  assert.ok(screen.getByRole('button', { name: 'Turns: 250' }));
+});
+
+test('repo-agent turns control forwards changed values to its session callback', () => {
+  const changes: string[] = [];
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    onChangePlanMaxTurns: (value) => { changes.push(value); },
+  })} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Turns: 100' }));
+  fireEvent.change(screen.getByLabelText('Maximum turns'), { target: { value: '1000' } });
+  assert.deepEqual(changes, ['1000']);
+});
+
+test('invalid repo-agent turns disable Run Agent and Retry', () => {
+  let sendCount = 0;
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'plan-inputs', sessionId: SESSION_A.id, planRepoRootInput: '', planMaxTurnsInput: '1k' })
+    .apply({ kind: 'control-error', sessionId: SESSION_A.id, message: 'Previous run failed.' });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+    onSendRepoAgent: async () => { sendCount += 1; },
+  })} />);
+  assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
+  assert.equal(screen.getByRole('button', { name: 'Retry' }).hasAttribute('disabled'), true);
+  fireEvent.click(screen.getByRole('button', { name: 'Run Agent' }));
+  assert.equal(sendCount, 0);
+  assert.equal(screen.getByRole('alert').textContent, 'Enter a whole number from 1 to 9007199254740991.');
+});
+
+test('busy repo-agent sessions disable turns editing while keeping Stop available', () => {
+  const store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
+  renderComponent(<ChatTab {...buildProps({
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  })} />);
+  assert.equal(screen.getByRole('button', { name: 'Turns: 100' }).hasAttribute('disabled'), true);
+  assert.ok(screen.getByRole('button', { name: 'Stop' }));
+});
+
+test('switching sessions closes the turns editor and selects that session value', async () => {
+  const storeA = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'plan-inputs', sessionId: SESSION_A.id, planRepoRootInput: '', planMaxTurnsInput: '1000' });
+  const storeB = buildDefaultStore(SESSION_B.id)
+    .apply({ kind: 'plan-inputs', sessionId: SESSION_B.id, planRepoRootInput: '', planMaxTurnsInput: '2000' });
+  const view = renderComponent(<ChatTab {...buildProps({
+    selectedSessionId: SESSION_A.id,
+    selectedRuntime: storeA.get(SESSION_A.id),
+    sessionRuntimes: storeA.getAll(),
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+  })} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Turns: 1000' }));
+  assert.ok(screen.getByLabelText('Maximum turns'));
+
+  await act(async () => {
+    view.rerender(<ChatTab {...buildProps({
+      selectedSessionId: SESSION_B.id,
+      selectedRuntime: storeB.get(SESSION_B.id),
+      sessionRuntimes: storeB.getAll(),
+      chatMode: 'repo-agent',
+      isRepoToolMode: true,
+    })} />);
+  });
+  assert.equal(screen.queryByLabelText('Maximum turns'), null);
+  assert.ok(screen.getByRole('button', { name: 'Turns: 2000' }));
 });
 
 test('the repo folder field shows the seeded server default', () => {

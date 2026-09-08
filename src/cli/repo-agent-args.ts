@@ -1,5 +1,11 @@
-import { ApprovalModeSchema, DEFAULT_APPROVAL_MODE, type ApprovalMode } from '@siftkit/contracts';
+import {
+  ApprovalModeSchema,
+  DEFAULT_APPROVAL_MODE,
+  RepoAgentTurnsInputSchema,
+  type ApprovalMode,
+} from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
+import { RepoAgentStartRequestSchema } from '../repo-agent/api-schemas.js';
 
 export const RepoAgentStartInvocationSchema = z.object({
   kind: z.literal('start'),
@@ -7,6 +13,7 @@ export const RepoAgentStartInvocationSchema = z.object({
   taskTokenCount: z.number().int().min(1),
   model: z.string().min(1).optional(),
   logFile: z.string().min(1).optional(),
+  maxTurns: RepoAgentStartRequestSchema.shape.maxTurns,
   approval: ApprovalModeSchema,
   progress: z.boolean(),
   images: z.array(z.string().min(1)).default([]),
@@ -73,6 +80,7 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
   const taskTokens: string[] = [];
   let model: string | undefined;
   let logFile: string | undefined;
+  let maxTurns: number | undefined;
   let approval: ApprovalMode = DEFAULT_APPROVAL_MODE;
   let progress = false;
   const images: string[] = [];
@@ -86,6 +94,21 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
     }
     if (token === '--log-file') {
       logFile = readOptionValue(tokens, index, token);
+      index += 1;
+      continue;
+    }
+    if (token === '-turns') {
+      if (maxTurns !== undefined) {
+        throw new Error('Duplicate -turns option.');
+      }
+      const raw = readOptionValue(tokens, index, token);
+      const parsed = RepoAgentTurnsInputSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error(
+          `Invalid -turns value: ${raw}. Expected a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`,
+        );
+      }
+      maxTurns = parsed.data;
       index += 1;
       continue;
     }
@@ -126,6 +149,7 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
     approval,
     progress,
     images,
+    ...(maxTurns === undefined ? {} : { maxTurns }),
   } as const;
   if (model !== undefined && logFile !== undefined) {
     return RepoAgentStartInvocationSchema.parse({ ...invocation, model, logFile });

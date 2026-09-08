@@ -67,7 +67,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
   | { kind: 'failure'; sessionId: string; message: string }
-  | { kind: 'control-error'; sessionId: string; message: string }
+  | { kind: 'control-error'; sessionId: string; message: ChatSessionRuntime['error'] }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
   | { kind: 'draft'; sessionId: string; draft: string }

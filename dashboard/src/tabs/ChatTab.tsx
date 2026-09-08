@@ -25,8 +25,10 @@ import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
 import type { RepoAgentDecision } from '../api';
-import type { ApprovalMode } from '@siftkit/contracts';
+import { REPO_AGENT_DEFAULT_MAX_TURNS, type ApprovalMode } from '@siftkit/contracts';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
+import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl';
+import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs';
 import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { extractClipboardImageFiles } from '../lib/clipboard-images';
@@ -80,6 +82,7 @@ export type ChatTabProps = {
   onSelectSession(sessionId: string): void;
   onToggleSettings(): void;
   onChangePlanRepoRoot(value: string): void;
+  onChangePlanMaxTurns(value: string): void;
   onChangeDraft(value: string): void;
   onCreateSession(): Promise<void>;
   onDeleteSession(): Promise<void>;
@@ -178,6 +181,7 @@ export function ChatTab({
   onSelectSession,
   onToggleSettings,
   onChangePlanRepoRoot,
+  onChangePlanMaxTurns,
   onChangeDraft,
   onCreateSession,
   onDeleteSession,
@@ -203,6 +207,7 @@ export function ChatTab({
   const pendingImageReadState = React.useRef({ generation: 0, tail: Promise.resolve() });
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
+  const planMaxTurnsInput = selectedRuntime?.planMaxTurnsInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
   const latestUsage = selectedRuntime?.latestUsage ?? null;
   const streamedCharsSinceUsage = selectedRuntime?.streamedCharsSinceUsage ?? 0;
@@ -237,6 +242,8 @@ export function ChatTab({
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
   const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
+  const invalidRepoAgentTurns = chatMode === 'repo-agent'
+    && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
   const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
 
   React.useEffect(() => {
@@ -283,6 +290,9 @@ export function ChatTab({
   }
 
   function dispatchSend(): void {
+    if (invalidRepoAgentTurns) {
+      return;
+    }
     if (chatMode === 'plan') { void onSendPlan(); return; }
     if (chatMode === 'repo-search') { void onSendRepoSearch(); return; }
     if (chatMode === 'repo-agent') { void onSendRepoAgent(); return; }
@@ -480,7 +490,7 @@ export function ChatTab({
             {chatError ? (
               <div className="err-banner">
                 <span>{chatError}</span>
-                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
+                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
                 <a className="mini-btn" href="?tab=runs">Open logs</a>
               </div>
             ) : null}
@@ -516,11 +526,20 @@ export function ChatTab({
                     Directory
                   </button>
                   {chatMode === 'repo-agent' && selectedRuntime ? (
-                    <RepoAgentApprovalModeControl
-                      value={selectedRuntime.repoAgentApprovalMode}
-                      disabled={selectedRuntime.activity.kind !== 'idle' && !ownsRepoAgentRun(selectedRuntime)}
-                      onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
-                    />
+                    <>
+                      <RepoAgentApprovalModeControl
+                        value={selectedRuntime.repoAgentApprovalMode}
+                        disabled={selectedRuntime.activity.kind !== 'idle' && !ownsRepoAgentRun(selectedRuntime)}
+                        onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
+                      />
+                      <RepoAgentTurnsControl
+                        key={selectedSessionId}
+                        value={planMaxTurnsInput}
+                        defaultMaxTurns={selectedChatPreset?.maxTurns ?? REPO_AGENT_DEFAULT_MAX_TURNS}
+                        disabled={selectedSessionBusy}
+                        onChange={onChangePlanMaxTurns}
+                      />
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -587,7 +606,7 @@ export function ChatTab({
                     type="button"
                     className="send"
                     onClick={dispatchSend}
-                    disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}
+                    disabled={selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
                   >
                     {getSendLabel(chatMode)}
                   </button>

@@ -21,8 +21,34 @@ import { testHttpAgent } from './helpers/http-agent.js';
 import { requestJson } from './helpers/dashboard-http.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
+import {
+  RepoSearchProgressEventSchema,
+  type RepoSearchExecutionRequest,
+  type RepoSearchExecutionResult,
+  type RepoSearchProgressEvent,
+} from '../src/repo-search/types.js';
+import { StatusEngineService } from '../src/status-server/engine-service.js';
 
 const NON_VERDICT_RESPONSE = "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}";
+type TurnProgressEvent = Extract<RepoSearchProgressEvent, { maxTurns: number }>;
+
+class CapturingEngineService extends StatusEngineService {
+  readonly requests: RepoSearchExecutionRequest[] = [];
+  readonly results: RepoSearchExecutionResult[] = [];
+
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requests.push(request);
+    const result = await super.executeRepoSearch(request);
+    this.results.push(result);
+    return result;
+  }
+}
+
+function readTurnProgress(response: { progress: JsonObject[] }): TurnProgressEvent[] {
+  return response.progress
+    .map((event) => RepoSearchProgressEventSchema.parse(event))
+    .filter((event): event is TurnProgressEvent => 'maxTurns' in event);
+}
 
 function runsRoot(): string {
   return path.join(process.cwd(), '.siftkit', 'repo-agent', 'runs');
@@ -189,6 +215,84 @@ test('POST /repo-agent emits activity_summary after ten tool turns', async (t) =
     summary.entries,
     readPaths.map((readPath) => ({ category: 'read_files', label: readPath, failed: false })),
   );
+});
+
+for (const maxTurns of [1000, 10_000]) {
+  test(`POST /repo-agent preserves a large maxTurns limit of ${maxTurns} in progress and result metadata`, async (t) => {
+    const engineService = new CapturingEngineService();
+    const harness = await startHarness(`siftkit-repo-agent-large-max-turns-${maxTurns}-`, t, { engineService });
+    const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
+      body: {
+        prompt: 'read a file',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns,
+        approval: 'off',
+        availableModels: ['mock-model'],
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] },
+          ...repoAgentFinishResponses('large limit completed'),
+        ],
+        mockCommandResults: {},
+      },
+      timeoutMs: 20_000,
+    });
+    assert.equal(response.statusCode, 200);
+    const result = RepoAgentRunResultSchema.parse(response.result);
+    assert.equal(result.status, 'completed');
+
+    const progress = readTurnProgress(response);
+    assert.ok(progress.length > 0, 'Expected turn-scoped progress metadata.');
+    assert.equal(new Set(progress.map((event) => event.maxTurns)).size, 1);
+    assert.equal(progress[0]?.maxTurns, maxTurns);
+
+    const executionResult = engineService.results.at(0);
+    assert.ok(executionResult);
+    const taskResult = executionResult.scorecard.tasks.at(0);
+    assert.ok(taskResult);
+    assert.equal(taskResult.maxTurns, maxTurns);
+  });
+}
+
+test('POST /repo-agent with maxTurns 1 keeps one tool turn and final-answer slack', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-repo-agent-one-max-turn-', t, { engineService });
+  const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
+    body: {
+      prompt: 'read a file',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 1,
+      approval: 'off',
+      availableModels: ['mock-model'],
+      mockResponses: [
+        { toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] },
+        ...repoAgentFinishResponses('one tool then final answer'),
+      ],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  assert.equal(response.statusCode, 200);
+  const result = RepoAgentRunResultSchema.parse(response.result);
+  assert.equal(result.status, 'completed');
+  if (result.status === 'completed') {
+    assert.match(result.output, /one tool then final answer/u);
+  }
+
+  const executionResult = engineService.results.at(0);
+  assert.ok(executionResult);
+  const taskResult = executionResult.scorecard.tasks.at(0);
+  assert.ok(taskResult);
+  assert.equal(taskResult.reason, 'finish');
+  assert.equal(taskResult.maxTurns, 1);
+  assert.equal(taskResult.turnsUsed, 2);
+  assert.equal(taskResult.commands.length, 1);
+
+  const progress = readTurnProgress(response);
+  assert.ok(progress.some((event) => event.kind === 'tool_start' && event.turn === 1));
+  assert.equal(new Set(progress.map((event) => event.maxTurns)).size, 1);
+  assert.equal(progress[0]?.maxTurns, 1);
 });
 
 test('POST /repo-agent rejects an omitted approval mode', async (t) => {

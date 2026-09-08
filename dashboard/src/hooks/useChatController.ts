@@ -110,9 +110,16 @@ export function useChatController(deps: {
     onSelectSession: chatSessionsHook.selectSession,
     onToggleSettings: () => setShowSettings((prev) => !prev),
     onChangePlanRepoRoot: (value: string) => {
-      if (chatSessionsHook.selectedSessionId) {
-        chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, selectedRuntime?.planMaxTurnsInput ?? '');
+      if (!chatSessionsHook.selectedSessionId || !selectedRuntime) {
+        return;
       }
+      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, selectedRuntime.planMaxTurnsInput);
+    },
+    onChangePlanMaxTurns: (value: string) => {
+      if (!chatSessionsHook.selectedSessionId || !selectedRuntime) {
+        return;
+      }
+      chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, selectedRuntime.planRepoRootInput, value);
     },
     onCreateSession: chatSessionsHook.createSession,
     onDeleteSession: chatSessionsHook.deleteSession,

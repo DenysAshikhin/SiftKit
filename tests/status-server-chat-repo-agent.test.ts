@@ -67,10 +67,14 @@ class GatedEngineService extends StatusEngineService {
   }
 }
 
-async function createSession(harness: StreamedOperationHarness, title: string): Promise<string> {
+async function createSession(
+  harness: StreamedOperationHarness,
+  title: string,
+  presetId = 'chat',
+): Promise<string> {
   const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, presetId }),
   });
   assert.equal(response.statusCode, 200);
   const sessionId = asObject(response.body.session).id;
@@ -78,6 +82,67 @@ async function createSession(harness: StreamedOperationHarness, title: string): 
     throw new Error('Expected the chat session create response to contain an id.');
   }
   return sessionId;
+}
+
+function installRepoAgentPreset(maxTurns: number): string {
+  const configPath = getRuntimeDatabasePath();
+  const config = readConfig(configPath);
+  const repoAgentPreset = config.Presets.find((preset) => preset.id === 'repo-agent');
+  if (!repoAgentPreset) {
+    throw new Error('Default config has no repo-agent preset.');
+  }
+  const id = `custom-repo-agent-${maxTurns}`;
+  config.Presets = [
+    ...config.Presets,
+    {
+      ...repoAgentPreset,
+      id,
+      label: `Custom Repo Agent ${maxTurns}`,
+      builtin: false,
+      deletable: true,
+      maxTurns,
+    },
+  ];
+  writeConfig(configPath, config);
+  return id;
+}
+
+function getCapturedRepoAgentRequest(
+  engineService: CapturingEngineService,
+  prompt: string,
+): RepoSearchExecutionRequest {
+  const request = engineService.requests.find((entry) => entry.prompt === prompt);
+  if (!request) {
+    throw new Error(`Expected a captured repo-agent request for ${prompt}.`);
+  }
+  return request;
+}
+
+async function runSimpleRepoAgentChat(
+  harness: StreamedOperationHarness,
+  sessionId: string,
+  operationId: string,
+  maxTurns?: number,
+): Promise<SseResponse> {
+  return await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'read a file',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId,
+        ...(maxTurns === undefined ? {} : { maxTurns }),
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] },
+          ...repoAgentFinishResponses('chat repo-agent done'),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
 }
 
 async function waitForApproval(harness: StreamedOperationHarness, sessionId: string): Promise<JsonObject> {
@@ -287,6 +352,68 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   const standaloneRequest = engineService.requests.find((request) => request.prompt === 'standalone run');
   assert.ok(standaloneRequest);
   assert.equal('history' in standaloneRequest, false);
+});
+
+test('chat repo-agent explicit maxTurns overrides the selected preset default', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-explicit-turns-', t, { engineService });
+  const presetId = installRepoAgentPreset(23);
+  const sessionId = await createSession(harness, 'Explicit turns', presetId);
+  const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A, 7);
+  assert.equal(response.statusCode, 200);
+  const completed = readDoneResponse(response);
+  const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.ok(toolMessage);
+  if (toolMessage?.kind === 'assistant_tool_call') {
+    assert.equal(toolMessage.toolCallMaxTurns, 7);
+  }
+  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 7);
+});
+
+test('chat repo-agent omission uses a custom repo-agent preset maxTurns', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-custom-turns-', t, { engineService });
+  const presetId = installRepoAgentPreset(23);
+  const sessionId = await createSession(harness, 'Custom turns', presetId);
+  const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
+  assert.equal(response.statusCode, 200);
+  const completed = readDoneResponse(response);
+  const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.ok(toolMessage);
+  if (toolMessage?.kind === 'assistant_tool_call') {
+    assert.equal(toolMessage.toolCallMaxTurns, 23);
+  }
+  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 23);
+});
+
+test('chat repo-agent omission uses the built-in 100-turn default', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-default-turns-', t, { engineService });
+  const sessionId = await createSession(harness, 'Built-in turns', 'repo-agent');
+  const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
+  assert.equal(response.statusCode, 200);
+  const completed = readDoneResponse(response);
+  const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.ok(toolMessage);
+  if (toolMessage?.kind === 'assistant_tool_call') {
+    assert.equal(toolMessage.toolCallMaxTurns, 100);
+  }
+  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 100);
+});
+
+test('chat sessions using the ordinary chat preset keep direct-hook default resolution', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-chat-preset-', t, { engineService });
+  const sessionId = await createSession(harness, 'Ordinary chat preset');
+  const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
+  assert.equal(response.statusCode, 200);
+  const completed = readDoneResponse(response);
+  const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.ok(toolMessage);
+  if (toolMessage?.kind === 'assistant_tool_call') {
+    assert.equal(toolMessage.toolCallMaxTurns, 100);
+  }
+  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, undefined);
 });
 
 test('a repo-agent follow-up receives the preceding repo-agent turn as replayable history', async (t) => {

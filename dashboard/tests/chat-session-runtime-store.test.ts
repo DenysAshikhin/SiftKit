@@ -78,6 +78,20 @@ test('plan input and image transitions replace only their own fields', () => {
   assert.equal(next.get('s').draft, '');
 });
 
+test('changing either plan input preserves the other session-local value', () => {
+  const initial = new ChatSessionRuntimeStore()
+    .ensureSession('s', 'C:/repo')
+    .apply({ kind: 'plan-inputs', sessionId: 's', planRepoRootInput: 'C:/repo', planMaxTurnsInput: '1000' });
+  const turnsChanged = initial.apply({
+    kind: 'plan-inputs', sessionId: 's', planRepoRootInput: initial.get('s').planRepoRootInput, planMaxTurnsInput: '10000',
+  });
+  const rootChanged = turnsChanged.apply({
+    kind: 'plan-inputs', sessionId: 's', planRepoRootInput: 'D:/repo', planMaxTurnsInput: turnsChanged.get('s').planMaxTurnsInput,
+  });
+  assert.equal(rootChanged.get('s').planRepoRootInput, 'D:/repo');
+  assert.equal(rootChanged.get('s').planMaxTurnsInput, '10000');
+});
+
 test('session B cannot clear session A streaming state or draft', () => {
   const initial = new ChatSessionRuntimeStore()
     .ensureSession('session-a', '')

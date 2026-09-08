@@ -1,5 +1,5 @@
 import { z } from '../lib/zod.js';
-import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
+import { DEFAULT_APPROVAL_MODE, REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
 import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
 
 export const REPO_AGENT_CANONICAL_INVOCATION =
@@ -126,6 +126,12 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
       default: DEFAULT_APPROVAL_MODE,
       description: 'Set approval handling.',
     },
+    {
+      name: '-turns',
+      value: '<number>',
+      default: String(REPO_AGENT_DEFAULT_MAX_TURNS),
+      description: `Maximum run turn budget (1-${Number.MAX_SAFE_INTEGER}); normal early completion remains possible.`,
+    },
     { name: '--progress', value: null, default: 'false', description: 'Stream progress lines to stderr.' },
     { name: '--help', value: null, default: null, description: 'Show help.' },
     { name: '--json', value: null, default: null, description: 'Emit structured help.' },
@@ -138,6 +144,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
   })),
   examples: [
     'siftkit repo-agent "fix the login bug"',
+    'siftkit repo-agent -turns 10000 "fix the login bug"',
     'siftkit repo-agent status <run-id>',
     'siftkit repo-agent decide <run-id> approve',
     'siftkit repo-agent decide <run-id> approve --progress',

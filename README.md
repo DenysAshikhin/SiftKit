@@ -46,8 +46,13 @@ Repo-agent runs a constrained planner loop with write capabilities. It defaults 
 
 ```powershell
 siftkit repo-agent "fix the login bug"
+siftkit repo-agent -turns 10000 "fix the login bug"
 siftkit repo-agent "refactor auth module" --model gpt-4 --approval interactive
 ```
+
+Start invocations accept `-turns <number>` for a maximum run turn budget from 1 through 9007199254740991. The default is 100 for direct repo-agent CLI runs, and normal early completion remains possible.
+
+In the dashboard, repo-agent sessions have a session-local `Turns` control beside the approval controls. Leave it blank to use the selected preset's limit (or 100), or enter a whole number from 1 through 9007199254740991; the value applies to later runs in that session.
 
 Resumable commands for non-TTY callers:
 

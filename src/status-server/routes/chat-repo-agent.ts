@@ -19,6 +19,8 @@ import { z } from '../../lib/zod.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { toError } from '../../lib/errors.js';
 import { readChatSessionFromPath } from '../../state/chat-sessions.js';
+import type { SiftConfig } from '../../config/types.js';
+import { PresetCatalog } from '../../preset-catalog.js';
 import {
   appendChatRepoAgentMessages,
   buildChatHistoryMessages,
@@ -59,6 +61,17 @@ const ChatRepoAgentRequestExtrasSchema = z.strictObject({
 });
 
 type ChatRepoAgentRequest = ResolvedChatRepoRequest & z.infer<typeof ChatRepoAgentRequestExtrasSchema>;
+
+function resolveRepoAgentPresetMaxTurns(
+  config: SiftConfig,
+  presetId: string | undefined,
+): number | undefined {
+  if (!presetId) {
+    return undefined;
+  }
+  const preset = PresetCatalog.fromPresets(config.Presets).requireById(presetId);
+  return preset.presetKind === 'repo-agent' ? preset.maxTurns ?? undefined : undefined;
+}
 
 export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
   protected readonly operationKind = 'repo-agent' as const;
@@ -117,13 +130,16 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       return;
     }
     const effectiveConfig = resolveChatSessionConfig(config, activeSession);
+    const presetMaxTurns = request.value.maxTurns === undefined
+      ? resolveRepoAgentPresetMaxTurns(effectiveConfig, activeSession.presetId)
+      : undefined;
     const started = startRepoAgentRun(ctx, {
       prompt: request.value.content,
       repoRoot: request.value.repoRoot,
       approvalMode: request.value.approval,
       approvalDelivery: 'progress',
       images: request.value.images,
-      maxTurns: request.value.maxTurns,
+      maxTurns: request.value.maxTurns ?? presetMaxTurns,
       history: buildChatHistoryMessages(effectiveConfig, activeSession),
       config: effectiveConfig,
       modelPresetId: activeSession.modelPresetId,

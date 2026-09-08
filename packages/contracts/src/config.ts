@@ -239,6 +239,10 @@ export const READ_ONLY_PRESET_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as c
 export const WEB_RESEARCH_PRESET_TOOLS = ['web_search', 'web_fetch'] as const;
 export const FULL_PRESET_TOOLS = [...READ_ONLY_PRESET_TOOLS, ...WEB_RESEARCH_PRESET_TOOLS, 'write', 'edit', 'run'] as const;
 export const REPO_AGENT_DEFAULT_MAX_TURNS = 100;
+export const RepoAgentTurnsInputSchema = z.string().trim()
+  .regex(/^\d+$/u)
+  .transform(Number)
+  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
 SUMMARY_PRESET_TOOLS satisfies readonly PresetToolName[];
 READ_ONLY_PRESET_TOOLS satisfies readonly PresetToolName[];
 WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];

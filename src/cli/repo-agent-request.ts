@@ -11,6 +11,7 @@ export function buildRepoAgentServerRequest(input: {
   approval: ApprovalMode;
   model?: string;
   logFile?: string;
+  maxTurns?: number;
   images: string[];
 }): RepoAgentStartRequest {
   return RepoAgentStartRequestSchema.parse({
@@ -19,6 +20,7 @@ export function buildRepoAgentServerRequest(input: {
     approval: input.approval,
     ...(input.model === undefined ? {} : { model: input.model }),
     ...(input.logFile === undefined ? {} : { logFile: input.logFile }),
+    ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
     ...(input.images.length === 0
       ? {}
       : { images: input.images.map(readImageFileDataUrl) }),

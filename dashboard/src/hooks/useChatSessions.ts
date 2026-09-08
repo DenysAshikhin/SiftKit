@@ -28,9 +28,12 @@ import {
   type RepoAgentDecision,
 } from '../api';
 import {
+  PLAN_MAX_TURNS_VALIDATION_ERROR,
+  PlanMaxTurnsOverrideSchema,
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
   resolveRepoRoot,
+  type ParsedMaxTurnsOverride,
 } from '../lib/chat-composer-inputs';
 import { ChatSessionRuntimeStore, type ResolvedRepoAgentApproval } from '../lib/chat-session-runtime-store';
 import { ownsRepoAgentRun } from '../lib/chat-session-state';
@@ -272,7 +275,13 @@ export function useChatSessions(deps: {
   }
 
   function setSessionPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'plan-inputs', sessionId, planRepoRootInput, planMaxTurnsInput }));
+    setRuntimeStore((previous) => {
+      const next = previous.apply({ kind: 'plan-inputs', sessionId, planRepoRootInput, planMaxTurnsInput });
+      return next.get(sessionId).error === PLAN_MAX_TURNS_VALIDATION_ERROR
+        && PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success
+        ? next.apply({ kind: 'control-error', sessionId, message: null })
+        : next;
+    });
   }
 
   async function refreshSessions(): Promise<void> {
@@ -486,6 +495,18 @@ export function useChatSessions(deps: {
     setRuntimeStore((previous) => previous.apply({ kind: 'submit', sessionId, content, images }));
   }
 
+  function parseSessionMaxTurnsOverride(sessionId: string, input: string): ParsedMaxTurnsOverride | null {
+    try {
+      return parsePlanMaxTurnsOverride(input);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== PLAN_MAX_TURNS_VALIDATION_ERROR) {
+        throw error;
+      }
+      setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: error.message }));
+      return null;
+    }
+  }
+
   async function sendMessage(): Promise<void> {
     if (!selectedSession) {
       return;
@@ -535,13 +556,17 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
+    if (!maxTurnsOverride) {
+      return;
+    }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     await runChatStream(session.id, 'plan', operationId, streamPlanMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
-      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      ...maxTurnsOverride,
       operationId,
     }));
   }
@@ -552,13 +577,17 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
+    if (!maxTurnsOverride) {
+      return;
+    }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     await runChatStream(session.id, 'repo-search', operationId, streamRepoSearchMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
-      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      ...maxTurnsOverride,
       operationId,
     }));
   }
@@ -569,6 +598,10 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
+    if (!maxTurnsOverride) {
+      return;
+    }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     await runChatStream(session.id, 'repo-agent', operationId, streamRepoAgentMessage(session.id, {
@@ -576,7 +609,7 @@ export function useChatSessions(deps: {
       images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
       approval: inputs.repoAgentApprovalMode,
-      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+      ...maxTurnsOverride,
       operationId,
     }));
   }

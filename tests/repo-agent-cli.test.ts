@@ -14,6 +14,7 @@ import {
   buildRepoAgentDecideCommands,
   RepoAgentRunResultSchema,
 } from '../src/repo-agent/run-schemas.js';
+import { RepoAgentStartRequestSchema } from '../src/repo-agent/api-schemas.js';
 import { makeCaptureStream, readBody } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
@@ -239,7 +240,39 @@ test('non-TTY completed start exits zero with one parseable result object', asyn
     assert.deepEqual(RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout)), {
       status: 'completed', runId: server.runId, output: 'foreground complete',
     });
+    const request = RepoAgentStartRequestSchema.parse(server.startRequests[0]);
+    assert.equal('maxTurns' in request, false);
     assert.equal(result.stdout.trim().split('\n').length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('explicit CLI turn override reaches the HTTP start request as a number', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run([
+      'repo-agent', '-turns', '10000', 'finish the task', '--approval', 'auto',
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const request = RepoAgentStartRequestSchema.parse(server.startRequests[0]);
+    assert.equal(request.maxTurns, 10000);
+  } finally {
+    await server.close();
+  }
+});
+
+test('invalid CLI turn override fails before issuing an HTTP start request', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run(['repo-agent', 'finish the task', '-turns', '1.5']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /turns/u);
+    assert.equal(server.startRequests.length, 0);
   } finally {
     await server.close();
   }

@@ -86,6 +86,7 @@ export class RepoAgentCommand {
       images: invocation.images,
       ...(invocation.model === undefined ? {} : { model: invocation.model }),
       ...(invocation.logFile === undefined ? {} : { logFile: invocation.logFile }),
+      ...(invocation.maxTurns === undefined ? {} : { maxTurns: invocation.maxTurns }),
     });
     const result = await this.api.requestRepoAgent(request, renderer, prompter);
     return this.writeResult(result, streams);

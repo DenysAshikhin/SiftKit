@@ -159,6 +159,20 @@ test('start completed prints one result object and exits zero', async () => {
   assert.equal(capture.stderr.read(), '');
 });
 
+test('start forwards an explicit maxTurns to the server request', async () => {
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'foreground complete' });
+  const capture = makeStreams();
+
+  await harness.command.run(
+    parseRepoAgentInvocation(['implement it', '-turns', '10000']),
+    capture.streams,
+  );
+
+  assert.deepEqual(harness.api.startCalls, [{
+    prompt: 'implement it', repoRoot: process.cwd(), approval: 'auto', maxTurns: 10000,
+  }]);
+});
+
 test('start failed preserves terminal output and exits non-zero', async () => {
   const harness = makeCommand({
     status: 'failed',

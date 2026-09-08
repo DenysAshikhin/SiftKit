@@ -113,9 +113,13 @@
 
 .composer-settings-popover { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); }
 .composer-settings-popover.warning { border-color: #5a4a2a; }
-.composer-plan-row { display: flex; gap: 8px; align-items: center; }
+.composer-plan-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .approval-mode { display: inline-flex; gap: 4px; margin-left: auto; }
 .composer-plan-root { flex: 1; }
+.repo-agent-turns-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.repo-agent-turns-editor { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.repo-agent-turns-editor input { width: 8rem; }
+.repo-agent-turns-error { flex-basis: 100%; color: var(--bad); font-size: 0.7rem; }
 
 /* ---- error banner ---- */
 .err-banner { border: 1px solid #5a2f33; background: #2a1517; color: #ffb4b4; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: flex; gap: 10px; align-items: center; margin: 0 16px 10px; }

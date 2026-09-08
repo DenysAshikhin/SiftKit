@@ -76,6 +76,103 @@ test('parses start with all options', () => {
   );
 });
 
+for (const [value, maxTurns] of [
+  ['1', 1],
+  ['1000', 1000],
+  ['10000', 10000],
+  ['9007199254740991', 9007199254740991],
+] as const) {
+  test(`repo-agent accepts -turns ${value}`, () => {
+    const invocation = parseRepoAgentInvocation(['task', '-turns', value]);
+    assert.equal(invocation.kind, 'start');
+    if (invocation.kind !== 'start') throw new Error('Expected start invocation');
+    assert.equal(invocation.maxTurns, maxTurns);
+    assert.equal(invocation.task, 'task');
+    assert.equal(invocation.taskTokenCount, 1);
+  });
+}
+
+for (const value of [
+  '0',
+  '-1',
+  '1.5',
+  '1k',
+  '1e3',
+  '0x10',
+  '+1',
+  'NaN',
+  'Infinity',
+  '9007199254740992',
+  '',
+]) {
+  test(`repo-agent rejects invalid -turns ${JSON.stringify(value)}`, () => {
+    assert.throws(
+      () => parseRepoAgentInvocation(['task', '-turns', value]),
+      /turns/u,
+    );
+  });
+}
+
+test('repo-agent rejects duplicate turn overrides', () => {
+  assert.throws(
+    () => parseRepoAgentInvocation(['task', '-turns', '1', '-turns', '1000']),
+    /turns/u,
+  );
+});
+
+test('repo-agent accepts trimmed leading-zero turn overrides before the task', () => {
+  const invocation = parseRepoAgentInvocation([
+    '-turns',
+    ' 001000 ',
+    '--model',
+    'gpt-4',
+    '--log-file',
+    '/tmp/run.log',
+    '--approval',
+    'off',
+    '--image',
+    'image.png',
+    '--progress',
+    'task',
+  ]);
+  assert.deepEqual(invocation, {
+    kind: 'start',
+    task: 'task',
+    taskTokenCount: 1,
+    maxTurns: 1000,
+    model: 'gpt-4',
+    logFile: '/tmp/run.log',
+    approval: 'off',
+    progress: true,
+    images: ['image.png'],
+  });
+});
+
+test('repo-agent omits maxTurns when the turn override is absent', () => {
+  const invocation = parseRepoAgentInvocation(['task']);
+  assert.equal(invocation.kind, 'start');
+  assert.equal('maxTurns' in invocation, false);
+});
+
+test('repo-agent rejects a missing turn override value', () => {
+  assert.throws(
+    () => parseRepoAgentInvocation(['task', '-turns']),
+    /Missing value for -turns/u,
+  );
+});
+
+test('decide and status reject turn overrides', () => {
+  const runId = '550e8400-e29b-41d4-a716-446655440000';
+  assert.throws(
+    () => parseRepoAgentInvocation(['decide', runId, 'approve', '-turns', '10']),
+    /Unknown option: -turns/u,
+  );
+  assert.throws(
+    () => parseRepoAgentInvocation(['status', runId, '-turns', '10']),
+    /Unexpected extra token after status: -turns/u,
+  );
+});
+
 test('parses decide and status subcommands', () => {
   assert.deepEqual(
     parseRepoAgentInvocation([

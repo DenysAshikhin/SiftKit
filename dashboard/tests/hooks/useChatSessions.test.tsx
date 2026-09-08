@@ -181,6 +181,7 @@ class ChatFetchFixture {
 
   constructor(private readonly options: {
     session: ChatSession;
+    sessions?: ChatSession[];
     detailResponse: ChatFixtureResponse;
     streamResponse: ChatFixtureResponse;
     runtimeStatus?: typeof RUNTIME_STATUS;
@@ -191,6 +192,8 @@ class ChatFetchFixture {
     holdStream?: boolean;
     stopStatus?: number;
   }) {
+    const sessions = this.options.sessions ?? [this.options.session];
+    const hasMultipleSessions = this.options.sessions !== undefined;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = String(input);
       this.requestedUrls.push(url);
@@ -198,18 +201,22 @@ class ChatFetchFixture {
         this.sentBodies.push(init.body);
       }
       if (url === '/dashboard/chat/sessions') {
-        return new Response(JSON.stringify({ sessions: [this.options.session] }), { status: 200 });
+        return new Response(JSON.stringify({ sessions }), { status: 200 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}`) {
+      const requestedSession = sessions.find((session) => url.startsWith(`/dashboard/chat/sessions/${session.id}`));
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
-        return new Response(JSON.stringify(this.options.detailResponse), { status: 200 });
+        const response = hasMultipleSessions
+          ? { ...this.options.detailResponse, session: requestedSession }
+          : this.options.detailResponse;
+        return new Response(JSON.stringify(response), { status: 200 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/active`) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/active`) {
         return this.options.activeRun
           ? new Response(JSON.stringify(this.options.activeRun), { status: 200 })
           : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/operation`) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/operation`) {
         const sequence = this.options.operationStatuses ?? ['missing'];
         const index = Math.min(this.operationStatusRequestCount, sequence.length - 1);
         const status = sequence[index];
@@ -221,7 +228,14 @@ class ChatFetchFixture {
             }), { status: 200 })
           : new Response(JSON.stringify({ error: 'No active operation' }), { status: 404 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/messages/stream`) {
+      const streamUrl = requestedSession
+        ? `/dashboard/chat/sessions/${requestedSession.id}`
+        : '';
+      if (requestedSession && (
+        url === `${streamUrl}/messages/stream`
+        || url === `${streamUrl}/plan/stream`
+        || url === `${streamUrl}/repo-search/stream`
+      )) {
         this.streamRequestCount += 1;
         if (this.options.holdStream) {
           return new Response(new ReadableStream<Uint8Array>({
@@ -231,12 +245,15 @@ class ChatFetchFixture {
             headers: { 'Content-Type': 'text/event-stream' },
           });
         }
-        return new Response(`event: done\ndata: ${JSON.stringify(this.options.streamResponse)}\n\n`, {
+        const response = hasMultipleSessions
+          ? { ...this.options.streamResponse, session: requestedSession }
+          : this.options.streamResponse;
+        return new Response(`event: done\ndata: ${JSON.stringify(response)}\n\n`, {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream' },
         });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/stop`) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/stop`) {
         this.stopRequestCount += 1;
         const status = this.options.stopStatus ?? 200;
         return new Response(
@@ -249,13 +266,13 @@ class ChatFetchFixture {
       if (url === '/runtime/inference' && this.options.runtimeStatus) {
         return new Response(JSON.stringify(this.options.runtimeStatus), { status: 200 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/decide` && this.options.decideResponse) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/decide` && this.options.decideResponse) {
         return new Response(JSON.stringify(this.options.decideResponse), { status: 200 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/approval-mode` && this.options.approvalModeResponse) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/approval-mode` && this.options.approvalModeResponse) {
         return new Response(JSON.stringify(this.options.approvalModeResponse), { status: 200 });
       }
-      if (url === `/dashboard/chat/sessions/${this.options.session.id}/repo-agent/stream`) {
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/stream`) {
         this.streamRequestCount += 1;
         return new Response(new ReadableStream<Uint8Array>({
           start: (controller) => { this.streamController = controller; },
@@ -282,6 +299,179 @@ class ChatFetchFixture {
     globalThis.fetch = this.originalFetch;
   }
 }
+
+test('sendRepoAgent forwards a valid session-local turns override', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'do the thing');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '10000');
+    });
+    let run: Promise<void> = Promise.resolve();
+    act(() => { run = hook.result.current.sendRepoAgent(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    fixture.finishHeldStream();
+    await act(async () => { await run; });
+    assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns":10000'), true);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('sendRepoAgent omits maxTurns after the session-local input is cleared', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'first run');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '10000');
+    });
+    let firstRun: Promise<void> = Promise.resolve();
+    act(() => { firstRun = hook.result.current.sendRepoAgent(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    fixture.finishHeldStream();
+    await act(async () => { await firstRun; });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'second run');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '');
+    });
+    let secondRun: Promise<void> = Promise.resolve();
+    act(() => { secondRun = hook.result.current.sendRepoAgent(); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local'); });
+    fixture.finishHeldStream();
+    await act(async () => { await secondRun; });
+    assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns"'), false);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('sendPlan and sendRepoSearch forward the same validated turns override', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'plan this');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '10000');
+    });
+    await act(async () => { await hook.result.current.sendPlan(); });
+    assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns":10000'), true);
+
+    act(() => { hook.result.current.setSessionDraft('s1', 'search this'); });
+    await act(async () => { await hook.result.current.sendRepoSearch(); });
+    assert.equal(fixture.sentBodies.at(-1)?.includes('"maxTurns":10000'), true);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('invalid session-local turns input preserves draft and images without starting activity', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    const images = [{ dataUrl: 'data:image/png;base64,AAAA', note: null }];
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'keep this draft');
+      hook.result.current.setSessionImages('s1', images);
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '1k');
+    });
+    let operationError: Error | null = null;
+    await act(async () => {
+      try {
+        await hook.result.current.sendRepoAgent();
+      } catch (error) {
+        operationError = error instanceof Error ? error : new Error(String(error));
+      }
+    });
+    const runtime = hook.result.current.runtimeStore.get('s1');
+    assert.equal(operationError, null);
+    assert.equal(fixture.streamRequestCount, 0);
+    assert.equal(runtime.activity.kind, 'idle');
+    assert.equal(runtime.draft, 'keep this draft');
+    assert.deepEqual(runtime.pendingImages, images);
+    assert.equal(runtime.error, 'Enter a whole number from 1 to 9007199254740991.');
+    act(() => { hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '1.5'); });
+    assert.equal(hook.result.current.runtimeStore.get('s1').error, runtime.error);
+    act(() => { hook.result.current.setSessionPlanInputs('s1', 'C:/repo', ''); });
+    assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
+    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'keep this draft');
+    assert.deepEqual(hook.result.current.runtimeStore.get('s1').pendingImages, images);
+    act(() => {
+      hook.result.current.failSessionOperation('s1', 'Connection lost');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '10000');
+    });
+    assert.equal(hook.result.current.runtimeStore.get('s1').error, 'Connection lost');
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('session-local turns inputs remain isolated while switching sessions', async () => {
+  const secondSession = { ...SESSION, id: 's2', title: 'Second session' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, secondSession],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    act(() => {
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo-a', '1000');
+      hook.result.current.selectSession('s2');
+    });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's2'); });
+    act(() => { hook.result.current.setSessionPlanInputs('s2', 'C:/repo-b', '2000'); });
+    act(() => { hook.result.current.selectSession('s1'); });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    assert.equal(hook.result.current.runtimeStore.get('s1').planMaxTurnsInput, '1000');
+    assert.equal(hook.result.current.runtimeStore.get('s2').planMaxTurnsInput, '2000');
+  } finally {
+    fixture.restore();
+  }
+});
 
 test('selecting a session restores a parked repo-agent approval', async () => {
   const fixture = new ChatFetchFixture({
@@ -312,6 +502,45 @@ test('selecting a session restores a parked repo-agent approval', async () => {
       assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
       assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'interactive');
     });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('invalid direct submission preserves a parked remote operation and its approval', async () => {
+  const approval = {
+    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+    toolName: 'bash', command: 'npm test', reviewPayload: null,
+  };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeRun: {
+      runId: OPERATION_ID, status: 'approval_required', approvalMode: 'interactive', approval,
+    },
+    operationStatuses: ['active'],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, approval.approvalId);
+    });
+    act(() => {
+      hook.result.current.setSessionDraft('s1', 'keep the draft');
+      hook.result.current.setSessionPlanInputs('s1', 'C:/repo', '1k');
+    });
+    const before = hook.result.current.runtimeStore.get('s1');
+    await act(async () => { await hook.result.current.sendRepoAgent(); });
+    assert.deepEqual(hook.result.current.runtimeStore.get('s1'), {
+      ...before, error: 'Enter a whole number from 1 to 9007199254740991.',
+    });
+    assert.equal(fixture.streamRequestCount, 0);
   } finally {
     fixture.restore();
   }
