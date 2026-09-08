@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatSessionResponse } from '../src/types';
+import { CHAT_SESSION_RESPONSE } from './fixtures.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
@@ -265,5 +266,88 @@ test('stopChatOperation posts to the session stop endpoint and validates the res
     });
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('attachChatOperationStream yields the attach preamble as parsed events', async () => {
+  const { attachChatOperationStream } = await import('../src/api');
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    requestedUrls.push(String(input));
+    assert.equal(init?.method, 'GET');
+    return new Response(
+      'event: attached\ndata: {"operationKind":"repo-agent",'
+        + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
+        + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n'
+        + 'event: submitted\ndata: {"content":"do it","images":[]}\n\n'
+        + 'event: answer\ndata: {"turn":0,"offset":0,"text":"hi"}\n\n'
+        + 'event: approval_state\ndata: {"approval":null}\n\n'
+        + `event: done\ndata: ${JSON.stringify(CHAT_SESSION_RESPONSE)}\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  };
+  try {
+    const kinds: string[] = [];
+    for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
+      kinds.push(event.kind);
+    }
+    assert.deepEqual(kinds, ['attached', 'submitted', 'answer', 'approval-state', 'done']);
+    assert.deepEqual(requestedUrls, ['/dashboard/chat/sessions/s1/operation/stream']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('an ended frame completes an attached stream without a done payload', async () => {
+  const { attachChatOperationStream } = await import('../src/api');
+  const restoreFetch = mockFetchOnce([
+    'event: attached\ndata: {"operationKind":"condense",'
+      + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
+      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n',
+    'event: approval_state\ndata: {"approval":null}\n\n',
+    'event: ended\ndata: {}\n\n',
+  ]);
+  try {
+    const kinds: string[] = [];
+    for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
+      kinds.push(event.kind);
+    }
+    assert.deepEqual(kinds, ['attached', 'approval-state', 'ended']);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('attaching to an idle session raises ChatOperationIdleError', async () => {
+  const { attachChatOperationStream, ChatOperationIdleError } = await import('../src/api');
+  const restoreFetch = mockFetchStatus(404, JSON.stringify({ error: 'No active operation for this session.' }));
+  try {
+    await assert.rejects(
+      (async () => {
+        for await (const _event of attachChatOperationStream('s1', new AbortController().signal)) { void _event; }
+      })(),
+      (error: Error) => error instanceof ChatOperationIdleError,
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('listActiveChatOperations parses the active operation listing', async () => {
+  const { listActiveChatOperations } = await import('../src/api');
+  const restoreFetch = mockFetchStatus(200, JSON.stringify({
+    operations: [{
+      sessionId: 's1',
+      operationKind: 'repo-agent',
+      operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+      startedAtUtc: '2026-09-08T12:00:00.000Z',
+    }],
+  }));
+  try {
+    const listed = await listActiveChatOperations();
+    assert.equal(listed.operations[0]?.operationKind, 'repo-agent');
+  } finally {
+    restoreFetch();
   }
 });

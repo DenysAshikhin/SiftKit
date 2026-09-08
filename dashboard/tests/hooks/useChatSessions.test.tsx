@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type {
+  ActiveChatOperation,
   ActiveChatRepoAgentResponse,
   ChatRepoAgentApprovalModeResponse,
   ChatRepoAgentDecideResponse,
@@ -20,6 +21,22 @@ import { MANAGED_PRESET } from '../fixtures.js';
 import type { ChatMessage, ChatSession } from '../../src/types';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
+const RUN_ID = '4f9c1f9a-0000-4000-8000-000000000001';
+const APPROVAL_ID = '4f9c1f9a-0000-4000-8000-000000000002';
+
+const ATTACHED_FRAME = 'event: attached\ndata: {"operationKind":"repo-agent",'
+  + `"operationId":"${OPERATION_ID}",`
+  + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n';
+
+const PENDING_APPROVAL_STATE_FRAME = 'event: approval_state\ndata: {"approval":{'
+  + `"runId":"${RUN_ID}","approvalId":"${APPROVAL_ID}",`
+  + '"toolName":"bash","command":"npm test","reviewPayload":null}}\n\n';
+
+const APPROVAL_RESOLVED_FRAME = 'event: approval_resolved\ndata: {"approval":{'
+  + `"runId":"${RUN_ID}","approvalId":"${APPROVAL_ID}",`
+  + '"toolName":"bash","command":"npm test","reviewPayload":null},'
+  + '"decision":{"decision":"approve"},"decidedAtUtc":"2026-09-04T10:00:00.000Z"}\n\n';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -174,8 +191,8 @@ class ChatFetchFixture {
   detailRequestCount = 0;
   streamRequestCount = 0;
   stopRequestCount = 0;
-  operationStatusRequestCount = 0;
   private streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  private operationStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly originalFetch = globalThis.fetch;
   private restored = false;
 
@@ -186,7 +203,9 @@ class ChatFetchFixture {
     streamResponse: ChatFixtureResponse;
     runtimeStatus?: typeof RUNTIME_STATUS;
     activeRun?: ActiveChatRepoAgentResponse;
-    operationStatuses?: Array<'active' | 'missing'>;
+    activeOperations?: ActiveChatOperation[];
+    operationStream?: string;
+    holdOperationStream?: boolean;
     decideResponse?: ChatRepoAgentDecideResponse;
     approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
     holdStream?: boolean;
@@ -203,6 +222,9 @@ class ChatFetchFixture {
       if (url === '/dashboard/chat/sessions') {
         return new Response(JSON.stringify({ sessions }), { status: 200 });
       }
+      if (url === '/dashboard/chat/operations') {
+        return new Response(JSON.stringify({ operations: this.options.activeOperations ?? [] }), { status: 200 });
+      }
       const requestedSession = sessions.find((session) => url.startsWith(`/dashboard/chat/sessions/${session.id}`));
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
@@ -216,17 +238,21 @@ class ChatFetchFixture {
           ? new Response(JSON.stringify(this.options.activeRun), { status: 200 })
           : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
       }
-      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/operation`) {
-        const sequence = this.options.operationStatuses ?? ['missing'];
-        const index = Math.min(this.operationStatusRequestCount, sequence.length - 1);
-        const status = sequence[index];
-        this.operationStatusRequestCount += 1;
-        return status === 'active'
-          ? new Response(JSON.stringify({
-              operationKind: 'repo-agent',
-              startedAtUtc: '2026-08-31T12:00:00.000Z',
-            }), { status: 200 })
-          : new Response(JSON.stringify({ error: 'No active operation' }), { status: 404 });
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/operation/stream`) {
+        const frames = this.options.operationStream;
+        if (frames === undefined) {
+          return new Response(JSON.stringify({ error: 'No active operation for this session.' }), { status: 404 });
+        }
+        return new Response(new ReadableStream<Uint8Array>({
+          start: (controller) => {
+            controller.enqueue(new TextEncoder().encode(frames));
+            if (this.options.holdOperationStream) {
+              this.operationStreamController = controller;
+              return;
+            }
+            controller.close();
+          },
+        }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
       }
       const streamUrl = requestedSession
         ? `/dashboard/chat/sessions/${requestedSession.id}`
@@ -291,6 +317,15 @@ class ChatFetchFixture {
     controller.enqueue(new TextEncoder().encode(event));
     controller.close();
     this.streamController = null;
+  }
+
+  /** Pushes one more frame onto a held attach stream, as the server would on a live event. */
+  pushOperationFrame(frame: string): void {
+    const controller = this.operationStreamController;
+    if (!controller) {
+      throw new Error('No held operation stream is active.');
+    }
+    controller.enqueue(new TextEncoder().encode(frame));
   }
 
   restore(): void {
@@ -473,23 +508,17 @@ test('session-local turns inputs remain isolated while switching sessions', asyn
   }
 });
 
-test('selecting a session restores a parked repo-agent approval', async () => {
+test('a session with a run in flight latches onto the live stream on mount', async () => {
   const fixture = new ChatFetchFixture({
     session: SESSION,
     detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
-    activeRun: {
-      runId: '4f9c1f9a-0000-4000-8000-000000000000',
-      status: 'approval_required',
-      approvalMode: 'interactive',
-      approval: {
-        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-        toolName: 'bash',
-        command: 'npm test',
-        reviewPayload: null,
-      },
-    },
-    operationStatuses: ['active'],
+    activeRun: { runId: RUN_ID, status: 'running', approvalMode: 'interactive' },
+    operationStream: ATTACHED_FRAME
+      + 'event: submitted\ndata: {"content":"fix the build","images":[]}\n\n'
+      + 'event: answer\ndata: {"turn":0,"offset":0,"text":"resumed"}\n\n'
+      + PENDING_APPROVAL_STATE_FRAME,
+    holdOperationStream: true,
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -498,16 +527,21 @@ test('selecting a session restores a parked repo-agent approval', async () => {
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
-      assert.equal(hook.result.current.runtimeStore.get('s1').repoAgentApprovalMode, 'interactive');
+      const runtime = hook.result.current.runtimeStore.get('s1');
+      assert.deepEqual(runtime.activity, { kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID });
+      assert.equal(runtime.pendingApproval?.command, 'npm test');
+      assert.equal(runtime.repoAgentApprovalMode, 'interactive');
+      assert.equal(runtime.liveMessages.some((message) => message.role === 'user' && message.content === 'fix the build'), true);
+      assert.equal(runtime.liveMessages.some((message) => message.content.includes('resumed')), true);
     });
+    assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation/stream'), true);
+    assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation'), false);
   } finally {
     fixture.restore();
   }
 });
 
-test('invalid direct submission preserves a parked remote operation and its approval', async () => {
+test('invalid direct submission preserves an attached operation and its approval', async () => {
   const approval = {
     approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
     toolName: 'bash', command: 'npm test', reviewPayload: null,
@@ -517,9 +551,10 @@ test('invalid direct submission preserves a parked remote operation and its appr
     detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     activeRun: {
-      runId: OPERATION_ID, status: 'approval_required', approvalMode: 'interactive', approval,
+      runId: RUN_ID, status: 'approval_required', approvalMode: 'interactive', approval,
     },
-    operationStatuses: ['active'],
+    operationStream: ATTACHED_FRAME + PENDING_APPROVAL_STATE_FRAME,
+    holdOperationStream: true,
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -528,8 +563,8 @@ test('invalid direct submission preserves a parked remote operation and its appr
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
-      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, approval.approvalId);
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local');
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
     });
     act(() => {
       hook.result.current.setSessionDraft('s1', 'keep the draft');
@@ -546,13 +581,17 @@ test('invalid direct submission preserves a parked remote operation and its appr
   }
 });
 
-test('a recovered remote operation unlocks only after status disappears and the session refreshes', async () => {
+test('an attached stream that ends without a payload refreshes the session and idles', async () => {
   const response = { session: SESSION, contextUsage: CONTEXT_USAGE };
   const fixture = new ChatFetchFixture({
     session: SESSION,
     detailResponse: response,
     streamResponse: response,
-    operationStatuses: ['active', 'missing'],
+    operationStream: 'event: attached\ndata: {"operationKind":"condense",'
+      + `"operationId":"${OPERATION_ID}",`
+      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n'
+      + 'event: approval_state\ndata: {"approval":null}\n\n'
+      + 'event: ended\ndata: {}\n\n',
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -561,13 +600,10 @@ test('a recovered remote operation unlocks only after status disappears and the 
       enqueueToast: () => {},
     }));
     await waitFor(() => {
-      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'remote');
-    });
-    await waitFor(() => {
       assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
+      assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
       assert.ok(fixture.detailRequestCount >= 2);
-      assert.ok(fixture.operationStatusRequestCount >= 2);
-    }, { timeout: 2_000 });
+    });
   } finally {
     fixture.restore();
   }
@@ -610,6 +646,10 @@ test('a compacting stream completion installs the boundary and corrected usage w
     await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
     act(() => { hook.result.current.setSessionDraft('s1', 'trigger question'); });
     await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'trigger question'); });
+    // Mount fetches the session once, then the idle attach falls back to a second fetch; the claim
+    // under test is that the stream's own done payload adds no further refetch on top of that.
+    await waitFor(() => { assert.equal(fixture.detailRequestCount, 2); });
+    const detailRequestsBeforeSend = fixture.detailRequestCount;
     await act(async () => { await hook.result.current.sendMessage(); });
 
     const selectedSession = hook.result.current.selectedSession;
@@ -625,7 +665,7 @@ test('a compacting stream completion installs the boundary and corrected usage w
     const runtime = hook.result.current.runtimeStore.get('s1');
     assert.equal(runtime.contextUsage?.totalUsedTokens, 12);
     assert.equal(runtime.contextUsage?.shouldCondense, false);
-    assert.equal(fixture.detailRequestCount, 1);
+    assert.equal(fixture.detailRequestCount, detailRequestsBeforeSend);
   } finally {
     fixture.restore();
   }
@@ -828,7 +868,6 @@ test('selecting a session with a running repo-agent restores the live approval m
     detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     activeRun: { runId: OPERATION_ID, status: 'running', approvalMode: 'off' },
-    operationStatuses: ['active'],
   });
   try {
     const hook = renderHook(() => useChatSessions({
@@ -883,7 +922,8 @@ test('a repo-agent decision is resolved with the timestamp the server recorded',
         toolName: 'bash', command: 'npm test', reviewPayload: null,
       },
     },
-    operationStatuses: ['active'],
+    operationStream: ATTACHED_FRAME + PENDING_APPROVAL_STATE_FRAME,
+    holdOperationStream: true,
     decideResponse: { ok: true, runId: OPERATION_ID, decidedAtUtc: '2026-09-04T10:00:00.000Z' },
   });
   try {
@@ -896,6 +936,10 @@ test('a repo-agent decision is resolved with the timestamp the server recorded',
       assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.command, 'npm test');
     });
     await act(async () => { await hook.result.current.submitRepoAgentDecision({ decision: 'approve' }); });
+    act(() => { fixture.pushOperationFrame(APPROVAL_RESOLVED_FRAME); });
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval, null);
+    });
     const runtime = hook.result.current.runtimeStore.get('s1');
     assert.equal(runtime.pendingApproval, null);
     assert.equal(runtime.resolvedApproval?.decidedAtUtc, '2026-09-04T10:00:00.000Z');
@@ -932,6 +976,85 @@ test('changing the approval mode while this client owns a repo-agent run syncs i
     assert.equal(fixture.requestedUrls.filter((url) => url.endsWith('/repo-agent/approval-mode')).length, 1);
     fixture.finishHeldStream();
     await act(async () => { await run; });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('an idle session leaves the runtime idle when nothing is running', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation/stream'), true);
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
+      assert.equal(hook.result.current.runtimeStore.get('s1').error, null);
+    });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a run on an unselected session marks that session busy in the rail', async () => {
+  const other = { ...SESSION, id: 's2' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, other],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeOperations: [{
+      sessionId: 's2',
+      operationKind: 'repo-agent',
+      operationId: OPERATION_ID,
+      startedAtUtc: '2026-09-08T12:00:00.000Z',
+    }],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.deepEqual(hook.result.current.runtimeStore.get('s2').activity, {
+        kind: 'remote',
+        operationKind: 'repo-agent',
+      });
+    });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('with no preselected session the running session is chosen over the first listed', async () => {
+  const other = { ...SESSION, id: 's2' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, other],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeOperations: [{
+      sessionId: 's2',
+      operationKind: 'plan',
+      operationId: OPERATION_ID,
+      startedAtUtc: '2026-09-08T12:00:00.000Z',
+    }],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: '', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSessionId, 's2'); });
   } finally {
     fixture.restore();
   }

@@ -1,8 +1,13 @@
 import { getErrorMessage } from '../../../src/lib/errors.js';
-import { ChatSessionBusyError } from '../api';
+import { ChatOperationIdleError, ChatSessionBusyError } from '../api';
 import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store';
 import type { ChatStreamEvent } from './chat-stream-parser';
 import type { ChatSessionOperationKind } from '../types';
+
+/** How this stream came to be: a turn this client started, or a run it latched onto. */
+export type ChatStreamStart =
+  | { kind: 'owned'; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'attached' };
 
 /**
  * Turns one chat stream into the runtime transitions it implies. Yields data only, so the
@@ -10,12 +15,13 @@ import type { ChatSessionOperationKind } from '../types';
  */
 export async function* toRuntimeTransitions(
   sessionId: string,
-  operationKind: ChatSessionOperationKind,
-  operationId: string,
+  start: ChatStreamStart,
   stream: AsyncGenerator<ChatStreamEvent>,
   thinkingEnabled: boolean,
 ): AsyncGenerator<ChatSessionRuntimeTransition> {
-  yield { kind: 'begin', sessionId, operationKind, operationId };
+  if (start.kind === 'owned') {
+    yield { kind: 'begin', sessionId, operationKind: start.operationKind, operationId: start.operationId };
+  }
   let completed = false;
   try {
     for await (const event of stream) {
@@ -39,6 +45,31 @@ export async function* toRuntimeTransitions(
         yield { kind: 'usage', sessionId, usage: event.usage };
       } else if (event.kind === 'prompt') {
         yield { kind: 'prompt', sessionId, prompt: event.prompt };
+      } else if (event.kind === 'attached') {
+        yield {
+          kind: 'attach',
+          sessionId,
+          operationKind: event.operationKind,
+          operationId: event.operationId,
+        };
+        if (event.replayTruncated) {
+          yield {
+            kind: 'warning',
+            sessionId,
+            text: 'This run started before the buffer limit; earlier output is not shown.',
+          };
+        }
+      } else if (event.kind === 'submitted') {
+        yield { kind: 'user-turn', sessionId, content: event.content, images: event.images };
+      } else if (event.kind === 'approval-state') {
+        yield event.approval
+          ? { kind: 'approval', sessionId, approval: event.approval }
+          : { kind: 'approval-clear', sessionId };
+      } else if (event.kind === 'approval-resolved') {
+        yield { kind: 'approval-decision', sessionId, resolution: event.resolution };
+      } else if (event.kind === 'ended') {
+        yield { kind: 'detach', sessionId };
+        completed = true;
       } else if (event.kind === 'done') {
         if (event.payload.session.id !== sessionId) {
           throw new Error(
@@ -53,6 +84,10 @@ export async function* toRuntimeTransitions(
       throw new Error('Chat stream ended before the done event');
     }
   } catch (error) {
+    // Idleness is not a failure: the caller falls back to the stored session.
+    if (error instanceof ChatOperationIdleError) {
+      throw error;
+    }
     if (error instanceof ChatSessionBusyError) {
       yield {
         kind: 'remote-begin',

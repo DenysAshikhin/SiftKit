@@ -286,3 +286,68 @@ test('rejects a malformed usage frame instead of silently dropping the numbers',
   const packet = 'event: usage\ndata: {"turn":3,"maxTurns":20,"charsPerToken":4}';
   assert.equal(parseChatStreamPacket(packet), null);
 });
+
+test('parses the attached frame', () => {
+  const event = parseChatStreamPacket(
+    'event: attached\ndata: {"operationKind":"plan",'
+      + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
+      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":true}',
+  );
+  assert.deepEqual(event, {
+    kind: 'attached',
+    operationKind: 'plan',
+    operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+    replayTruncated: true,
+  });
+});
+
+test('parses the submitted frame', () => {
+  const event = parseChatStreamPacket(
+    'event: submitted\ndata: {"content":"fix it","images":["data:image/png;base64,AAAA"]}',
+  );
+  assert.deepEqual(event, {
+    kind: 'submitted',
+    content: 'fix it',
+    images: ['data:image/png;base64,AAAA'],
+  });
+});
+
+test('parses a pending approval state frame', () => {
+  const event = parseChatStreamPacket(
+    'event: approval_state\ndata: {"approval":{'
+      + '"runId":"4f9c1f9a-0000-4000-8000-000000000000",'
+      + '"approvalId":"4f9c1f9a-0000-4000-8000-000000000001",'
+      + '"toolName":"bash","command":"git status","reviewPayload":null}}',
+  );
+  assert.equal(event?.kind, 'approval-state');
+  assert.equal(event?.kind === 'approval-state' ? event.approval?.command : null, 'git status');
+});
+
+test('parses an empty approval state frame as a cleared approval', () => {
+  const event = parseChatStreamPacket('event: approval_state\ndata: {"approval":null}');
+  assert.deepEqual(event, { kind: 'approval-state', approval: null });
+});
+
+test('parses a resolved approval frame', () => {
+  const event = parseChatStreamPacket(
+    'event: approval_resolved\ndata: {"approval":{'
+      + '"runId":"4f9c1f9a-0000-4000-8000-000000000000",'
+      + '"approvalId":"4f9c1f9a-0000-4000-8000-000000000001",'
+      + '"toolName":"bash","command":"rm -rf build","reviewPayload":null},'
+      + '"decision":{"decision":"deny","reason":"too broad"},'
+      + '"decidedAtUtc":"2026-09-08T12:00:05.000Z"}',
+  );
+  assert.equal(event?.kind, 'approval-resolved');
+  assert.equal(
+    event?.kind === 'approval-resolved' ? event.resolution.decision.decision : null,
+    'deny',
+  );
+});
+
+test('parses the ended frame', () => {
+  assert.deepEqual(parseChatStreamPacket('event: ended\ndata: {}'), { kind: 'ended' });
+});
+
+test('rejects a malformed approval state frame', () => {
+  assert.equal(parseChatStreamPacket('event: approval_state\ndata: {"approval":{"runId":"x"}}'), null);
+});

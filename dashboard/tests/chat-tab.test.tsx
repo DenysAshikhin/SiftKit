@@ -1419,7 +1419,9 @@ test('the approval mode control stays enabled while this client owns a running r
   assert.equal(screen.getByPlaceholderText('Describe the task for the repo agent…').hasAttribute('disabled'), true);
 });
 
-test('the approval mode control is disabled when another client owns the run', () => {
+test('the approval mode control stays enabled when another client owns the run', () => {
+  // The gate is "a repo-agent run is in flight", not "this client started it": after a reload the
+  // run is someone else's from this client's point of view, and the mode must still be changeable.
   const store = buildDefaultStore(SESSION_A.id)
     .apply({ kind: 'remote-begin', sessionId: SESSION_A.id, operationKind: 'repo-agent' });
   renderComponent(<ChatTab {...buildProps({
@@ -1427,7 +1429,7 @@ test('the approval mode control is disabled when another client owns the run', (
     selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
   })} />);
   for (const name of ['Manual', 'Auto', 'Approve all']) {
-    assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
+    assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), false);
   }
 });
 

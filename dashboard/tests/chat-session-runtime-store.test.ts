@@ -726,3 +726,86 @@ test('live thinking bubbles carry no self-derived token estimate', () => {
   const message = createLiveMessage('live-1', 'assistant_thinking', 'assistant', 'x'.repeat(400));
   assert.equal(message.thinkingTokens, 0);
 });
+
+test('attach adopts a running operation and clears the stale live transcript', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/repo')
+    .apply({ kind: 'submit', sessionId: 's1', content: 'old', images: [] })
+    .apply({ kind: 'warning', sessionId: 's1', text: 'stale warning' })
+    .apply({ kind: 'control-error', sessionId: 's1', message: 'stale failure' })
+    .apply({
+      kind: 'attach',
+      sessionId: 's1',
+      operationKind: 'repo-agent',
+      operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+    });
+  const runtime = store.get('s1');
+  assert.deepEqual(runtime.activity, {
+    kind: 'local',
+    operationKind: 'repo-agent',
+    operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+  });
+  assert.equal(runtime.liveMessages.length, 0);
+  assert.equal(runtime.warnings.length, 0);
+  assert.equal(runtime.error, null);
+  assert.equal(runtime.awaitingResponse, false);
+  assert.equal(runtime.submittedInput, null);
+  assert.equal(runtime.liveTokenBase, null);
+  assert.equal(runtime.streamedCharsSinceBase, 0);
+  assert.equal(runtime.pendingApproval, null);
+});
+
+test('attach preserves the composer draft so a reload does not eat typed text', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/repo')
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'queued follow-up' })
+    .apply({
+      kind: 'attach',
+      sessionId: 's1',
+      operationKind: 'plan',
+      operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+    });
+  assert.equal(store.get('s1').draft, 'queued follow-up');
+});
+
+test('user-turn restores the prompt bubble without touching the draft', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/repo')
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed' })
+    .apply({ kind: 'user-turn', sessionId: 's1', content: 'fix it', images: ['data:image/png;base64,AAAA'] });
+  const runtime = store.get('s1');
+  assert.equal(runtime.liveMessages.length, 1);
+  assert.equal(runtime.liveMessages[0]?.role, 'user');
+  assert.equal(runtime.liveMessages[0]?.content, 'fix it');
+  assert.deepEqual(runtime.liveMessages[0]?.images, ['data:image/png;base64,AAAA']);
+  assert.equal(runtime.awaitingResponse, true);
+  assert.equal(runtime.draft, 'typed');
+});
+
+test('user-turn after submit upserts the same bubble instead of adding a second', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/repo')
+    .apply({ kind: 'submit', sessionId: 's1', content: 'fix it', images: [] })
+    .apply({ kind: 'user-turn', sessionId: 's1', content: 'fix it', images: [] });
+  assert.equal(store.get('s1').liveMessages.length, 1);
+});
+
+test('detach idles an attached session without a payload and keeps the draft', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', 'C:/repo')
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed' })
+    .apply({
+      kind: 'attach',
+      sessionId: 's1',
+      operationKind: 'condense',
+      operationId: '4f9c1f9a-0000-4000-8000-000000000000',
+    })
+    .apply({ kind: 'user-turn', sessionId: 's1', content: 'x', images: [] })
+    .apply({ kind: 'detach', sessionId: 's1' });
+  const runtime = store.get('s1');
+  assert.deepEqual(runtime.activity, { kind: 'idle' });
+  assert.equal(runtime.liveMessages.length, 0);
+  assert.equal(runtime.awaitingResponse, false);
+  assert.equal(runtime.error, null);
+  assert.equal(runtime.draft, 'typed');
+});

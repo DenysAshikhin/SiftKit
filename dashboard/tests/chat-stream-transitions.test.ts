@@ -73,7 +73,7 @@ class StoreDrain {
   readonly completions: string[] = [];
 
   async drain(stream: AsyncGenerator<ChatStreamEvent>, sessionId: string, thinking: boolean): Promise<void> {
-    for await (const transition of toRuntimeTransitions(sessionId, 'message', OPERATION_ID, stream, thinking)) {
+    for await (const transition of toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'message', operationId: OPERATION_ID }, stream, thinking)) {
       this.store = this.store.apply(transition);
       if (transition.kind === 'done') {
         this.completions.push(transition.sessionId);
@@ -103,7 +103,7 @@ async function collect(
   thinking: boolean,
 ): Promise<ChatSessionRuntimeTransition[]> {
   const transitions: ChatSessionRuntimeTransition[] = [];
-  for await (const transition of toRuntimeTransitions('session-a', operationKind, OPERATION_ID, stream, thinking)) {
+  for await (const transition of toRuntimeTransitions('session-a', { kind: 'owned', operationKind, operationId: OPERATION_ID }, stream, thinking)) {
     transitions.push(transition);
   }
   return transitions;

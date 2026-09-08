@@ -8,7 +8,7 @@ import {
   ManagedFilePickerResponseSchema, EngineConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
   ChatSessionBusyResponseSchema,
-  ChatOperationStatusResponseSchema,
+  ActiveChatOperationsResponseSchema,
   StopChatOperationResponseSchema,
   ActiveChatRepoAgentResponseSchema,
   ChatRepoAgentApprovalModeResponseSchema,
@@ -49,7 +49,7 @@ import {
   type InferenceRuntimeDashboardStatus,
   type ImageCaptionResponse,
   type ChatSessionBusyResponse,
-  type ChatOperationStatusResponse,
+  type ActiveChatOperationsResponse,
   type ChatRepoAgentStreamRequest,
   type ActiveChatRepoAgentResponse,
   type ApprovalMode,
@@ -482,6 +482,14 @@ export class ChatSessionBusyError extends Error {
   }
 }
 
+/** The session has no operation to latch onto; the caller should fall back to the stored session. */
+export class ChatOperationIdleError extends Error {
+  constructor() {
+    super('No active operation for this session.');
+    this.name = 'ChatOperationIdleError';
+  }
+}
+
 async function buildChatStreamHttpError(response: Response): Promise<never> {
   const text = await response.text();
   if (response.status === 409) {
@@ -499,15 +507,19 @@ async function buildChatStreamHttpError(response: Response): Promise<never> {
   throw new Error(`Request failed (${response.status}): ${text}`);
 }
 
+/** Frames after which the server closes the stream; a body that ends without one was cut off. */
+function isTerminalChatStreamEvent(event: ChatStreamEvent): boolean {
+  return event.kind === 'done' || event.kind === 'ended';
+}
+
 async function* consumeChatStream(
   url: string,
-  payload: Record<string, JsonSerializable>,
+  init: RequestInit,
 ): AsyncGenerator<ChatStreamEvent> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const response = await fetch(url, init);
+  if (response.status === 404 && init.method === 'GET') {
+    throw new ChatOperationIdleError();
+  }
   if (!response.ok) {
     throw await buildChatStreamHttpError(response);
   }
@@ -520,7 +532,7 @@ async function* consumeChatStream(
     if (event.kind === 'error') {
       throw new Error(event.message);
     }
-    if (event.kind === 'done') {
+    if (isTerminalChatStreamEvent(event)) {
       completed = true;
     }
     yield event;
@@ -530,11 +542,37 @@ async function* consumeChatStream(
   }
 }
 
+function postChatStream(
+  url: string,
+  payload: Record<string, JsonSerializable>,
+): AsyncGenerator<ChatStreamEvent> {
+  return consumeChatStream(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Latches onto a run already in flight: replayed frames first, then live ones. */
+export function attachChatOperationStream(
+  sessionId: string,
+  signal: AbortSignal,
+): AsyncGenerator<ChatStreamEvent> {
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/operation/stream`,
+    { method: 'GET', signal },
+  );
+}
+
+export function listActiveChatOperations(): Promise<ActiveChatOperationsResponse> {
+  return fetchJson('/dashboard/chat/operations', ActiveChatOperationsResponseSchema);
+}
+
 export function streamChatMessage(
   sessionId: string,
   payload: { content: string; images?: string[]; operationId: string },
 ): AsyncGenerator<ChatStreamEvent> {
-  return consumeChatStream(
+  return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
     payload,
   );
@@ -551,7 +589,7 @@ export function streamPlanMessage(
     operationId: string;
   },
 ): AsyncGenerator<ChatStreamEvent> {
-  return consumeChatStream(
+  return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
     payload,
   );
@@ -568,7 +606,7 @@ export function streamRepoSearchMessage(
     operationId: string;
   },
 ): AsyncGenerator<ChatStreamEvent> {
-  return consumeChatStream(
+  return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
     payload,
   );
@@ -580,7 +618,7 @@ export function streamRepoAgentMessage(
   sessionId: string,
   payload: ChatRepoAgentStreamRequest,
 ): AsyncGenerator<ChatStreamEvent> {
-  return consumeChatStream(
+  return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/stream`,
     payload,
   );
@@ -641,14 +679,4 @@ export function stopChatOperation(
       body: JSON.stringify({ operationId }),
     },
   );
-}
-
-export async function getChatOperationStatus(
-  sessionId: string,
-): Promise<ChatOperationStatusResponse | null> {
-  const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/operation`);
-  if (response.status === 404) {
-    return null;
-  }
-  return await parseJsonResponse(response, ChatOperationStatusResponseSchema);
 }

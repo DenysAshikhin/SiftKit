@@ -55,6 +55,9 @@ export type ChatSessionRuntime = {
 
 export type ChatSessionRuntimeTransition =
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'attach'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'user-turn'; sessionId: string; content: string; images: string[] }
+  | { kind: 'detach'; sessionId: string }
   | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionOperationKind }
   | { kind: 'remote-clear'; sessionId: string }
   | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
@@ -137,6 +140,50 @@ function applyTransition(
         },
         liveTokenBase: null,
         streamedCharsSinceBase: 0,
+      };
+    case 'attach':
+      // Adopting a run in flight: the replay that follows rebuilds the whole live transcript, so
+      // anything left over from a previous view of this session would be counted twice. The draft
+      // and pending images are the user's unsent work and survive.
+      return {
+        ...runtime,
+        activity: {
+          kind: 'local',
+          operationKind: transition.operationKind,
+          operationId: transition.operationId,
+        },
+        liveMessages: [],
+        warnings: [],
+        error: null,
+        liveTokenBase: null,
+        streamedCharsSinceBase: 0,
+        submittedInput: null,
+        awaitingResponse: false,
+        pendingApproval: null,
+        resolvedApproval: null,
+      };
+    // The server's copy of the prompt. Upserting by the shared live id keeps this idempotent for
+    // the client that already inserted the bubble on submit.
+    case 'user-turn':
+      return {
+        ...runtime,
+        awaitingResponse: true,
+        liveMessages: upsertLiveMessageInto(
+          runtime.liveMessages,
+          buildLiveUserMessage(transition.content, transition.images),
+        ),
+      };
+    // The operation finished without a stream payload; the caller refetches the session.
+    case 'detach':
+      return {
+        ...runtime,
+        activity: { kind: 'idle' },
+        liveMessages: [],
+        error: null,
+        submittedInput: null,
+        awaitingResponse: false,
+        pendingApproval: null,
+        resolvedApproval: null,
       };
     case 'remote-begin':
       return { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } };

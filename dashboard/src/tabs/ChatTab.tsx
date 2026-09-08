@@ -16,7 +16,7 @@ import {
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
 import { formatLiveContextTokens, resolveLiveContextUsage } from '../lib/contextBar';
-import { deriveSessionIndicator, isSessionBusy, ownsRepoAgentRun, type SessionIndicator } from '../lib/chat-session-state';
+import { deriveSessionIndicator, hasActiveRepoAgentRun, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { ToolActivityRow } from '../components/ToolActivityRow';
@@ -529,7 +529,7 @@ export function ChatTab({
                     <>
                       <RepoAgentApprovalModeControl
                         value={selectedRuntime.repoAgentApprovalMode}
-                        disabled={selectedRuntime.activity.kind !== 'idle' && !ownsRepoAgentRun(selectedRuntime)}
+                        disabled={selectedRuntime.activity.kind !== 'idle' && !hasActiveRepoAgentRun(selectedRuntime)}
                         onChange={(mode) => { void onChangeRepoAgentApprovalMode(mode); }}
                       />
                       <RepoAgentTurnsControl

@@ -29,9 +29,9 @@ export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
   );
 }
 
-/** True when this client started, and still streams, the session's repo-agent run. */
-export function ownsRepoAgentRun(runtime: ChatSessionRuntime | null): boolean {
+/** True when this session has a repo-agent run in flight, whether or not this client started it. */
+export function hasActiveRepoAgentRun(runtime: ChatSessionRuntime | null): boolean {
   return runtime !== null
-    && runtime.activity.kind === 'local'
+    && runtime.activity.kind !== 'idle'
     && runtime.activity.operationKind === 'repo-agent';
 }

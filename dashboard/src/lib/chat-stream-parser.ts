@@ -1,14 +1,20 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
 import {
+  ChatOperationAttachedEventSchema,
   ChatSessionResponseSchema,
+  ChatStreamApprovalResolvedSchema,
   ChatStreamApprovalSchema,
+  ChatStreamApprovalStateSchema,
   ChatStreamProgressSchema,
   ChatStreamPromptEventSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
+  ChatStreamSubmittedSchema,
   ChatStreamUsageEventSchema,
+  type ChatSessionOperationKind,
   type ChatSessionResponse,
   type ChatStreamApproval,
+  type ChatStreamApprovalResolved,
   type ChatStreamProgress,
   type ChatStreamPromptEvent,
   type ChatStreamTextDelta,
@@ -29,6 +35,11 @@ export type ChatStreamEvent =
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'usage'; usage: ChatStreamUsageEvent }
   | { kind: 'prompt'; prompt: ChatStreamPromptEvent }
+  | { kind: 'attached'; operationKind: ChatSessionOperationKind; operationId: string; replayTruncated: boolean }
+  | { kind: 'submitted'; content: string; images: string[] }
+  | { kind: 'approval-state'; approval: ChatStreamApproval | null }
+  | { kind: 'approval-resolved'; resolution: ChatStreamApprovalResolved }
+  | { kind: 'ended' }
   | { kind: 'error'; message: string };
 
 type ParsedPacket = { eventName: string; data: JsonValue } | null;
@@ -96,6 +107,33 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
       const result = ChatStreamPromptEventSchema.safeParse(record);
       return result.success ? { kind: 'prompt', prompt: result.data } : null;
     }
+    case 'attached': {
+      const result = ChatOperationAttachedEventSchema.safeParse(record);
+      return result.success
+        ? {
+            kind: 'attached',
+            operationKind: result.data.operationKind,
+            operationId: result.data.operationId,
+            replayTruncated: result.data.replayTruncated,
+          }
+        : null;
+    }
+    case 'submitted': {
+      const result = ChatStreamSubmittedSchema.safeParse(record);
+      return result.success
+        ? { kind: 'submitted', content: result.data.content, images: result.data.images }
+        : null;
+    }
+    case 'approval_state': {
+      const result = ChatStreamApprovalStateSchema.safeParse(record);
+      return result.success ? { kind: 'approval-state', approval: result.data.approval } : null;
+    }
+    case 'approval_resolved': {
+      const result = ChatStreamApprovalResolvedSchema.safeParse(record);
+      return result.success ? { kind: 'approval-resolved', resolution: result.data } : null;
+    }
+    case 'ended':
+      return { kind: 'ended' };
     default:
       return null;
   }

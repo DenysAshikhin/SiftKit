@@ -1,4 +1,5 @@
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.js';
+import type { ChatSessionResponse } from '../src/types';
 import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
 import type {
   AssistantSettingsActions,
@@ -126,3 +127,31 @@ export const DASHBOARD_CONFIG = {
   },
   Assistant: DEFAULT_ASSISTANT_CONFIG,
 } satisfies DashboardConfig;
+
+export const CHAT_SESSION_RESPONSE: ChatSessionResponse = {
+  session: {
+    id: 's1',
+    title: 'Session',
+    modelPresetId: 'test-model',
+    model: null,
+    contextWindowTokens: 100,
+    planRepoRoot: 'C:/repo',
+    createdAtUtc: '2026-06-03T12:00:00.000Z',
+    updatedAtUtc: '2026-06-03T12:00:00.000Z',
+    messages: [],
+  },
+  contextUsage: {
+    contextWindowTokens: 100,
+    usedTokens: 0,
+    chatUsedTokens: 0,
+    thinkingUsedTokens: 0,
+    toolUsedTokens: 0,
+    imageUsedTokens: 0,
+    totalUsedTokens: 0,
+    remainingTokens: 100,
+    warnThresholdTokens: 80,
+    shouldCondense: false,
+    estimatedTokenFallbackTokens: 0,
+    providerOverheadTokens: 0,
+  },
+};

@@ -2815,7 +2815,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
   }
 });
 
-test('queued Repo Search disconnect leaves the chat session unchanged', async () => {
+test('a queued Repo Search whose client disconnects still completes its turn', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-dashboard-repo-search-disconnect-', { parallelSlots: 1 });
   try {
     await harness.start();
@@ -2838,12 +2838,12 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
     const disconnectedRepoSearch = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`,
       JSON.stringify({
-        content: 'must not persist after disconnect',
+        content: 'survives the disconnect',
         operationId: CHAT_STREAM_OPERATION_ID,
         repoRoot: process.cwd(),
         maxTurns: 1,
         availableModels: ['Qwen3.5-9B-EXL3'],
-        mockResponses: [{ content: "must not run" }],
+        mockResponses: [{ content: 'ran after the client left' }],
         mockCommandResults: {},
       }),
       AbortSignal.timeout(250),
@@ -2858,9 +2858,17 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
     const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(sessionResponse.statusCode, 200);
     const persistedSession = d(sessionResponse.body.session);
-    assert.equal(persistedSession.presetId, createdSession.presetId);
-    assert.equal(persistedSession.mode, createdSession.mode);
-    assert.deepEqual(asArray(persistedSession.messages), asArray(createdSession.messages));
+    // The stream outlives its client: a queued turn is no longer cancelled when the socket drops,
+    // because the client is expected to reattach through /operation/stream after a reload.
+    assert.equal(persistedSession.presetId, 'repo-search');
+    assert.equal(persistedSession.mode, 'repo-search');
+    const persistedMessages = asArray(persistedSession.messages).map((message) => d(message));
+    assert.deepEqual(
+      persistedMessages.map((message) => message.role),
+      [...asArray(createdSession.messages).map((message) => d(message).role), 'user', 'assistant'],
+    );
+    assert.equal(persistedMessages.at(-2)?.content, 'survives the disconnect');
+    assert.equal(String(persistedMessages.at(-1)?.content).includes('ran after the client left'), true);
   } finally {
     await harness.close();
   }

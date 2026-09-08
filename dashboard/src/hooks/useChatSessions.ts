@@ -13,11 +13,12 @@ import {
   deleteChatMessageImage,
   deleteChatSession,
   decideRepoAgent,
+  attachChatOperationStream,
   getActiveRepoAgentRun,
-  getChatOperationStatus,
   getChatSession,
   getChatSessions,
   getInferenceRuntimeStatus,
+  listActiveChatOperations,
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
@@ -25,6 +26,7 @@ import {
   stopChatOperation,
   updateChatSession,
   updateRepoAgentApprovalMode,
+  ChatOperationIdleError,
   type RepoAgentDecision,
 } from '../api';
 import {
@@ -35,8 +37,8 @@ import {
   resolveRepoRoot,
   type ParsedMaxTurnsOverride,
 } from '../lib/chat-composer-inputs';
-import { ChatSessionRuntimeStore, type ResolvedRepoAgentApproval } from '../lib/chat-session-runtime-store';
-import { ownsRepoAgentRun } from '../lib/chat-session-state';
+import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import { hasActiveRepoAgentRun } from '../lib/chat-session-state';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
@@ -47,8 +49,6 @@ export type CreateChatSessionRequest = {
   title: string;
   presetId?: string;
 };
-
-const REMOTE_OPERATION_POLL_MS = 100;
 
 export function pickFirstSessionId(sessions: ChatSession[]): string {
   return sessions[0]?.id ?? '';
@@ -82,6 +82,9 @@ export function useChatSessions(deps: {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
   const [runtimeStore, setRuntimeStore] = useState<ChatSessionRuntimeStore>(new ChatSessionRuntimeStore());
+  // Bumped when this client learns another client owns the selected session, so the attach effect
+  // re-runs without depending on the activity it is about to change.
+  const [attachEpoch, setAttachEpoch] = useState(0);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
 
   function recordSessionError(sessionId: string, error: Error): void {
@@ -95,20 +98,35 @@ export function useChatSessions(deps: {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await getChatSessions();
+        const [response, active] = await Promise.all([getChatSessions(), listActiveChatOperations()]);
         if (cancelled) {
           return;
         }
         setSessions(response.sessions);
+        const busyKindBySessionId = new Map(
+          active.operations.map((operation) => [operation.sessionId, operation.operationKind] as const),
+        );
         setRuntimeStore((prev) => {
           let store = prev;
           for (const session of response.sessions) {
             store = store.ensureSession(session.id, session.planRepoRoot);
+            const runtime = store.get(session.id);
+            const busyKind = busyKindBySessionId.get(session.id) ?? null;
+            // The rail reads this; a client-owned stream already reports itself and must not be
+            // downgraded to remote, and a session that has since finished must stop showing busy.
+            if (runtime.activity.kind === 'local') {
+              continue;
+            }
+            store = busyKind
+              ? store.apply({ kind: 'remote-begin', sessionId: session.id, operationKind: busyKind })
+              : store.apply({ kind: 'remote-clear', sessionId: session.id });
           }
           return store;
         });
         if (!selectedSessionId) {
-          const firstId = pickFirstSessionId(response.sessions);
+          // Prefer a session that is actually running: a run in flight never touches updatedAtUtc,
+          // so the busy session is usually not the first one the listing returns.
+          const firstId = active.operations[0]?.sessionId || pickFirstSessionId(response.sessions);
           if (firstId) {
             setSelectedSessionId(firstId);
           }
@@ -132,53 +150,26 @@ export function useChatSessions(deps: {
     void Promise.all([
       getChatSession(selectedSessionId),
       getActiveRepoAgentRun(selectedSessionId),
-      getChatOperationStatus(selectedSessionId),
     ])
-      .then(([response, activeRun, activeOperation]) => {
-        if (!cancelled) {
-          setSessions((previous) => upsertSession(previous, response.session));
-          setRuntimeStore((previous) => previous.apply({
+      .then(([response, activeRun]) => {
+        if (cancelled) {
+          return;
+        }
+        setSessions((previous) => upsertSession(previous, response.session));
+        setRuntimeStore((previous) => {
+          const withUsage = previous.apply({
             kind: 'context-usage',
             sessionId: response.session.id,
             contextUsage: response.contextUsage,
-          }));
-          if (activeRun) {
-            setRuntimeStore((previous) => previous.apply({
-              kind: 'repo-agent-approval-mode',
-              sessionId: response.session.id,
-              approval: activeRun.approvalMode,
-            }));
-          }
-          if (activeRun?.status === 'approval_required') {
-            setRuntimeStore((previous) => previous.apply({
-              kind: 'approval',
-              sessionId: response.session.id,
-              approval: { runId: activeRun.runId, ...activeRun.approval },
-            }));
-          } else {
-            setRuntimeStore((previous) => previous.apply({
-              kind: 'approval-clear',
-              sessionId: response.session.id,
-            }));
-          }
-          if (activeOperation) {
-            setRuntimeStore((previous) => {
-              const runtime = previous.get(response.session.id);
-              return runtime.activity.kind === 'local'
-                ? previous
-                : previous.apply({
-                    kind: 'remote-begin',
-                    sessionId: response.session.id,
-                    operationKind: activeOperation.operationKind,
-                  });
-            });
-          } else {
-            setRuntimeStore((previous) => previous.apply({
-              kind: 'remote-clear',
-              sessionId: response.session.id,
-            }));
-          }
-        }
+          });
+          return activeRun
+            ? withUsage.apply({
+                kind: 'repo-agent-approval-mode',
+                sessionId: response.session.id,
+                approval: activeRun.approvalMode,
+              })
+            : withUsage;
+        });
       })
       .catch((error) => {
         if (!cancelled) {
@@ -190,64 +181,73 @@ export function useChatSessions(deps: {
     };
   }, [selectedSessionId]);
 
-  const selectedRuntime = runtimeStore.getAll().find(
-    (runtime) => runtime.sessionId === selectedSessionId,
-  ) ?? null;
-  const selectedRemoteOperationKind = selectedRuntime?.activity.kind === 'remote'
-    ? selectedRuntime.activity.operationKind
-    : null;
+  // Sessions are seeded into the runtime store together with the listing, so a runtime exists
+  // exactly when the selected session does.
+  const selectedLoaded = selectedSession !== null;
 
   useEffect(() => {
-    if (!selectedSessionId || selectedRemoteOperationKind === null) {
+    if (!selectedSessionId || !selectedLoaded) {
       return;
     }
+    // Ownership is read once, from the render this effect ran in. The effect must not depend on
+    // the activity itself: its own first transition makes the session local, and re-running on
+    // that would cancel the stream it just opened.
+    if (runtimeStore.get(selectedSessionId).activity.kind === 'local') {
+      return;
+    }
+    const sessionId = selectedSessionId;
+    // Optional chaining only because the boolean gate above does not narrow the object for TS.
+    const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
+    const controller = new AbortController();
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async (): Promise<void> => {
-      try {
-        const activeOperation = await getChatOperationStatus(selectedSessionId);
-        if (cancelled) {
-          return;
-        }
-        if (activeOperation) {
-          if (activeOperation.operationKind !== selectedRemoteOperationKind) {
-            setRuntimeStore((previous) => previous.apply({
-              kind: 'remote-begin',
-              sessionId: selectedSessionId,
-              operationKind: activeOperation.operationKind,
-            }));
-          }
-          timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
-          return;
-        }
-        const response = await getChatSession(selectedSessionId);
-        if (cancelled) {
-          return;
-        }
-        setSessions((previous) => upsertSession(previous, response.session));
-        setRuntimeStore((previous) => previous
-          .apply({ kind: 'context-usage', sessionId: selectedSessionId, contextUsage: response.contextUsage })
-          .apply({ kind: 'approval-clear', sessionId: selectedSessionId })
-          .apply({ kind: 'remote-clear', sessionId: selectedSessionId }));
-      } catch (error) {
-        if (!cancelled) {
-          setRuntimeStore((previous) => previous.apply({
-            kind: 'control-error',
-            sessionId: selectedSessionId,
-            message: toError(error).message,
-          }));
-          timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
-        }
+    const refreshSession = async (): Promise<void> => {
+      const response = await getChatSession(sessionId);
+      if (cancelled) {
+        return;
       }
+      setSessions((previous) => upsertSession(previous, response.session));
+      setRuntimeStore((previous) => previous
+        .apply({ kind: 'context-usage', sessionId, contextUsage: response.contextUsage }));
     };
-    timer = setTimeout(() => { void poll(); }, REMOTE_OPERATION_POLL_MS);
+    void (async () => {
+      try {
+        for await (const transition of toRuntimeTransitions(
+          sessionId,
+          { kind: 'attached' },
+          attachChatOperationStream(sessionId, controller.signal),
+          thinkingEnabled,
+        )) {
+          if (cancelled) {
+            return;
+          }
+          setRuntimeStore((previous) => previous.apply(transition));
+          if (transition.kind === 'done') {
+            setSessions((previous) => upsertSession(previous, transition.response.session));
+          }
+          if (transition.kind === 'detach') {
+            await refreshSession();
+          }
+        }
+      } catch (error) {
+        if (cancelled || !(error instanceof ChatOperationIdleError)) {
+          return;
+        }
+        // Nothing is running: the run may have finished while this client was away, so take the
+        // stored transcript rather than leaving the session pinned as busy.
+        await refreshSession();
+        if (cancelled) {
+          return;
+        }
+        setRuntimeStore((previous) => previous
+          .apply({ kind: 'approval-clear', sessionId })
+          .apply({ kind: 'remote-clear', sessionId }));
+      }
+    })();
     return () => {
       cancelled = true;
-      if (timer !== null) {
-        clearTimeout(timer);
-      }
+      controller.abort();
     };
-  }, [selectedSessionId, selectedRemoteOperationKind]);
+  }, [selectedSessionId, selectedLoaded, attachEpoch]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
     setSessions((previous) => upsertSession(previous, response.session));
@@ -462,14 +462,17 @@ export function useChatSessions(deps: {
     const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
     for await (const transition of toRuntimeTransitions(
       sessionId,
-      operationKind,
-      operationId,
+      { kind: 'owned', operationKind, operationId },
       stream,
       thinkingEnabled,
     )) {
       setRuntimeStore((previous) => previous.apply(transition));
       if (transition.kind === 'done') {
         setSessions((previous) => upsertSession(previous, transition.response.session));
+      }
+      if (transition.kind === 'remote-begin') {
+        // Another client owns this session; latch onto its stream instead of sitting on a 409.
+        setAttachEpoch((epoch) => epoch + 1);
       }
     }
   }
@@ -614,38 +617,21 @@ export function useChatSessions(deps: {
     }));
   }
 
-  function applyApprovalResolution(sessionId: string, resolution: ResolvedRepoAgentApproval): void {
-    setRuntimeStore((previous) => previous.apply({ kind: 'approval-decision', sessionId, resolution }));
-  }
-
   async function submitRepoAgentDecision(decision: RepoAgentDecision): Promise<void> {
     const session = requireSelectedSession(selectedSession);
-    const approval = runtimeStore.get(session.id).pendingApproval;
-    const response = await decideRepoAgent(session.id, decision);
-    if (approval) {
-      applyApprovalResolution(session.id, { approval, decision, decidedAtUtc: response.decidedAtUtc });
-    }
+    await decideRepoAgent(session.id, decision);
   }
 
   async function setRepoAgentApprovalMode(approval: ApprovalMode): Promise<void> {
     const session = requireSelectedSession(selectedSession);
     const runtime = runtimeStore.get(session.id);
     const previous = runtime.repoAgentApprovalMode;
-    const pending = runtime.pendingApproval;
     setRuntimeStore((store) => store.apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval }));
-    if (!ownsRepoAgentRun(runtime)) {
+    if (!hasActiveRepoAgentRun(runtime)) {
       return;
     }
     try {
-      const response = await updateRepoAgentApprovalMode(session.id, approval);
-      const released = response.released;
-      if (pending && released && released.approvalId === pending.approvalId) {
-        applyApprovalResolution(session.id, {
-          approval: pending,
-          decision: { decision: 'approve' },
-          decidedAtUtc: released.decidedAtUtc,
-        });
-      }
+      await updateRepoAgentApprovalMode(session.id, approval);
     } catch (error) {
       setRuntimeStore((store) => store
         .apply({ kind: 'repo-agent-approval-mode', sessionId: session.id, approval: previous })
