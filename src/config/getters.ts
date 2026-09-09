@@ -69,6 +69,18 @@ export function getConfiguredEngineNumCtx(config: SiftConfig): number {
   throw new Error('SiftKit runtime config is missing Engine.NumCtx. Set NumCtx on the active preset first.');
 }
 
+export function getConfiguredCompactionReserveTokens(config: SiftConfig): number {
+  const reserveTokens = getFinitePositiveNumber(getActiveModelPreset(config).CompactionReserveTokens);
+  if (reserveTokens !== null) {
+    return reserveTokens;
+  }
+
+  throw new Error(
+    'SiftKit runtime config is missing Engine.CompactionReserveTokens. '
+    + 'Set CompactionReserveTokens on the active preset first.',
+  );
+}
+
 export function getConfiguredReasoning(config: SiftConfig): ModelRuntimePreset['Reasoning'] {
   return getActiveModelPreset(config).Reasoning;
 }

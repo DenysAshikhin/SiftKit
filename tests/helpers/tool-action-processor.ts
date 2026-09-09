@@ -22,6 +22,7 @@ import { makeTestPreset } from './model-presets.js';
 import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
 import type { LoopCounters } from '../../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchTaskKind } from '../../src/repo-search/task-kind.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../../src/lib/context-token-budget.js';
 
 // Shared between the reporter, the budget, and the enforced deps budget — they must agree.
 const MAX_TURNS = 5;
@@ -49,7 +50,7 @@ export function makeProcessor(
   const commands: TaskCommand[] = [];
   const counters: LoopCounters = { invalidResponses: 0, rejectedCalls: 0, nonZeroExits: 0, safetyRejects: 0, reason: 'max_turns' };
   const tokenUsage = new TokenUsageTracker(undefined, true);
-  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: MAX_TURNS });
+  const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 20000, maxTurns: MAX_TURNS });
   const events: JsonObject[] = [];
   const liveImagePathKeys = new Set<string>();
   const transcript = new TranscriptManager({

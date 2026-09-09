@@ -50,6 +50,7 @@ export {
   getActiveInferenceBackend,
   managesManagedEngineLifecycle,
   getConfiguredEngineBaseUrl,
+  getConfiguredCompactionReserveTokens,
   getConfiguredEngineNumCtx,
   getConfiguredReasoning,
   getConfiguredModel,

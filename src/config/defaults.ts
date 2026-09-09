@@ -18,6 +18,7 @@ import {
 } from './constants.js';
 import { DEFAULT_REASONING_EFFORT } from '@siftkit/contracts';
 import { initializeRuntime } from './paths.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { getDefaultOperationModeAllowedTools } from '../presets.js';
 import type { AssistantConfig, ModelRuntimePreset, SiftConfig } from './types.js';
@@ -105,6 +106,7 @@ export function getDefaultConfigObject(): SiftConfig {
     BaseUrl: SIFT_DEFAULT_ENGINE_BASE_URL,
     ModelPath: null,
     NumCtx: SIFT_DEFAULT_NUM_CTX,
+    CompactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
     NcpuMoe: 0,
     ParallelSlots: 1,
     UBatchSize: SIFT_DEFAULT_ENGINE_UBATCH_SIZE,

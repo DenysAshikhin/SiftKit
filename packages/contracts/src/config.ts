@@ -60,7 +60,7 @@ export type RuntimeEngineConfig = z.infer<typeof RuntimeEngineConfigSchema>;
 
 const ModelPresetSettingsShape = {
   ExternalServerEnabled: z.boolean(), BaseUrl: z.string().nullable(), ModelPath: z.string().nullable(),
-  NumCtx: z.number(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
+  NumCtx: z.number(), CompactionReserveTokens: z.number().int().positive(), NcpuMoe: z.number().int().nonnegative(), ParallelSlots: z.number(), UBatchSize: z.number(), CacheRam: z.number(),
   CacheRecurrentRam: z.number(), NgramRam: z.boolean(), KvCacheQuantization: ModelKvCacheQuantizationSchema,
   Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
@@ -75,7 +75,7 @@ const ModelPresetSettingsShape = {
 };
 
 export const ModelPresetFieldSchema = z.enum([
-  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
+  'Model', 'ExternalServerEnabled', 'BaseUrl', 'ModelPath', 'NumCtx', 'CompactionReserveTokens', 'NcpuMoe', 'ParallelSlots', 'UBatchSize', 'CacheRam',
   'CacheRecurrentRam', 'NgramRam', 'KvCacheQuantization', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
   'MaintainPerStepThinking',

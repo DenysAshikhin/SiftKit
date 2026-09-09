@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { normalizeMetrics } from '../src/status-server/metrics.js';
 import { getRepoSearchPromptBaselinePerToolAllowanceTokens } from '../src/line-read-guidance.js';
 import { DEFAULT_MAX_TURNS, TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 
 test('normalizeMetrics backfills missing line-read fields to zero', () => {
   const metrics = normalizeMetrics({
@@ -50,6 +51,6 @@ test('normalizeMetrics backfills missing line-read fields to zero', () => {
 
 
 test('the repo-search baseline allowance matches the engine single-call floor exactly', () => {
-  const budget = new TurnBudget({ totalContextTokens: 32_000, maxTurns: DEFAULT_MAX_TURNS });
+  const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: DEFAULT_MAX_TURNS });
   assert.equal(getRepoSearchPromptBaselinePerToolAllowanceTokens(null), budget.perToolCapTokens(0, 1));
 });

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
 import { ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
-import { getActiveModelPreset, getConfiguredEngineBaseUrl, getConfiguredEngineNumCtx } from '../config/getters.js';
+import {
+  getActiveModelPreset,
+  getConfiguredCompactionReserveTokens,
+  getConfiguredEngineBaseUrl,
+  getConfiguredEngineNumCtx,
+} from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
@@ -893,6 +898,7 @@ export async function condenseChatSession(
   } as const;
   const contextBudget = resolveContextTokenBudget({
     totalContextTokens: resolveChatSessionContextWindow(config, session),
+    compactionReserveTokens: getConfiguredCompactionReserveTokens(effectiveConfig),
   });
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,

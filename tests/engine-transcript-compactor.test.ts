@@ -24,6 +24,7 @@ import { getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { toProtocolTools } from '../src/providers/inference.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 
 const PLANNER_TOOLS = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
 const NEW_EPOCH = {
@@ -47,7 +48,7 @@ const SummaryRequestSchema = z.object({
 
 function makeCompactor(mockResponses: MockPlannerResponseInput[] | undefined, totalContextTokens = 32_000): TranscriptCompactor {
   const config = mockOfflineSiftConfig();
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 45 });
+  const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 45 });
   return new TranscriptCompactor({
     config,
     baseUrl: DEAD_BASE_URL,
@@ -164,7 +165,7 @@ test('chat compaction sends only completed history to the real summary request',
       model: 'mock-model',
       timeoutMs: 5_000,
       totalContextTokens: 32_000,
-      compactionReserveTokens: new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }).compactionReserveTokens,
+      compactionReserveTokens: new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }).compactionReserveTokens,
       useEstimatedTokensOnly: true,
       mockResponses: undefined,
       tokenUsage: new TokenUsageTracker(config, true),
@@ -275,7 +276,7 @@ test('a completed-history image consumes the structured summary budget', async (
     model: 'mock-model',
     timeoutMs: 5_000,
     totalContextTokens: 2_500,
-    compactionReserveTokens: new TurnBudget({ totalContextTokens: 2_500, maxTurns: 45 }).compactionReserveTokens,
+    compactionReserveTokens: new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 2_500, maxTurns: 45 }).compactionReserveTokens,
     useEstimatedTokensOnly: true,
     mockResponses: [{ content: 'SUMMARY BODY' }],
     tokenUsage: new TokenUsageTracker(config, true),
@@ -318,7 +319,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
     model: 'mock-model',
     timeoutMs: 5_000,
     totalContextTokens: 32_000,
-    compactionReserveTokens: new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }).compactionReserveTokens,
+    compactionReserveTokens: new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }).compactionReserveTokens,
     useEstimatedTokensOnly: true,
     mockResponses: [{ content: '' }, { content: 'RECOVERED SUMMARY' }],
     tokenUsage: new TokenUsageTracker(config, true),
@@ -373,7 +374,7 @@ test('latest_user retention fails loudly when the transcript has no user message
 // the shared prompt limit is the ordinary compaction trigger, so it must always fit.
 for (const totalContextTokens of [150_000, 32_000, 9_000]) {
   test(`a transcript at the prompt limit of a ${totalContextTokens}-token window compacts inside the reserve`, async () => {
-    const budget = new TurnBudget({ totalContextTokens, maxTurns: 45 });
+    const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 45 });
     const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
     const messages: ChatMessage[] = [
       { role: 'system', content: 'SYSTEM PROMPT' },
@@ -398,7 +399,7 @@ for (const totalContextTokens of [150_000, 32_000, 9_000]) {
 // window actually leaves: below the reserve ceiling, above the summary minimum.
 test('a transcript near the physical window clamps the generation budget below the reserve', async () => {
   const totalContextTokens = 32_000;
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 45 });
+  const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 45 });
   const compactor = makeCompactor([{ content: 'SUMMARY BODY' }], totalContextTokens);
   // 4 characters per token: leaves roughly 2,000 tokens of the 32,000-token window.
   const transcriptTokens = totalContextTokens - 2_000;

@@ -62,9 +62,10 @@ export class TurnBudget {
   readonly maxPromptTokens: number;
   private readonly maxTurns: number;
 
-  constructor(options: { totalContextTokens: number; maxTurns: number }) {
+  constructor(options: { totalContextTokens: number; compactionReserveTokens: number; maxTurns: number }) {
     const context = resolveContextTokenBudget({
       totalContextTokens: options.totalContextTokens,
+      compactionReserveTokens: options.compactionReserveTokens,
     });
     this.totalContextTokens = context.totalContextTokens;
     this.compactionReserveTokens = context.compactionReserveTokens;

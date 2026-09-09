@@ -1,4 +1,5 @@
 import { initializeRuntime } from './paths.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
 import {
   CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
   ModelPresetFieldSchema, ModelPresetSettingsSchema, ReasoningEffortSchema, SiftConfigSchema as CanonicalSiftConfigSchema,
@@ -510,6 +511,10 @@ function resolveModelPresetSettings(input: MutableJsonObject): ModelPresetSettin
     BaseUrl: getNullableTrimmedString(input.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
     ModelPath: getNullableTrimmedString(input.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
     NumCtx: getFinitePositiveInteger(input.NumCtx, Number(defaults.NumCtx ?? 150_000)),
+    CompactionReserveTokens: getFinitePositiveInteger(
+      input.CompactionReserveTokens,
+      Number(defaults.CompactionReserveTokens ?? PROMPT_COMPACTION_RESERVE_TOKENS),
+    ),
     NcpuMoe: getStrictNcpuMoe(input, defaults.NcpuMoe),
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_ENGINE_UBATCH_SIZE)),

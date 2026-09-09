@@ -42,6 +42,7 @@ export type ModelStringField = 'label';
 export type ModelNullableStringField = 'Model' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
 export type ModelIntegerField =
   | 'NumCtx'
+  | 'CompactionReserveTokens'
   | 'NcpuMoe'
   | 'ParallelSlots'
   | 'UBatchSize'

@@ -20,7 +20,8 @@ export function summarizeIdentity(preset: DashboardModelRuntimePreset): string {
 }
 
 export function summarizeMemory(preset: DashboardModelRuntimePreset): string {
-  return `ctx ${formatCompactTokenCount(preset.NumCtx)} · chunk ${preset.UBatchSize} · KV ${preset.KvCacheQuantization}`;
+  return `ctx ${formatCompactTokenCount(preset.NumCtx)} · compaction reserve ${formatCompactTokenCount(preset.CompactionReserveTokens)}`
+    + ` · chunk ${preset.UBatchSize} · KV ${preset.KvCacheQuantization}`;
 }
 
 export function summarizeSampling(preset: DashboardModelRuntimePreset): string {

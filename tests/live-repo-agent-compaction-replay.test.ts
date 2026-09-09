@@ -40,6 +40,7 @@ import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { readRuntimeArtifact, upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.js';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 
 const LIVE_REPLAY_ENABLED = process.env.SIFTKIT_TEST_LIVE_REPO_AGENT_COMPACTION_REPLAY === '1';
 const SOURCE_ARTIFACT_ID = 'b3f34f16-ac1a-4a38-a82e-449e578afbe1';
@@ -230,7 +231,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     source.finalToolResultText,
     source.finalThinkingText,
   );
-  const budget = new TurnBudget({ totalContextTokens, maxTurns: 100 });
+  const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 100 });
   const replayPreflight = await preflightPlannerPromptBudget({
     config,
     prompt: renderWirePrompt({

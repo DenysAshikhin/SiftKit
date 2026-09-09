@@ -159,6 +159,9 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="NumCtx">
             <input type="number" value={preset.NumCtx} onChange={(event) => modelPresetActions.setInteger('NumCtx', parseIntegerInput(event.target.value, preset.NumCtx))} />
           </SettingsSectionField>
+          <SettingsSectionField sectionId="model-presets" label="Compaction reserve">
+            <input type="number" min={1} value={preset.CompactionReserveTokens} onChange={(event) => modelPresetActions.setInteger('CompactionReserveTokens', parseIntegerInput(event.target.value, preset.CompactionReserveTokens))} />
+          </SettingsSectionField>
           <ModelPresetControl preset={preset} field="NcpuMoe" label="NcpuMoe">
             <input type="number" min={0} value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
           </ModelPresetControl>

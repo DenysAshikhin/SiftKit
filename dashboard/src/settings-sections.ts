@@ -122,6 +122,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Base URL', layout: 'half', helpText: 'HTTP endpoint used for readiness checks and inference requests.' },
       { label: 'Model directory (EXL3)', layout: 'full', helpText: 'EXL3 model directory name or path resolved beneath the configured Tabby model root.' },
       { label: 'NumCtx', layout: 'quarter', helpText: 'Upper bound for prompt context. Higher values consume more memory.' },
+      { label: 'Compaction reserve', layout: 'quarter', helpText: 'Context tokens held back for the compaction summary. A transcript is compacted once the prompt passes NumCtx minus this reserve, so a larger reserve compacts sooner. Clamped to half of NumCtx.' },
       { label: 'NcpuMoe', layout: 'quarter', helpText: 'Number of cold MoE experts per layer placed in host RAM and computed on the CPU by EXL3. Set 0 to keep all experts on the GPU.' },
       { label: 'ParallelSlots', layout: 'quarter', helpText: 'Concurrent generation lanes exposed as the EXL3 maximum batch size.' },
       { label: 'UBatchSize', layout: 'quarter', helpText: 'Prompt-ingestion chunk size used by EXL3.' },

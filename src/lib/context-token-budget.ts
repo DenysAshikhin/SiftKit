@@ -1,7 +1,8 @@
 /**
  * The single context budget every context-aware operation derives from. The only
  * reservation is the headroom compaction needs to summarize a full transcript;
- * generation itself is bounded by whatever the prompt leaves unused.
+ * generation itself is bounded by whatever the prompt leaves unused. The reserve
+ * is a per-preset setting; this is only the value a new preset starts with.
  */
 export const PROMPT_COMPACTION_RESERVE_TOKENS = 15_000;
 
@@ -28,10 +29,17 @@ function requireNonNegativeInteger(name: string, value: number): number {
   return value;
 }
 
-export function resolveContextTokenBudget(options: { totalContextTokens: number }): ContextTokenBudget {
+export function resolveContextTokenBudget(options: {
+  totalContextTokens: number;
+  compactionReserveTokens: number;
+}): ContextTokenBudget {
   const totalContextTokens = requirePositiveInteger('totalContextTokens', options.totalContextTokens);
+  const requestedReserveTokens = requirePositiveInteger(
+    'compactionReserveTokens',
+    options.compactionReserveTokens,
+  );
   const compactionReserveTokens = Math.max(1, Math.min(
-    PROMPT_COMPACTION_RESERVE_TOKENS,
+    requestedReserveTokens,
     Math.floor(totalContextTokens * PROMPT_COMPACTION_RESERVE_MAX_CONTEXT_RATIO),
   ));
   return {

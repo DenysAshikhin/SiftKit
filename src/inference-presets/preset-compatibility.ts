@@ -87,6 +87,7 @@ const PRESET_FIELD_SUPPORT = {
   BaseUrl: 'always',
   ModelPath: 'always',
   NumCtx: 'always',
+  CompactionReserveTokens: 'always',
   NcpuMoe: 'managed-only',
   ParallelSlots: 'managed-only',
   UBatchSize: 'always',

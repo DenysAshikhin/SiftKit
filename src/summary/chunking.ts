@@ -1,6 +1,7 @@
 import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
+  getConfiguredCompactionReserveTokens,
   getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
@@ -207,7 +208,10 @@ export function shouldRetryWithSmallerChunks(options: {
 }
 
 export function getPlannerPromptBudget(config: SiftConfig): PlannerPromptBudget {
-  const budget = resolveContextTokenBudget({ totalContextTokens: getConfiguredEngineNumCtx(config) });
+  const budget = resolveContextTokenBudget({
+    totalContextTokens: getConfiguredEngineNumCtx(config),
+    compactionReserveTokens: getConfiguredCompactionReserveTokens(config),
+  });
   return {
     numCtxTokens: budget.totalContextTokens,
     compactionReserveTokens: budget.compactionReserveTokens,

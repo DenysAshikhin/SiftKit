@@ -20,6 +20,7 @@ import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-prof
 import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { toProtocolTools } from '../src/providers/inference.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
@@ -118,7 +119,7 @@ test('prepareTurn returns a token count and output budget for a small prompt', a
   });
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,
@@ -137,7 +138,7 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   const transcript = makeCompactableTranscript();
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,
@@ -182,7 +183,7 @@ test('prepareTurn returns a context_overflow outcome for an overflowing repo-sea
   const transcript = makeCompactableTranscript();
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,
@@ -215,7 +216,7 @@ test('prepareTurn returns context_overflow without calling the compactor when no
   const transcript = makeCompactableTranscript();
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [],
     events,
@@ -243,7 +244,7 @@ test('prepareTurn compacts at most once per turn and then reports overflow', asy
   });
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }, { content: 'SECOND SUMMARY' }],
     events,
@@ -276,7 +277,7 @@ test('prepareTurn releases image guards for attachments dropped by compaction', 
     liveImagePathKeys,
   });
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     [],
@@ -292,7 +293,7 @@ test('prepareTurn releases image guards for attachments dropped by compaction', 
 test('prepareTurn surfaces a summarizer failure as planner_compaction_failed', async () => {
   const transcript = makeCompactableTranscript();
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }),
     transcript,
     [],
     [],
@@ -313,8 +314,8 @@ test('preflight counts preserved reasoning_content toward the prompt', async () 
     liveImagePathKeys: new Set<string>(),
   });
 
-  const withReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], WITH_PRESERVED_THINKING);
-  const withoutReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], NO_THINKING);
+  const withReasoning = makePreparer(new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], WITH_PRESERVED_THINKING);
+  const withoutReasoning = makePreparer(new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }), makeTranscript(), [{ content: 'SUMMARY BODY' }], [], NO_THINKING);
 
   const counted = withKind(await prepareTurn(withReasoning, 1, 0, WITH_PRESERVED_THINKING), 'ready');
   const uncounted = withKind(await prepareTurn(withoutReasoning, 1, 0), 'ready');
@@ -334,7 +335,7 @@ test('preserved reasoning mass triggers compaction that plain content would not'
     liveImagePathKeys: new Set<string>(),
   });
   const events: Array<Record<string, JsonSerializable>> = [];
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }), transcript, [{ content: 'SUMMARY BODY' }], events, WITH_PRESERVED_THINKING, 'repo-agent');
+  const preparer = makePreparer(new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 9_000, maxTurns: 45 }), transcript, [{ content: 'SUMMARY BODY' }], events, WITH_PRESERVED_THINKING, 'repo-agent');
 
   const prepared = withKind(await prepareTurn(preparer, 1, 0, WITH_PRESERVED_THINKING), 'ready');
 
@@ -352,7 +353,7 @@ test('prepareTurn reports the full wire prompt size', async () => {
   });
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }),
+    new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }),
     transcript,
     [{ content: 'SUMMARY BODY' }],
     events,

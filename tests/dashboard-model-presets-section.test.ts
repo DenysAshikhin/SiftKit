@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
 import { ModelPresetsSection } from '../dashboard/src/tabs/settings/ModelPresetsSection.js';
 import type { ModelPresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
 
@@ -119,4 +120,11 @@ test('the reasoning effort dropdown offers the three levels the template disting
 
 test('the reasoning effort dropdown is hidden when reasoning is off', () => {
   assertFieldAbsent(renderPreset({ reasoning: 'off' }), 'Reasoning effort');
+});
+
+test('the memory group exposes the per-preset compaction reserve', () => {
+  const field = getRenderedField(renderPreset(), 'Compaction reserve');
+
+  assert.match(field, /type="number"/u);
+  assert.match(field, new RegExp(`value="${PROMPT_COMPACTION_RESERVE_TOKENS}"`, 'u'));
 });
