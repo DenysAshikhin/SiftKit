@@ -173,7 +173,7 @@ export function getDefaultConfigObject(): SiftConfig {
         Exl3: {
           Managed: true,
           WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-          PythonPath: 'C:\\envs\\rl313-turbo\\Scripts\\python.exe',
+          PythonPath: 'C:\\AI\\exl3\\prod\\venv\\Scripts\\python.exe',
           Entrypoint: 'main.py',
           ModelRoot: 'D:\\personal\\models\\elx3',
           AdminApiKey: '',

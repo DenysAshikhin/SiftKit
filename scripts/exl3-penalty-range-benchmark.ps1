@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$pythonPath = 'C:\envs\rl313\Scripts\python.exe'
+$pythonPath = 'C:\AI\exl3\prod\venv\Scripts\python.exe'
 $chatScriptPath = 'C:\Users\denys\Documents\GitHub\exllamav3\examples\chat.py'
 $modelPath = 'D:\personal\models\elx3\3.6_27b_4.7bpw'
 

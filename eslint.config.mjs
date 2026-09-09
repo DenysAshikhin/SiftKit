@@ -56,8 +56,6 @@ export default tseslint.config(
       '.siftkit/**',
       '.npm-cache/**',
       '.worktrees/**',
-      // Reference checkouts are separate repositories and are not SiftKit lint inputs.
-      'pristine_exle/**',
       // Scratch space the suite creates and deletes while running; linting it races those
       // deletions and fails the whole run with ENOENT on a file that no longer exists.
       '.tmp/**',

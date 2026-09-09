@@ -172,7 +172,7 @@ const http = require('node:http');
 fs.writeFileSync(${JSON.stringify(files.argsPath)}, JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(${JSON.stringify(files.startsPath)}, process.pid + '\\n');
 const environment = Object.fromEntries(Object.entries(process.env).filter(
-  ([key]) => key.startsWith('TABBY_') || key.startsWith('EXL3_'),
+  ([key]) => key.startsWith('TABBY_') || key.startsWith('EXL3_') || key.startsWith('PYTORCH_'),
 ));
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
 if (${JSON.stringify(announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {

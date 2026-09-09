@@ -80,6 +80,9 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
     TABBY_MODEL_NGRAM_RAM: 'false',
+    PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
+    PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
+    TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -118,6 +121,9 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_VISION_OFFLOAD: 'false',
     TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
     TABBY_MODEL_NGRAM_RAM: 'false',
+    PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
+    PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
+    TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -406,4 +412,21 @@ test('buildPresetRequestDefaults carries the preset reasoning effort', () => {
 
   assert.equal(buildPresetRequestDefaults(preset).reasoningEffort, 'xhigh');
   assert.equal(buildPresetRequestDefaults({ ...preset, ReasoningEffort: 'low' }).reasoningEffort, 'low');
+});
+
+test('EXL3 adapter pins the allocator before Torch is imported', () => {
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+  });
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+
+  // Both allocator names are set: PyTorch and exllamav3 read them differently, and exllamav3's
+  // own expandable-segments default returns early on win32, so the launch environment is the
+  // only thing that enables it on this host. Tabby's async allocator would otherwise install
+  // cudaMallocAsync, which cannot use expandable segments at all.
+  const env = adapter.buildLaunchEnvironment(preset);
+  assert.equal(env.PYTORCH_ALLOC_CONF, 'backend:native,expandable_segments:True');
+  assert.equal(env.PYTORCH_CUDA_ALLOC_CONF, 'backend:native,expandable_segments:True');
+  assert.equal(env.TABBY_MEMORY_CUDA_MALLOC_ASYNC, 'false');
 });

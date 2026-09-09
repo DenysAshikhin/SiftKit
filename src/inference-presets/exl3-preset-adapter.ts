@@ -48,6 +48,17 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: z.string(),
   /** `NgramRam`; the tradeoff is stated once in the dashboard help text for the field. */
   TABBY_MODEL_NGRAM_RAM: z.enum(['true', 'false']),
+  /**
+   * Expandable segments, pinned before the child imports Torch. Both allocator names carry
+   * the same value on purpose: Torch reads `PYTORCH_ALLOC_CONF` and falls back to the older
+   * `PYTORCH_CUDA_ALLOC_CONF`, while exllamav3 inspects the latter to decide whether the host
+   * already configured the allocator. exllamav3's own default returns early on win32, so this
+   * is what enables expandable segments here.
+   */
+  PYTORCH_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
+  PYTORCH_CUDA_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
+  /** cudaMallocAsync cannot use expandable segments, so Tabby must not install it. */
+  TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -115,6 +126,9 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_VISION_OFFLOAD: envFlag(preset.VisionOffload),
       TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: String(preset.NcpuMoe),
       TABBY_MODEL_NGRAM_RAM: envFlag(preset.NgramRam),
+      PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
+      PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
+      TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
     });
   }
 

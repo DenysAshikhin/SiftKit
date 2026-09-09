@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
+import { z } from 'zod';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
@@ -166,6 +167,9 @@ test('managed Tabby launches with the complete preset environment', async () => 
         TABBY_MODEL_VISION_OFFLOAD: 'false',
         TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS: '0',
         TABBY_MODEL_NGRAM_RAM: 'false',
+        PYTORCH_ALLOC_CONF: 'backend:native,expandable_segments:True',
+        PYTORCH_CUDA_ALLOC_CONF: 'backend:native,expandable_segments:True',
+        TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'false',
     });
     assert.equal(fs.existsSync(fixture.loadRequestsPath), false);
   });
@@ -412,4 +416,43 @@ test('external EXL3 preset does not launch the configured managed Tabby process'
       await flushQueue.close();
     }
   });
+});
+
+/** The three launch values the child must end up with, whatever the parent shell had set. */
+const ManagedAllocatorEnvironmentSchema = z.object({
+  PYTORCH_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
+  PYTORCH_CUDA_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
+  TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
+});
+
+test('managed Tabby overrides conflicting inherited allocator settings', async () => {
+  const inherited = {
+    PYTORCH_ALLOC_CONF: 'backend:cudaMallocAsync',
+    PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:False',
+    TABBY_MEMORY_CUDA_MALLOC_ASYNC: 'true',
+  };
+  const previous = new Map(
+    Object.keys(inherited).map((key) => [key, process.env[key]] as const),
+  );
+  Object.assign(process.env, inherited);
+  try {
+    await withTempEnv(async (root) => {
+      await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-allocator');
+      await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+      // Parsed rather than asserted field by field: a missing variable must fail here too,
+      // since an allocator setting that never reaches the child is silently ineffective.
+      const recorded = ManagedAllocatorEnvironmentSchema.parse(
+        JSON.parse(fs.readFileSync(fixture.environmentPath, 'utf8')),
+      );
+      assert.equal(recorded.PYTORCH_ALLOC_CONF, 'backend:native,expandable_segments:True');
+      assert.equal(recorded.PYTORCH_CUDA_ALLOC_CONF, 'backend:native,expandable_segments:True');
+      assert.equal(recorded.TABBY_MEMORY_CUDA_MALLOC_ASYNC, 'false');
+    });
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
