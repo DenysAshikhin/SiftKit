@@ -28,6 +28,26 @@ export const ChatTranscriptMetadataSchema = z.strictObject({
 });
 export type ChatTranscriptMetadata = z.infer<typeof ChatTranscriptMetadataSchema>;
 
+/**
+ * Namespaces one engine request's transcript rows. The `stopped-` spelling is the format already
+ * on disk; it names the writer, not the outcome, and completed runs share it so a row's identity
+ * does not depend on how its run happened to end.
+ */
+export function buildChatRunMessageIdPrefix(requestId: string): string {
+  return `stopped-${z.string().min(1).parse(requestId)}`;
+}
+
+/**
+ * The one place a chat tool row's identity is constructed. Every writer and every reader builds
+ * the same string from the same two parts, so a join is exact equality instead of parsing a
+ * prefix back out of an id that another writer may have shaped differently.
+ */
+export function buildChatToolMessageId(messageIdPrefix: string, toolCallId: string): string {
+  const prefix = z.string().min(1).parse(messageIdPrefix);
+  const callId = z.string().min(1).parse(toolCallId);
+  return `${prefix}-tool-${callId}`;
+}
+
 export function applyChatStreamTextDelta(previous: string, delta: ChatStreamTextDelta): string {
   if (delta.offset === 0) return delta.text;
   if (delta.offset === previous.length) return previous + delta.text;
@@ -130,7 +150,7 @@ function reduceToolEvent(
     ))
     : [...messages];
   const message = ChatTranscriptMessageSchema.parse({
-    id: `${metadata.messageIdPrefix}-tool-${tool.toolCallId}`,
+    id: buildChatToolMessageId(metadata.messageIdPrefix, tool.toolCallId),
     role: 'assistant',
     kind: 'assistant_tool_call',
     content: tool.command,
@@ -149,8 +169,10 @@ function reduceToolEvent(
     toolCallMaxTurns: tool.maxTurns,
     toolCallExitCode: tool.kind === 'tool_result' ? tool.exitCode : null,
     toolCallPromptTokenCount: tool.promptTokenCount,
+    // A live frame carries a preview, never the model-visible result. Leaving `toolCallOutput`
+    // absent here is what stops a 200-character preview from being replayed later as if it were
+    // the whole thing; durable history is hydrated from the run transcript before it is saved.
     toolCallOutputSnippet: tool.kind === 'tool_result' ? tool.outputSnippet : undefined,
-    toolCallOutput: tool.kind === 'tool_result' ? tool.outputSnippet : undefined,
     toolCallStatus: tool.kind === 'tool_result' ? 'done' : 'running',
   });
   return upsertMessage(beforeTool, message);

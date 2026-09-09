@@ -1,6 +1,14 @@
 # `EXL3_MOE_STREAM_T`: the bandwidth probe mis-detects the link
 
-Date: 2026-09-09. Status: defect confirmed, fix not yet designed. Applies to the ported PR341
+> **Superseded in part, 2026-09-09.** The headline below is correct: the probe mis-detects the
+> link. The *Mechanism* and *What is confirmed, and what is not* sections were inferred from the
+> code before `EXL3_MOE_STREAM_DEBUG=1` was captured, and the inference was wrong in two ways —
+> the slow mode is `stream_t` **15** (probe reading **6.8 GB/s**, a Gen2 x16 plateau), never 9,
+> and the quantity that drives the regression is tail **expert count**, not assignment share.
+> Both sections have been rewritten in place. Root cause, evidence and the implemented fix are in
+> [2026-09-09-moe-stream-t-probe-fix-handoff.md](2026-09-09-moe-stream-t-probe-fix-handoff.md).
+
+Date: 2026-09-09. Status: defect confirmed; fix implemented and verified (see the fix handoff). Applies to the ported PR341
 tree at `C:\AI\exl3\prod\src` (branch `deployment/pr341-zerocopy-on-dev`) and to PR341 upstream.
 
 ## Summary
@@ -46,6 +54,9 @@ than having been lucky twice.
 
 ## Mechanism
 
+*Rewritten 2026-09-09 from measurement; the original inference is in the correction table of the
+fix handoff.*
+
 `_ensure_stream_state` (`exllamav3/model/moe_cpu_host.py`) warms the link for a 0.25 s wall-clock
 budget, then takes the best of 8 event-timed 16 MiB pinned-to-device copies, and scales:
 
@@ -53,13 +64,26 @@ budget, then takes the best of 8 event-timed 16 MiB pinned-to-device copies, and
 st["stream_t"] = max(self.stream_t, int(round(self.stream_t * (25.0 / max(bw, 0.5)) ** 0.5)))
 ```
 
-With the default `stream_t = 8`, the first step of that staircase sits at **bw = 22.1 GB/s**:
-above it the threshold stays 8, below it the threshold becomes 9. So a probe that lands a little
-low moves the streaming threshold by exactly one assignment.
+The GPU idles at **PCIe Gen1** while the CPU worker rehomes 415 x 48 expert blocks into the
+shared arena — a long, entirely GPU-free phase. The link then retrains from Gen1 to Gen4 as a
+**single discrete step at ~160 ms**, not as a ramp, so the 0.25 s budget clears the event it is
+racing by only ~1.5x. When the step lands late the probe measures a partially retrained link.
+Measured over ten runs, the probe read **6.8 GB/s** — a Gen2 x16 plateau — in **3 of 8** loads,
+against **26.5 GB/s** warm. That the retrain passes through intermediate generations which hold
+long enough to look settled is why the failure reads 6.8 and not the 3.3 GB/s Gen1 floor.
 
-That one step is not a small effect, because the per-expert assignment counts in a 4096-token
-chunk cluster near the threshold. Moving it from 8 to 9 demotes a large population of experts
-from the streamed path to the CPU tail at once. The observed 23% gap is a cliff, not a gradient.
+The staircase maps 6.8 GB/s to **`stream_t 15`**, and does so correctly: this is a wrong reading,
+not a borderline one. `stream_t 15` shrinks the streamed set 254 -> 219 experts and grows the CPU
+tail **161 -> 196 experts per layer**.
+
+The regression is driven by tail **expert count**, not by assignment share. Per-expert assignment
+counts in a 4096-token chunk do not cluster near the threshold — the mean is ~80, and at
+`stream_t 8` **99.17%** of assignments already stream against **98.05%** at 15. The population
+that moves is small in assignments but significant in expert count, and the tail pays a full DRAM
+weight load per expert regardless of how few tokens that expert serves.
+
+The result is cached in `self.sstate` for the life of the loaded model, with no recovery short of
+an unload and reload.
 
 The probe's own comment states the hazard it is trying to defeat:
 
@@ -67,25 +91,30 @@ The probe's own comment states the hazard it is trying to defeat:
 > sustained traffic (hundreds of ms on Windows), so warm it for a wall-clock budget and take the
 > best of several samples.
 
-The 0.25 s warm-up plus best-of-8 is evidently not always enough to get the link retrained under
-WDDM. The mitigation is present and correctly motivated; it is just not strong enough here.
+The mitigation is correctly motivated. The defect is that *any* fixed wall-clock budget is a coin
+flip against a step function whose latency is not bounded by anything the code controls.
 
 ## What is confirmed, and what is not
 
-Confirmed by measurement:
+*Rewritten 2026-09-09. Everything previously listed as inferred has since been measured, and one
+inference was refuted.*
+
+Confirmed by measurement, over ten runs with `EXL3_MOE_STREAM_DEBUG=1`:
 
 - The prefill result is bimodal with two tight clusters, and the mode alternates run to run.
-- Pinning `EXL3_MOE_STREAM_T=8` reproduces the fast cluster consistently.
-- Decode is unaffected in either mode.
+- The slow mode is `stream_t` **15**, from a probe reading **6.8 GB/s**. No run ever produced the
+  `stream_t 9` inferred here originally.
+- Pinning `EXL3_MOE_STREAM_T=8` reproduces the fast cluster consistently, *including on loads
+  whose probe read 6.8 GB/s*. Pinning 15 reproduces the slow cluster on a warm 26.5 GB/s link, to
+  three digits. `stream_t` alone determines the mode.
+- Decode is unaffected in either mode (31.4 - 33.3 tok/s across all ten runs); decode never
+  engages the streamed path.
 
-Not yet confirmed — inferred from the code and the arithmetic above:
+Refuted:
 
-- That the slow mode is specifically `stream_t = 9`, and that the probe is reading below
-  22.1 GB/s when it happens. `EXL3_MOE_STREAM_DEBUG=1` prints the measured bandwidth and the
-  chosen `stream_t` on one line per device and would settle both directly. It was off for every
-  run above, so no probe value was captured.
-
-Any fix should start by capturing that line in both modes rather than trusting the inference.
+- That the probe might be reading a genuinely degraded link. With the threshold pinned to 8, a
+  6.8 GB/s probe still lands in the fast cluster, so the link retrains as soon as real prefill
+  traffic starts. The reading is a transient measurement artifact.
 
 ## Interim mitigation
 
@@ -96,15 +125,17 @@ is meant to leave alone.
 
 This is a deployment setting, not a source change, and it is not part of the port.
 
-## Direction for the fix
+## The fix
 
-To be designed. The defect is in the detection, not in the scaling law: the calibration comment
-records that 8 was measured best on both gen5 x16 and gen5 x8, and 16 on gen4 x4, so the
-staircase itself is sound where the bandwidth reading is trustworthy. Candidates worth weighing
-when the fix is planned — a longer or convergence-based warm-up instead of a fixed 0.25 s
-budget, rejecting a probe whose samples have not stabilised, deriving the link's theoretical
-ceiling from the device's reported PCIe generation and width and treating the probe as a sanity
-check against it, or moving the decision off a measured absolute bandwidth altogether.
+Implemented and verified. See
+[2026-09-09-moe-stream-t-probe-fix-handoff.md](2026-09-09-moe-stream-t-probe-fix-handoff.md).
 
-The fix belongs in the ported tree and should be offered upstream to PR341, which is still an
-open draft and carries the same probe unchanged.
+The defect is in the detection, not in the scaling law: 6.8 GB/s is not a borderline reading that
+a gentler staircase would rescue, it is a wrong reading that the staircase maps correctly. The
+fix replaces the fixed warm-up plus best-of-8 with a probe that times every copy and keeps the
+running best until the measurement settles, with a floor on total observation time so an
+intermediate plateau cannot end it early. A genuinely slow link keeps its low reading and its
+high `stream_t`, which is what the calibration wants.
+
+Verified on upstream `dev` (`fix/moe-stream-probe-convergence`, `a69923b`): 3 of 8 loads probed
+cold before, 0 of 8 after.

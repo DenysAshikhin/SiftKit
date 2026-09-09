@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
-import { ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import { buildChatRunMessageIdPrefix, buildChatToolMessageId, ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import {
   getActiveModelPreset,
@@ -373,9 +373,20 @@ function buildReplayToolCallId(messageId: string): string {
   return `chat_tool_${safe}`;
 }
 
+/**
+ * The persisted result is replayed exactly as it was inserted — no trimming, no refitting, and
+ * never the preview. A row that carries an authoritative output uses it even when that output is
+ * empty; substituting a 200-character preview there is what made a stopped run forget what it read.
+ */
+function resolveReplayToolOutput(message: PersistedChatTranscriptMessage): string {
+  return typeof message.toolCallOutput === 'string'
+    ? message.toolCallOutput
+    : trimText(message.toolCallOutputSnippet);
+}
+
 function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatTranscriptMessage, reasoningContent: string): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
-  const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
+  const output = resolveReplayToolOutput(message);
   if (!command && !output) {
     return;
   }
@@ -411,7 +422,7 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
         ...parsed,
         command,
         exitCode: Number.isFinite(Number(message.toolCallExitCode)) ? Number(message.toolCallExitCode) : null,
-        output: trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet),
+        output: resolveReplayToolOutput(message),
       });
     }
   }
@@ -829,9 +840,15 @@ export function appendChatRepoAgentMessages(
     images: string[];
     decisions: ChatRepoAgentDecisionRecord[];
     result: RepoAgentRunResult;
+    /**
+     * The engine request this turn ran as. Every row of the turn is stamped with it, because that
+     * is the id the run's transcript, its run log and its tool-row identities are all keyed on —
+     * the repo-agent run id names the session, not the evidence.
+     */
+    requestId: string;
     turns: PersistTurn[];
     turnRecords: TurnTokenRecord[];
-    stoppedMessages: PersistedChatTranscriptMessage[];
+    terminalMessages: PersistedChatTranscriptMessage[];
     maintainPerStepThinking: boolean;
   },
 ): ChatSession {
@@ -840,22 +857,25 @@ export function appendChatRepoAgentMessages(
   if (!session) {
     throw new Error(`Chat session disappeared before repo-agent persistence: ${sessionId}`);
   }
-  const approvalMessages = buildRepoAgentApprovalMessages(input.decisions, input.result.runId);
+  const approvalMessages = buildRepoAgentApprovalMessages(input.decisions, input.requestId);
   if (input.result.status === 'aborted') {
     return appendChatStoppedTurn(runtimeRoot, session, {
       content: input.content,
       images: input.images,
       imageMeta: [],
-      transcriptMessages: input.stoppedMessages,
+      transcriptMessages: input.terminalMessages,
       approvalMessages,
     });
   }
+  // A provider failure has no scorecard, but its completed tools and partial text still exist.
+  const terminalEvidence = input.turns.length === 0 ? input.terminalMessages : [];
+  const terminalAnswer = terminalEvidence.find((message) => message.kind === 'assistant_answer');
   const persisted = buildChatSessionWithAppendedTurn(
     session,
     input.content,
-    buildRepoAgentResultMarkdown(input.result),
+    terminalAnswer?.content ?? buildRepoAgentResultMarkdown(input.result),
     {},
-    { turns: input.turns, turnRecords: input.turnRecords, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.result.runId, images: input.images },
+    { turns: input.turns, turnRecords: input.turnRecords, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.requestId, images: input.images },
   );
   const assistantMessage = persisted.messages[persisted.messages.length - 1];
   if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
@@ -863,11 +883,12 @@ export function appendChatRepoAgentMessages(
   }
   const withApprovals = {
     ...persisted,
-    messages: [
+    messages: new ThinkingRetentionPolicy(input.maintainPerStepThinking).prunePersistedMessages([
       ...persisted.messages.slice(0, -1),
+      ...terminalEvidence.filter((message) => message.kind !== 'assistant_answer'),
       ...approvalMessages,
       assistantMessage,
-    ],
+    ]),
   };
   saveChatSession(runtimeRoot, withApprovals);
   const authoritative = readChatSessionFromPath(sessionPath);
@@ -1045,7 +1066,11 @@ export function getScorecardTotal(scorecard: OptionalJsonValue, key: keyof RepoS
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
-function buildToolMessageFromCommand(command: RepoSearchCommandResult, maxTurns: number): PersistToolMessage | null {
+function buildToolMessageFromCommand(
+  command: RepoSearchCommandResult,
+  maxTurns: number,
+  requestId: string,
+): PersistToolMessage | null {
   const commandText = command.displayCommand || command.command;
   if (!commandText) {
     return null;
@@ -1055,10 +1080,15 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, maxTurns:
     // No legacy fallback: a persisted command must carry its real planner turn.
     throw new Error(`TaskCommand for "${commandText}" has an invalid turn: ${String(command.turn)}`);
   }
-  const output = command.output || command.outputSnippet;
+  // The scorecard carries the model-visible result; the snippet is a preview and never stands in
+  // for it. An archived scorecard without a call identity keeps a random id and is matched
+  // canonically by the repair path instead.
+  const output = command.output;
   const outputTokens = command.outputTokens;
   return {
-    id: randomUUID(),
+    id: command.toolCallId && requestId
+      ? buildChatToolMessageId(buildChatRunMessageIdPrefix(requestId), command.toolCallId)
+      : randomUUID(),
     content: commandText,
     toolCallCommand: commandText,
     toolCallActivityKind: ToolActivityKindSchema.parse(command.activityKind),
@@ -1079,11 +1109,12 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, maxTurns:
 export function buildPersistTurnsFromRepoSearchResult(result: OptionalJsonValue): PersistTurn[] {
   const normalized = result ? normalizeRepoSearchResult(result) : null;
   const tasks = normalized?.scorecard.tasks || [];
+  const requestId = normalized?.requestId ?? '';
   const turns: PersistTurn[] = [];
   for (const task of tasks) {
     const toolsByTurn = new Map<number, PersistToolMessage[]>();
     for (const command of task.commands) {
-      const message = buildToolMessageFromCommand(command, task.maxTurns);
+      const message = buildToolMessageFromCommand(command, task.maxTurns, requestId);
       if (!message) {
         continue;
       }

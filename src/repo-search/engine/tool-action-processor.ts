@@ -104,6 +104,8 @@ type AcceptedToolContext = ValidatedToolAction & {
   runFullOutputDecision: RunOutputDecision | null;
   /** Resolved before any side effect; the result is fitted against exactly this. */
   capacity: AvailableToolResultCapacity;
+  /** Allocated once per processed action, before any outcome can be recorded against it. */
+  progressToolCallId: string;
 };
 
 type NativeExecutionContext = AcceptedToolContext & {
@@ -122,7 +124,6 @@ type ExecutedToolContext = AcceptedToolContext & PreparedCommand & {
   executed: { exitCode: number; output: string };
   baseOutput: string;
   zeroOutputWarningText: string;
-  progressToolCallId: string;
 };
 
 type FittedToolOutcome = {
@@ -299,7 +300,11 @@ export class ToolActionProcessor {
     inForcedFinishMode: boolean,
   ): Promise<ToolActionOutcome> {
     const { counters, forcedFinish } = this.deps;
-    const validated = this.validateToolAction(turn, toolAction, state);
+    // One identity per processed action, allocated before anything can observe the call: the
+    // progress frames, the transcript start/result pair and the scorecard entry all repeat it,
+    // so a later join never has to guess which of a turn's calls an outcome belongs to.
+    const progressToolCallId = this.nextProgressToolCallId();
+    const validated = this.validateToolAction(turn, toolAction, state, progressToolCallId);
     if (validated === 'next' || validated === 'stop_batch') {
       return validated;
     }
@@ -309,6 +314,7 @@ export class ToolActionProcessor {
       const attempt = forcedFinish.consumeAttempt();
       counters.rejectedCalls += 1;
       this.recordRejectedToolCall(turn, state, {
+        progressToolCallId,
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
         recordedCommand: command,
@@ -338,6 +344,7 @@ export class ToolActionProcessor {
         + 'tool was not executed. Reissue the action after compaction.';
       counters.rejectedCalls += 1;
       this.recordRejectedToolCall(turn, state, {
+        progressToolCallId,
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
         recordedCommand: command,
@@ -360,6 +367,7 @@ export class ToolActionProcessor {
       normalizedKey: command,
       runFullOutputDecision,
       capacity,
+      progressToolCallId,
     }, prospectiveToolType, state);
     if (screened !== null) {
       return screened;
@@ -383,6 +391,7 @@ export class ToolActionProcessor {
         counters.safetyRejects += 1;
         const reason = decision.reason ? `user denied — ${decision.reason}` : 'user denied this command';
         this.recordRejectedToolCall(turn, state, {
+          progressToolCallId,
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
           recordedCommand: command,
@@ -401,20 +410,26 @@ export class ToolActionProcessor {
       normalizedKey: command,
       runFullOutputDecision,
       capacity,
+      progressToolCallId,
     };
     return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokenCount);
   }
 
-  private validateToolAction(turn: number, toolAction: AgentLoopToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
+  private validateToolAction(
+    turn: number,
+    toolAction: AgentLoopToolAction,
+    state: TurnBatchState,
+    progressToolCallId: string,
+  ): ValidatedToolAction | ToolActionOutcome {
     const identity = resolveToolActionIdentity(toolAction);
     const { normalizedToolName, isNativeTool } = identity;
     if (!isNativeTool) {
       const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.toolName}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
-      return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.toolName || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, progressToolCallId, String(toolAction.toolName || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
     }
     if (!this.deps.allowedPlannerToolNames.includes(normalizedToolName)) {
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
-      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, progressToolCallId, normalizedToolName, disallowedToolMessage);
     }
     const nativeCallResult = RepoNativeToolCallSchema.safeParse({
       toolName: normalizedToolName,
@@ -426,6 +441,7 @@ export class ToolActionProcessor {
         turn,
         toolAction,
         state,
+        progressToolCallId,
         normalizedToolName,
         `Invalid ${normalizedToolName} arguments at ${issue?.path.map(String).join('.') || 'arguments'}: ${issue?.message ?? nativeCallResult.error.message}`,
       );
@@ -450,6 +466,7 @@ export class ToolActionProcessor {
    */
   private logRejectedCommand(options: {
     turn: number;
+    progressToolCallId: string;
     toolName: string;
     command: string;
     reason: string | null;
@@ -460,6 +477,7 @@ export class ToolActionProcessor {
       kind: 'turn_command_result',
       taskId: this.deps.task.id,
       turn: options.turn,
+      toolCallId: options.progressToolCallId,
       toolName: options.toolName,
       command: options.command,
       exitCode: null,
@@ -478,6 +496,7 @@ export class ToolActionProcessor {
     turn: number,
     state: TurnBatchState,
     rejection: {
+      progressToolCallId: string;
       toolName: string;
       rawArgs: AgentLoopToolAction['args'];
       recordedCommand: string;
@@ -490,6 +509,7 @@ export class ToolActionProcessor {
     const { commands } = this.deps;
     const output = rejection.output ?? `Rejected command: ${rejection.reason}`;
     commands.push({
+      toolCallId: rejection.progressToolCallId,
       command: rejection.recordedCommand,
       activityKind: 'command',
       activitySubject: { kind: 'none' },
@@ -501,6 +521,7 @@ export class ToolActionProcessor {
     });
     this.logRejectedCommand({
       turn,
+      progressToolCallId: rejection.progressToolCallId,
       toolName: rejection.toolName,
       command: rejection.transcriptCommand,
       reason: rejection.reason,
@@ -545,12 +566,14 @@ export class ToolActionProcessor {
     turn: number,
     toolAction: AgentLoopToolAction,
     state: TurnBatchState,
+    progressToolCallId: string,
     displayToolName: string,
     message: string,
   ): ToolActionOutcome {
     const { counters, commands } = this.deps;
     counters.invalidResponses += 1;
     commands.push({
+      toolCallId: progressToolCallId,
       command: displayToolName,
       activityKind: 'command',
       activitySubject: { kind: 'none' },
@@ -566,6 +589,16 @@ export class ToolActionProcessor {
       toolContent: message,
     });
     return this.logInvalidAction(turn, toolAction, message);
+  }
+
+  /**
+   * Run-scoped identity for one processed tool action. Allocated exactly once per action so a
+   * rejection carries an identity without ever fabricating an execution start for it.
+   */
+  private nextProgressToolCallId(): string {
+    const id = `tc_${this.progressToolCallSeq}`;
+    this.progressToolCallSeq += 1;
+    return id;
   }
 
   private getToolCallId(state: TurnBatchState): string {
@@ -604,6 +637,7 @@ export class ToolActionProcessor {
       if (duplicateDecision.kind === 'reject') {
         counters.rejectedCalls += 1;
         this.recordRejectedToolCall(turn, state, {
+          progressToolCallId: context.progressToolCallId,
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
           recordedCommand: command,
@@ -655,6 +689,7 @@ export class ToolActionProcessor {
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.rejectedCalls += 1;
     commands.push({
+      toolCallId: context.progressToolCallId,
       command,
       activityKind: context.activity.activityKind,
       activitySubject: context.activity.activitySubject,
@@ -663,6 +698,7 @@ export class ToolActionProcessor {
     });
     this.logRejectedCommand({
       turn,
+      progressToolCallId: context.progressToolCallId,
       toolName: normalizedToolName,
       command,
       reason,
@@ -788,7 +824,10 @@ export class ToolActionProcessor {
       return null;
     }
     counters.safetyRejects += 1;
+    // The start already went out under this identity, so the rejection answers it rather than
+    // opening a second call the console and the chat would both have to reconcile.
     this.recordRejectedToolCall(turn, state, {
+      progressToolCallId: context.progressToolCallId,
       toolName: normalizedToolName,
       rawArgs: toolAction.args,
       recordedCommand: command,
@@ -840,8 +879,7 @@ export class ToolActionProcessor {
     const { counters, forcedFinish } = this.deps;
     const activity = context.activity;
 
-    const progressToolCallId = `tc_${this.progressToolCallSeq}`;
-    this.progressToolCallSeq += 1;
+    const { progressToolCallId } = context;
     this.deps.progress.toolStart(
       progressToolCallId, turn, activity.activityKind, activity.activitySubject,
       context.command, promptTokenCount, this.deps.tokenUsage.snapshot().thinkingTokens,
@@ -850,6 +888,7 @@ export class ToolActionProcessor {
       kind: 'turn_command_start',
       taskId: this.deps.task.id,
       turn,
+      toolCallId: progressToolCallId,
       toolName: normalizedToolName,
       requestedCommand: context.command,
       commandToRun: context.command,
@@ -927,7 +966,6 @@ export class ToolActionProcessor {
       executed,
       baseOutput,
       zeroOutputWarningText,
-      progressToolCallId,
     }, state, promptTokenCount);
   }
 
@@ -1069,7 +1107,9 @@ export class ToolActionProcessor {
     const commandOutputText = resultText;
 
     this.deps.logger?.write({
-      kind: 'turn_command_result', taskId: this.deps.task.id, turn, command: commandToRun,
+      kind: 'turn_command_result', taskId: this.deps.task.id, turn,
+      toolCallId: progressToolCallId,
+      command: commandToRun,
       requestedCommand,
       executedCommand: commandToRun,
       exitCode: executed.exitCode, output: commandOutputText,
@@ -1086,6 +1126,7 @@ export class ToolActionProcessor {
       ? [nativeExecution.imageMetadata]
       : undefined;
     commands.push({
+      toolCallId: progressToolCallId,
       command: commandToRun,
       activityKind: activity.activityKind,
       activitySubject: activity.activitySubject,

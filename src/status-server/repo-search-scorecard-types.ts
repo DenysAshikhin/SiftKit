@@ -5,6 +5,11 @@ import { z } from '../lib/zod.js';
 import { ChatGroundingStatusSchema, type ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
 export const RepoSearchCommandResultSchema = z.strictObject({
+  /**
+   * Identity shared with the run transcript's start/result events. Null only for archived
+   * scorecards written before the identity existed; those are matched canonically instead.
+   */
+  toolCallId: z.string().min(1).nullable(),
   turn: z.number().int().nonnegative().nullable(),
   command: z.string(),
   activityKind: ToolActivityKindSchema,
@@ -81,6 +86,7 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
   const imageDataUrlsValue = reader.value('imageDataUrls');
   const imageMetaValue = reader.value('imageMeta');
   return RepoSearchCommandResultSchema.parse({
+    toolCallId: reader.string('toolCallId') || null,
     turn: reader.nullableNonNegativeInteger('turn'),
     command: reader.string('command'),
     activityKind: ToolActivityKindSchema.parse(reader.value('activityKind')),

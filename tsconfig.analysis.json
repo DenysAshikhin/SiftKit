@@ -9,6 +9,7 @@
     "moduleResolution": "Bundler"
   },
   "include": [
-    "scripts/analysis/**/*.ts"
+    "scripts/analysis/**/*.ts",
+    "src/types/**/*.d.ts"
   ]
 }

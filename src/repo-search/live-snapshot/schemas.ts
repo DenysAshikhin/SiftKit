@@ -178,11 +178,15 @@ export const TurnCommandStartEventSchema = z.object({
   turn: z.number(),
   toolName: z.string(),
   commandToRun: z.string(),
+  /** Identity of the progress tool call this start opened; its result repeats the same value. */
+  toolCallId: z.string().min(1),
 });
 
 const CommandResultBaseSchema = z.object({
   turn: z.number(),
   command: z.string(),
+  /** Identity of the call this outcome answers. A rejection carries one without an execution start. */
+  toolCallId: z.string().min(1),
   toolName: OptionalString,
   output: OptionalString,
   resultTokenCount: OptionalNumber,
@@ -199,8 +203,16 @@ export const RejectedCommandResultSchema = CommandResultBaseSchema.extend({
   rejectionReason: OptionalString,
 });
 
+/**
+ * An executed outcome records what the model actually received. `insertedResultText` is the fitted
+ * text placed into the conversation — truncation notices included — so replay restates the run's
+ * own evidence instead of whatever a presentation layer happened to show.
+ */
 export const ExecutedCommandResultSchema = CommandResultBaseSchema.extend({
   exitCode: z.number(),
+  requestedCommand: z.string(),
+  executedCommand: z.string(),
+  insertedResultText: z.string(),
 });
 
 export const TurnCommandResultEventSchema = z.union([

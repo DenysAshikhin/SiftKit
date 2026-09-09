@@ -88,6 +88,7 @@ test('a finished task with a non-zero command exit still classifies as completed
     throw new Error('Expected mock scorecard task.');
   }
   task.commands = [{
+    toolCallId: 'tc_0',
     command: 'npm test',
     activityKind: 'search',
     activitySubject: { kind: 'none' },

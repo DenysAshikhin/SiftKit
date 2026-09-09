@@ -379,6 +379,7 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
   const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'fix the cipher',
     images: [],
+    requestId: 'req-fixture',
     turnRecords: [],
     decisions: [{
       decision: { decision: 'approve' },
@@ -391,7 +392,7 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
       decidedAtUtc: '2026-04-17T00:01:00.000Z',
     }],
     result: { status: 'completed', runId, output: 'wrote the cipher note' },
-    stoppedMessages: [],
+    terminalMessages: [],
     turns: [
       { thinkingText: 'think one', toolMessages: [{
         id: 'tool-a', content: 'write path="cipher-note.txt"', toolCallCommand: 'write path="cipher-note.txt"',
@@ -414,11 +415,13 @@ test('appendChatRepoAgentMessages persists per-turn thinking and tools ahead of 
     'repo_agent_approval',
     'assistant_answer',
   ]);
+  // Approval rows, tool rows and the answer all take the engine request id, not the repo-agent
+  // run id: the transcript that backs the tool evidence is keyed on the request.
   for (const message of appended) {
     if (message.kind === 'user_text') {
       continue;
     }
-    assert.equal(message.sourceRunId, runId);
+    assert.equal(message.sourceRunId, 'req-fixture');
   }
 });
 
@@ -430,6 +433,7 @@ test('a repo-agent run with no engine result estimates the answer row and says s
   const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'fix the cipher',
     images: [],
+    requestId: 'req-fixture',
     turnRecords: [],
     decisions: [],
     result: {
@@ -438,7 +442,7 @@ test('a repo-agent run with no engine result estimates the answer row and says s
       output: '',
       error: 'engine crashed',
     },
-    stoppedMessages: [],
+    terminalMessages: [],
     turns: [],
     maintainPerStepThinking: true,
   });
@@ -457,10 +461,11 @@ test('appendChatRepoAgentMessages prunes older thinking when maintainPerStepThin
   const persisted = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'fix the cipher',
     images: [],
+    requestId: 'req-fixture',
     turnRecords: [],
     decisions: [],
     result: { status: 'completed', runId, output: 'done' },
-    stoppedMessages: [],
+    terminalMessages: [],
     turns: [
       { thinkingText: 'think one', toolMessages: [] },
       { thinkingText: 'think two', toolMessages: [] },
@@ -484,6 +489,25 @@ function repoAgentPersistedMessages(session: ChatSession): ChatMessage[] {
   assert.ok(Array.isArray(session.messages), 'expected the persisted session to carry its message rows');
   return session.messages;
 }
+
+test('failed repo-agent evidence respects the configured thinking retention', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-chat-failed-thinking-retention-');
+  const session = createSession();
+  saveChatSession(runtimeRoot, session);
+  const terminalMessages = ['partial thought', 'latest thought'].map((content, index) => (
+    PersistedChatTranscriptMessageSchema.parse({
+      id: `failed-thinking-${index}`, role: 'assistant', kind: 'assistant_thinking', content,
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 1,
+      createdAtUtc: '2026-09-09T00:00:00.000Z', sourceRunId: 'failed-request',
+    })
+  ));
+  const saved = appendChatRepoAgentMessages(runtimeRoot, session.id, {
+    content: 'work', images: [], decisions: [], requestId: 'failed-request',
+    result: { status: 'failed', runId: '7e2d9a3f-0000-4000-8000-000000000000', error: 'provider failed', output: '' },
+    turns: [], turnRecords: [], terminalMessages, maintainPerStepThinking: false,
+  });
+  assert.deepEqual(saved.messages?.filter((message) => message.kind === 'assistant_thinking').map((message) => message.content), ['latest thought']);
+});
 
 test('buildChatSessionWithStoppedTurn appends one ordered terminal turn directly', () => {
   const createdAtUtc = '2026-09-03T12:00:00.000Z';
@@ -532,6 +556,7 @@ test('aborted repo-agent persistence orders approval before the stopped assistan
   const updated = appendChatRepoAgentMessages(runtimeRoot, session.id, {
     content: 'stop the agent',
     images: [],
+    requestId: 'req-fixture',
     turnRecords: [],
     decisions: [{
       decision: { decision: 'approve' },
@@ -543,7 +568,7 @@ test('aborted repo-agent persistence orders approval before the stopped assistan
     }],
     result: { status: 'aborted', runId },
     turns: [],
-    stoppedMessages: [PersistedChatTranscriptMessageSchema.parse({
+    terminalMessages: [PersistedChatTranscriptMessageSchema.parse({
       id: 'answer', role: 'assistant', kind: 'assistant_answer', content: 'partial\n\nRepo-agent run stopped by user.',
       inputTokensEstimate: 0, outputTokensEstimate: 10, thinkingTokens: 0,
       createdAtUtc, sourceRunId: runId,

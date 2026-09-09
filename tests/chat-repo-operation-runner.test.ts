@@ -97,6 +97,7 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
   }
   task.turnThinking = { 1: 'inspect files' };
   task.commands = [{
+    toolCallId: 'tc_0',
     command: 'rg -n "target" src',
     activityKind: 'search',
     activitySubject: { kind: 'none' },

@@ -55,6 +55,7 @@ export default tseslint.config(
       'coverage/**',
       '.siftkit/**',
       '.npm-cache/**',
+      '**/.pytest_cache/**',
       '.worktrees/**',
       // Scratch space the suite creates and deletes while running; linting it races those
       // deletions and fails the whole run with ENOENT on a file that no longer exists.

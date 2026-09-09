@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   ActiveChatRepoAgentResponseSchema,
@@ -16,11 +18,16 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { ProgressWriter } from '../src/lib/progress-writer.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { getActiveModelPreset, readConfig, writeConfig } from '../src/status-server/config-store.js';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { requestSse as requestOperationSse } from './helpers/sse-http.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
@@ -322,9 +329,14 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
     assert.equal(approval.approvalDecision, 'approve');
     assert.equal(approval.approvalReason, null);
   }
-  assert.equal(messages.at(-1)?.sourceRunId, runId);
   const chatAgentRequest = engineService.requests.find((request) => request.taskKind === 'repo-agent');
   assert.ok(chatAgentRequest);
+  // Every row of the turn carries the engine request id: that is what the run's transcript, its
+  // run log and its tool-row identities are keyed on, so the turn groups and joins as one unit.
+  assert.deepEqual(
+    [...new Set(messages.slice(-3).map((message) => message.sourceRunId))],
+    [chatAgentRequest.requestId],
+  );
   assert.equal(chatAgentRequest.prompt, 'write a file');
   assert.deepEqual(chatAgentRequest.history, [
     { role: 'user', content: 'prior question' },
@@ -860,4 +872,634 @@ test('deciding an approval broadcasts an approval_resolved frame to attached rea
   assert.equal(parsed.decision.decision, 'approve');
   assert.equal(frames.events.some((event) => event.event === 'attached'), true);
   assert.equal(frames.events.some((event) => event.event === 'approval'), false);
+});
+
+const READ_SENTINEL = 'sentinel-after-character-200';
+const HOLD_COMMAND = buildRepoToolRequestedCommand('run', { command: 'hold-until-stopped' });
+
+/**
+ * Forwards every progress event to the real writer and reports the first tool start whose command
+ * matches, so a test can stop a run at an exact point instead of racing a timer.
+ */
+class ObservingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  constructor(
+    private readonly inner: ProgressWriter<RepoSearchProgressEvent>,
+    private readonly onEvent: (event: RepoSearchProgressEvent) => void,
+  ) {
+    super();
+  }
+
+  get enabled(): boolean {
+    return this.inner.enabled;
+  }
+
+  override get wantsLiveText(): boolean {
+    return this.inner.wantsLiveText;
+  }
+
+  write(event: RepoSearchProgressEvent): void {
+    this.onEvent(event);
+    this.inner.write(event);
+  }
+}
+
+class Deferred {
+  readonly promise: Promise<void>;
+  private settle: (() => void) | null = null;
+
+  constructor() {
+    this.promise = new Promise<void>((resolve) => { this.settle = resolve; });
+  }
+
+  notify(): void {
+    const settle = this.settle;
+    this.settle = null;
+    settle?.();
+  }
+}
+
+class HoldingCaptureEngineService extends StatusEngineService {
+  readonly requests: RepoSearchExecutionRequest[] = [];
+  private readonly held = new Deferred();
+  private readonly unwound = new Deferred();
+  private readonly released = new Deferred();
+
+  constructor(
+    private readonly holdCommand: string,
+    private readonly pauseAfterAbort = false,
+  ) {
+    super();
+  }
+
+  waitUntilHoldingTool(): Promise<void> {
+    return this.held.promise;
+  }
+
+  /** Resolves once the aborted run has unwound but before the chat turn is persisted. */
+  waitUntilUnwound(): Promise<void> {
+    return this.unwound.promise;
+  }
+
+  releaseAfterAbort(): void {
+    this.released.notify();
+  }
+
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requests.push(request);
+    const inner = request.progressWriter;
+    if (!inner) {
+      return await super.executeRepoSearch(request);
+    }
+    const progressWriter = new ObservingProgressWriter(inner, (event) => {
+      if (event.kind === 'tool_start' && event.command === this.holdCommand) {
+        this.held.notify();
+      }
+    });
+    try {
+      return await super.executeRepoSearch({ ...request, progressWriter });
+    } catch (error) {
+      this.unwound.notify();
+      if (this.pauseAfterAbort) {
+        await this.released.promise;
+      }
+      throw error;
+    }
+  }
+}
+
+function writeSentinelDocument(): string {
+  const filler = Array.from({ length: 24 }, (_, index) => `filler line ${index + 1} of the document`);
+  const text = `${filler.join('\n')}\n${READ_SENTINEL}\ntrailing line\n`;
+  fs.writeFileSync(path.join(process.cwd(), 'doc.txt'), text, 'utf8');
+  return text;
+}
+
+function readToolRows(messages: readonly { kind: string }[]): JsonObject[] {
+  return messages.filter((message): message is JsonObject & { kind: string } => (
+    message.kind === 'assistant_tool_call'
+  ));
+}
+
+test('a stopped repo-agent turn persists and replays the whole tool result, not its preview', async (t) => {
+  const engineService = new HoldingCaptureEngineService(HOLD_COMMAND);
+  const harness = await startHarness('siftkit-chat-repo-agent-full-result-', t, { engineService });
+  const sessionId = await createSession(harness, 'Full evidence');
+  writeSentinelDocument();
+
+  const stopped = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'read the document',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_A,
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+          { toolCalls: [{ name: 'run', arguments: { command: 'hold-until-stopped' } }] },
+          ...repoAgentFinishResponses('unreachable'),
+        ],
+        mockCommandResults: {
+          [HOLD_COMMAND]: { exitCode: 0, stdout: 'never observed', stderr: '', delayMs: 30_000 },
+        },
+      }),
+    },
+  );
+  await engineService.waitUntilHoldingTool();
+  const stopResponse = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`,
+    { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) },
+  );
+  assert.equal(stopResponse.statusCode, 200);
+
+  const persistedSession = readDoneResponse(await stopped).session;
+  const toolRows = readToolRows(persistedSession.messages);
+  assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
+  const completedRow = toolRows[0];
+  assert.ok(completedRow);
+  const fullOutput = completedRow.toolCallOutput;
+  assert.equal(typeof fullOutput, 'string');
+  assert.equal(String(fullOutput).includes(READ_SENTINEL), true);
+  assert.equal(String(fullOutput).length > 203, true);
+  // The browser preview stays a preview; it is stored beside the evidence, never instead of it.
+  assert.equal(String(completedRow.toolCallOutputSnippet).length <= 203, true);
+  assert.notEqual(completedRow.toolCallOutputSnippet, fullOutput);
+
+  await harness.restart();
+
+  const continued = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'continue',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('continued'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(continued.statusCode, 200);
+  const continuation = getCapturedRepoAgentRequest(engineService, 'continue');
+  const replayedToolMessages = (continuation.history ?? []).filter((message) => message.role === 'tool');
+  // One completed execution replays; the tool that never returned a result is not invented.
+  assert.equal(replayedToolMessages.length, 1);
+  assert.equal(replayedToolMessages[0]?.content, fullOutput);
+  assert.equal(String(replayedToolMessages[0]?.content).includes(READ_SENTINEL), true);
+});
+
+test('a completed repo-agent turn persists every tool result in full and replays them exactly', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repo-agent-completed-full-', t, { engineService });
+  const sessionId = await createSession(harness, 'Completed evidence');
+  writeSentinelDocument();
+
+  const completed = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'read both files',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_A,
+        mockResponses: [
+          {
+            toolCalls: [
+              { name: 'read', arguments: { path: 'doc.txt' } },
+              { name: 'read', arguments: { path: 'package.json' } },
+            ],
+          },
+          ...repoAgentFinishResponses('read both files'),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+  const toolRows = readToolRows(readDoneResponse(completed).session.messages);
+  assert.equal(toolRows.length, 2);
+  assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'done']);
+  assert.equal(new Set(toolRows.map((row) => row.id)).size, 2);
+  const sentinelRow = toolRows[0];
+  assert.ok(sentinelRow);
+  assert.equal(String(sentinelRow.toolCallOutput).includes(READ_SENTINEL), true);
+  assert.equal(String(sentinelRow.toolCallOutputSnippet).length <= 203, true);
+
+  const followUp = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'summarise',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('summarised'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(followUp.statusCode, 200);
+  const replayed = (getCapturedRepoAgentRequest(engineService, 'summarise').history ?? [])
+    .filter((message) => message.role === 'tool');
+  assert.equal(replayed.length, 2);
+  assert.deepEqual(
+    replayed.map((message) => message.content),
+    toolRows.map((row) => row.toolCallOutput),
+  );
+});
+
+test('stopping at an approval keeps the finished read whole and leaves the parked tool unreplayed', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repo-agent-approval-stop-', t, { engineService });
+  const sessionId = await createSession(harness, 'Approval stop');
+  writeSentinelDocument();
+
+  const stopped = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'read then write',
+        repoRoot: process.cwd(),
+        approval: 'interactive',
+        operationId: OPERATION_A,
+        maxTurns: 4,
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+          { toolCalls: [{ name: 'write', arguments: { path: 'out.txt', content: 'no' } }] },
+          ...repoAgentFinishResponses('unreachable'),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+  await waitForApproval(harness, sessionId);
+  const stopResponse = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`,
+    { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) },
+  );
+  assert.equal(stopResponse.statusCode, 200);
+
+  const toolRows = readToolRows(readDoneResponse(await stopped).session.messages);
+  // The parked write never started executing, so it produced no row at all.
+  assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done']);
+  assert.equal(String(toolRows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
+
+  const continued = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'carry on',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('carried on'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(continued.statusCode, 200);
+  const replayed = (getCapturedRepoAgentRequest(engineService, 'carry on').history ?? [])
+    .filter((message) => message.role === 'tool');
+  assert.equal(replayed.length, 1);
+  assert.equal(String(replayed[0]?.content).includes(READ_SENTINEL), true);
+});
+
+test('a continuation cannot start until the stopped turn is durably saved', async (t) => {
+  const engineService = new HoldingCaptureEngineService(HOLD_COMMAND, true);
+  const harness = await startHarness('siftkit-chat-repo-agent-persist-gate-', t, { engineService });
+  const sessionId = await createSession(harness, 'Persistence gate');
+  writeSentinelDocument();
+
+  const stopped = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'read then hold',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_A,
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+          { toolCalls: [{ name: 'run', arguments: { command: 'hold-until-stopped' } }] },
+          ...repoAgentFinishResponses('unreachable'),
+        ],
+        mockCommandResults: {
+          [HOLD_COMMAND]: { exitCode: 0, stdout: 'never observed', stderr: '', delayMs: 30_000 },
+        },
+      }),
+    },
+  );
+  await engineService.waitUntilHoldingTool();
+  const stopRequest = requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`,
+    { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) },
+  );
+  await engineService.waitUntilUnwound();
+
+  const early = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'too early',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('too early'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(early.statusCode, 409);
+  assert.equal(engineService.requests.some((entry) => entry.prompt === 'too early'), false);
+
+  engineService.releaseAfterAbort();
+  assert.equal((await stopRequest).statusCode, 200);
+  const toolRows = readToolRows(readDoneResponse(await stopped).session.messages);
+  assert.equal(String(toolRows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
+
+  const continued = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'now continue',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('continued'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(continued.statusCode, 200);
+});
+
+async function runReadTurn(
+  harness: StreamedOperationHarness,
+  sessionId: string,
+  content: string,
+  operationId: string,
+): Promise<SseResponse> {
+  return await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content,
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId,
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+          ...repoAgentFinishResponses(`${content} done`),
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+}
+
+test('a continuation survives artifact cleanup while the archived transcript remains', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repo-agent-archive-', t, { engineService });
+  const sessionId = await createSession(harness, 'Archive fallback');
+  writeSentinelDocument();
+  const first = await runReadTurn(harness, sessionId, 'read the document', OPERATION_A);
+  assert.equal(first.statusCode, 200);
+  await awaitRepoSearchRunPersistence();
+
+  const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  const swept = database.prepare(
+    "DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript'",
+  ).run();
+  assert.equal(Number(swept.changes) > 0, true);
+
+  const continued = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'continue from the archive',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('continued'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(continued.statusCode, 200);
+  const replayed = (getCapturedRepoAgentRequest(engineService, 'continue from the archive').history ?? [])
+    .filter((message) => message.role === 'tool');
+  assert.equal(replayed.length, 1);
+  assert.equal(String(replayed[0]?.content).includes(READ_SENTINEL), true);
+});
+
+test('unmigrated historical evidence without a canonical source blocks continuation', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repo-agent-no-source-', t, { engineService });
+  const sessionId = await createSession(harness, 'No source');
+  writeSentinelDocument();
+  const first = await runReadTurn(harness, sessionId, 'read the document', OPERATION_A);
+  assert.equal(first.statusCode, 200);
+  await awaitRepoSearchRunPersistence();
+
+  const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ?').run(sessionId);
+  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
+  database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript'").run();
+  database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL').run();
+
+  const blocked = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'continue without evidence',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_B,
+        mockResponses: repoAgentFinishResponses('unreachable'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(blocked.statusCode, 409);
+  const sourceRunId = getCapturedRepoAgentRequest(engineService, 'read the document').requestId;
+  assert.equal(String(blocked.body.error).includes(String(sourceRunId)), true);
+  assert.equal(engineService.requests.some((entry) => entry.prompt === 'continue without evidence'), false);
+
+  // The chat itself stays readable; only the continuation is refused.
+  const session = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
+  assert.equal(session.statusCode, 200);
+});
+
+test('the first continuation uses repaired historical evidence rather than the pre-repair session', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repair-first-replay-', t, { engineService });
+  const sessionId = await createSession(harness, 'Historical evidence');
+  writeSentinelDocument();
+  const first = await runReadTurn(harness, sessionId, 'original read', OPERATION_A);
+  const tool = readToolRows(readDoneResponse(first).session.messages)[0];
+  assert.ok(tool);
+  const originalOutput = tool.toolCallOutput;
+  const database = getRuntimeDatabase();
+  // Reproduce a chat saved by the old preview-only writer, before migration existed.
+  database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ?').run(sessionId);
+  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
+  const continued = await runReadTurn(harness, sessionId, 'first repaired continuation', OPERATION_B);
+  assert.equal(continued.statusCode, 200);
+  const replay = getCapturedRepoAgentRequest(engineService, 'first repaired continuation').history ?? [];
+  assert.equal(replay.find((message) => message.role === 'tool')?.content, originalOutput);
+});
+
+test('verified chat evidence survives removal of every run transcript and a restart', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-verified-no-archive-', t, { engineService });
+  const sessionId = await createSession(harness, 'Verified evidence');
+  writeSentinelDocument();
+  const first = await runReadTurn(harness, sessionId, 'verified read', OPERATION_A);
+  const tool = readToolRows(readDoneResponse(first).session.messages)[0];
+  assert.ok(tool);
+  await awaitRepoSearchRunPersistence();
+  const database = getRuntimeDatabase();
+  database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript'").run();
+  database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL').run();
+  await harness.restart();
+  const continued = await runReadTurn(harness, sessionId, 'continue verified history', OPERATION_B);
+  assert.equal(continued.statusCode, 200);
+  const replay = getCapturedRepoAgentRequest(engineService, 'continue verified history').history ?? [];
+  assert.equal(replay.find((message) => message.role === 'tool')?.content, tool.toolCallOutput);
+});
+
+class FailAfterReadProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  constructor(private readonly inner: ProgressWriter<RepoSearchProgressEvent>) { super(); }
+  get enabled(): boolean { return this.inner.enabled; }
+  override get wantsLiveText(): boolean { return this.inner.wantsLiveText; }
+  write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'llm_start' && event.turn === 2) throw new Error('Provider failed after completed read');
+    this.inner.write(event);
+  }
+}
+
+test('a migrated session never replays a preview when a full result is missing', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-missing-full-result-', t, { engineService });
+  const sessionId = await createSession(harness, 'Missing full result');
+  writeSentinelDocument();
+  await runReadTurn(harness, sessionId, 'read before corruption', OPERATION_A);
+  getRuntimeDatabase().prepare('UPDATE chat_messages SET tool_call_output = NULL WHERE session_id = ?').run(sessionId);
+  const response = await runReadTurn(harness, sessionId, 'do not replay preview', OPERATION_B);
+  assert.equal(response.statusCode, 409);
+  assert.equal(engineService.requests.some((request) => request.prompt === 'do not replay preview'), false);
+});
+
+class FailAfterReadEngineService extends StatusEngineService {
+  readonly requests: RepoSearchExecutionRequest[] = [];
+  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requests.push(request);
+    const writer = request.progressWriter;
+    return await super.executeRepoSearch(request.prompt === 'fail after read' && writer
+      ? { ...request, progressWriter: new FailAfterReadProgressWriter(writer) }
+      : request);
+  }
+}
+
+test('a provider failure preserves completed tools and replays them on continuation', async (t) => {
+  const engineService = new FailAfterReadEngineService();
+  const harness = await startHarness('siftkit-chat-failed-tool-evidence-', t, { engineService });
+  const sessionId = await createSession(harness, 'Failed evidence');
+  writeSentinelDocument();
+  const failed = await runReadTurn(harness, sessionId, 'fail after read', OPERATION_A);
+  const saved = readDoneResponse(failed).session;
+  const rows = readToolRows(saved.messages);
+  assert.equal(rows.length, 1, 'a completed read must survive a provider failure');
+  assert.equal(String(rows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
+  assert.equal(saved.messages.some((message) => message.content.includes('Provider failed after completed read')), true);
+  assert.equal(saved.messages.some((message) => message.content.includes('stopped by user')), false);
+  const continued = await runReadTurn(harness, sessionId, 'continue failed history', OPERATION_B);
+  assert.equal(continued.statusCode, 200);
+  const replay = engineService.requests.find((request) => request.prompt === 'continue failed history')?.history ?? [];
+  assert.equal(replay.find((message) => message.role === 'tool')?.content, rows[0]?.toolCallOutput);
+});
+
+function countConsoleLines(capture: OutputCapture, event: string, needle: string): number {
+  const withoutColour = capture.lines.map((line) => line.replace(/\[[0-9;]*m/gu, ''));
+  return withoutColour.filter((line) => line.includes(`  ${event}`) && line.includes(needle)).length;
+}
+
+test('each repo-agent tool invocation prints exactly one command line, whoever is watching', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-repo-agent-log-once-', t, { engineService });
+  const sessionId = await createSession(harness, 'Log cardinality');
+  writeSentinelDocument();
+  const capture = OutputCapture.start(process.stdout);
+  t.after(() => capture.restore());
+
+  const attached = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/operation/stream`,
+    { method: 'GET', timeoutMs: 20_000 },
+  );
+  const first = await runReadTurn(harness, sessionId, 'read once', OPERATION_A);
+  assert.equal(first.statusCode, 200);
+  await attached;
+
+  // One start and one result reach the client; only the start reaches the console.
+  assert.equal(first.events.filter((event) => event.event === 'tool_start').length, 1);
+  assert.equal(first.events.filter((event) => event.event === 'tool_result').length, 1);
+  assert.equal(countConsoleLines(capture, 'command', 'read path="doc.txt"'), 1);
+
+  // A second browser reader must not double the console, and a genuine repeat must still print.
+  const second = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/operation/stream`,
+    { method: 'GET', timeoutMs: 20_000 },
+  );
+  const repeat = await runReadTurn(harness, sessionId, 'read again', OPERATION_B);
+  assert.equal(repeat.statusCode, 200);
+  await second;
+  assert.equal(countConsoleLines(capture, 'command', 'read path="doc.txt"'), 2);
+});
+
+test('an automatic approval prints one approval line for the run that made it', async (t) => {
+  const harness = await startHarness('siftkit-chat-repo-agent-approval-log-', t);
+  const sessionId = await createSession(harness, 'Approval log');
+  const capture = OutputCapture.start(process.stdout);
+  t.after(() => capture.restore());
+
+  const response = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'write a note',
+        repoRoot: process.cwd(),
+        approval: 'auto',
+        operationId: OPERATION_A,
+        maxTurns: 4,
+        mockResponses: cipherThinkingMockResponses(),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(countConsoleLines(capture, 'auto-approval', 'approve'), 1);
 });

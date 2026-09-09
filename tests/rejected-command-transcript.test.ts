@@ -14,6 +14,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 test('TurnCommandResultEventSchema accepts a rejected command with a null exit code', () => {
   const parsed = TurnCommandResultEventSchema.safeParse({
     turn: 4,
+    toolCallId: 'tc_0',
     command: 'web_search query="x"',
     toolName: 'web_search',
     exitCode: null,
@@ -43,15 +44,34 @@ test('TurnCommandResultEventSchema rejects a null-exit result that does not name
 test('TurnCommandResultEventSchema still accepts a plain executed result', () => {
   const parsed = TurnCommandResultEventSchema.safeParse({
     turn: 1,
+    toolCallId: 'tc_0',
     command: 'grep pattern="x"',
+    requestedCommand: 'grep pattern="x"',
+    executedCommand: 'grep pattern="x"',
     exitCode: 0,
     output: 'hit',
+    insertedResultText: 'hit',
     resultTokenCount: 12,
   });
   assert.equal(parsed.success, true);
   if (!parsed.success) return;
   assert.equal('rejectionKind' in parsed.data, false);
   assert.equal(parsed.data.toolName, undefined);
+});
+
+test('an executed result that omits the model-visible text it inserted fails to parse', () => {
+  // `output` is a mirror for the live snapshot; replay reads `insertedResultText`. An emitter that
+  // stops writing it must break here rather than let replay silently fall back to a preview.
+  const parsed = TurnCommandResultEventSchema.safeParse({
+    turn: 1,
+    toolCallId: 'tc_0',
+    command: 'grep pattern="x"',
+    requestedCommand: 'grep pattern="x"',
+    executedCommand: 'grep pattern="x"',
+    exitCode: 0,
+    output: 'hit',
+  });
+  assert.equal(parsed.success, false);
 });
 
 const REJECTION_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-rejection-transcript-');

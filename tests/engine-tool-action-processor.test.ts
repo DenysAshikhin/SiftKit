@@ -131,6 +131,7 @@ test('an executed command entry records the turn prompt token count', async () =
 
 test('TaskCommandSchema rejects a negative or fractional promptTokenCount', () => {
   const base = {
+    toolCallId: 'tc_0',
     command: 'ls .',
     activityKind: 'search',
     activitySubject: { kind: 'none' },
@@ -155,6 +156,57 @@ test('a typed Git action executes through the native tool path', async () => {
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git operation="status"');
   assert.equal(events.some((event) => event.kind === 'turn_command_start' && event.native === true), true);
+});
+
+test('a start and its result carry one shared identity, and repeats stay distinct', async () => {
+  const root = createManagedTempDir('siftkit-tool-call-identity-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, commands, events } = makeProcessor(root, ['ls']);
+
+  await processor.executeBatch(
+    1,
+    [
+      { kind: 'tool', callId: 'test_call_id_1', toolName: 'ls', args: { path: '.' } },
+      { kind: 'tool', callId: 'test_call_id_2', toolName: 'ls', args: { path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+
+  const starts = events.filter((event) => event.kind === 'turn_command_start');
+  const results = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(starts.length, 1);
+  assert.equal(results.length, 2);
+  const start = starts[0];
+  const executed = results[0];
+  const duplicate = results[1];
+  assert.ok(start && executed && duplicate);
+  assert.equal(start.toolCallId, executed.toolCallId);
+  // The screened repeat never executed, so it must not borrow the executed call's identity.
+  assert.notEqual(executed.toolCallId, duplicate.toolCallId);
+  assert.equal(duplicate.exitCode, null);
+  assert.deepEqual(commands.map((command) => command.toolCallId), [executed.toolCallId, duplicate.toolCallId]);
+});
+
+test('an invalid action still records an identity so later outcomes stay aligned', async () => {
+  const root = createManagedTempDir('siftkit-invalid-identity-');
+  const { processor, commands } = makeProcessor(root, ['ls']);
+
+  await processor.executeBatch(
+    1,
+    [
+      { kind: 'tool', callId: 'test_call_id_3', toolName: 'not_a_tool', args: {} },
+      { kind: 'tool', callId: 'test_call_id_4', toolName: 'ls', args: { path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+
+  const identities = commands.map((command) => command.toolCallId);
+  assert.equal(identities.length, 2);
+  assert.equal(new Set(identities).size, 2);
 });
 
 test('native command start is observable before delayed execution completes', async () => {
@@ -399,7 +451,7 @@ test('every member of a batch is capped at the same share regardless of position
   const { processor, commands, events, budget } = makeProcessor(root, ['grep']);
   // Put the run far enough along that the progress term, not the floor, sets the share.
   for (let index = 0; index < 3; index += 1) {
-    commands.push({ command: `ls prior-${index}`, activityKind: 'search', activitySubject: { kind: 'none' }, turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
+    commands.push({ toolCallId: `tc_prior_${index}`, command: `ls prior-${index}`, activityKind: 'search', activitySubject: { kind: 'none' }, turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
   }
 
   await processor.executeBatch(

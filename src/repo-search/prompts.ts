@@ -414,6 +414,8 @@ export function buildCompactionSummaryInstruction(): string {
 }
 
 export const TaskCommandSchema = z.object({
+  /** Identity shared with this call's progress frames and transcript start/result events. */
+  toolCallId: z.string().min(1),
   command: z.string(),
   activityKind: ToolActivityKindSchema,
   activitySubject: ToolActivitySubjectSchema,

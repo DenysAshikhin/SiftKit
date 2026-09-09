@@ -1,9 +1,12 @@
+import './react-test-environment.js';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ToolCallCard } from '../src/components/ToolCallCard';
 import type { ChatToolCallMessage } from '../src/types';
+import { fireEvent, render } from './react-test-environment.js';
 
 function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
   return {
@@ -34,8 +37,7 @@ test('running tool details use present tense and keep diagnostics collapsed', ()
   assert.match(markup, /Loading x\.dev…/u);
   assert.match(markup, /<details>/u);
   assert.doesNotMatch(markup, /<details open>/u);
-  assert.match(markup, /web_fetch url=/u);
-  assert.match(markup, /PRIVATE_OUTPUT/u);
+  assert.doesNotMatch(markup, /web_fetch url=|PRIVATE_OUTPUT/u);
 });
 
 test('completed tool details use completed wording without an active ellipsis', () => {
@@ -51,7 +53,7 @@ test('completed tool details use completed wording without an active ellipsis', 
   );
   assert.match(markup, /Searched code/u);
   assert.doesNotMatch(markup, /Searching code…|✓|8k tok/u);
-  assert.match(markup, /command:.*SECRET_MARKER/u);
+  assert.doesNotMatch(markup, /SECRET_MARKER|line1/u);
 });
 
 test('failed details use terminal failure copy and remain closed', () => {
@@ -67,7 +69,7 @@ test('failed details use terminal failure copy and remain closed', () => {
   assert.match(markup, /class="tbad"/u);
   assert.match(markup, /Validating project — failed/u);
   assert.doesNotMatch(markup, /<details open>/u);
-  assert.match(markup, /PRIVATE_FAILURE/u);
+  assert.doesNotMatch(markup, /PRIVATE_FAILURE/u);
 });
 
 test('stopped tool details use terminal stopped wording without an active ellipsis', () => {
@@ -81,4 +83,44 @@ test('stopped tool details use terminal stopped wording without an active ellips
   );
   assert.match(markup, /Reading file src\/a\.ts — stopped/u);
   assert.doesNotMatch(markup, /src\/a\.ts…/u);
+});
+
+test('large tool results mount only while expanded and are removed on collapse', () => {
+  const output = `${'x'.repeat(50_000)}TAIL_SENTINEL`;
+  const message = msg({ toolCallStatus: 'done', toolCallExitCode: 0, toolCallOutput: output });
+  const view = render(<ToolCallCard message={message} />);
+  const details = view.container.querySelector('details');
+  assert.ok(details);
+  assert.equal(view.container.querySelector('.tcall-details'), null);
+  assert.equal(view.container.textContent?.includes('TAIL_SENTINEL'), false);
+
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+  assert.equal(view.container.querySelector('pre')?.textContent, output);
+  assert.equal(view.container.textContent?.includes(message.toolCallCommand), true);
+
+  const updated = { ...message, toolCallOutput: 'updated while open' };
+  view.rerender(<ToolCallCard message={updated} />);
+  assert.equal(view.container.querySelector('pre')?.textContent, updated.toolCallOutput);
+
+  details.open = false;
+  fireEvent(details, new Event('toggle'));
+  assert.equal(view.container.querySelector('.tcall-details'), null);
+  view.rerender(<ToolCallCard message={{ ...message, toolCallOutput: 'updated while closed' }} />);
+  assert.equal(view.container.textContent?.includes('updated while closed'), false);
+
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+  assert.equal(view.container.querySelector('pre')?.textContent, 'updated while closed');
+});
+
+test('expanding an empty full result does not substitute its preview', () => {
+  const view = render(<ToolCallCard message={msg({ toolCallOutput: '', toolCallOutputSnippet: 'stale preview' })} />);
+  const details = view.container.querySelector('details');
+  assert.ok(details);
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+  assert.ok(view.container.querySelector('.tcall-details'));
+  assert.equal(view.container.querySelector('pre'), null);
+  assert.equal(view.container.textContent?.includes('stale preview'), false);
 });

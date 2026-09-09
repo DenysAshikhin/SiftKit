@@ -108,8 +108,23 @@ Verification: `npm run typecheck` (includes lint) exit 0; full suite 3581 passed
 
 ## Follow-ups not in this scope
 
-- `C:\AI\exl3\baseline\{src,venv}` is deliberately retained as the measurement control for the
-  MoE `stream_t` probe work and becomes disposable once that PR lands.
-- `.scratch-expandable-segments-2026-09-09` still holds build caches, wheelhouses and the
-  installer `.cmd` scripts (the evidence files are preserved elsewhere). They were not in the
-  authorised removal table; the permanent wheelhouse is `C:\AI\exl3\packages`.
+- `C:\AI\exl3\baseline\{src,venv}` (4.66 GB) is deliberately retained as the measurement control
+  for the MoE `stream_t` probe work and becomes disposable once that PR lands.
+- `C:\AI\exl3\staging\2026-09-09-migration` is retained while the probe work still runs its
+  `bench-*.cmd` scripts from it.
+
+## Second pass: leftovers outside the original removal table
+
+Separately authorised after the main cleanup, a further **3.94 GB** was removed:
+
+| Path | Size | Why it was dead |
+|---|---:|---|
+| `D:\personal\models\elx3\.tmp\turbo-match` | 3.71 GB | Temporary CUDA 13.2.2 download workspace for the retired updater flow; `C:\AI\exl3\toolchains\cuda-13.2.2` is a complete self-contained toolkit |
+| `.scratch-expandable-segments-2026-09-09` | 0.21 GB | Caches, two wheelhouses superseded by `C:\AI\exl3\packages`, an interpreter dist superseded by `C:\AI\exl3\python`, and installer scripts |
+| `D:\personal\models\elx3\.tmp\release-review-v1.4.3` | 0.02 GB | Stale detached-HEAD review checkout at `2398c05`, clean tree, no local-only commits |
+
+`turbo-match`'s `exllamav3-build.log` and `exllamav3-warning-report.txt` were hash-verified into
+`C:\AI\exl3\manifests\retired-3.13-envs` first. Total reclaimed across both passes: **23.70 GB**.
+
+`C:\envs` survives as an empty directory: removal is blocked by a workspace safety guard that
+treats it as a system path. It holds no files.

@@ -4,6 +4,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  buildChatRunMessageIdPrefix,
   ChatStreamToolEventSchema,
   PersistedChatTranscriptMessageSchema,
   ChatStreamTextDeltaSchema,
@@ -44,9 +45,11 @@ import {
 } from '../../config/index.js';
 import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
 import {
+  CompositeRepoSearchProgressWriter,
+  RepoSearchToolLogProgressWriter,
+} from '../operation-progress-writers.js';
+import {
   type RepoSearchProgressEvent,
-  buildRepoSearchProgressLogBody,
-  isServerLoggedProgressEvent,
   removeDashboardRunCommandFromLogs,
 } from '../dashboard-runs.js';
 import {
@@ -347,17 +350,21 @@ type SessionSpeculativeMetrics = {
   speculativeGeneratedTokens: number | null;
 };
 
+/**
+ * Presentation only: it builds the live transcript and the client's frames. Server logging belongs
+ * to whoever owns the operation — the repo-agent session, or the composed log writer at a
+ * standalone route's boundary — so attaching a second reader can never double a console line.
+ */
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly writer: ChatFrameWriter,
     private readonly phaseTracker: ChatTurnPhaseTracker | null,
-    private readonly scope: 'plan' | 'rs',
-    private readonly requestId: string,
+    requestId: string,
     private readonly streamAnswer: boolean,
   ) {
     super();
     this.transcriptMetadata = {
-      messageIdPrefix: `stopped-${requestId}`,
+      messageIdPrefix: buildChatRunMessageIdPrefix(requestId),
       sourceRunId: requestId,
       createdAtUtc: new Date().toISOString(),
     };
@@ -442,10 +449,6 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     if (event.kind !== 'tool_start' && event.kind !== 'tool_result') {
       this.flushPending();
       return;
-    }
-    if (event.kind === 'tool_start') {
-      const body = buildRepoSearchProgressLogBody(event);
-      if (body) serverLogger.emitBody(this.scope, this.requestId, body);
     }
     const toolEvent = toChatStreamToolEvent(event);
     this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
@@ -602,31 +605,6 @@ function finishStoppedChatStream(options: {
   });
   options.writer.writeEvent('done', buildChatSessionResponse(readConfig(options.configPath), updatedSession));
   return true;
-}
-
-class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(
-    private readonly scope: 'plan' | 'rs',
-    private readonly requestId: string,
-  ) {
-    super();
-  }
-
-  get enabled(): boolean {
-    return true;
-  }
-
-  override get wantsLiveText(): boolean {
-    return false;
-  }
-
-  write(event: RepoSearchProgressEvent): void {
-    if (!isServerLoggedProgressEvent(event)) return;
-    const body = buildRepoSearchProgressLogBody(event);
-    if (body) {
-      serverLogger.emitBody(this.scope, this.requestId, body);
-    }
-  }
 }
 
 function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
@@ -1195,7 +1173,12 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(stream, phaseTracker, 'plan', engineRequestId, true);
+    const progressWriter = new ChatStreamProgressWriter(stream, phaseTracker, engineRequestId, true);
+    // One owner for the console: the presentation writer renders, this one logs.
+    const operationProgressWriter = new CompositeRepoSearchProgressWriter(
+      progressWriter,
+      new RepoSearchToolLogProgressWriter('plan', engineRequestId),
+    );
     let selectedImagesForError: { images: string[]; imageMeta: ImageMetadata[]; visionMaxImagePixels: number } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
@@ -1248,7 +1231,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         mockCommandResults: normalizeRepoSearchMockCommandResults(request.parsedBody.mockCommandResults),
         initialUserImages: selectedImages.images,
         ...(mockResponses ? { mockResponses } : {}),
-        progressWriter,
+        progressWriter: operationProgressWriter,
         abortSignal: abortController.signal,
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
@@ -1417,7 +1400,12 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     }
     const { stream, sseWriter, modelRequestLock, activeSession } = opened;
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(stream, null, 'plan', engineRequestId, false);
+    const progressWriter = new ChatStreamProgressWriter(stream, null, engineRequestId, false);
+    // One owner for the console: the presentation writer renders, this one logs.
+    const operationProgressWriter = new CompositeRepoSearchProgressWriter(
+      progressWriter,
+      new RepoSearchToolLogProgressWriter('plan', engineRequestId),
+    );
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
@@ -1433,7 +1421,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter,
+        progressWriter: operationProgressWriter,
         abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();
@@ -1557,7 +1545,12 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     }
     const { stream, sseWriter, modelRequestLock, activeSession } = opened;
     const engineRequestId = randomUUID();
-    const progressWriter = new ChatStreamProgressWriter(stream, null, 'rs', engineRequestId, false);
+    const progressWriter = new ChatStreamProgressWriter(stream, null, engineRequestId, false);
+    // One owner for the console: the presentation writer renders, this one logs.
+    const operationProgressWriter = new CompositeRepoSearchProgressWriter(
+      progressWriter,
+      new RepoSearchToolLogProgressWriter('rs', engineRequestId),
+    );
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
@@ -1573,7 +1566,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter,
+        progressWriter: operationProgressWriter,
         abortSignal: abortController.signal,
       }));
       progressWriter.flushPending();

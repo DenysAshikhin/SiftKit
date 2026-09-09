@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join } from 'node:path';
 
 import {
   MockPlannerResponsesSchema,
@@ -26,8 +27,10 @@ import { PresetCatalog } from '../../preset-catalog.js';
 import {
   appendChatRepoAgentMessages,
   buildChatHistoryMessages,
+  buildRepoAgentResultMarkdown,
   buildPersistTurnsFromRepoSearchResult,
   resolveChatSessionConfig,
+  selectReplayableChatMessages,
 } from '../chat.js';
 import { ChatTurnTelemetry, getMockTokenConfig } from '../chat-turn-telemetry.js';
 import { readConfig } from '../config-store.js';
@@ -39,6 +42,9 @@ import {
 } from '../http-utils.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import { getRuntimeRoot } from '../paths.js';
+import { getRuntimeDatabase } from '../../state/runtime-db.js';
+import { hydrateTerminalRepoAgentMessages } from '../repo-agent-tool-results.js';
+import { migrateRepoAgentHistory } from '../repo-agent-history-repair.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
 import {
@@ -131,9 +137,28 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       return;
     }
     const config = readConfig(ctx.configPath);
+    const blockers = migrateRepoAgentHistory(
+      getRuntimeDatabase(join(getRuntimeRoot(), 'runtime.sqlite')),
+      request.sessionId,
+    );
+    if (blockers.length > 0) {
+      sendJson(res, 409, {
+        error: 'Repo-agent history cannot be verified against its source runs: '
+          + `${blockers.join(', ')}. The transcript is intact; continuation needs the run evidence.`,
+      });
+      return;
+    }
+    // Migration updates persisted outputs. Load only afterwards so this request sees the repair.
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       sendJson(res, 404, { error: 'Session not found.' });
+      return;
+    }
+    const missingResult = selectReplayableChatMessages(activeSession.messages ?? []).find(
+      (message) => message.kind === 'assistant_tool_call' && typeof message.toolCallOutput !== 'string',
+    );
+    if (missingResult) {
+      sendJson(res, 409, { error: `Chat tool row ${missingResult.id} is missing its full result. Repair the history before continuing.` });
       return;
     }
     const effectiveConfig = resolveChatSessionConfig(config, activeSession);
@@ -166,7 +191,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     const sse = new SseResponseWriter(req, res);
     sse.open();
     stream.attach(new ChatOperationSseSubscriber(sse));
-    const progressWriter = new ChatStreamProgressWriter(stream, null, 'rs', started.admission.requestId, false);
+    const progressWriter = new ChatStreamProgressWriter(stream, null, started.admission.requestId, false);
     const detach = started.session.attach({
       wantsLiveText: true,
       writeProgress: (event) => {
@@ -182,19 +207,31 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     });
     try {
       const result = await started.session.waitForBoundary(0);
+      // Stop is acknowledged the moment the run turns terminal; the engine writes its transcript
+      // on the way out. Durable history has to wait for that, or a hydration started here would
+      // read a run that has not finished recording what the model saw.
+      await started.session.settled;
       const telemetry = new ChatTurnTelemetry(effectiveConfig, getMockTokenConfig(config, request.value.mockResponses));
       // A run stopped before the engine finished has no execution result, and therefore no turn
       // records to attribute.
       const executionResult = started.session.getExecutionResult();
       const turns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(executionResult));
+      const requestId = started.admission.requestId;
       const updatedSession = appendChatRepoAgentMessages(getRuntimeRoot(), request.sessionId, {
         content: request.value.content,
         images: request.value.images,
         decisions: binding.decisions,
         result,
+        requestId,
         turns,
         turnRecords: executionResult === null ? [] : executionResult.turnRecords,
-        stoppedMessages: progressWriter.getStoppedMessages('Repo-agent run stopped by user.'),
+        terminalMessages: hydrateTerminalRepoAgentMessages(
+          getRuntimeDatabase(join(getRuntimeRoot(), 'runtime.sqlite')),
+          requestId,
+          progressWriter.getStoppedMessages(result.status === 'aborted'
+            ? 'Repo-agent run stopped by user.'
+            : buildRepoAgentResultMarkdown(result)),
+        ),
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(activeSession),
       });
       progressWriter.flushPending();

@@ -70,6 +70,7 @@ test('buildScorecard reports only the end reason for an evicted run with non-zer
       reason: 'max_turns',
       nonZeroExits: 1,
       commands: [{
+        toolCallId: 'tc_0',
         command: 'grep pattern="x"',
         activityKind: 'search',
         activitySubject: { kind: 'none' },
@@ -105,6 +106,7 @@ test('buildScorecard passes a finished run whose commands exited non-zero', () =
       reason: 'finish',
       nonZeroExits: 2,
       commands: [{
+        toolCallId: 'tc_0',
         command: 'grep pattern="x"',
         activityKind: 'search',
         activitySubject: { kind: 'none' },

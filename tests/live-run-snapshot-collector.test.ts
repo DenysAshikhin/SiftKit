@@ -164,7 +164,7 @@ test('collector ignores unknown and malformed events', () => {
 test('collector snapshots omit the removed command-safety state', () => {
   const collector = makeCollector();
   collector.record({
-    kind: 'turn_command_start', taskId: 't', turn: 1, toolName: 'ls',
+    kind: 'turn_command_start', taskId: 't', turn: 1, toolCallId: 'tc_0', toolName: 'ls',
     requestedCommand: 'ls path="."', commandToRun: 'ls path="."', native: true,
   });
 
@@ -176,7 +176,7 @@ test('collector captures tool execution phase, exit code and truncated output ed
   const collector = makeCollector();
   const longOutput = `${'A'.repeat(500)}${'B'.repeat(500)}${'C'.repeat(500)}`;
 
-  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 39, toolName: 'run', requestedCommand: 'npm run test', commandToRun: 'npm run test', native: false });
+  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 39, toolCallId: 'tc_0', toolName: 'run', requestedCommand: 'npm run test', commandToRun: 'npm run test', native: false });
 
   const midFlight = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(midFlight.phase.name, 'tool_execute');
@@ -184,8 +184,9 @@ test('collector captures tool execution phase, exit code and truncated output ed
   assert.equal(midFlight.turns[0].tool?.durationMs, null);
 
   collector.record({
-    kind: 'turn_command_result', taskId: 't', turn: 39, command: 'npm run test',
-    exitCode: 1, output: longOutput, resultTokenCount: 1064,
+    kind: 'turn_command_result', taskId: 't', turn: 39, toolCallId: 'tc_0', command: 'npm run test',
+    requestedCommand: 'npm run test', executedCommand: 'npm run test',
+    exitCode: 1, output: longOutput, insertedResultText: longOutput, resultTokenCount: 1064,
   });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
@@ -206,8 +207,8 @@ test('collector captures tool execution phase, exit code and truncated output ed
 test('collector keeps short tool output whole without a tail', () => {
   const collector = makeCollector();
 
-  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 1, toolName: 'run', requestedCommand: 'git status', commandToRun: 'git status', native: false });
-  collector.record({ kind: 'turn_command_result', taskId: 't', turn: 1, command: 'git status', exitCode: 0, output: 'clean', resultTokenCount: 2 });
+  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 1, toolCallId: 'tc_0', toolName: 'run', requestedCommand: 'git status', commandToRun: 'git status', native: false });
+  collector.record({ kind: 'turn_command_result', taskId: 't', turn: 1, toolCallId: 'tc_0', command: 'git status', requestedCommand: 'git status', executedCommand: 'git status', exitCode: 0, output: 'clean', insertedResultText: 'clean', resultTokenCount: 2 });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.turns[0].tool?.outputHead, 'clean');
@@ -314,7 +315,7 @@ test('collector truncates a long command string', () => {
   const collector = makeCollector();
   const longCommand = `git log ${'x'.repeat(1000)}`;
 
-  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 1, toolName: 'run', requestedCommand: longCommand, commandToRun: longCommand, native: false });
+  collector.record({ kind: 'turn_command_start', taskId: 't', turn: 1, toolCallId: 'tc_0', toolName: 'run', requestedCommand: longCommand, commandToRun: longCommand, native: false });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.turns[0].tool?.command.length, 501);

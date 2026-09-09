@@ -1,9 +1,11 @@
 # Handoff: fix the `EXL3_MOE_STREAM_T` bandwidth probe and offer it upstream
 
-Date: 2026-09-09. Status: root cause confirmed, **fix implemented and verified on upstream `dev`**
-(branch `fix/moe-stream-probe-convergence`, commit `a69923b`, in `C:\AI\exl3\baseline\src`).
-Remaining: **fold it into PR341 and open the PR there**, not against `dev` — see *Why this
-matters on PR341 and barely registers on upstream `dev`*, then tasks 6-10.
+Date: 2026-09-09. Status: **fix implemented and verified on both trees.** Reference
+implementation on upstream `dev` (branch `fix/moe-stream-probe-convergence`, commit `a69923b`, in
+`C:\AI\exl3\baseline\src`); ported to PR341 (`55b855b` on branch `pr341` in `C:\AI\exl3\prod\src`)
+and verified there 8 loads out of 8, then pushed to the PR branch
+(`DenysAshikhin/exllamav3` `engine-zero-copy`, `ba5473b..55b855b`).
+**All tasks are done.** The PR is still a draft; flipping it to ready for review is a manual step.
 
 Supersedes the *Mechanism* and *What is confirmed, and what is not* sections of
 [2026-09-09-moe-stream-t-probe-misdetection.md](2026-09-09-moe-stream-t-probe-misdetection.md).
@@ -185,6 +187,20 @@ Tasks 1-5 below are complete. Branch `fix/moe-stream-probe-convergence` off `ori
 `a352583`, commit `a69923b`, one file, 37 insertions / 12 deletions, entirely inside
 `_ensure_stream_state`.
 
+### Result on the PR341 port, 8 loads after the fix
+
+`bench-prodafter-{1..8}.log`, unpinned, `EXL3_MOE_STREAM_DEBUG=1`, same command and environment as
+the `dev` sweeps. This is the verification that matters, since the loss is -18.1% here.
+
+| | probe | `stream_t` | pf@4096 | pf@32768 | dec@32512 |
+|---|---|---|---|---|---|
+| 8 loads, all | 26.6-26.7 GB/s | **8 on every load** | 1889.84-1986.64 | **1865.47-1886.09** | 33.28-34.40 |
+
+Acceptance met: 0 of 8 selected `stream_t 15`, no run anywhere near the 1513-1535 slow cluster, and
+no load emitted the non-convergence warning. Two runs came in marginally above the stated 1826-1883
+band (1883.97, 1886.09) and decode sits a little high against the stated 31.4-33.3 (33.28-34.40);
+both are on the favourable side of the acceptance criteria.
+
 ### Result on upstream `dev`, 8 loads before and after
 
 | | cold probes (6.8 GB/s) | `stream_t 15` | pf@32768 |
@@ -212,7 +228,13 @@ git -C C:\AI\exl3\baseline\src stash        # or check out origin/dev
 copy exllamav3\model\moe_cpu_host.py -> venv\Lib\site-packages\exllamav3\model\
 ```
 
-`C:\AI\exl3\prod\src` was **not** touched: it is byte-for-byte as this work found it.
+`C:\AI\exl3\prod\src` **has since been committed to and patched.** Two commits were added to
+`deployment/pr341-zerocopy-on-dev`: `3debf16`, which captures the rebased PR341 port that existed
+only as uncommitted working-tree state, and `35aecff`, the convergence probe. Branch `pr341`
+carries the same fix as `55b855b`. `prod\venv`'s installed
+`site-packages/exllamav3/model/moe_cpu_host.py` was overwritten with the patched file so the
+after-sweep would exercise it, and now matches `prod\src` (md5 `095021ba...`); the pre-patch copy
+is backed up at `C:\tmp\rsx\probe-fix\moe_cpu_host.py.sitepackages.bak` (md5 `d4470366...`).
 
 ### Two corrections to the numbers this document was written with
 
@@ -295,7 +317,10 @@ Work on a branch off **upstream `dev`**, not in the deployment port. Do not comm
    low reading and its high `stream_t` rather than being "rescued" to 8. Note that the formula
    yields `stream_t 15` at 6.7 GB/s while the upstream calibration comment claims 16 was best --
    a pre-existing inconsistency between the comment and the code, not introduced here.
-6. **TODO. Fold the fix into PR341** — this is where it belongs, per the section *Why this
+6. ~~**Fold the fix into PR341.**~~ DONE, `55b855b` on branch `pr341`, one hunk, 39 insertions /
+   8 deletions, `_ensure_stream_state` only. Built with `commit-tree` so the `prod/src` working
+   tree — which held the only copy of the rebased port — was never disturbed. Original text:
+   fold the fix into PR341 — this is where it belongs, per the section *Why this
    matters on PR341 and barely registers on upstream `dev`*. The `dev` branch `a69923b` is the
    reference implementation and its verification data; PR341 is the target.
 
@@ -315,7 +340,7 @@ Work on a branch off **upstream `dev`**, not in the deployment port. Do not comm
    Keep the diff inside `_ensure_stream_state`. Do not add `import sys`: PR341's module does not
    import it either, and the warning prints to stdout like the rest of the module.
 
-7. **TODO. Verify on the port.** Run the 8-run sweep against
+7. ~~**Verify on the port.**~~ DONE, 8 loads, 0 cold — see *Result on the PR341 port* above. Run the 8-run sweep against
    `C:\AI\exl3\prod\src` / `prodenv` exactly as the `dev` sweeps were run
    (`bench-prod-dbg.cmd`, unpinned, `EXL3_MOE_STREAM_DEBUG=1`). This is the verification that
    actually matters, because the port is where the loss is -18.1%. Acceptance: 0 of 8 loads
@@ -325,15 +350,31 @@ Work on a branch off **upstream `dev`**, not in the deployment port. Do not comm
    `moe_cpu_host.py` into `prodenv\Lib\site-packages\exllamav3\model\` as was done for
    `baseline`. Pure-Python change; no native rebuild needed.
 
-8. **TODO. Open the PR against PR341**, not against `dev`. PR341 is still an open draft. Lead
-   with the PR341 numbers and the masking explanation above; a reviewer who benchmarks the probe
-   fix on stock `dev` will measure ~10% and wrongly conclude it is marginal.
+8. ~~**Open the PR against PR341.**~~ DONE, as a commit on the existing PR rather than a separate
+   PR: `55b855b` pushed to `DenysAshikhin/exllamav3` `engine-zero-copy`, the head branch of
+   [PR341](https://github.com/turboderp-org/exllamav3/pull/341). The commit message leads with the
+   PR341 numbers and the masking explanation, since a reviewer who benchmarks the probe fix on
+   stock `dev` will measure ~10% and wrongly conclude it is marginal. The PR remains a draft.
 
-9. **TODO. Fold the corrections** in this document back into
+   The PR also carried pre-existing merge conflicts against current `dev` — it forked at
+   `c93f3c6` and `dev` has since moved 42 commits, including the CPU MoE work that touches the
+   same three files (`doc/env_vars.md`, `cpu/moe_mul1.cpp`, `model/moe_cpu_host.py`). Resolved by
+   merging `origin/dev` (`a40cec7`) into the branch and taking the reconciled tree from `35aecff`
+   for all three, i.e. the exact tree the 8-load sweep ran on: the merged branch is byte-identical
+   to the benchmarked one for every CPU MoE file, and differs from it only by `dev`'s newest
+   non-MoE commits (README, glm4-moe-lite architectures, qbench). Merge commit `c8c0abf`, pushed;
+   `git merge-tree` against `origin/dev` is now clean.
+
+9. ~~**Fold the corrections.**~~ DONE. Fold the corrections in this document back into
    `2026-09-09-moe-stream-t-probe-misdetection.md`, whose *Mechanism* section is now known
    wrong. Do not leave it standing unqualified.
 
-10. **TODO. Re-measure the port-vs-`dev` baseline** with `EXL3_MOE_STREAM_T` pinned before the
+10. ~~**Re-measure the port-vs-`dev` baseline.**~~ DONE. The two 8-load converged sweeps are a
+    matched, mode-controlled comparison (every load `stream_t 8` at 26.7 GB/s on both trees):
+    port **1876.73** vs `dev` **1179.10** tok/s @32768, **-37.2%**; decode reverses to **-10.2%**
+    in `dev`'s disfavour, now that the port carries `dev`'s decode-side work. The old single-run
+    figures (1681.54 / 1052.06) are marked superseded in the port handoff. Original text:
+    re-measure the port-vs-`dev` baseline with `EXL3_MOE_STREAM_T` pinned before the
     "-37.4%" figure in the port handoff is quoted again. See the correction note above: the
     recorded `dev` baseline of 1052.06 coincides with this session's cold-probe mean of 1052.04.
 
@@ -363,6 +404,8 @@ Scripts, `C:\AI\exl3\staging\2026-09-09-migration\`:
 | `bench-baseline-dbg.cmd` | upstream `dev` benchmark with `EXL3_MOE_STREAM_DEBUG=1` |
 | `run-baseline-before.sh` / `run-baseline-after.sh` | the 8-run `dev` before/after sweeps |
 | `analyze-dev-sweep.sh` | extracts the `dev` before/after tables (`... before` / `... after`) |
+| `run-prod-after.sh` | the 8-run port sweep on the convergence probe |
+| `analyze-prod-sweep.sh` | extracts the port sweep table (`... after`) |
 
 Logs are retained under `C:\AI\exl3\logs\2026-09-09-migration\bench-dbg-*.log`.
 

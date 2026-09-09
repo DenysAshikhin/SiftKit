@@ -12,7 +12,12 @@ import { getDefaultServerConfig } from './mock-config.js';
 import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboard-http.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
-export type StreamedOperationHarness = { baseUrl: string; close: () => Promise<void> };
+export type StreamedOperationHarness = {
+  baseUrl: string;
+  /** Stops the server and starts a fresh one over the same runtime root, as a process restart would. */
+  restart: () => Promise<void>;
+  close: () => Promise<void>;
+};
 export type StreamedOperationHarnessOptions = { engineService?: StatusEngineService };
 
 const MODEL_REQUEST_OWNER_TIMEOUT_MS = 2_000;
@@ -67,32 +72,48 @@ export async function startHarness(
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
   writeConfig(getConfigPath(), getDefaultServerConfig());
-  const server = startStatusServer({
-    disableManagedEngineStartup: true,
-    terminalMetadataIdleDelayMs: 50,
-    engineService: options.engineService,
-  });
-  await server.startupPromise;
-  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
-  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${baseUrl}/config`;
-  process.env.SIFTKIT_STATUS_BACKEND_URL = `${baseUrl}/status`;
+  const startServer = async (): Promise<ReturnType<typeof startStatusServer>> => {
+    const started = startStatusServer({
+      disableManagedEngineStartup: true,
+      terminalMetadataIdleDelayMs: 50,
+      engineService: options.engineService,
+    });
+    await started.startupPromise;
+    return started;
+  };
+  let server = await startServer();
+  const publishBaseUrl = (): string => {
+    const url = `http://127.0.0.1:${getAddressInfo(server).port}`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `${url}/config`;
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `${url}/status`;
+    return url;
+  };
+  const stopServer = async (): Promise<void> => {
+    // server.close() stops the listener but waits for open connections, and its callback never
+    // fires while one is held. Awaiting it first would hang teardown on exactly the stuck
+    // stream teardown exists to clean up.
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    // Deferred run-log writes land after the operation resolves; let them finish before the
+    // database closes, or the late write reopens runtime.sqlite inside the temp root.
+    await awaitRepoSearchRunPersistence();
+  };
   let closed = false;
   const harness: StreamedOperationHarness = {
-    baseUrl,
+    baseUrl: publishBaseUrl(),
+    async restart() {
+      await stopServer();
+      closeRuntimeDatabase();
+      server = await startServer();
+      harness.baseUrl = publishBaseUrl();
+    },
     async close() {
       // Idempotent: the registered hook always runs, and callers may also close early.
       if (closed) {
         return;
       }
       closed = true;
-      // server.close() stops the listener but waits for open connections, and its callback never
-      // fires while one is held. Awaiting it first would hang teardown on exactly the stuck
-      // stream teardown exists to clean up.
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      // Deferred run-log writes land after the operation resolves; let them finish before the
-      // database closes, or the late write reopens runtime.sqlite inside the temp root.
-      await awaitRepoSearchRunPersistence();
+      await stopServer();
       process.chdir(previousCwd);
       closeRuntimeDatabase();
       for (const [key, value] of Object.entries(envBackup)) {

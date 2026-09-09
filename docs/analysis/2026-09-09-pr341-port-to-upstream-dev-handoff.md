@@ -14,14 +14,39 @@ Create `C:\AI\exl3\prod` — a Python 3.14.7 / Torch 2.14.0+cu132 ExLlamaV3 envi
 
 A pure-upstream baseline was built and benchmarked against the currently deployed PR341 source. Same Python 3.14.7, same Torch 2.14.0+cu132, same `eval/perf.py` (sha256 `c49716bc...`), same args, same avx512-vbmi worker tier. **Only the ExLlamaV3 source differed.**
 
+> **Re-measured 2026-09-09, and the original numbers below should not be quoted.** Both sides
+> were single runs taken before the `EXL3_MOE_STREAM_T` probe defect was known, so the streaming
+> threshold was uncontrolled. The recorded upstream figure of 1052.06 tok/s coincides with this
+> session's cold-probe mean of 1052.04, i.e. the baseline was plausibly measured in the degraded
+> mode. See
+> [2026-09-09-moe-stream-t-probe-fix-handoff.md](2026-09-09-moe-stream-t-probe-fix-handoff.md).
+
+Controlled re-measurement, 8 loads per tree, identical `perf.py` and args (only the interpreter
+and source path differ), every load on the convergence probe and therefore every load at
+`stream_t 8` and 26.7 GB/s. Logs `bench-devafter-{1..8}.log` and `bench-prodafter-{1..8}.log`.
+
+| 32k benchmark, mean of 8 | ported tree (dev + PR341) | upstream dev a352583 | Difference |
+|---|---:|---:|---:|
+| Prefill @ 32768 | 1876.73 tok/s | 1179.10 tok/s | **-37.2%** |
+| Prefill @ 4096 | 1950.96 tok/s | 1242.93 tok/s | **-36.3%** |
+| Decode @ 32512 | 33.95 tok/s | 30.49 tok/s | **-10.2%** |
+
+The prefill gap is unchanged at -37%, so the headline conclusion survives; the absolute numbers
+on both sides were understated. The decode result **reverses**: the original comparison put
+upstream 9.0% ahead on decode, but that was old PR341 source against dev. The ported tree carries
+dev's decode-side CPU MoE work as well, so it now leads on both axes. Ranges: prefill @32768
+1865.47-1886.09 ported against 1135.30-1199.83 upstream; decode 33.28-34.40 against 28.96-31.19.
+
+Superseded original, single runs, threshold uncontrolled:
+
 | 32k benchmark | dfd22713 (PR341+346) | upstream dev a352583 | Difference |
 |---|---:|---:|---:|
 | Prefill @ 32768 | 1681.54 tok/s | 1052.06 tok/s | **-37.4%** |
 | Decode @ 32512 | 27.13 tok/s | 29.57 tok/s | **+9.0%** |
 
-The regression is uniform across every prefill length above 1k (-37% at 4k, 8k, 16k and 32k) and far outside observed run-to-run variation (Python 3.13 vs 3.14 on identical source differed by 1.9%). For scale, Torch 2.13 to 2.14 on the PR341 source moved 32k prefill 991.25 to 1714.39; upstream dev on Torch 2.14 (1052.06) is barely ahead of the PR341 source on the *old* Torch.
+The regression is uniform across every prefill length above 1k (-37% at 4k, 8k, 16k and 32k) and far outside run-to-run variation: across the 8 controlled loads per tree the two distributions do not overlap at any prefill length (Python 3.13 vs 3.14 on identical source differed by 1.9%). For scale, Torch 2.13 to 2.14 on the PR341 source moved 32k prefill 991.25 to 1714.39.
 
-Reading: PR341's zero-copy transport is a prefill optimisation, and upstream's newer CPU MoE work (AVX-512BW tier, even flat tile partition, force-inlined BW row chain) is decode-side. Neither substitutes for the other. The port is what gets both.
+Reading: PR341's zero-copy transport is a prefill optimisation, and upstream's newer CPU MoE work (AVX-512BW tier, even flat tile partition, force-inlined BW row chain) is decode-side. Neither substitutes for the other, and the controlled re-measurement confirms the port gets both -- it leads upstream by 59.2% on prefill and 11.4% on decode.
 
 Full data: `C:\AI\exl3\manifests\baseline-benchmark-results.md`.
 

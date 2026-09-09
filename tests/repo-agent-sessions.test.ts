@@ -219,6 +219,7 @@ class TurnThinkingEngine implements RepoAgentEngine {
     }
     task.turnThinking = { 1: 'inspecting the cipher table' };
     task.commands = [{
+      toolCallId: 'tc_0',
       command: 'rg -n "cipher" src',
       activityKind: 'search',
       activitySubject: { kind: 'none' },
