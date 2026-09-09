@@ -428,65 +428,65 @@ export class InferenceClient {
           });
           throw buildStreamErrorFrameError(url, errorFrame);
         }
-          const promptUsage = getPromptUsageFromResponseBody(packet);
-          const completionUsage = getCompletionUsageFromResponseBody(packet);
-          const timingUsage = getTimingUsageFromResponseBody(packet);
-          promptTokens = promptUsage.promptTokens ?? promptTokens;
-          promptCacheTokens = promptUsage.promptCacheTokens ?? promptCacheTokens;
-          promptEvalTokens = promptUsage.promptEvalTokens ?? promptEvalTokens;
-          completionTokens = completionUsage.completionTokens ?? completionTokens;
-          const packetUsage = isRecord(packet.usage) ? packet.usage : {};
-          totalTokens = getUsageValue(packetUsage.total_tokens) ?? totalTokens;
-          thinkingTokens = completionUsage.thinkingTokens ?? thinkingTokens;
-          promptEvalDurationMs = timingUsage.promptEvalDurationMs ?? promptEvalDurationMs;
-          generationDurationMs = timingUsage.generationDurationMs ?? generationDurationMs;
-          const speculativeUsage = getSpeculativeUsageFromResponseBody(packet);
-          speculativeAcceptedTokens = speculativeUsage.speculativeAcceptedTokens ?? speculativeAcceptedTokens;
-          speculativeGeneratedTokens = speculativeUsage.speculativeGeneratedTokens ?? speculativeGeneratedTokens;
+        const promptUsage = getPromptUsageFromResponseBody(packet);
+        const completionUsage = getCompletionUsageFromResponseBody(packet);
+        const timingUsage = getTimingUsageFromResponseBody(packet);
+        promptTokens = promptUsage.promptTokens ?? promptTokens;
+        promptCacheTokens = promptUsage.promptCacheTokens ?? promptCacheTokens;
+        promptEvalTokens = promptUsage.promptEvalTokens ?? promptEvalTokens;
+        completionTokens = completionUsage.completionTokens ?? completionTokens;
+        const packetUsage = isRecord(packet.usage) ? packet.usage : {};
+        totalTokens = getUsageValue(packetUsage.total_tokens) ?? totalTokens;
+        thinkingTokens = completionUsage.thinkingTokens ?? thinkingTokens;
+        promptEvalDurationMs = timingUsage.promptEvalDurationMs ?? promptEvalDurationMs;
+        generationDurationMs = timingUsage.generationDurationMs ?? generationDurationMs;
+        const speculativeUsage = getSpeculativeUsageFromResponseBody(packet);
+        speculativeAcceptedTokens = speculativeUsage.speculativeAcceptedTokens ?? speculativeAcceptedTokens;
+        speculativeGeneratedTokens = speculativeUsage.speculativeGeneratedTokens ?? speculativeGeneratedTokens;
 
-          const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
-          const choice = isRecord(firstChoice) ? firstChoice : undefined;
-          const frameEosReason = getString(choice?.eos_reason);
-          if (frameEosReason) backendEosReason = frameEosReason;
-          const frameFinishReason = getString(choice?.finish_reason);
-          if (frameFinishReason) finishReason = frameFinishReason;
-          const delta = choice && isRecord(choice.delta) ? choice.delta : {};
-          const deltaReasoning = getString(delta.reasoning_content) || getString(delta.thinking) || getString(delta.reasoning);
-          const deltaContent = getString(delta.content);
-          if (deltaReasoning || deltaContent || Array.isArray(delta.tool_calls)) {
-            generationStartedAt ??= Date.now();
+        const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
+        const choice = isRecord(firstChoice) ? firstChoice : undefined;
+        const frameEosReason = getString(choice?.eos_reason);
+        if (frameEosReason) backendEosReason = frameEosReason;
+        const frameFinishReason = getString(choice?.finish_reason);
+        if (frameFinishReason) finishReason = frameFinishReason;
+        const delta = choice && isRecord(choice.delta) ? choice.delta : {};
+        const deltaReasoning = getString(delta.reasoning_content) || getString(delta.thinking) || getString(delta.reasoning);
+        const deltaContent = getString(delta.content);
+        if (deltaReasoning || deltaContent || Array.isArray(delta.tool_calls)) {
+          generationStartedAt ??= Date.now();
+        }
+        if (deltaReasoning) {
+          reasoningText += deltaReasoning;
+          if (thinkingBudgetTokens !== null
+            && resolveSpentThinkingTokens(options.config, thinkingTokens, reasoningText) > thinkingBudgetTokens) {
+            earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
+            break streamFrames;
           }
-          if (deltaReasoning) {
-            reasoningText += deltaReasoning;
-            if (thinkingBudgetTokens !== null
-              && resolveSpentThinkingTokens(options.config, thinkingTokens, reasoningText) > thinkingBudgetTokens) {
-              earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
-              break streamFrames;
-            }
-            options.onThinkingDelta?.(reasoningText);
+          options.onThinkingDelta?.(reasoningText);
+        }
+        if (deltaContent) {
+          contentText += deltaContent;
+          contentClassifier.observeContent(contentText);
+        }
+        if (Array.isArray(delta.tool_calls)) {
+          contentClassifier.observeNativeToolCall();
+          for (const rawToolCall of delta.tool_calls) {
+            if (!isRecord(rawToolCall)) continue;
+            const index = Number.isInteger(rawToolCall.index) ? Number(rawToolCall.index) : toolChunks.size;
+            const fn = isRecord(rawToolCall.function) ? rawToolCall.function : {};
+            const current = toolChunks.get(index) || { id: `call_${index}`, name: '', argumentsText: '' };
+            toolChunks.set(index, {
+              id: getString(rawToolCall.id) || current.id,
+              name: current.name + getString(fn.name),
+              argumentsText: current.argumentsText + getString(fn.arguments),
+            });
           }
-          if (deltaContent) {
-            contentText += deltaContent;
-            contentClassifier.observeContent(contentText);
-          }
-          if (Array.isArray(delta.tool_calls)) {
-            contentClassifier.observeNativeToolCall();
-            for (const rawToolCall of delta.tool_calls) {
-              if (!isRecord(rawToolCall)) continue;
-              const index = Number.isInteger(rawToolCall.index) ? Number(rawToolCall.index) : toolChunks.size;
-              const fn = isRecord(rawToolCall.function) ? rawToolCall.function : {};
-              const current = toolChunks.get(index) || { id: `call_${index}`, name: '', argumentsText: '' };
-              toolChunks.set(index, {
-                id: getString(rawToolCall.id) || current.id,
-                name: current.name + getString(fn.name),
-                argumentsText: current.argumentsText + getString(fn.arguments),
-              });
-            }
-          }
+        }
 
-          if (deltaContent) {
-            options.onContentDelta?.(contentClassifier.observeContent(contentText));
-          }
+        if (deltaContent) {
+          options.onContentDelta?.(contentClassifier.observeContent(contentText));
+        }
       }
       // An early stop breaks out before [DONE], so only a stream that ran to
       // completion is required to have produced one.

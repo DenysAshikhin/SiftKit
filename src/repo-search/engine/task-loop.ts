@@ -1,10 +1,8 @@
 import {
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   getActiveModelPreset,
-  getConfiguredCompactionReserveTokens,
-  getConfiguredEngineNumCtx,
+  getConfiguredContextTokens,
 } from '../../config/index.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../../lib/context-token-budget.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopAction,
@@ -219,12 +217,10 @@ export class TaskLoop {
     this.tokenUsage = new TokenUsageTracker(options.config, this.useEstimatedTokensOnly);
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
+    const contextTokens = getConfiguredContextTokens(options.config);
     this.budget = new TurnBudget({
-      totalContextTokens: options.totalContextTokens
-        || (options.config ? getConfiguredEngineNumCtx(options.config) : 32_000),
-      compactionReserveTokens: options.config
-        ? getConfiguredCompactionReserveTokens(options.config)
-        : PROMPT_COMPACTION_RESERVE_TOKENS,
+      totalContextTokens: options.totalContextTokens || contextTokens.totalContextTokens,
+      compactionReserveTokens: contextTokens.compactionReserveTokens,
       maxTurns: this.maxTurns,
     });
     this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);

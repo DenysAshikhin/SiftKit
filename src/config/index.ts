@@ -51,6 +51,7 @@ export {
   managesManagedEngineLifecycle,
   getConfiguredEngineBaseUrl,
   getConfiguredCompactionReserveTokens,
+  getConfiguredContextTokens,
   getConfiguredEngineNumCtx,
   getConfiguredReasoning,
   getConfiguredModel,

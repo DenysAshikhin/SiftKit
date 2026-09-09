@@ -1,3 +1,4 @@
+import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
 import { SIFT_DEFAULT_NUM_CTX } from './constants.js';
 import type {
   InferenceBackendId,
@@ -7,6 +8,10 @@ import type {
 } from './types.js';
 
 const EMPTY_RUNTIME_ENGINE_CONFIG: RuntimeEngineConfig = {};
+
+// The window a caller with no preset falls back to. Deliberately far below the
+// default preset's window: it is a floor for previews, not a real serving size.
+const PRESETLESS_CONTEXT_TOKENS = 32_000;
 
 export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
@@ -70,15 +75,28 @@ export function getConfiguredEngineNumCtx(config: SiftConfig): number {
 }
 
 export function getConfiguredCompactionReserveTokens(config: SiftConfig): number {
-  const reserveTokens = getFinitePositiveNumber(getActiveModelPreset(config).CompactionReserveTokens);
-  if (reserveTokens !== null) {
-    return reserveTokens;
-  }
+  return getActiveModelPreset(config).CompactionReserveTokens;
+}
 
-  throw new Error(
-    'SiftKit runtime config is missing Engine.CompactionReserveTokens. '
-    + 'Set CompactionReserveTokens on the active preset first.',
-  );
+/**
+ * The window and compaction reserve a turn budget is built from. Callers that run
+ * without a preset at all (mock loops, guidance previews) get a stand-in window so
+ * they still produce a budget of the right shape.
+ */
+export function getConfiguredContextTokens(config?: SiftConfig | null): {
+  totalContextTokens: number;
+  compactionReserveTokens: number;
+} {
+  if (!config) {
+    return {
+      totalContextTokens: PRESETLESS_CONTEXT_TOKENS,
+      compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS,
+    };
+  }
+  return {
+    totalContextTokens: getConfiguredEngineNumCtx(config),
+    compactionReserveTokens: getConfiguredCompactionReserveTokens(config),
+  };
 }
 
 export function getConfiguredReasoning(config: SiftConfig): ModelRuntimePreset['Reasoning'] {

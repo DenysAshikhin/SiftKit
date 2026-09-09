@@ -897,7 +897,7 @@ export async function condenseChatSession(
     tools: [],
   } as const;
   const contextBudget = resolveContextTokenBudget({
-    totalContextTokens: resolveChatSessionContextWindow(config, session),
+    totalContextTokens: getConfiguredEngineNumCtx(effectiveConfig),
     compactionReserveTokens: getConfiguredCompactionReserveTokens(effectiveConfig),
   });
   const compactor = new TranscriptCompactor({

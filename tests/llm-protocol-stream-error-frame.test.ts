@@ -54,11 +54,22 @@ test('returns null for ordinary delta frames', () => {
   assert.equal(readStreamErrorFrame({ choices: [{ delta: {}, finish_reason: 'stop' }] }), null);
 });
 
-test('returns null when the error key is absent or not a string or object', () => {
+test('returns null only when the error key is absent or null', () => {
   assert.equal(readStreamErrorFrame({}), null);
   assert.equal(readStreamErrorFrame({ error: null }), null);
-  assert.equal(readStreamErrorFrame({ error: 42 }), null);
   assert.equal(readStreamErrorFrame({ choices: [{ delta: { content: 'hi' } }], error: null }), null);
+});
+
+test('renders an error frame whose payload is not the documented shape', () => {
+  assert.deepEqual(readStreamErrorFrame({ error: 42 }), { message: '42', code: null });
+  assert.deepEqual(
+    readStreamErrorFrame({ error: ['upstream reset'] }),
+    { message: '["upstream reset"]', code: null },
+  );
+  assert.deepEqual(
+    readStreamErrorFrame({ error: { message: { detail: 'context overflow' }, code: 7 } }),
+    { message: '{"detail":"context overflow"}', code: null },
+  );
 });
 
 const TEST_URL = 'http://127.0.0.1:8098/v1/chat/completions';

@@ -2,8 +2,7 @@ import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 
 import type { SiftConfig } from './config/index.js';
-import { getConfiguredCompactionReserveTokens, getConfiguredEngineNumCtx } from './config/index.js';
-import { PROMPT_COMPACTION_RESERVE_TOKENS } from './lib/context-token-budget.js';
+import { getConfiguredContextTokens } from './config/index.js';
 import { getIdleSummarySnapshotsPath } from './config/paths.js';
 import { getPlannerPromptBudget } from './summary/chunking.js';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './repo-search/engine/turn-budget.js';
@@ -182,11 +181,7 @@ export function buildLineReadGuidance(options: {
 // The floor allowance the engine grants a lone tool call at the start of a run:
 // no completed commands yet, and a batch of one.
 export function getRepoSearchPromptBaselinePerToolAllowanceTokens(config?: SiftConfig | null): number {
-  const totalContextTokens = config ? getConfiguredEngineNumCtx(config) : 32_000;
-  const compactionReserveTokens = config
-    ? getConfiguredCompactionReserveTokens(config)
-    : PROMPT_COMPACTION_RESERVE_TOKENS;
-  const budget = new TurnBudget({ totalContextTokens, compactionReserveTokens, maxTurns: DEFAULT_MAX_TURNS });
+  const budget = new TurnBudget({ ...getConfiguredContextTokens(config), maxTurns: DEFAULT_MAX_TURNS });
   return budget.perToolCapTokens(0, 1);
 }
 
