@@ -27,6 +27,11 @@ export function contentFrame(text: string): string {
   return JSON.stringify({ choices: [{ delta: { content: text } }] });
 }
 
+/** A fatal error frame, serialized the way providers send it before closing without [DONE]. */
+export function errorFrame(error: JsonSerializable): string {
+  return JSON.stringify({ error });
+}
+
 /** Yields raw frame strings verbatim so tests can emit malformed JSON. */
 export class RawFrameHttpClient {
   constructor(private readonly frames: string[]) {}
