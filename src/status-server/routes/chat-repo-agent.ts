@@ -149,6 +149,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       images: request.value.images,
       maxTurns: request.value.maxTurns ?? presetMaxTurns,
       history: buildChatHistoryMessages(effectiveConfig, activeSession),
+      webToolsEnabled: activeSession.webSearchEnabled === true,
       config: effectiveConfig,
       modelPresetId: activeSession.modelPresetId,
       modelPreset: activeSession.modelPreset,

@@ -1,4 +1,3 @@
-import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 import type { ImageMetadata } from '@siftkit/contracts';
 
 import {
@@ -16,11 +15,6 @@ import {
   getPromptTokensPerSecond,
 } from '../lib/telemetry-metrics.js';
 import {
-  normalizeOperationModeAllowedTools,
-  resolvePresetAllowedTools,
-  type SiftPreset,
-} from '../presets.js';
-import {
   getChatSessionPath,
   readChatSessionFromPath,
   type ChatSession,
@@ -35,7 +29,10 @@ import {
   getScorecardTotal,
   resolveChatSessionConfig,
 } from './chat.js';
-import { ChatOperationPresetSelector } from './chat-operation-preset.js';
+import {
+  buildChatOperationAllowedTools,
+  ChatOperationPresetSelector,
+} from './chat-operation-preset.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import {
   ChatTurnPhaseTracker,
@@ -147,7 +144,7 @@ export class ChatRepoOperationRunner {
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
         config: effectiveConfig,
-        allowedTools: this.getAllowedTools(request.config, selected.preset),
+        allowedTools: buildChatOperationAllowedTools(request.config, selected.preset),
         webToolsEnabled: session.webSearchEnabled === true,
         maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
         logFile: request.logFile,
@@ -204,19 +201,6 @@ export class ChatRepoOperationRunner {
       return buildPlanMarkdownFromRepoSearch(content, repoRoot, result);
     }
     return buildRepoSearchMarkdown(content, repoRoot, result);
-  }
-
-  private getAllowedTools(
-    config: SiftConfig,
-    preset: SiftPreset,
-  ): SiftPreset['allowedTools'] {
-    const allowedTools = resolvePresetAllowedTools(
-      preset,
-      normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
-    );
-    // Web tools are always part of the surface; the web tool policy reading
-    // `webToolsEnabled` decides whether they are actually offered.
-    return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
   }
 
   private async persistResult(options: {

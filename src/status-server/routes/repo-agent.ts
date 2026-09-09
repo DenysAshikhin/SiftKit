@@ -63,6 +63,9 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       approvalDelivery: input.approval === 'interactive' ? 'progress' : 'boundary',
       model: input.model, maxTurns: input.maxTurns, logFile: input.logFile,
       images: input.images, promptPrefix: input.promptPrefix,
+      // A standalone run has no chat session to read a toggle from, so the web tool policy
+      // falls back to the configured default.
+      webToolsEnabled: undefined,
       availableModels: input.availableModels,
       mockResponses: input.mockResponses, mockCommandResults: input.mockCommandResults,
     });
@@ -80,6 +83,8 @@ export type StartRepoAgentRunInput = {
   logFile?: string;
   images?: string[];
   promptPrefix?: string;
+  /** Explicit per-run web intent; `undefined` defers to `WebSearch.EnabledDefault`. */
+  webToolsEnabled: boolean | undefined;
   /** Chat-launched runs pass the session's replayed conversation; standalone callers omit it. */
   history?: RepoSearchExecutionRequest['history'];
   config?: RepoSearchExecutionRequest['config'];
@@ -136,6 +141,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       modelPresetId: input.modelPresetId,
       modelPreset: input.modelPreset,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      ...(input.webToolsEnabled === undefined ? {} : { webToolsEnabled: input.webToolsEnabled }),
       model: input.model ?? undefined,
       maxTurns: input.maxTurns,
       logFile: input.logFile,

@@ -651,6 +651,46 @@ test('buildChatPromptContext exposes repo-search tool schema', () => {
   assert.doesNotMatch(toolSchemaSection, /"read"/u);
 });
 
+test('buildChatPromptContext exposes the repo-agent system prompt and interactive tool schema', () => {
+  const session = createSession();
+  session.presetId = 'repo-agent';
+  session.planRepoRoot = process.cwd();
+  session.webSearchEnabled = false;
+
+  const context = buildChatPromptContext(createConfig(), session);
+
+  assert.equal(context.label, 'System prompt and tool schema');
+  assert.match(context.content, /repository coding agent/u);
+  assert.doesNotMatch(context.content, /coder friendly assistant/u);
+  const toolSchemaSection = context.content.split('## Tool schema')[1] || '';
+  for (const toolName of ['read', 'grep', 'find', 'ls', 'git', 'write', 'edit', 'run']) {
+    assert.match(toolSchemaSection, new RegExp(`"${toolName}"`, 'u'));
+  }
+  // Web tools follow the session toggle, so an offline session sees neither.
+  assert.doesNotMatch(toolSchemaSection, /"web_search"/u);
+  assert.doesNotMatch(toolSchemaSection, /"web_fetch"/u);
+});
+
+test('buildChatPromptContext follows the session web-search toggle for repo-agent', () => {
+  const config = createConfig({
+    WebSearch: { Providers: { tavily: { Enabled: true, ApiKey: 'tavily-key' } } },
+  });
+  const session = createSession();
+  session.presetId = 'repo-agent';
+  session.planRepoRoot = process.cwd();
+
+  session.webSearchEnabled = true;
+  const withWeb = buildChatPromptContext(config, session);
+  assert.match(withWeb.content, /expert coding assistant operating inside SiftKit/u);
+  assert.match(withWeb.content.split('## Tool schema')[1] || '', /"web_search"/u);
+
+  session.webSearchEnabled = false;
+  const withoutWeb = buildChatPromptContext(config, session);
+  const offlineSchema = withoutWeb.content.split('## Tool schema')[1] || '';
+  assert.doesNotMatch(offlineSchema, /"web_search"/u);
+  assert.doesNotMatch(offlineSchema, /"web_fetch"/u);
+});
+
 test('buildRepoSearchMarkdown collapses exact repeated final output blocks for display', () => {
   const repeatedOutput = [
     '| Category | Concern |',

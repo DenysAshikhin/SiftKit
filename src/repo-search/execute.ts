@@ -12,7 +12,7 @@ import {
 import { getLiveRunSnapshotPath } from '../config/paths.js';
 import { attachLiveRunSnapshot, isLiveRunSnapshotEnabled } from './live-snapshot/writer.js';
 import { runRepoSearch } from './engine.js';
-import { buildAgentSystemPrompt, buildTaskSystemPrompt } from './prompts.js';
+
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
@@ -39,14 +39,12 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
-import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
+import { resolveRunSystemPrompt, type RunSystemPromptRequest } from './run-system-prompt.js';
 import { contextWarningEvent } from '../lib/operation-stream.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import { normalizeRepoSearchTaskKind } from './task-kind.js';
-import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
 import { EXPOSED_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.js';
-import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -385,11 +383,22 @@ export async function executeRepoSearchRequest(
       modelPresetId: request.modelPresetId,
     });
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
-    const webToolPolicy = resolveWebToolPolicy(config.WebSearch, request.webToolsEnabled);
-    const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
-      applyWebToolPolicy(request.allowedTools ?? [...EXPOSED_REPO_TOOL_NAMES], webToolPolicy),
-      activeVisionPreset.VisionEnabled === true,
-    );
+    const runPromptBase = {
+      promptPrefix: preset.promptPrefix,
+      additionalPromptPrefix: request.additionalPromptPrefix,
+      systemContext,
+      allowedTools: request.allowedTools ?? [...EXPOSED_REPO_TOOL_NAMES],
+      webSearch: config.WebSearch,
+      webToolsEnabled: request.webToolsEnabled,
+      visionEnabled: activeVisionPreset.VisionEnabled === true,
+    };
+    const runPromptRequest: RunSystemPromptRequest = taskKind === 'chat'
+      ? { ...runPromptBase, promptKind: 'chat', chatSystemPrompt: request.systemPrompt || '' }
+      : { ...runPromptBase, promptKind: isAgent ? 'repo-agent' : 'planner' };
+    const {
+      systemPrompt: systemPromptOverride,
+      toolDefinitions: plannerToolDefinitions,
+    } = resolveRunSystemPrompt(runPromptRequest);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
       request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
@@ -397,15 +406,6 @@ export async function executeRepoSearchRequest(
     for (const warningText of systemContext.warnings) {
       progressWriter.write({ ...contextWarningEvent(warningText), elapsedMs: Date.now() - startedAt });
     }
-    const baseSystemPrompt = isAgent
-      ? buildAgentSystemPrompt(systemContext, plannerToolDefinitions)
-      : taskKind === 'chat'
-        ? request.systemPrompt || ''
-        : buildTaskSystemPrompt(systemContext, plannerToolDefinitions);
-    const systemPromptOverride = new PresetSystemPromptComposer(
-      preset.promptPrefix,
-      systemContext,
-    ).compose(baseSystemPrompt, request.additionalPromptPrefix);
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const { scorecard, turnRecords } = await runRepoSearch({
       repoRoot,

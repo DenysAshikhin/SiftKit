@@ -1,4 +1,12 @@
-import type { PresetKind, SiftPreset } from '../presets.js';
+import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
+
+import type { SiftConfig } from '../config/types.js';
+import {
+  normalizeOperationModeAllowedTools,
+  resolvePresetAllowedTools,
+  type PresetKind,
+  type SiftPreset,
+} from '../presets.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 
@@ -47,4 +55,19 @@ export class ChatOperationPresetSelector {
       },
     };
   }
+}
+
+/**
+ * Tool surface a chat-launched plan/repo-search run offers. Web tools are always part of the
+ * surface; the web tool policy reading `webToolsEnabled` decides whether they are actually offered.
+ */
+export function buildChatOperationAllowedTools(
+  config: SiftConfig,
+  preset: SiftPreset,
+): SiftPreset['allowedTools'] {
+  const allowedTools = resolvePresetAllowedTools(
+    preset,
+    normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
+  );
+  return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
 }

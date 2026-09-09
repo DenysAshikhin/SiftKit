@@ -417,6 +417,26 @@ test('chat sessions using the ordinary chat preset keep direct-hook default reso
   assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, undefined);
 });
 
+test('a chat repo-agent run forwards the session web-search toggle to the engine', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-repo-agent-web-toggle-', t, { engineService });
+  const webEnabledSession = await createSession(harness, 'Web on', 'repo-agent');
+  const webDisabledSession = await createSession(harness, 'Web off', 'repo-agent');
+  for (const [sessionId, webSearchEnabled] of [[webEnabledSession, true], [webDisabledSession, false]] as const) {
+    const update = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ webSearchEnabled }),
+    });
+    assert.equal(update.statusCode, 200);
+  }
+
+  assert.equal((await runSimpleRepoAgentChat(harness, webEnabledSession, OPERATION_A)).statusCode, 200);
+  assert.equal((await runSimpleRepoAgentChat(harness, webDisabledSession, OPERATION_B)).statusCode, 200);
+
+  const agentRequests = engineService.requests.filter((request) => request.taskKind === 'repo-agent');
+  assert.deepEqual(agentRequests.map((request) => request.webToolsEnabled), [true, false]);
+});
+
 test('a repo-agent follow-up receives the preceding repo-agent turn as replayable history', async (t) => {
   const engineService = new CapturingEngineService();
   const harness = await startHarness('siftkit-chat-repo-agent-follow-up-', t, { engineService });
