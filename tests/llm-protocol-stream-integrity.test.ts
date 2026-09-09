@@ -156,7 +156,7 @@ test('an error frame surfaces the server message instead of a missing-sentinel e
       allowedToolNames: [],
       logger,
     }),
-    (error: unknown) => {
+    (error) => {
       assert.ok(error instanceof ProviderStreamErrorFrameError);
       assert.match(error.message, /Chat completion aborted\. Please check the server console\./u);
       assert.doesNotMatch(error.message, /\[DONE\] sentinel/u);
@@ -194,7 +194,7 @@ test('a context_length_exceeded frame throws ProviderContextLengthError', async 
       maxTokens: 64,
       allowedToolNames: [],
     }),
-    (error: unknown) => {
+    (error) => {
       assert.ok(error instanceof ProviderContextLengthError);
       assert.match(error.message, /rejected the prompt as too long/u);
       assert.match(error.message, /exceeds the context window/u);
@@ -218,7 +218,7 @@ test('an error frame arriving after content deltas still throws', async () => {
       maxTokens: 64,
       allowedToolNames: [],
     }),
-    (error: unknown) => {
+    (error) => {
       assert.ok(error instanceof ProviderStreamErrorFrameError);
       assert.match(error.message, /generator died mid-stream/u);
       return true;
