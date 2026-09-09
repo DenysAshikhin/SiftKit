@@ -20,7 +20,13 @@ import {
 } from '../lib/provider-helpers.js';
 import { buildClosedThinkBlock } from './think-markers.js';
 import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-deadline.js';
-import { ProviderStreamDegenerateError, ProviderStreamDeadlineError, type ProviderStreamDegenerateReason } from './stream-errors.js';
+import {
+  buildStreamErrorFrameError,
+  ProviderStreamDegenerateError,
+  ProviderStreamDeadlineError,
+  type ProviderStreamDegenerateReason,
+} from './stream-errors.js';
+import { readStreamErrorFrame } from './stream-error-frame.js';
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
 import {
@@ -408,6 +414,19 @@ export class InferenceClient {
             rawFrame: frame.data.slice(0, INVALID_FRAME_LOG_CHARS),
           });
           continue;
+        }
+        // A fatal error frame terminates the stream, so it must be recognised
+        // before the packet can be misread as a usage or delta frame.
+        const errorFrame = readStreamErrorFrame(packet);
+        if (errorFrame !== null) {
+          options.logger?.write({
+            kind: 'provider_stream_error_frame',
+            url,
+            frameIndex: frameCount,
+            serverMessage: errorFrame.message,
+            serverCode: errorFrame.code,
+          });
+          throw buildStreamErrorFrameError(url, errorFrame);
         }
           const promptUsage = getPromptUsageFromResponseBody(packet);
           const completionUsage = getCompletionUsageFromResponseBody(packet);

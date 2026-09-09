@@ -9,7 +9,12 @@ import {
   RecordingLogger,
   buildStreamingTestConfig,
   contentFrame,
+  errorFrame,
 } from './helpers/streaming-client.js';
+import {
+  ProviderContextLengthError,
+  ProviderStreamErrorFrameError,
+} from '../src/llm-protocol/stream-errors.js';
 
 test('malformed stream frames are logged rather than silently skipped', async () => {
   const logger = new RecordingLogger();
@@ -133,4 +138,112 @@ test('retry: false propagates a transient failure without a second attempt', asy
     /HTTP 503/u,
   );
   assert.equal(http.attempts, 1);
+});
+
+test('an error frame surfaces the server message instead of a missing-sentinel error', async () => {
+  const logger = new RecordingLogger();
+  const client = new InferenceClient(new RawFrameHttpClient([
+    errorFrame({ message: 'Chat completion aborted. Please check the server console.', trace: null }),
+  ]));
+
+  await assert.rejects(
+    client.chat({
+      config: buildStreamingTestConfig(),
+      model: 'local',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      maxTokens: 64,
+      allowedToolNames: [],
+      logger,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderStreamErrorFrameError);
+      assert.match(error.message, /Chat completion aborted\. Please check the server console\./u);
+      assert.doesNotMatch(error.message, /\[DONE\] sentinel/u);
+      assert.equal(error.serverCode, null);
+      return true;
+    },
+  );
+
+  const errorFrames = logger.events.filter((event) => event.kind === 'provider_stream_error_frame');
+  assert.equal(errorFrames.length, 1);
+  assert.equal(errorFrames[0]?.serverMessage, 'Chat completion aborted. Please check the server console.');
+  assert.equal(errorFrames[0]?.serverCode, null);
+  assert.equal(errorFrames[0]?.frameIndex, 1);
+
+  const degenerate = logger.events.filter((event) => event.kind === 'provider_stream_degenerate');
+  assert.equal(degenerate.length, 0);
+});
+
+test('a context_length_exceeded frame throws ProviderContextLengthError', async () => {
+  const client = new InferenceClient(new RawFrameHttpClient([
+    errorFrame({
+      message: 'Request length 210000 exceeds the context window',
+      type: 'invalid_request_error',
+      param: null,
+      code: 'context_length_exceeded',
+    }),
+  ]));
+
+  await assert.rejects(
+    client.chat({
+      config: buildStreamingTestConfig(),
+      model: 'local',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      maxTokens: 64,
+      allowedToolNames: [],
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderContextLengthError);
+      assert.match(error.message, /rejected the prompt as too long/u);
+      assert.match(error.message, /exceeds the context window/u);
+      return true;
+    },
+  );
+});
+
+test('an error frame arriving after content deltas still throws', async () => {
+  const client = new InferenceClient(new RawFrameHttpClient([
+    contentFrame('partial answer'),
+    errorFrame({ message: 'generator died mid-stream' }),
+  ]));
+
+  await assert.rejects(
+    client.chat({
+      config: buildStreamingTestConfig(),
+      model: 'local',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      maxTokens: 64,
+      allowedToolNames: [],
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderStreamErrorFrameError);
+      assert.match(error.message, /generator died mid-stream/u);
+      return true;
+    },
+  );
+});
+
+test('a clean stream with no error key is unaffected by error-frame detection', async () => {
+  const logger = new RecordingLogger();
+  const client = new InferenceClient(new RawFrameHttpClient([
+    contentFrame('all'),
+    contentFrame(' good'),
+    '[DONE]',
+  ]));
+
+  const response = await client.chat({
+    config: buildStreamingTestConfig(),
+    model: 'local',
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+    logger,
+  });
+
+  assert.equal(response.text, 'all good');
+  assert.equal(logger.events.filter((event) => event.kind === 'provider_stream_error_frame').length, 0);
 });
