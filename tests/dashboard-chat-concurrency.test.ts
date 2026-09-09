@@ -175,8 +175,12 @@ test('a stream request that loses its client while queued still completes its tu
     aborter.abort();
     await queued;
     // The lease survives the socket: the observable proof the turn was not cancelled with its client.
-    const status = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/operation`);
-    assert.equal(status.statusCode, 200);
+    const active = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/operations`);
+    assert.equal(active.statusCode, 200);
+    assert.equal(
+      asObjectArray(active.body.operations).some((operation) => operation.sessionId === sessionB),
+      true,
+    );
     harness.releaseChatResponse('answer-a');
     await streamA;
     harness.releaseChatResponse('answer-b');

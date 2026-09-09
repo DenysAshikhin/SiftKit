@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
-import { asObject, asObjectArray, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
+import { asObject, asObjectArray, requestJson, requestSse, type Dict, type SseResponse } from './helpers/dashboard-http.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
@@ -23,6 +23,13 @@ function readDoneAssistantContent(response: SseResponse): string {
     throw new Error('Expected persisted assistant content.');
   }
   return assistant.content;
+}
+
+/** The lease listing every client reads; the only surface that reports what is running. */
+async function readActiveOperations(baseUrl: string): Promise<Dict[]> {
+  const response = await requestJson(`${baseUrl}/dashboard/chat/operations`);
+  assert.equal(response.statusCode, 200);
+  return asObjectArray(response.body.operations);
 }
 
 async function createSession(harness: StreamedOperationHarness, title: string): Promise<string> {
@@ -74,17 +81,17 @@ test('POST stop rejects malformed ownership before checking active state', async
   assert.equal(noActive.statusCode, 409);
 });
 
-test('another client cannot stop an operation and status never exposes its ownership id', async () => {
+test('another client cannot stop an operation it did not start', async () => {
   const harness = new DashboardModelQueueHarness('siftkit-chat-stop-owner-', { parallelSlots: 1 });
   await harness.start();
   try {
     const sessionId = await harness.createChatSession('Owned', 'model-a');
     const stream = harness.startChatStream(sessionId, 'owned request', OPERATION_A);
     await harness.waitForActiveRequests('dashboard_chat_stream', 1);
-    const status = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/operation`);
-    assert.equal(status.statusCode, 200);
-    assert.equal(status.body.operationKind, 'message');
-    assert.equal('operationId' in status.body, false);
+    assert.deepEqual(
+      (await readActiveOperations(harness.getBaseUrl())).map((operation) => [operation.sessionId, operation.operationKind]),
+      [[sessionId, 'message']],
+    );
 
     const rejected = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
       method: 'POST', body: JSON.stringify({ operationId: OPERATION_B }),
@@ -92,8 +99,7 @@ test('another client cannot stop an operation and status never exposes its owner
     assert.equal(rejected.statusCode, 409);
     harness.releaseChatResponse('still running');
     assert.equal(readDoneAssistantContent(await stream), 'still running');
-    const released = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/operation`);
-    assert.equal(released.statusCode, 404);
+    assert.deepEqual(await readActiveOperations(harness.getBaseUrl()), []);
   } finally {
     await harness.close();
   }

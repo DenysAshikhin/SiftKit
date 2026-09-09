@@ -5,11 +5,13 @@ import {
   ChatOperationAttachedEventSchema,
   ChatStreamApprovalStateSchema,
   type ChatStreamApproval,
+  type ChatStreamEventName,
 } from '@siftkit/contracts';
 
 import type { JsonSerializable } from '../../lib/json-types.js';
 import type { ChatOperationFrame, ChatOperationReplay } from '../chat-operation-broadcast.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import { toChatStreamApproval } from '../chat-repo-agent-types.js';
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { sendJson } from '../http-utils.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
@@ -17,9 +19,9 @@ import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 
 /** Approval history is replaced by live state on attach, so a decided card is never resurrected. */
-const REPLAY_SUPPRESSED_EVENTS = new Set(['approval', 'approval_resolved']);
+const REPLAY_SUPPRESSED_EVENTS: ReadonlySet<ChatStreamEventName> = new Set(['approval', 'approval_resolved']);
 
-function toFrame(event: string, payload: JsonSerializable): ChatOperationFrame {
+function toFrame(event: ChatStreamEventName, payload: JsonSerializable): ChatOperationFrame {
   return { event, data: JSON.stringify(payload) };
 }
 
@@ -58,13 +60,7 @@ export function readPendingChatApproval(
   if (state.status !== 'approval_required') {
     return null;
   }
-  return {
-    runId: binding.runId,
-    approvalId: state.approval.approvalId,
-    toolName: state.approval.toolName,
-    command: state.approval.command,
-    reviewPayload: state.approval.reviewPayload ?? null,
-  };
+  return toChatStreamApproval(binding.runId, state.approval);
 }
 
 export class GetChatOperationStreamEndpoint implements RouteEndpoint {

@@ -9,7 +9,9 @@ import {
   ApprovalModeSchema,
   ChatRepoAgentApprovalModeRequestSchema,
   ChatRepoAgentApprovalModeResponseSchema,
+  ActiveChatRepoAgentResponseSchema,
   ChatRepoAgentDecideResponseSchema,
+  ChatStreamApprovalResolvedSchema,
   type RepoAgentDecision,
 } from '@siftkit/contracts';
 import {
@@ -39,7 +41,11 @@ import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import { getRuntimeRoot } from '../paths.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
-import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../chat-repo-agent-types.js';
+import {
+  toChatStreamApproval,
+  type ChatRepoAgentDecisionRecord,
+  type ChatRepoAgentRunBinding,
+} from '../chat-repo-agent-types.js';
 import type { RepoAgentSession } from '../repo-agent-sessions.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
@@ -134,6 +140,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     const presetMaxTurns = request.value.maxTurns === undefined
       ? resolveRepoAgentPresetMaxTurns(effectiveConfig, activeSession.presetId)
       : undefined;
+    const stream = requireChatOperationBroadcast(ctx, request);
     const started = startRepoAgentRun(ctx, {
       prompt: request.value.content,
       repoRoot: request.value.repoRoot,
@@ -154,7 +161,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     }
     const binding: ChatRepoAgentRunBinding = { runId: started.runId, decisions: [] };
     ctx.chatRepoAgentRuns.set(request.sessionId, binding);
-    const stream = requireChatOperationBroadcast(ctx, request);
     stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
     const sse = new SseResponseWriter(req, res);
     sse.open();
@@ -164,13 +170,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       wantsLiveText: true,
       writeProgress: (event) => {
         if (event.kind === 'approval_request') {
-          stream.writeEvent('approval', {
-            runId: started.runId,
-            approvalId: event.approvalId,
-            toolName: event.toolName,
-            command: event.command,
-            reviewPayload: event.reviewPayload ?? null,
-          });
+          stream.writeEvent('approval', toChatStreamApproval(started.runId, event));
           return;
         }
         if (event.kind === 'lock_wait') {
@@ -251,17 +251,11 @@ function broadcastApprovalResolved(
   if (!broadcast) {
     return;
   }
-  broadcast.writeEvent('approval_resolved', {
-    approval: {
-      runId,
-      approvalId: approval.approvalId,
-      toolName: approval.toolName,
-      command: approval.command,
-      reviewPayload: approval.reviewPayload ?? null,
-    },
+  broadcast.writeEvent('approval_resolved', ChatStreamApprovalResolvedSchema.parse({
+    approval: toChatStreamApproval(runId, approval),
     decision,
     decidedAtUtc,
-  });
+  }));
 }
 
 export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
@@ -361,22 +355,15 @@ export class GetChatRepoAgentActiveEndpoint implements RouteEndpoint {
       return;
     }
     const state = session.getState();
-    if (state.status === 'running') {
-      sendJson(res, 200, { runId: binding.runId, status: state.status, approvalMode: session.getApprovalMode() });
-      return;
-    }
-    if (state.status === 'approval_required') {
-      sendJson(res, 200, {
-        runId: binding.runId,
-        status: state.status,
-        approvalMode: session.getApprovalMode(),
-        approval: {
-          approvalId: state.approval.approvalId,
-          toolName: state.approval.toolName,
-          command: state.approval.command,
-          reviewPayload: state.approval.reviewPayload ?? null,
-        },
-      });
+    if (state.status === 'running' || state.status === 'approval_required') {
+      sendJson(res, 200, ActiveChatRepoAgentResponseSchema.parse(state.status === 'running'
+        ? { runId: binding.runId, status: state.status, approvalMode: session.getApprovalMode() }
+        : {
+            runId: binding.runId,
+            status: state.status,
+            approvalMode: session.getApprovalMode(),
+            approval: state.approval,
+          }));
       return;
     }
     sendJson(res, 404, { error: 'No active repo-agent run for this session.' });

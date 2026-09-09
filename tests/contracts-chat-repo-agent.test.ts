@@ -7,7 +7,6 @@ import {
   RepoAgentDecisionSchema,
   ChatRepoAgentStreamRequestSchema,
   ActiveChatRepoAgentResponseSchema,
-  ChatOperationStatusResponseSchema,
   StopChatOperationRequestSchema,
   StopChatOperationResponseSchema,
   PersistedChatTranscriptMessageSchema,
@@ -96,7 +95,7 @@ test('active repo-agent responses expose only actionable nonterminal states', ()
   }));
 });
 
-test('operation status and Stop contracts validate ownership without exposing it in status', () => {
+test('Stop contracts validate the operation id they carry', () => {
   assert.deepEqual(StopChatOperationRequestSchema.parse({ operationId: OPERATION_ID }), {
     operationId: OPERATION_ID,
   });
@@ -104,11 +103,6 @@ test('operation status and Stop contracts validate ownership without exposing it
     ok: true,
     operationKind: 'repo-search',
   });
-  const status = ChatOperationStatusResponseSchema.parse({
-    operationKind: 'repo-agent',
-    startedAtUtc: '2026-08-31T12:00:00.000Z',
-  });
-  assert.equal('operationId' in status, false);
 });
 
 test('approval mode is one shared enum', () => {

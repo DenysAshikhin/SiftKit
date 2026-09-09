@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   assessImageVramHeadroom,
@@ -82,9 +82,13 @@ export function useChatSessions(deps: {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
   const [runtimeStore, setRuntimeStore] = useState<ChatSessionRuntimeStore>(new ChatSessionRuntimeStore());
-  // Bumped when this client learns another client owns the selected session, so the attach effect
-  // re-runs without depending on the activity it is about to change.
-  const [attachEpoch, setAttachEpoch] = useState(0);
+  // The sessions whose stream this client is draining itself. A ref, not state: it is a fact about
+  // in-flight work, read at the instant the attach effect runs, and no render displays it. The
+  // effect must not read activity instead — it writes activity, so that guard would be circular.
+  const ownedStreamSessionIds = useRef<Set<string>>(new Set());
+  // Bumped when a submitted turn is rejected because the session is already running elsewhere.
+  // Nothing else tells the attach effect that a run it should follow now exists.
+  const [remoteRunGeneration, setRemoteRunGeneration] = useState(0);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
 
   function recordSessionError(sessionId: string, error: Error): void {
@@ -125,8 +129,11 @@ export function useChatSessions(deps: {
         });
         if (!selectedSessionId) {
           // Prefer a session that is actually running: a run in flight never touches updatedAtUtc,
-          // so the busy session is usually not the first one the listing returns.
-          const firstId = active.operations[0]?.sessionId || pickFirstSessionId(response.sessions);
+          // so the busy session is usually not the first one the listing returns. The listing has
+          // no order of its own, so the longest-running operation decides.
+          const oldestRunning = [...active.operations]
+            .sort((left, right) => left.startedAtUtc.localeCompare(right.startedAtUtc))[0];
+          const firstId = oldestRunning?.sessionId || pickFirstSessionId(response.sessions);
           if (firstId) {
             setSelectedSessionId(firstId);
           }
@@ -186,20 +193,16 @@ export function useChatSessions(deps: {
   const selectedLoaded = selectedSession !== null;
 
   useEffect(() => {
-    if (!selectedSessionId || !selectedLoaded) {
-      return;
-    }
-    // Ownership is read once, from the render this effect ran in. The effect must not depend on
-    // the activity itself: its own first transition makes the session local, and re-running on
-    // that would cancel the stream it just opened.
-    if (runtimeStore.get(selectedSessionId).activity.kind === 'local') {
+    // A turn this client started already renders its own frames; latching on again would double
+    // every one of them.
+    if (!selectedSessionId || selectedSession === null || ownedStreamSessionIds.current.has(selectedSessionId)) {
       return;
     }
     const sessionId = selectedSessionId;
-    // Optional chaining only because the boolean gate above does not narrow the object for TS.
-    const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
+    const thinkingEnabled = selectedSession.thinkingEnabled !== false;
     const controller = new AbortController();
     let cancelled = false;
+    let attached = false;
     const refreshSession = async (): Promise<void> => {
       const response = await getChatSession(sessionId);
       if (cancelled) {
@@ -221,6 +224,9 @@ export function useChatSessions(deps: {
             return;
           }
           setRuntimeStore((previous) => previous.apply(transition));
+          if (transition.kind === 'attach') {
+            attached = true;
+          }
           if (transition.kind === 'done') {
             setSessions((previous) => upsertSession(previous, transition.response.session));
           }
@@ -228,6 +234,7 @@ export function useChatSessions(deps: {
             await refreshSession();
           }
         }
+        attached = false;
       } catch (error) {
         if (cancelled || !(error instanceof ChatOperationIdleError)) {
           return;
@@ -246,8 +253,13 @@ export function useChatSessions(deps: {
     return () => {
       cancelled = true;
       controller.abort();
+      // Aborting mid-stream leaves the session marked as streamed by this client with nothing
+      // behind it. Un-own it, or it reports itself busy forever and no later attach can take it.
+      if (attached) {
+        setRuntimeStore((previous) => previous.apply({ kind: 'detach', sessionId }));
+      }
     };
-  }, [selectedSessionId, selectedLoaded, attachEpoch]);
+  }, [selectedSessionId, selectedLoaded, remoteRunGeneration]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
     setSessions((previous) => upsertSession(previous, response.session));
@@ -460,19 +472,31 @@ export function useChatSessions(deps: {
     stream: AsyncGenerator<ChatStreamEvent>,
   ): Promise<void> {
     const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
-    for await (const transition of toRuntimeTransitions(
-      sessionId,
-      { kind: 'owned', operationKind, operationId },
-      stream,
-      thinkingEnabled,
-    )) {
-      setRuntimeStore((previous) => previous.apply(transition));
-      if (transition.kind === 'done') {
-        setSessions((previous) => upsertSession(previous, transition.response.session));
+    // Held for the whole turn, so the attach effect leaves this session to the frames rendered here.
+    ownedStreamSessionIds.current.add(sessionId);
+    let ownedElsewhere = false;
+    try {
+      for await (const transition of toRuntimeTransitions(
+        sessionId,
+        { kind: 'owned', operationKind, operationId },
+        stream,
+        thinkingEnabled,
+      )) {
+        setRuntimeStore((previous) => previous.apply(transition));
+        if (transition.kind === 'done') {
+          setSessions((previous) => upsertSession(previous, transition.response.session));
+        }
+        if (transition.kind === 'remote-begin') {
+          ownedElsewhere = true;
+        }
       }
-      if (transition.kind === 'remote-begin') {
+    } finally {
+      // Released before the re-arm, so the attach effect cannot run while this session still
+      // looks owned and skip the very run it was woken for.
+      ownedStreamSessionIds.current.delete(sessionId);
+      if (ownedElsewhere) {
         // Another client owns this session; latch onto its stream instead of sitting on a 409.
-        setAttachEpoch((epoch) => epoch + 1);
+        setRemoteRunGeneration((generation) => generation + 1);
       }
     }
   }

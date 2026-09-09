@@ -104,6 +104,20 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
   };
 }
 
+/** The live view of a turn, which stops being true the moment a stream stops feeding this session. */
+function clearedLiveTurn(): Pick<
+  ChatSessionRuntime,
+  'liveMessages' | 'submittedInput' | 'awaitingResponse' | 'pendingApproval' | 'resolvedApproval'
+> {
+  return {
+    liveMessages: [],
+    submittedInput: null,
+    awaitingResponse: false,
+    pendingApproval: null,
+    resolvedApproval: null,
+  };
+}
+
 function applyTranscriptEvent(
   runtime: ChatSessionRuntime,
   event: ChatTranscriptEvent,
@@ -147,20 +161,16 @@ function applyTransition(
       // and pending images are the user's unsent work and survive.
       return {
         ...runtime,
+        ...clearedLiveTurn(),
         activity: {
           kind: 'local',
           operationKind: transition.operationKind,
           operationId: transition.operationId,
         },
-        liveMessages: [],
         warnings: [],
         error: null,
         liveTokenBase: null,
         streamedCharsSinceBase: 0,
-        submittedInput: null,
-        awaitingResponse: false,
-        pendingApproval: null,
-        resolvedApproval: null,
       };
     // The server's copy of the prompt. Upserting by the shared live id keeps this idempotent for
     // the client that already inserted the bubble on submit.
@@ -173,18 +183,10 @@ function applyTransition(
           buildLiveUserMessage(transition.content, transition.images),
         ),
       };
-    // The operation finished without a stream payload; the caller refetches the session.
+    // This client is no longer reading a stream for the session: the operation ended without a
+    // payload, or the reader was aborted. Either way the live view it built is no longer current.
     case 'detach':
-      return {
-        ...runtime,
-        activity: { kind: 'idle' },
-        liveMessages: [],
-        error: null,
-        submittedInput: null,
-        awaitingResponse: false,
-        pendingApproval: null,
-        resolvedApproval: null,
-      };
+      return { ...runtime, ...clearedLiveTurn(), activity: { kind: 'idle' }, error: null };
     case 'remote-begin':
       return { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } };
     case 'remote-clear':
@@ -228,29 +230,21 @@ function applyTransition(
     case 'done':
       return {
         ...runtime,
+        ...clearedLiveTurn(),
         activity: { kind: 'idle' },
         contextUsage: transition.response.contextUsage,
-        liveMessages: [],
         error: null,
         draft: '',
         pendingImages: [],
-        submittedInput: null,
-        awaitingResponse: false,
-        pendingApproval: null,
-        resolvedApproval: null,
       };
     case 'failure':
       return {
         ...runtime,
+        ...clearedLiveTurn(),
         activity: { kind: 'idle' },
         error: transition.message,
-        liveMessages: [],
         draft: runtime.submittedInput ? runtime.submittedInput.content : runtime.draft,
         pendingImages: runtime.submittedInput ? runtime.submittedInput.images : runtime.pendingImages,
-        submittedInput: null,
-        awaitingResponse: false,
-        pendingApproval: null,
-        resolvedApproval: null,
       };
     case 'control-error':
       return { ...runtime, error: transition.message };

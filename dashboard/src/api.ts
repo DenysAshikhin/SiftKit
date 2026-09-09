@@ -45,6 +45,7 @@ import {
   type WebSearchQuotaResponse,
   InferenceRuntimeDashboardStatusSchema,
   ImageCaptionResponseSchema,
+  isTerminalChatStreamEventName,
   ModelLifecycleResponseSchema,
   type InferenceRuntimeDashboardStatus,
   type ImageCaptionResponse,
@@ -507,17 +508,16 @@ async function buildChatStreamHttpError(response: Response): Promise<never> {
   throw new Error(`Request failed (${response.status}): ${text}`);
 }
 
-/** Frames after which the server closes the stream; a body that ends without one was cut off. */
-function isTerminalChatStreamEvent(event: ChatStreamEvent): boolean {
-  return event.kind === 'done' || event.kind === 'ended';
-}
+/** What a 404 means to the caller: a real failure, or "there is nothing running to latch onto". */
+type ChatStreamNotFound = 'error' | 'idle';
 
 async function* consumeChatStream(
   url: string,
   init: RequestInit,
+  notFound: ChatStreamNotFound,
 ): AsyncGenerator<ChatStreamEvent> {
   const response = await fetch(url, init);
-  if (response.status === 404 && init.method === 'GET') {
+  if (response.status === 404 && notFound === 'idle') {
     throw new ChatOperationIdleError();
   }
   if (!response.ok) {
@@ -532,7 +532,7 @@ async function* consumeChatStream(
     if (event.kind === 'error') {
       throw new Error(event.message);
     }
-    if (isTerminalChatStreamEvent(event)) {
+    if (isTerminalChatStreamEventName(event.kind)) {
       completed = true;
     }
     yield event;
@@ -550,7 +550,7 @@ function postChatStream(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, 'error');
 }
 
 /** Latches onto a run already in flight: replayed frames first, then live ones. */
@@ -561,6 +561,7 @@ export function attachChatOperationStream(
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/operation/stream`,
     { method: 'GET', signal },
+    'idle',
   );
 }
 

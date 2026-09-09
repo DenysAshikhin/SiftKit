@@ -190,6 +190,7 @@ class ChatFetchFixture {
   readonly sentBodies: string[] = [];
   detailRequestCount = 0;
   streamRequestCount = 0;
+  conflictCount = 0;
   stopRequestCount = 0;
   private streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
   private operationStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
@@ -206,6 +207,8 @@ class ChatFetchFixture {
     activeOperations?: ActiveChatOperation[];
     operationStream?: string;
     holdOperationStream?: boolean;
+    /** Rejects the first submitted turn as another client's, the way a live server would. */
+    conflictOperationKind?: ActiveChatOperation['operationKind'];
     decideResponse?: ChatRepoAgentDecideResponse;
     approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
     holdStream?: boolean;
@@ -239,7 +242,11 @@ class ChatFetchFixture {
           : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
       }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/operation/stream`) {
-        const frames = this.options.operationStream;
+        // Until the conflict is served there is nothing to latch onto, so the run this client
+        // ends up attaching to is unambiguously the one that rejected its turn.
+        const frames = this.options.conflictOperationKind && this.conflictCount === 0
+          ? undefined
+          : this.options.operationStream;
         if (frames === undefined) {
           return new Response(JSON.stringify({ error: 'No active operation for this session.' }), { status: 404 });
         }
@@ -263,6 +270,15 @@ class ChatFetchFixture {
         || url === `${streamUrl}/repo-search/stream`
       )) {
         this.streamRequestCount += 1;
+        const conflictOperationKind = this.options.conflictOperationKind;
+        if (conflictOperationKind) {
+          this.conflictCount += 1;
+          return new Response(JSON.stringify({
+            error: 'Chat session already has an active operation.',
+            sessionId: requestedSession.id,
+            operationKind: conflictOperationKind,
+          }), { status: 409 });
+        }
         if (this.options.holdStream) {
           return new Response(new ReadableStream<Uint8Array>({
             start: (controller) => { this.streamController = controller; },
@@ -535,7 +551,47 @@ test('a session with a run in flight latches onto the live stream on mount', asy
       assert.equal(runtime.liveMessages.some((message) => message.content.includes('resumed')), true);
     });
     assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation/stream'), true);
-    assert.equal(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1/operation'), false);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('switching away from an attached run releases it and switching back latches on again', async () => {
+  const secondSession = { ...SESSION, id: 's2', title: 'Second session' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, secondSession],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    operationStream: ATTACHED_FRAME + PENDING_APPROVAL_STATE_FRAME,
+    holdOperationStream: true,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => {
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'local');
+    });
+    act(() => { hook.result.current.selectSession('s2'); });
+    // The aborted attach must un-own s1, or it stays pinned as streaming with no stream behind it.
+    await waitFor(() => {
+      assert.equal(hook.result.current.selectedSession?.id, 's2');
+      assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle');
+    });
+    act(() => { hook.result.current.selectSession('s1'); });
+    await waitFor(() => {
+      assert.deepEqual(hook.result.current.runtimeStore.get('s1').activity, {
+        kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
+      });
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
+    });
+    assert.equal(
+      fixture.requestedUrls.filter((url) => url === '/dashboard/chat/sessions/s1/operation/stream').length,
+      2,
+    );
   } finally {
     fixture.restore();
   }
@@ -976,6 +1032,36 @@ test('changing the approval mode while this client owns a repo-agent run syncs i
     assert.equal(fixture.requestedUrls.filter((url) => url.endsWith('/repo-agent/approval-mode')).length, 1);
     fixture.finishHeldStream();
     await act(async () => { await run; });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a turn rejected because another client owns the session latches onto that run', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    conflictOperationKind: 'repo-agent',
+    operationStream: ATTACHED_FRAME + PENDING_APPROVAL_STATE_FRAME,
+    holdOperationStream: true,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').activity.kind, 'idle'); });
+    act(() => { hook.result.current.setSessionDraft('s1', 'my turn'); });
+    await act(async () => { await hook.result.current.sendMessage(); });
+    await waitFor(() => {
+      assert.deepEqual(hook.result.current.runtimeStore.get('s1').activity, {
+        kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
+      });
+      assert.equal(hook.result.current.runtimeStore.get('s1').pendingApproval?.approvalId, APPROVAL_ID);
+    });
+    assert.equal(fixture.conflictCount, 1);
   } finally {
     fixture.restore();
   }

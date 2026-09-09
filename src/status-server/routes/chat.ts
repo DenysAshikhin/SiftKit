@@ -113,7 +113,7 @@ import {
   ensureActivePresetReadyForModelRequest,
 } from '../server-ops.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
-import type { ServerContext } from '../server-types.js';
+import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import { ProgressWriter } from '../../lib/progress-writer.js';
 import {
   ChatSessionOperationEndpoint,
@@ -513,6 +513,8 @@ function registerChatAbort<T>(
   }
 }
 
+const CHAT_STREAM_NOT_ADMITTED_ERROR = 'The turn was not admitted before the model queue wait ended.';
+
 export function requireChatOperationBroadcast<T>(
   ctx: ServerContext,
   request: ChatSessionOperationRequest<T>,
@@ -522,6 +524,59 @@ export function requireChatOperationBroadcast<T>(
     throw new Error(`Chat session ${request.sessionId} has no active operation broadcast.`);
   }
   return broadcast;
+}
+
+/** Everything a streaming chat endpoint needs before it can run its body. */
+type OpenedChatOperationStream = {
+  stream: ChatOperationBroadcast;
+  sseWriter: SseResponseWriter;
+  modelRequestLock: ModelRequestLock;
+  activeSession: ChatSession;
+};
+
+/**
+ * The shared head of every streaming chat endpoint: buffer the prompt, take the model lock without
+ * letting a closed socket cancel a queued turn, reload the session, warm the preset, and open the
+ * SSE response. Every early exit reports on both channels, because a reader attached to the
+ * broadcast never sees the HTTP status and the caller never sees the frames.
+ */
+async function openChatOperationStream<TParsed extends { content: string; images: string[] }>(
+  ctx: ServerContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  request: ChatSessionOperationRequest<TParsed>,
+  lockKind: string,
+): Promise<OpenedChatOperationStream | null> {
+  const stream = requireChatOperationBroadcast(ctx, request);
+  // Buffered before the queue wait, so a client that attaches while this turn is still queued
+  // already sees the prompt that started it.
+  stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
+  const fail = (status: number, error: string): null => {
+    stream.writeEvent('error', { error });
+    sendJson(res, status, { error });
+    return null;
+  };
+  // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
+  // socket must not cancel a turn that is only waiting for the model lock.
+  const modelRequestLock = await acquireModelRequestWithWait(ctx, lockKind, undefined, undefined);
+  if (!modelRequestLock) {
+    return fail(503, CHAT_STREAM_NOT_ADMITTED_ERROR);
+  }
+  const activeSession = readChatSessionFromPath(request.sessionPath);
+  if (!activeSession) {
+    releaseModelRequest(ctx, modelRequestLock.token);
+    return fail(404, 'Session not found.');
+  }
+  try {
+    await ensureActivePresetReadyForModelRequest(ctx);
+  } catch (error) {
+    releaseModelRequest(ctx, modelRequestLock.token);
+    return fail(503, error instanceof Error ? error.message : String(error));
+  }
+  const sseWriter = new SseResponseWriter(req, res);
+  sseWriter.open();
+  stream.attach(new ChatOperationSseSubscriber(sseWriter));
+  return { stream, sseWriter, modelRequestLock, activeSession };
 }
 
 function finishStoppedChatStream(options: {
@@ -1130,37 +1185,11 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const messageRequest = request.value;
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
-    const stream = requireChatOperationBroadcast(ctx, request);
-    // Buffered before the queue wait, so a client that attaches while this turn is still queued
-    // already sees the prompt that started it.
-    stream.writeEvent('submitted', { content: messageRequest.content, images: messageRequest.images });
-    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
-    // socket must not cancel a turn that is only waiting for the model lock.
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', undefined, undefined);
-    if (!modelRequestLock) {
-      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
-      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
+    const opened = await openChatOperationStream(ctx, req, res, request, 'dashboard_chat_stream');
+    if (!opened) {
       return;
     }
-    const activeSession = readChatSessionFromPath(request.sessionPath);
-    if (!activeSession) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      stream.writeEvent('error', { error: 'Session not found.' });
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    try {
-      await ensureActivePresetReadyForModelRequest(ctx);
-    } catch (error) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      const message = error instanceof Error ? error.message : String(error);
-      stream.writeEvent('error', { error: message });
-      sendJson(res, 503, { error: message });
-      return;
-    }
-    const sseWriter = new SseResponseWriter(req, res);
-    sseWriter.open();
-    stream.attach(new ChatOperationSseSubscriber(sseWriter));
+    const { stream, sseWriter, modelRequestLock, activeSession } = opened;
     const userContent = messageRequest.content;
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1382,37 +1411,11 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     const runtimeRoot = getRuntimeRoot();
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
-    const stream = requireChatOperationBroadcast(ctx, request);
-    // Buffered before the queue wait, so a client that attaches while this turn is still queued
-    // already sees the prompt that started it.
-    stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
-    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
-    // socket must not cancel a turn that is only waiting for the model lock.
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', undefined, undefined);
-    if (!modelRequestLock) {
-      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
-      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
+    const opened = await openChatOperationStream(ctx, req, res, request, 'dashboard_plan_stream');
+    if (!opened) {
       return;
     }
-    const activeSession = readChatSessionFromPath(request.sessionPath);
-    if (!activeSession) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      stream.writeEvent('error', { error: 'Session not found.' });
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    try {
-      await ensureActivePresetReadyForModelRequest(ctx);
-    } catch (error) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      const message = error instanceof Error ? error.message : String(error);
-      stream.writeEvent('error', { error: message });
-      sendJson(res, 503, { error: message });
-      return;
-    }
-    const sseWriter = new SseResponseWriter(req, res);
-    sseWriter.open();
-    stream.attach(new ChatOperationSseSubscriber(sseWriter));
+    const { stream, sseWriter, modelRequestLock, activeSession } = opened;
     const engineRequestId = randomUUID();
     const progressWriter = new ChatStreamProgressWriter(stream, null, 'plan', engineRequestId, false);
     try {
@@ -1548,37 +1551,11 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     const runtimeRoot = getRuntimeRoot();
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
-    const stream = requireChatOperationBroadcast(ctx, request);
-    // Buffered before the queue wait, so a client that attaches while this turn is still queued
-    // already sees the prompt that started it.
-    stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
-    // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
-    // socket must not cancel a turn that is only waiting for the model lock.
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', undefined, undefined);
-    if (!modelRequestLock) {
-      stream.writeEvent('error', { error: 'The turn was not admitted before the model queue wait ended.' });
-      sendJson(res, 503, { error: 'The turn was not admitted before the model queue wait ended.' });
+    const opened = await openChatOperationStream(ctx, req, res, request, 'dashboard_repo_search_stream');
+    if (!opened) {
       return;
     }
-    const activeSession = readChatSessionFromPath(request.sessionPath);
-    if (!activeSession) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      stream.writeEvent('error', { error: 'Session not found.' });
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    try {
-      await ensureActivePresetReadyForModelRequest(ctx);
-    } catch (error) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      const message = error instanceof Error ? error.message : String(error);
-      stream.writeEvent('error', { error: message });
-      sendJson(res, 503, { error: message });
-      return;
-    }
-    const sseWriter = new SseResponseWriter(req, res);
-    sseWriter.open();
-    stream.attach(new ChatOperationSseSubscriber(sseWriter));
+    const { stream, sseWriter, modelRequestLock, activeSession } = opened;
     const engineRequestId = randomUUID();
     const progressWriter = new ChatStreamProgressWriter(stream, null, 'rs', engineRequestId, false);
     try {
@@ -1671,26 +1648,6 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
   }
 }
 
-export class GetChatOperationEndpoint implements RouteEndpoint {
-  handle(
-    ctx: ServerContext,
-    _req: IncomingMessage,
-    res: ServerResponse,
-    match: RouteMatch,
-  ): void {
-    const sessionId = decodeURIComponent(match.captures[0] ?? '');
-    const active = ctx.chatSessionOperations.getActive(sessionId);
-    if (!active) {
-      sendJson(res, 404, { error: 'No active operation for this session.' });
-      return;
-    }
-    sendJson(res, 200, {
-      operationKind: active.operationKind,
-      startedAtUtc: new Date(active.startedAtMs).toISOString(),
-    });
-  }
-}
-
 export class StopChatOperationEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -1745,7 +1702,6 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/decide$/u, endpoint: new ChatRepoAgentDecideEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/approval-mode$/u, endpoint: new ChatRepoAgentApprovalModeEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
-  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation$/u, endpoint: new GetChatOperationEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/operations$/u, endpoint: new GetActiveChatOperationsEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/operation\/stream$/u, endpoint: new GetChatOperationStreamEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/stop$/u, endpoint: new StopChatOperationEndpoint() },

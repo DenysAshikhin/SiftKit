@@ -1,8 +1,13 @@
+import {
+  isTerminalChatStreamEventName,
+  type ChatStreamEventName,
+} from '@siftkit/contracts';
+
 import type { JsonSerializable } from '../lib/json-types.js';
 
 /** One already-serialized SSE frame. Replaying the stored `data` reproduces the live bytes exactly. */
 export type ChatOperationFrame = {
-  event: string;
+  event: ChatStreamEventName;
   data: string;
 };
 
@@ -24,13 +29,6 @@ export interface ChatOperationSubscriber {
 export const CHAT_OPERATION_REPLAY_MAX_BYTES = 8 * 1024 * 1024;
 
 /**
- * Frames that end a chat stream. `done` carries the finished session, `error` a failure, and `ended`
- * says the operation finished without a stream payload (a condense, or a turn that exited before it
- * opened its stream) so the reader should refetch the session instead of reporting a broken stream.
- */
-export const CHAT_STREAM_TERMINAL_EVENTS = new Set(['done', 'error', 'ended']);
-
-/**
  * Retains one operation's SSE frames in order and fans them out to every attached reader, so the
  * client that started the run and a client that reconnects later see the same stream.
  */
@@ -44,14 +42,14 @@ export class ChatOperationBroadcast {
 
   constructor(private readonly maxBufferedBytes: number = CHAT_OPERATION_REPLAY_MAX_BYTES) {}
 
-  writeEvent(event: string, payload: JsonSerializable): void {
+  writeEvent(event: ChatStreamEventName, payload: JsonSerializable): void {
     if (this.closed) {
       return;
     }
     const frame: ChatOperationFrame = { event, data: JSON.stringify(payload) };
     this.frames.push(frame);
     this.bufferedBytes += frame.data.length;
-    if (CHAT_STREAM_TERMINAL_EVENTS.has(event)) {
+    if (isTerminalChatStreamEventName(event)) {
       this.terminal = true;
     }
     this.trim();

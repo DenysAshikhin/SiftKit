@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChatStreamTextDeltaSchema } from '@siftkit/contracts';
+import { CHAT_STREAM_TERMINAL_EVENT_NAMES, ChatStreamTextDeltaSchema } from '@siftkit/contracts';
 
 import {
   ChatOperationBroadcast,
@@ -82,8 +82,9 @@ test('attaching to a closed broadcast replays the buffer and closes immediately'
   assert.equal(subscriber.closedCount, 1);
 });
 
-test('done, error, and ended are remembered as terminal frames', () => {
-  for (const event of ['done', 'error', 'ended']) {
+test('every terminal frame name in the contract is remembered as terminal', () => {
+  assert.deepEqual([...CHAT_STREAM_TERMINAL_EVENT_NAMES], ['done', 'error', 'ended']);
+  for (const event of CHAT_STREAM_TERMINAL_EVENT_NAMES) {
     const broadcast = new ChatOperationBroadcast();
     broadcast.writeEvent('thinking', { turn: 0, offset: 0, text: 'a' });
     assert.equal(broadcast.hasTerminalFrame(), false, event);

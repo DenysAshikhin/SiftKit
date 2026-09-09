@@ -286,12 +286,6 @@ export const ChatRepoAgentStreamRequestSchema = z.strictObject({
 });
 export type ChatRepoAgentStreamRequest = z.infer<typeof ChatRepoAgentStreamRequestSchema>;
 
-export const ChatOperationStatusResponseSchema = z.strictObject({
-  operationKind: ChatSessionOperationKindSchema,
-  startedAtUtc: z.string().datetime(),
-});
-export type ChatOperationStatusResponse = z.infer<typeof ChatOperationStatusResponseSchema>;
-
 export const ChatOperationIdSchema = z.string().uuid();
 export type ChatOperationId = z.infer<typeof ChatOperationIdSchema>;
 export const StopChatOperationRequestSchema = z.strictObject({ operationId: ChatOperationIdSchema });
@@ -301,6 +295,49 @@ export const StopChatOperationResponseSchema = z.strictObject({
   operationKind: ChatSessionOperationKindSchema,
 });
 export type StopChatOperationResponse = z.infer<typeof StopChatOperationResponseSchema>;
+
+/** Every SSE frame name a chat stream can carry. The wire contract, so no caller spells one out. */
+export const ChatStreamEventNameSchema = z.enum([
+  'thinking',
+  'narration',
+  'answer',
+  'warning',
+  'tool_start',
+  'tool_result',
+  'progress',
+  'usage',
+  'prompt',
+  'approval',
+  'approval_state',
+  'approval_resolved',
+  'attached',
+  'submitted',
+  'done',
+  'error',
+  'ended',
+]);
+export type ChatStreamEventName = z.infer<typeof ChatStreamEventNameSchema>;
+
+/**
+ * Frames after which the server closes the stream. `done` carries the finished session, `error` a
+ * failure, and `ended` says the operation finished without a stream payload (a condense, or a turn
+ * that exited before it opened its stream) so the reader refetches instead of reporting a break.
+ * A body that ends without one of these was cut off.
+ */
+export const CHAT_STREAM_TERMINAL_EVENT_NAMES = [
+  'done',
+  'error',
+  'ended',
+] as const satisfies readonly ChatStreamEventName[];
+
+const TERMINAL_CHAT_STREAM_EVENT_NAMES: ReadonlySet<ChatStreamEventName> = new Set(
+  CHAT_STREAM_TERMINAL_EVENT_NAMES,
+);
+
+export function isTerminalChatStreamEventName(name: string): boolean {
+  const parsed = ChatStreamEventNameSchema.safeParse(name);
+  return parsed.success && TERMINAL_CHAT_STREAM_EVENT_NAMES.has(parsed.data);
+}
 
 export const ChatStreamTextDeltaSchema = z.object({
   turn: z.number().int().nonnegative(),
