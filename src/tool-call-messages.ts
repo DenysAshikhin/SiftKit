@@ -1,51 +1,10 @@
 import type { JsonObject } from './lib/json-types.js';
+import type { ChatMessage } from './repo-search/planner-chat-message.js';
 
 export type ToolTranscriptAction = {
   toolName: string;
   args: JsonObject;
 };
-
-export type ToolTranscriptMessage = {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | Array<{ type?: string; text?: string }>;
-  reasoning_content?: string | Array<{ type?: string; text?: string }>;
-  tool_calls?: Array<{
-    id?: string;
-    type?: string;
-    function?: {
-      name?: string;
-      arguments?: string;
-    };
-  }>;
-  tool_call_id?: string;
-};
-
-export function buildSingleAssistantToolCallMessage(
-  action: ToolTranscriptAction,
-  toolCallId: string,
-  thinkingText = '',
-): ToolTranscriptMessage {
-  return buildAssistantToolCallMessage([{
-    action,
-    toolCallId,
-    toolContent: '',
-  }], thinkingText);
-}
-
-export function appendToolCallExchange(
-  messages: ToolTranscriptMessage[],
-  action: ToolTranscriptAction,
-  toolCallId: string,
-  toolContent: string,
-  thinkingText = '',
-): void {
-  messages.push(buildSingleAssistantToolCallMessage(action, toolCallId, thinkingText));
-  messages.push({
-    role: 'tool',
-    tool_call_id: toolCallId,
-    content: toolContent,
-  });
-}
 
 export type ToolBatchOutcome = {
   action: ToolTranscriptAction;
@@ -53,23 +12,12 @@ export type ToolBatchOutcome = {
   toolContent: string;
 };
 
-export type AssistantToolCallMessage = {
-  role: 'assistant';
-  content: string;
-  tool_calls: Array<{
-    id: string;
-    type: 'function';
-    function: { name: string; arguments: string };
-  }>;
-  reasoning_content?: string;
-};
-
 /** The assistant message produced by a tool batch, shared by pending and appended transcripts. */
 export function buildAssistantToolCallMessage(
-  outcomes: ToolBatchOutcome[],
+  outcomes: readonly ToolBatchOutcome[],
   thinkingText = '',
   content = '',
-): AssistantToolCallMessage {
+): ChatMessage {
   return {
     role: 'assistant',
     content,
@@ -85,40 +33,57 @@ export function buildAssistantToolCallMessage(
   };
 }
 
-export function appendToolBatchExchange(
-  messages: ToolTranscriptMessage[],
-  outcomes: ToolBatchOutcome[],
+export function buildToolResultMessage(toolCallId: string, content: string): ChatMessage {
+  return { role: 'tool', tool_call_id: toolCallId, content };
+}
+
+/**
+ * The assistant call message plus its ordered results. Builders only: who splices these into a
+ * transcript, and what records that splice, is the caller's business.
+ */
+export function buildToolBatchMessages(
+  outcomes: readonly ToolBatchOutcome[],
   thinkingText = '',
   content = '',
-): void {
+): ChatMessage[] {
   if (outcomes.length === 0) {
-    return;
+    return [];
   }
-  messages.push(buildAssistantToolCallMessage(outcomes, thinkingText, content));
-  for (const { toolCallId, toolContent } of outcomes) {
-    messages.push({
-      role: 'tool',
-      tool_call_id: toolCallId,
-      content: toolContent,
-    });
-  }
+  return [
+    buildAssistantToolCallMessage(outcomes, thinkingText, content),
+    ...outcomes.map(({ toolCallId, toolContent }) => buildToolResultMessage(toolCallId, toolContent)),
+  ];
+}
+
+export function buildToolExchangeMessages(
+  action: ToolTranscriptAction,
+  toolCallId: string,
+  toolContent: string,
+  thinkingText = '',
+): ChatMessage[] {
+  return buildToolBatchMessages([{ action, toolCallId, toolContent }], thinkingText);
+}
+
+/**
+ * Where a trailing single-slot user message belongs: over the one already written at
+ * `existingIndex`, or appended when there is none. One definition, so an array owner and a
+ * splice-recording transcript cannot disagree about which message the countdown replaced.
+ */
+export function resolveTrailingUserSlot(
+  messageCount: number,
+  existingIndex: number,
+): { index: number; deleteCount: number } {
+  return existingIndex >= 0 && existingIndex < messageCount
+    ? { index: existingIndex, deleteCount: 1 }
+    : { index: messageCount, deleteCount: 0 };
 }
 
 export function upsertTrailingUserMessage(
-  messages: ToolTranscriptMessage[],
+  messages: ChatMessage[],
   existingIndex: number,
   content: string,
 ): number {
-  if (existingIndex >= 0 && existingIndex < messages.length) {
-    messages[existingIndex] = {
-      role: 'user',
-      content,
-    };
-    return existingIndex;
-  }
-  messages.push({
-    role: 'user',
-    content,
-  });
-  return messages.length - 1;
+  const slot = resolveTrailingUserSlot(messages.length, existingIndex);
+  messages.splice(slot.index, slot.deleteCount, { role: 'user', content });
+  return slot.index;
 }

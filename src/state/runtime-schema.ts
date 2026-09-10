@@ -34,6 +34,220 @@ export const CHAT_PENDING_MESSAGES_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_chat_pending_messages_session ON chat_pending_messages(session_id, state, sequence);
 `;
 
+/**
+ * Canonical chat display projection. This single definition backs both the fresh bootstrap and the
+ * versioned rebuild in `schema-upgrades/chat-recovery.ts`, so an existing database repaired in place
+ * cannot drift from a database created today. `tool_call_status` is the display lifecycle only; an
+ * in-progress row is legitimately persisted, so `running` is a durable value, not a transient one.
+ */
+export const CHAT_MESSAGES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    input_tokens_estimate INTEGER NOT NULL,
+    output_tokens_estimate INTEGER NOT NULL,
+    thinking_tokens INTEGER NOT NULL,
+    input_tokens_estimated INTEGER NOT NULL CHECK (input_tokens_estimated IN (0, 1)),
+    output_tokens_estimated INTEGER NOT NULL CHECK (output_tokens_estimated IN (0, 1)),
+    thinking_tokens_estimated INTEGER NOT NULL CHECK (thinking_tokens_estimated IN (0, 1)),
+    prompt_cache_tokens INTEGER,
+    prompt_eval_tokens INTEGER,
+    prompt_tokens_per_second REAL,
+    output_tokens_per_second REAL,
+    request_duration_ms INTEGER,
+    prompt_eval_duration_ms INTEGER,
+    generation_duration_ms INTEGER,
+    request_started_at_utc TEXT,
+    thinking_started_at_utc TEXT,
+    thinking_ended_at_utc TEXT,
+    answer_started_at_utc TEXT,
+    answer_ended_at_utc TEXT,
+    speculative_accepted_tokens INTEGER,
+    speculative_generated_tokens INTEGER,
+    thinking_content TEXT,
+    tool_call_command TEXT,
+    tool_call_activity_kind TEXT,
+    tool_call_activity_subject_kind TEXT,
+    tool_call_activity_subject_value TEXT,
+    tool_call_turn INTEGER,
+    tool_call_max_turns INTEGER,
+    tool_call_exit_code INTEGER,
+    tool_call_prompt_token_count INTEGER,
+    tool_call_output_snippet TEXT,
+    tool_call_output TEXT,
+    tool_call_status TEXT CHECK (tool_call_status IN ('running', 'done', 'stopped')),
+    tool_call_execution_state TEXT,
+    approval_decision TEXT,
+    approval_tool_name TEXT,
+    approval_command TEXT,
+    approval_reason TEXT,
+    created_at_utc TEXT NOT NULL,
+    source_run_id TEXT,
+    compressed_into_summary INTEGER NOT NULL CHECK (compressed_into_summary IN (0, 1)),
+    grounding_status TEXT,
+    position INTEGER NOT NULL,
+    images TEXT,
+    image_meta TEXT,
+    removed_image_count INTEGER,
+    PRIMARY KEY (session_id, id)
+  );
+`;
+
+/**
+ * Every column of {@link CHAT_MESSAGES_SCHEMA_SQL} in declaration order. The rebuild copies these
+ * names explicitly, so a column added to the DDL without being added here fails loudly instead of
+ * being silently dropped by a `SELECT *`.
+ */
+export const CHAT_MESSAGES_COLUMNS = [
+  'session_id',
+  'id',
+  'role',
+  'kind',
+  'content',
+  'input_tokens_estimate',
+  'output_tokens_estimate',
+  'thinking_tokens',
+  'input_tokens_estimated',
+  'output_tokens_estimated',
+  'thinking_tokens_estimated',
+  'prompt_cache_tokens',
+  'prompt_eval_tokens',
+  'prompt_tokens_per_second',
+  'output_tokens_per_second',
+  'request_duration_ms',
+  'prompt_eval_duration_ms',
+  'generation_duration_ms',
+  'request_started_at_utc',
+  'thinking_started_at_utc',
+  'thinking_ended_at_utc',
+  'answer_started_at_utc',
+  'answer_ended_at_utc',
+  'speculative_accepted_tokens',
+  'speculative_generated_tokens',
+  'thinking_content',
+  'tool_call_command',
+  'tool_call_activity_kind',
+  'tool_call_activity_subject_kind',
+  'tool_call_activity_subject_value',
+  'tool_call_turn',
+  'tool_call_max_turns',
+  'tool_call_exit_code',
+  'tool_call_prompt_token_count',
+  'tool_call_output_snippet',
+  'tool_call_output',
+  'tool_call_status',
+  'tool_call_execution_state',
+  'approval_decision',
+  'approval_tool_name',
+  'approval_command',
+  'approval_reason',
+  'created_at_utc',
+  'source_run_id',
+  'compressed_into_summary',
+  'grounding_status',
+  'position',
+  'images',
+  'image_meta',
+  'removed_image_count',
+] as const;
+
+/**
+ * Columns this upgrade introduces. A marker-67 table cannot carry them, so the rebuild copies the
+ * rest and leaves these null for rows that predate the journal.
+ */
+export const CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY = ['tool_call_execution_state'] as const;
+
+/**
+ * The durable chat journal. `chat_run_events` is the authority for Web conversation and execution
+ * history; `chat_messages` and the context snapshot are projections of it that can be thrown away
+ * and rebuilt. Shared by the fresh bootstrap and the 67 -> 68 upgrade so the two cannot drift.
+ */
+export const CHAT_JOURNAL_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS chat_runs (
+    operation_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    record_kind TEXT NOT NULL CHECK (record_kind IN ('execution', 'baseline', 'history_revision')),
+    operation_kind TEXT CHECK (operation_kind IN ('message', 'plan', 'repo-search', 'repo-agent', 'condense')),
+    request_id TEXT,
+    repo_agent_session_id TEXT,
+    run_order INTEGER NOT NULL CHECK (run_order >= 1),
+    owner_epoch TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL,
+    terminal_cause TEXT CHECK (terminal_cause IN (
+      'completed', 'user_stop', 'approval_timeout', 'provider_failure',
+      'execution_failure', 'storage_failure', 'server_restart'
+    )),
+    latest_sequence INTEGER NOT NULL DEFAULT 0 CHECK (latest_sequence >= 0),
+    projected_sequence INTEGER NOT NULL DEFAULT 0 CHECK (projected_sequence >= 0),
+    context_revision INTEGER NOT NULL DEFAULT 0 CHECK (context_revision >= 0),
+    effective_settings_json TEXT,
+    provenance_json TEXT,
+    -- Only a real model run has an operation kind and execution settings; a baseline or a user
+    -- edit is a committed record, never a run that can be mistaken for one.
+    CHECK ((record_kind = 'execution') = (operation_kind IS NOT NULL)),
+    CHECK (record_kind = 'execution' OR effective_settings_json IS NULL),
+    UNIQUE (session_id, run_order)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_runs_request
+    ON chat_runs(request_id) WHERE request_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_runs_repo_agent
+    ON chat_runs(repo_agent_session_id) WHERE repo_agent_session_id IS NOT NULL;
+  -- One unfinished execution per session, enforced by the database rather than by whichever
+  -- in-memory registry happens to be alive.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_runs_active
+    ON chat_runs(session_id) WHERE record_kind = 'execution' AND terminal_cause IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_chat_runs_session_order ON chat_runs(session_id, run_order);
+
+  CREATE TABLE IF NOT EXISTS chat_run_events (
+    operation_id TEXT NOT NULL REFERENCES chat_runs(operation_id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    event_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    recorded_at_utc TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    body_json TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    PRIMARY KEY (operation_id, sequence)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_run_events_event_id
+    ON chat_run_events(operation_id, event_id);
+
+  -- A rebuildable cache of replayed planner history. Never an independent authority: it is only
+  -- ever what replaying events up to applied_sequence produces.
+  CREATE TABLE IF NOT EXISTS chat_context_snapshots (
+    operation_id TEXT PRIMARY KEY REFERENCES chat_runs(operation_id) ON DELETE CASCADE,
+    applied_sequence INTEGER NOT NULL CHECK (applied_sequence >= 0),
+    context_revision INTEGER NOT NULL CHECK (context_revision >= 0),
+    messages_json TEXT NOT NULL,
+    recovery_batch_json TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_session_recovery (
+    session_id TEXT PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    baseline_version INTEGER NOT NULL CHECK (baseline_version >= 0),
+    last_reconciled_run_order INTEGER NOT NULL CHECK (last_reconciled_run_order >= 0),
+    status TEXT NOT NULL CHECK (status IN ('ok', 'recovery_needed', 'recovery_failed')),
+    issues_json TEXT NOT NULL,
+    owner_epoch TEXT,
+    updated_at_utc TEXT NOT NULL
+  );
+
+  -- Web runtime ownership. Two servers can bind different ports against the same database, so a
+  -- pid or a port cannot decide who may admit runs; a fenced, leased epoch can.
+  CREATE TABLE IF NOT EXISTS chat_runtime_owner (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    owner_id TEXT NOT NULL,
+    epoch INTEGER NOT NULL CHECK (epoch >= 1),
+    heartbeat_at_utc TEXT NOT NULL,
+    lease_expires_at_utc TEXT NOT NULL
+  );
+`;
+
 function sqlString(value: string): string {
   return value.replaceAll("'", "''");
 }
@@ -137,59 +351,6 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       plan_repo_root TEXT NOT NULL,
       created_at_utc TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-      id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      content TEXT NOT NULL,
-      input_tokens_estimate INTEGER NOT NULL,
-      output_tokens_estimate INTEGER NOT NULL,
-      thinking_tokens INTEGER NOT NULL,
-      input_tokens_estimated INTEGER NOT NULL CHECK (input_tokens_estimated IN (0, 1)),
-      output_tokens_estimated INTEGER NOT NULL CHECK (output_tokens_estimated IN (0, 1)),
-      thinking_tokens_estimated INTEGER NOT NULL CHECK (thinking_tokens_estimated IN (0, 1)),
-      prompt_cache_tokens INTEGER,
-      prompt_eval_tokens INTEGER,
-      prompt_tokens_per_second REAL,
-      output_tokens_per_second REAL,
-      request_duration_ms INTEGER,
-      prompt_eval_duration_ms INTEGER,
-      generation_duration_ms INTEGER,
-      request_started_at_utc TEXT,
-      thinking_started_at_utc TEXT,
-      thinking_ended_at_utc TEXT,
-      answer_started_at_utc TEXT,
-      answer_ended_at_utc TEXT,
-      speculative_accepted_tokens INTEGER,
-      speculative_generated_tokens INTEGER,
-      thinking_content TEXT,
-      tool_call_command TEXT,
-      tool_call_activity_kind TEXT,
-      tool_call_activity_subject_kind TEXT,
-      tool_call_activity_subject_value TEXT,
-      tool_call_turn INTEGER,
-      tool_call_max_turns INTEGER,
-      tool_call_exit_code INTEGER,
-      tool_call_prompt_token_count INTEGER,
-      tool_call_output_snippet TEXT,
-      tool_call_output TEXT,
-      tool_call_status TEXT CHECK (tool_call_status IN ('running', 'done', 'stopped')),
-      approval_decision TEXT,
-      approval_tool_name TEXT,
-      approval_command TEXT,
-      approval_reason TEXT,
-      created_at_utc TEXT NOT NULL,
-      source_run_id TEXT,
-      compressed_into_summary INTEGER NOT NULL CHECK (compressed_into_summary IN (0, 1)),
-      grounding_status TEXT,
-      position INTEGER NOT NULL,
-      images TEXT,
-      image_meta TEXT,
-      removed_image_count INTEGER,
-      PRIMARY KEY (session_id, id)
     );
 
     CREATE TABLE IF NOT EXISTS benchmark_runs (
@@ -524,7 +685,9 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
         ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);
     `);
 
+  database.exec(CHAT_MESSAGES_SCHEMA_SQL);
   database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL);
+  database.exec(CHAT_JOURNAL_SCHEMA_SQL);
   database.exec(ASSISTANT_CORE_SCHEMA_SQL);
   database.exec(ASSISTANT_FTS_SCHEMA_SQL);
   database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);

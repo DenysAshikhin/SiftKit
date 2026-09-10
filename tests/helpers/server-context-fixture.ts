@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ChatMessageQueue } from '../../src/status-server/chat-message-queue.js';
 import { ChatMessageQueueStore } from '../../src/state/chat-message-queue.js';
@@ -34,6 +35,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     idleSummarySnapshotsPath: path.join(root, 'idle.sqlite'),
     disableManagedEngineStartup: false,
     engineService,
+    chatRunOwnerEpoch: randomUUID(),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     server: null,

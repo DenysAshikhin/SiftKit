@@ -62,7 +62,11 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
-import { ChatStreamProgressWriter, buildChatSessionResponse, requireChatOperationBroadcast } from './chat.js';
+import type { ChatRunSubmission } from './chat-session-operation-endpoint.js';
+import { buildChatSessionResponse, requireChatOperationBroadcast } from './chat.js';
+import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
+import type { ChatSession } from '../../state/chat-sessions.js';
+import { buildChatRunSettings } from '../chat-run-recorder.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
 import { startRepoAgentRun } from './repo-agent.js';
 import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
@@ -91,6 +95,25 @@ function resolveRepoAgentPresetMaxTurns(
 export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
   protected readonly operationKind = 'repo-agent' as const;
   protected readonly clientOwnedOperation = true;
+
+  protected describeRun(
+    session: ChatSession,
+    value: ChatRepoAgentRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'repo-agent',
+        repoRoot: value.repoRoot,
+        approval: value.approval,
+        maxTurns: value.maxTurns ?? null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
 
   protected parseRequest(
     res: ServerResponse,

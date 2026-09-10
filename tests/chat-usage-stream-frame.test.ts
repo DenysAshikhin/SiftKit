@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChatStreamProgressWriter, forwardRepoSearchPromptEvent, forwardRepoSearchUsageEvent } from '../src/status-server/routes/chat.js';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
+import { forwardRepoSearchPromptEvent, forwardRepoSearchUsageEvent } from '../src/status-server/chat-stream-frames.js';
 import { ChatStreamPromptEventSchema } from '@siftkit/contracts';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 

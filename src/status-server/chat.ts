@@ -13,7 +13,7 @@ import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
-import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
+import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-chat-message.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { JsonLogger, RepoSearchExecutionResult } from '../repo-search/types.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
@@ -368,8 +368,7 @@ export function buildChatHistoryMessages(
   if (pendingThinking) {
     history.push({ role: 'assistant', content: '', reasoning_content: pendingThinking });
   }
-  new ImageRetentionPolicy(getActiveModelPreset(config).VisionImageRetention).prune(history);
-  return history;
+  return [...new ImageRetentionPolicy(getActiveModelPreset(config).VisionImageRetention).prune(history).messages];
 }
 
 function buildReplayToolCallId(messageId: string): string {
@@ -791,6 +790,7 @@ export function buildChatSessionWithAppendedTurn(
         toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
         toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
         toolCallOutput: toolOutput,
+        toolCallExecutionState: 'completed',
         toolCallStatus: 'done',
         createdAtUtc: now,
         sourceRunId,

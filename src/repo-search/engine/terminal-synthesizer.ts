@@ -3,9 +3,9 @@ import { resolveFinalGenerationTokenLimit } from '../../lib/context-token-budget
 import {
   appendPlannerInstruction,
   requestTerminalSynthesis,
-  type ChatMessage,
   type ExecutingPlannerRequest,
 } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import { countPlannerPromptTokens } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
 import { buildTerminalSynthesisInstruction } from '../prompts.js';

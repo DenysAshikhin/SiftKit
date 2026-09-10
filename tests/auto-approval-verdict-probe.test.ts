@@ -14,7 +14,8 @@ import {
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
-import type { ChatMessage, PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
+import type { PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockSiftConfig } from './helpers/mock-config.js';

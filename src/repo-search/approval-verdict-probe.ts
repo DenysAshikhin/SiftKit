@@ -4,7 +4,6 @@ import { ProgressWriter } from '../lib/progress-writer.js';
 import { renderWirePrompt } from './wire-prompt.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
-import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
 import { InferenceToolDefinitionsSchema, type InferenceToolDefinition } from '../llm-protocol/types.js';
 import { ApprovalVerdictSchema } from './approval-verdict.js';
 import {
@@ -22,28 +21,17 @@ import {
   buildApprovalVerdictPromptMessages,
   requestApprovalVerdict,
   serializeProtocolMessages,
-  type ChatMessage,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from './planner-protocol.js';
+import { PlannerChatMessageSchema, type ChatMessage } from './planner-chat-message.js';
 
-const ReplayToolCallSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  function: z.object({
-    name: z.string(),
-    arguments: z.string(),
-  }),
-});
-
-export const ReplayMessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant', 'tool']),
-  // Parts, not just a string: a replayed transcript can contain an image turn.
-  content: MessageContentSchema.optional(),
-  reasoning_content: z.string().optional(),
-  tool_calls: z.array(ReplayToolCallSchema).optional(),
-  tool_call_id: z.string().optional(),
-});
+/**
+ * A replayed transcript is planner history read back from a probe payload, so it is validated with
+ * the planner message schema itself rather than a second description of the same shape. The internal
+ * image-path key is not part of a replay payload.
+ */
+export const ReplayMessageSchema = PlannerChatMessageSchema.omit({ imagePathKey: true });
 
 export const AutoApprovalActionSchema = z.object({
   turn: z.number().int().positive(),

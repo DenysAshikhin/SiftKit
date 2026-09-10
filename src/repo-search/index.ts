@@ -16,9 +16,7 @@ export {
   buildIgnorePolicy,
   type IgnorePolicy,
 } from './command-safety.js';
-export {
-  type ChatMessage,
-} from './planner-protocol.js';
+export type { ChatMessage } from './planner-chat-message.js';
 export { estimateTokenCount } from '../lib/token-estimate.js';
 export {
   countTokensWithFallback,

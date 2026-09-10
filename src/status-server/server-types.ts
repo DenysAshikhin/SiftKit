@@ -107,6 +107,8 @@ export type ServerContext = {
   readonly engineService: StatusEngineService;
   readonly repoAgentRunStore: RepoAgentRunStore;
   readonly repoAgentSessions: RepoAgentSessionManager;
+  /** Identifies this process as the writer of the chat journal; Task 8 turns it into a lease. */
+  readonly chatRunOwnerEpoch: string;
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;

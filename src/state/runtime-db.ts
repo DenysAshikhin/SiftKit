@@ -7,6 +7,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import { SystemClock } from '../assistant/clock.js';
 import { seedAssistantRegistries } from '../assistant/storage/schema.js';
 import { CHAT_PENDING_MESSAGES_SCHEMA_SQL, initializeRuntimeSchema } from './runtime-schema.js';
+import { upgradeChatRecoverySchema } from './schema-upgrades/chat-recovery.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
@@ -17,7 +18,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 67;
+export const CURRENT_SCHEMA_VERSION = 68;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -28,6 +29,7 @@ type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void 
  */
 const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 66, apply: (database) => database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL) },
+  { from: 67, apply: upgradeChatRecoverySchema },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
@@ -95,11 +97,17 @@ export function getRuntimeDatabasePath(startPath: string = process.cwd()): strin
   return join(getRepoRuntimeRoot(startPath), 'runtime.sqlite');
 }
 
+/**
+ * This one connection carries the chat journal, and a journal that loses its last commit on a hard
+ * power loss cannot promise that an approved tool was recorded before it ran. WAL keeps readers
+ * unblocked; FULL is what makes a committed event actually durable. This is the only place the
+ * setting is chosen, so no later initializer can quietly drop it back to NORMAL.
+ */
 function configureRuntimeDatabase(database: RuntimeDatabase): void {
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
-    PRAGMA synchronous = NORMAL;
+    PRAGMA synchronous = FULL;
   `);
 }
 

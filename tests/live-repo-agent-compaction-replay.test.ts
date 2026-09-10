@@ -23,8 +23,8 @@ import {
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
-  type ChatMessage,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';

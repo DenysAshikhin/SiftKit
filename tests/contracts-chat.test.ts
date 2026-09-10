@@ -34,17 +34,22 @@ test('chat transcript lifecycle schemas distinguish running, stopped, and replay
     toolCallTurn: 1,
     toolCallMaxTurns: 45,
     toolCallExitCode: null,
+    toolCallExecutionState: 'executing',
     toolCallStatus: 'running',
   };
 
   assert.equal(ChatTranscriptMessageSchema.safeParse(toolMessage).success, true);
-  assert.equal(PersistedChatTranscriptMessageSchema.safeParse(toolMessage).success, false);
+  // An in-progress row is legitimately durable now; only model replay still insists on a result.
+  assert.equal(PersistedChatTranscriptMessageSchema.safeParse(toolMessage).success, true);
+  assert.equal(ReplayableChatMessageSchema.safeParse(toolMessage).success, false);
   assert.equal(PersistedChatTranscriptMessageSchema.safeParse({
     ...toolMessage,
+    toolCallExecutionState: 'uncertain',
     toolCallStatus: 'stopped',
   }).success, true);
   assert.equal(ReplayableChatMessageSchema.safeParse({
     ...toolMessage,
+    toolCallExecutionState: 'completed',
     toolCallStatus: 'done',
   }).success, true);
   assert.equal(ReplayableChatMessageSchema.safeParse({
@@ -54,6 +59,7 @@ test('chat transcript lifecycle schemas distinguish running, stopped, and replay
   assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallActivityKind: undefined }).success, false);
   assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallActivitySubject: undefined }).success, false);
   assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallStatus: undefined }).success, false);
+  assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallExecutionState: undefined }).success, false);
   assert.equal(ChatTranscriptMessageSchema.safeParse({ ...toolMessage, toolCallCommand: undefined }).success, false);
 });
 

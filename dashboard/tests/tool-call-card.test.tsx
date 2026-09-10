@@ -19,6 +19,7 @@ function msg(overrides: Partial<ChatToolCallMessage>): ChatToolCallMessage {
     toolCallTurn: 1,
     toolCallMaxTurns: 45,
     toolCallExitCode: null,
+    toolCallExecutionState: 'executing',
     toolCallStatus: 'running',
     ...overrides,
   };
@@ -45,6 +46,7 @@ test('completed tool details use completed wording without an active ellipsis', 
     <ToolCallCard message={msg({
       toolCallCommand: 'grep "SECRET_MARKER"',
       toolCallActivityKind: 'search',
+      toolCallExecutionState: 'completed',
       toolCallStatus: 'done',
       toolCallExitCode: 0,
       toolCallOutput: 'line1\nline2',
@@ -61,6 +63,7 @@ test('failed details use terminal failure copy and remain closed', () => {
     <ToolCallCard message={msg({
       toolCallCommand: 'npm test -- chat-tab',
       toolCallActivityKind: 'validate',
+      toolCallExecutionState: 'completed',
       toolCallStatus: 'done',
       toolCallExitCode: 1,
       toolCallOutput: 'PRIVATE_FAILURE',
@@ -78,6 +81,7 @@ test('stopped tool details use terminal stopped wording without an active ellips
       toolCallCommand: 'read path="src/a.ts"',
       toolCallActivityKind: 'read',
       toolCallActivitySubject: { kind: 'file', value: 'src/a.ts' },
+      toolCallExecutionState: 'uncertain',
       toolCallStatus: 'stopped',
     })} />,
   );
@@ -87,7 +91,8 @@ test('stopped tool details use terminal stopped wording without an active ellips
 
 test('large tool results mount only while expanded and are removed on collapse', () => {
   const output = `${'x'.repeat(50_000)}TAIL_SENTINEL`;
-  const message = msg({ toolCallStatus: 'done', toolCallExitCode: 0, toolCallOutput: output });
+  const message = msg({ toolCallExecutionState: 'completed',
+ toolCallStatus: 'done', toolCallExitCode: 0, toolCallOutput: output });
   const view = render(<ToolCallCard message={message} />);
   const details = view.container.querySelector('details');
   assert.ok(details);

@@ -49,7 +49,8 @@ test('last turn with a non-zero tool exit returns failed', () => {
   const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '').get('s1');
   assert.equal(
     deriveSessionIndicator(
-      session([msg({ kind: 'assistant_tool_call', toolCallStatus: 'done', toolCallExitCode: 1 })]),
+      session([msg({ kind: 'assistant_tool_call', toolCallExecutionState: 'completed',
+ toolCallStatus: 'done', toolCallExitCode: 1 })]),
       runtime,
     ),
     'failed',

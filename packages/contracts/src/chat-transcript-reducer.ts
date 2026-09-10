@@ -1,16 +1,41 @@
 import { z } from 'zod';
+import { ImageDataUrlSchema } from './image.js';
 import {
   ChatStreamProgressSchema,
   ChatStreamQueuedUserMessageSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
   ChatStreamUsageEventSchema,
+  ChatToolExecutionStateSchema,
   ChatTranscriptMessageSchema,
   PersistedChatTranscriptMessageSchema,
+  toolCallStatusForExecutionState,
   type ChatStreamTextDelta,
   type ChatTranscriptMessage,
   type PersistedChatTranscriptMessage,
 } from './chat.js';
+
+/**
+ * What the journal knows about a call's outcome, as opposed to the preview a live frame carries.
+ * `output` is null while no result has been recorded, and the complete text once one has.
+ */
+/** A user message as a display row needs it: the run's own submission or a queued steering note. */
+export const ChatSubmittedUserMessageSchema = z.strictObject({
+  id: z.string().min(1),
+  content: z.string(),
+  images: z.array(ImageDataUrlSchema),
+});
+export type ChatSubmittedUserMessage = z.infer<typeof ChatSubmittedUserMessageSchema>;
+
+export const ChatToolOutcomeSchema = z.strictObject({
+  toolCallId: z.string().trim().min(1),
+  executionState: ChatToolExecutionStateSchema,
+  exitCode: z.number().int().nullable(),
+  output: z.string().nullable(),
+  outputTokens: z.number().int().nonnegative(),
+  outputTokensEstimated: z.boolean(),
+});
+export type ChatToolOutcome = z.infer<typeof ChatToolOutcomeSchema>;
 
 export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('thinking'), delta: ChatStreamTextDeltaSchema }),
@@ -20,6 +45,8 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('tool'), tool: ChatStreamToolEventSchema }),
   z.strictObject({ kind: z.literal('usage'), usage: ChatStreamUsageEventSchema }),
   z.strictObject({ kind: z.literal('user_message'), message: ChatStreamQueuedUserMessageSchema }),
+  z.strictObject({ kind: z.literal('tool_outcome'), outcome: ChatToolOutcomeSchema }),
+  z.strictObject({ kind: z.literal('submission'), message: ChatSubmittedUserMessageSchema }),
 ]);
 export type ChatTranscriptEvent = z.infer<typeof ChatTranscriptEventSchema>;
 
@@ -145,6 +172,13 @@ function reduceToolEvent(
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
   const tool = event.tool;
+  const existing = messages.find(
+    (message) => message.id === buildChatToolMessageId(metadata.messageIdPrefix, tool.toolCallId),
+  );
+  // A live frame only ever advances the state; a journal-derived outcome is what settles it.
+  const executionState = tool.kind === 'tool_result'
+    ? 'completed'
+    : existing?.toolCallExecutionState ?? 'executing';
   const beforeTool = tool.kind === 'tool_start'
     ? messages.map((message) => (
       message.id === buildChatTextMessageId('narration', tool.turn, metadata)
@@ -177,7 +211,8 @@ function reduceToolEvent(
     // absent here is what stops a 200-character preview from being replayed later as if it were
     // the whole thing; durable history is hydrated from the run transcript before it is saved.
     toolCallOutputSnippet: tool.kind === 'tool_result' ? tool.outputSnippet : undefined,
-    toolCallStatus: tool.kind === 'tool_result' ? 'done' : 'running',
+    toolCallExecutionState: executionState,
+    toolCallStatus: toolCallStatusForExecutionState(executionState),
   });
   return upsertMessage(beforeTool, message);
 }
@@ -235,14 +270,14 @@ function reduceUsageEvent(
  */
 function reduceUserMessageEvent(
   messages: readonly ChatTranscriptMessage[],
-  event: Extract<ChatTranscriptEvent, { kind: 'user_message' }>,
+  message: ChatSubmittedUserMessage,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
   return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
-    id: event.message.id,
+    id: message.id,
     role: 'user',
     kind: 'user_text',
-    content: event.message.content,
+    content: message.content,
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
@@ -251,7 +286,30 @@ function reduceUserMessageEvent(
     thinkingTokensEstimated: false,
     createdAtUtc: metadata.createdAtUtc,
     sourceRunId: metadata.sourceRunId,
-    images: event.message.images,
+    images: message.images,
+  }));
+}
+
+/**
+ * Settles a tool row from durable evidence: the complete result replaces the live preview and the
+ * execution state decides the display status. A call with no projected row yet is left alone.
+ */
+function reduceToolOutcomeEvent(
+  messages: readonly ChatTranscriptMessage[],
+  event: Extract<ChatTranscriptEvent, { kind: 'tool_outcome' }>,
+  metadata: ChatTranscriptMetadata,
+): ChatTranscriptMessage[] {
+  const id = buildChatToolMessageId(metadata.messageIdPrefix, event.outcome.toolCallId);
+  const existing = messages.find((message) => message.id === id);
+  if (existing === undefined || existing.kind !== 'assistant_tool_call') return [...messages];
+  return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
+    ...existing,
+    toolCallExitCode: event.outcome.exitCode,
+    ...(event.outcome.output === null ? {} : { toolCallOutput: event.outcome.output }),
+    outputTokensEstimate: event.outcome.outputTokens,
+    outputTokensEstimated: event.outcome.outputTokensEstimated,
+    toolCallExecutionState: event.outcome.executionState,
+    toolCallStatus: toolCallStatusForExecutionState(event.outcome.executionState),
   }));
 }
 
@@ -265,7 +323,9 @@ export function reduceChatTranscript(
   }
   if (event.kind === 'progress') return reduceProgressEvent(messages, event, metadata);
   if (event.kind === 'usage') return reduceUsageEvent(messages, event, metadata);
-  if (event.kind === 'user_message') return reduceUserMessageEvent(messages, event, metadata);
+  if (event.kind === 'user_message') return reduceUserMessageEvent(messages, event.message, metadata);
+  if (event.kind === 'submission') return reduceUserMessageEvent(messages, event.message, metadata);
+  if (event.kind === 'tool_outcome') return reduceToolOutcomeEvent(messages, event, metadata);
   return reduceToolEvent(messages, event, metadata);
 }
 

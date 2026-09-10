@@ -28,6 +28,13 @@ import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
+import Database from 'better-sqlite3';
+import {
+  LEGACY_FIXTURE_SESSION_ID,
+  readChatMessageRows,
+  seedLegacyChatDatabase,
+} from './helpers/legacy-chat-schema-fixture.js';
+import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
@@ -405,6 +412,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
         toolCallPromptTokenCount: 44,
         toolCallOutputSnippet: 'src/chat.ts:1:timeline',
         toolCallOutput: 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble',
+        toolCallExecutionState: 'completed',
         toolCallStatus: 'done',
         createdAtUtc: new Date().toISOString(),
         sourceRunId: 'run-tool',
@@ -469,6 +477,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         toolCallCommand: 'rg -n Dict src',
         toolCallActivityKind: 'search',
         toolCallActivitySubject: { kind: 'file', value: 'Dict.ts' },
+        toolCallExecutionState: 'completed',
         toolCallStatus: 'done',
         toolCallTurn: 1,
         toolCallMaxTurns: 2,
@@ -794,6 +803,7 @@ test('stopped transcript segments round-trip through the chat database', () => {
           toolCallTurn: 1,
           toolCallMaxTurns: 2,
           toolCallExitCode: null,
+          toolCallExecutionState: 'uncertain',
           toolCallStatus: 'stopped',
           createdAtUtc: savedAt,
           sourceRunId: null,
@@ -844,6 +854,7 @@ function completedToolRow(requestId: string, toolCallId: string, options: { outp
     toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
     toolCallOutputSnippet: options.snippet,
     ...(options.output === undefined ? {} : { toolCallOutput: options.output }),
+    toolCallExecutionState: 'completed',
     toolCallStatus: 'done', createdAtUtc: options.createdAtUtc, sourceRunId: requestId,
   });
 }
@@ -923,4 +934,75 @@ test('replay refuses a preview-only completed row and replays an empty full resu
   const emptyOutputReplay = buildChatHistoryMessages(config, emptyOutputSession).find((message) => message.role === 'tool');
   assert.ok(emptyOutputReplay);
   assert.equal(emptyOutputReplay.content, '');
+});
+
+test('a migrated stale marker-67 database accepts stopped tool rows and keeps its existing history', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-legacy-check-store-');
+  const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
+  seedLegacyChatDatabase(databasePath);
+  closeRuntimeDatabase();
+
+  const reader = new Database(databasePath, { readonly: true });
+  let rowsBeforeUpgrade: ChatMessageRow[];
+  try {
+    rowsBeforeUpgrade = readChatMessageRows(reader);
+  } finally {
+    reader.close();
+  }
+
+  const savedAt = '2026-09-10T12:19:37.005Z';
+  try {
+    saveChatSession(runtimeRoot, {
+      id: 'stopped-after-migration',
+      title: 'Stopped after migration',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: 'C:/repo',
+      createdAtUtc: savedAt,
+      updatedAtUtc: savedAt,
+      messages: [
+        {
+          id: 'stopped-user', role: 'user', kind: 'user_text', content: 'remove the file',
+          inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0,
+          createdAtUtc: savedAt, sourceRunId: null,
+        },
+        {
+          id: 'stopped-tool', role: 'assistant', kind: 'assistant_tool_call',
+          content: 'Remove-Item research/brawl_sim/physics.py',
+          inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+          toolCallCommand: 'Remove-Item research/brawl_sim/physics.py',
+          toolCallActivityKind: 'command',
+          toolCallActivitySubject: { kind: 'file', value: 'research/brawl_sim/physics.py' },
+          toolCallTurn: 41,
+          toolCallMaxTurns: 120,
+          toolCallExitCode: null,
+          toolCallExecutionState: 'uncertain',
+          toolCallStatus: 'stopped',
+          createdAtUtc: savedAt,
+          sourceRunId: null,
+        },
+      ],
+    });
+  } finally {
+    closeRuntimeDatabase();
+  }
+
+  const reopened = new Database(databasePath, { readonly: true });
+  try {
+    const legacyRows = readChatMessageRows(reopened).filter((row) => row.session_id === LEGACY_FIXTURE_SESSION_ID);
+    assert.deepEqual(legacyRows, rowsBeforeUpgrade);
+  } finally {
+    reopened.close();
+  }
+
+  try {
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, 'stopped-after-migration'));
+    const toolMessage = (loaded?.messages ?? []).find((message) => message.kind === 'assistant_tool_call');
+    assert.equal(toolMessage?.toolCallStatus, 'stopped');
+    assert.equal(readChatSessions(runtimeRoot).length, 2);
+  } finally {
+    closeRuntimeDatabase();
+  }
 });

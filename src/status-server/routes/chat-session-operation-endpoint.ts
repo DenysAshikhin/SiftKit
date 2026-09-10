@@ -3,7 +3,12 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 
-import { ChatOperationIdSchema, ChatQueueOperationKindSchema, type ChatSessionOperationKind } from '@siftkit/contracts';
+import {
+  ChatOperationIdSchema,
+  ChatQueueOperationKindSchema,
+  type ChatRunEffectiveSettings,
+  type ChatSessionOperationKind,
+} from '@siftkit/contracts';
 
 import { toError } from '../../lib/errors.js';
 import type { JsonObject } from '../../lib/json-types.js';
@@ -21,6 +26,10 @@ import {
 } from '../chat-route-request-normalizers.js';
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
+import { ChatRunRecorder } from '../chat-run-recorder.js';
+import { getRuntimeDatabasePath } from '../../state/runtime-db.js';
+import { readConfig } from '../config-store.js';
+import type { SiftConfig } from '../../config/types.js';
 import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -29,6 +38,16 @@ export type ResolvedChatRepoRequest = {
   content: string;
   images: string[];
   repoRoot: string;
+};
+
+/**
+ * What a run commits about itself before it is allowed to publish or dispatch anything. An
+ * operation that only edits history returns null: it is a revision, not a model run.
+ */
+export type ChatRunSubmission = {
+  settings: ChatRunEffectiveSettings;
+  content: string;
+  images: string[];
 };
 
 export type ChatSessionOperationRequest<TParsed> = {
@@ -40,6 +59,8 @@ export type ChatSessionOperationRequest<TParsed> = {
   parsedBody: JsonObject;
   value: TParsed;
   lease: ChatSessionOperation | null;
+  /** The run's durable writer, present whenever `describeRun` claimed this is a model run. */
+  recorder: ChatRunRecorder | null;
 };
 
 function readChatSessionIdFromMatch(routeMatch: RouteMatch): string {
@@ -117,6 +138,16 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
   protected readonly useSessionOperationLease: boolean = true;
   protected readonly clientOwnedOperation: boolean = false;
 
+  /**
+   * What this operation records as a run, or null when it is not one. Every endpoint answers
+   * explicitly: a Web run that silently skipped its recorder would not be recoverable.
+   */
+  protected abstract describeRun(
+    session: ChatSession,
+    value: TParsed,
+    config: SiftConfig,
+  ): ChatRunSubmission | null;
+
   /** Returns null after sending its own 4xx response. */
   protected abstract parseRequest(
     res: ServerResponse,
@@ -131,9 +162,70 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     request: ChatSessionOperationRequest<TParsed>,
   ): Promise<void>;
 
-  async executeDetached(ctx: ServerContext, request: ChatSessionOperationRequest<TParsed>): Promise<void> {
+  /** A successor opens its own run record: it is a separate operation, not a continuation. */
+  async executeDetached(
+    ctx: ServerContext,
+    request: Omit<ChatSessionOperationRequest<TParsed>, 'recorder'>,
+  ): Promise<void> {
     if (!this.clientOwnedOperation || !request.lease) throw new Error('This operation cannot execute detached.');
-    await this.run(ctx, null, null, request);
+    const recorder = this.beginRun(ctx, request.sessionId, request.session, request.value);
+    await this.runRecorded(ctx, null, null, { ...request, recorder });
+  }
+
+  /**
+   * Opens the run's journal record before the body can publish a frame or dispatch a model, and
+   * closes it with whatever outcome the body reached. A run that cannot be recorded never starts.
+   */
+  private async runRecorded(
+    ctx: ServerContext,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
+    request: ChatSessionOperationRequest<TParsed>,
+  ): Promise<void> {
+    const recorder = request.recorder;
+    if (recorder === null) {
+      await this.run(ctx, req, res, request);
+      return;
+    }
+    try {
+      await this.run(ctx, req, res, request);
+    } catch (error) {
+      recorder.finish({
+        terminalCause: 'execution_failure',
+        detail: toError(error).message,
+        usage: null,
+        recoveryStatus: 'recovery_needed',
+      });
+      throw error;
+    }
+    recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+  }
+
+  /**
+   * Begins the run record, or returns null when this operation is not a model run. The run's id is
+   * minted here: a client's operation id is a reusable lease handle, not a durable run identity.
+   */
+  private beginRun(
+    ctx: ServerContext,
+    sessionId: string,
+    session: ChatSession,
+    value: TParsed,
+  ): ChatRunRecorder | null {
+    const submission = this.describeRun(session, value, readConfig(ctx.configPath));
+    if (submission === null) return null;
+    return ChatRunRecorder.begin(getRuntimeDatabasePath(), {
+      operationId: randomUUID(),
+      sessionId,
+      ownerEpoch: ctx.chatRunOwnerEpoch,
+      operationKind: this.operationKind,
+      userMessageId: randomUUID(),
+      content: submission.content,
+      images: submission.images,
+      imageMeta: [],
+      settings: submission.settings,
+      retainedHistoryRevision: 0,
+      startedAtUtc: new Date().toISOString(),
+    });
   }
 
   async handle(
@@ -187,14 +279,16 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     }
     const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
     if (lease) ctx.chatMessageQueue.publish(sessionId);
+    const recorder = this.beginRun(ctx, sessionId, session, value);
     try {
-      await this.run(ctx, req, res, {
+      await this.runRecorded(ctx, req, res, {
         sessionId,
         sessionPath,
         session,
         parsedBody,
         value,
         lease,
+        recorder,
       });
       if (lease && res.statusCode >= 400) lease.failure ??= `Chat operation returned HTTP ${res.statusCode}.`;
       if (lease && !ctx.chatSessionOperations.finish(lease, { kind: 'completed' })) {

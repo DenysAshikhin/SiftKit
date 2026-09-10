@@ -15,8 +15,8 @@ import type { JsonSerializable } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import {
   resolveRepoSearchPlannerToolDefinitions,
-  type ChatMessage,
 } from '../src/repo-search/planner-protocol.js';
+import { findPlannerContextViolation, type ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
@@ -427,4 +427,68 @@ test('TaskResultSchema requires compactionSummary so a missed producer fails lou
   const { compactionSummary, ...withoutCompactionSummary } = task;
   assert.equal(typeof compactionSummary, 'string');
   assert.equal(TaskResultSchema.safeParse(withoutCompactionSummary).success, false);
+});
+
+test('a compaction that retains the in-flight turn leaves a protocol-valid transcript', async () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM' },
+    { role: 'user', content: 'old question' },
+    { role: 'assistant', content: 'old answer' },
+    { role: 'user', content: 'trigger question' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } },
+        { id: 'c2', type: 'function', function: { name: 'read', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: 'first result' },
+    { role: 'tool', tool_call_id: 'c2', content: '' },
+  ];
+
+  const outcome = await makeCompactor([{ content: 'SUMMARY' }]).compact({
+    taskId: 'chat-1',
+    turn: 2,
+    messages,
+    mockResponseIndex: 0,
+    retention: { kind: 'current_chat_turn', startIndex: 3 },
+    cacheOrigin: NEW_EPOCH,
+  });
+
+  assert.equal(findPlannerContextViolation(outcome.messages), null);
+  // The empty result of a silent command survives compaction exactly as it was.
+  assert.equal(outcome.messages.at(-1)?.content, '');
+});
+
+test('a retention boundary inside a tool batch fails instead of orphaning its answers', async () => {
+  // The engine inserts a read image directly after its own tool result, so a user message can sit
+  // between the calls of one batch. Retaining from there would keep an answer to a dropped call.
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM' },
+    { role: 'user', content: 'trigger question' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } },
+        { id: 'c2', type: 'function', function: { name: 'grep', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: 'image a' },
+    { role: 'user', content: 'image a', imagePathKey: 'a.png' },
+    { role: 'tool', tool_call_id: 'c2', content: 'hits' },
+  ];
+
+  await assert.rejects(
+    makeCompactor([{ content: 'SUMMARY' }]).compact({
+      taskId: 'chat-1',
+      turn: 2,
+      messages,
+      mockResponseIndex: 0,
+      retention: { kind: 'current_chat_turn', startIndex: 4 },
+      cacheOrigin: NEW_EPOCH,
+    }),
+    /retention would leave an invalid transcript/u,
+  );
 });

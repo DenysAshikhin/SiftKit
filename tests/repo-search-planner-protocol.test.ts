@@ -23,11 +23,11 @@ import {
   resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
   TOOL_DEFINITIONS,
-  type ChatMessage,
   type PlannerActionResponse,
   type PlannerDerivedRequestOptions,
   type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import type { JsonLogger } from '../src/repo-search/types.js';
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';

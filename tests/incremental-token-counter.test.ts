@@ -9,7 +9,7 @@ import {
 import type { InferenceBackendId } from '../src/config/types.js';
 import type { SiftConfig } from '../src/config/index.js';
 import { renderWirePrompt } from '../src/repo-search/wire-prompt.js';
-import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import { asRuntimeSiftConfig } from './helpers/mock-config.js';

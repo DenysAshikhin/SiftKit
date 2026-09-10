@@ -7,7 +7,8 @@ test('replayed tool calls carry standard string arguments', () => {
   const message = buildAssistantToolCallMessage([
     { action: { toolName: 'git', args: { operation: 'status' } }, toolCallId: 't1_c0', toolContent: '' },
   ]);
-  const call = message.tool_calls[0];
+  const call = message.tool_calls?.[0];
+  assert.ok(call);
   assert.equal(call.function.arguments, '{"operation":"status"}');
 });
 

@@ -1,4 +1,4 @@
-import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-protocol.js';
+import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-chat-message.js';
 import type { PersistedChatTranscriptMessage } from '@siftkit/contracts';
 
 export class ThinkingRetentionPolicy {
@@ -15,19 +15,26 @@ export class ThinkingRetentionPolicy {
     return messages.filter((message, index) => message.kind !== 'assistant_thinking' || index === latestThinkingIndex);
   }
 
-  prunePlannerMessages(messages: PlannerChatMessage[]): void {
+  /** Returns the same array instance when nothing was dropped, so an owner can skip a no-op splice. */
+  prunePlannerMessages(messages: readonly PlannerChatMessage[]): readonly PlannerChatMessage[] {
     if (this.maintainPerStepThinking) {
-      return;
+      return messages;
     }
     const latestThinkingIndex = this.findLatestPlannerThinkingIndex(messages);
     if (latestThinkingIndex < 0) {
-      return;
+      return messages;
     }
-    for (let index = 0; index < messages.length; index += 1) {
-      if (index !== latestThinkingIndex) {
-        delete messages[index].reasoning_content;
-      }
+    const stale = messages.some((message, index) => (
+      index !== latestThinkingIndex && 'reasoning_content' in message
+    ));
+    if (!stale) {
+      return messages;
     }
+    return messages.map((message, index) => {
+      if (index === latestThinkingIndex || !('reasoning_content' in message)) return message;
+      const { reasoning_content: _dropped, ...retained } = message;
+      return retained;
+    });
   }
 
   recordTurnThinking(turnThinking: Record<number, string>, turn: number, thinkingText: string): void {
@@ -48,7 +55,7 @@ export class ThinkingRetentionPolicy {
     return -1;
   }
 
-  private findLatestPlannerThinkingIndex(messages: PlannerChatMessage[]): number {
+  private findLatestPlannerThinkingIndex(messages: readonly PlannerChatMessage[]): number {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const reasoningContent = messages[index].reasoning_content;
       if (typeof reasoningContent === 'string' && reasoningContent.trim()) {

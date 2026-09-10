@@ -10,6 +10,7 @@ import { ReadWindowGovernor } from '../../src/repo-search/engine/read-window-gov
 import { TokenUsageTracker } from '../../src/repo-search/engine/token-usage.js';
 import { ToolActionProcessor } from '../../src/repo-search/engine/tool-action-processor.js';
 import type { ApprovalRequester } from '../../src/repo-search/engine/approval-gate.js';
+import type { ChatRunEvidenceRecorder } from '../../src/repo-search/engine/chat-run-evidence.js';
 import { ToolResultBudgeter } from '../../src/repo-search/engine/tool-result-budgeter.js';
 import { ToolStatsRecorder } from '../../src/repo-search/engine/tool-stats.js';
 import { TranscriptManager } from '../../src/repo-search/engine/transcript-manager.js';
@@ -37,6 +38,7 @@ export function makeProcessor(
     visionEnabled?: boolean;
     visionImageRetention?: number;
     visionMaxImagePixels?: number;
+    evidenceRecorder?: ChatRunEvidenceRecorder;
   } = {},
 ): {
   processor: ToolActionProcessor;
@@ -59,6 +61,7 @@ export function makeProcessor(
     initialUserContent: 'q',
     initialUserImages: [],
     liveImagePathKeys,
+    contextRecorder: options.evidenceRecorder,
   });
   const processor = new ToolActionProcessor({
     task: { id: 'task-alignment', question: 'q' },
@@ -75,6 +78,7 @@ export function makeProcessor(
     maxInvalidResponses: 3,
     allowedPlannerToolNames,
     approvalGate,
+    evidenceRecorder: options.evidenceRecorder ?? null,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),

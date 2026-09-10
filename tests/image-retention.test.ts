@@ -7,7 +7,7 @@ import { ImageMetadataSchema } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { ImageRetentionPolicy } from '../src/image-retention-policy.js';
 import { countContentImages, extractContentText } from '../src/llm-protocol/image-attachments.js';
-import type { ChatMessage as PlannerChatMessage } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage as PlannerChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { buildReadPathKey } from '../src/repo-search/engine/read-overlap.js';
 import { appendChatMessagesWithUsage, buildChatHistoryMessages } from '../src/status-server/chat.js';
@@ -46,14 +46,16 @@ test('retention 8 keeps the 8 most recent images and degrades the ninth-oldest',
     buildReadPathKey(`docs/a${index}.png`),
   ));
 
-  const dropped = new ImageRetentionPolicy(8).prune(messages);
+  const pruned = new ImageRetentionPolicy(8).prune(messages);
 
-  assert.deepEqual(dropped, ['docs/a0.png']);
-  assert.deepEqual(messages[0].content, [
+  assert.deepEqual(pruned.droppedPathKeys, ['docs/a0.png']);
+  assert.deepEqual(pruned.messages[0].content, [
     { type: 'text', text: 'image docs/a0.png — 100×100' },
     { type: 'text', text: '[image docs/a0.png — 100×100, dropped from context]' },
   ]);
-  assert.equal(countContentImages(messages[8].content), 1);
+  assert.equal(countContentImages(pruned.messages[8].content), 1);
+  // The caller's array is evidence until it decides to record the rewrite.
+  assert.equal(countContentImages(messages[0].content), 1);
 });
 
 test('the window counts images, not messages', () => {
@@ -66,10 +68,10 @@ test('the window counts images, not messages', () => {
   };
   const messages = [twoImages, imageMessage('data:image/png;base64,C', 'image docs/c.png — 10×10')];
 
-  new ImageRetentionPolicy(2).prune(messages);
+  const pruned = new ImageRetentionPolicy(2).prune(messages).messages;
 
-  assert.equal(countContentImages(messages[0].content), 1);
-  assert.equal(countContentImages(messages[1].content), 1);
+  assert.equal(countContentImages(pruned[0].content), 1);
+  assert.equal(countContentImages(pruned[1].content), 1);
 });
 
 test('degrading one image leaves its live siblings untouched', () => {
@@ -81,27 +83,28 @@ test('degrading one image leaves its live siblings untouched', () => {
     ],
   };
 
-  new ImageRetentionPolicy(1).prune([message]);
+  const pruned = new ImageRetentionPolicy(1).prune([message]).messages;
 
-  assert.equal(countContentImages(message.content), 1);
-  assert.equal(extractContentText(message.content).includes('dropped from context'), true);
+  assert.equal(countContentImages(pruned[0].content), 1);
+  assert.equal(extractContentText(pruned[0].content).includes('dropped from context'), true);
 });
 
 test('retention -1 never ages an image out', () => {
   const messages = Array.from({ length: 40 }, (_, index) => imageMessage(`data:image/png;base64,I${index}`, `image docs/a${index}.png — 10×10`));
 
-  const dropped = new ImageRetentionPolicy(-1).prune(messages);
+  const pruned = new ImageRetentionPolicy(-1).prune(messages);
 
-  assert.deepEqual(dropped, []);
-  assert.equal(messages.reduce((total, message) => total + countContentImages(message.content), 0), 40);
+  assert.deepEqual(pruned.droppedPathKeys, []);
+  assert.equal(pruned.messages, messages);
+  assert.equal(pruned.messages.reduce((total, message) => total + countContentImages(message.content), 0), 40);
 });
 
 test('retention 0 drops every image', () => {
   const messages = [imageMessage('data:image/png;base64,A', 'image docs/a.png — 10×10')];
 
-  new ImageRetentionPolicy(0).prune(messages);
+  const pruned = new ImageRetentionPolicy(0).prune(messages).messages;
 
-  assert.equal(countContentImages(messages[0].content), 0);
+  assert.equal(countContentImages(pruned[0].content), 0);
 });
 
 test('image retention returns structured identity without parsing display text', () => {
@@ -109,13 +112,13 @@ test('image retention returns structured identity without parsing display text',
   const imagePathKey = buildReadPathKey(imagePath);
   const liveImagePathKeys = new Set<string>([imagePathKey]);
   const message = imageMessage(PNG, 'display wording is not an identity protocol', imagePathKey);
-  const dropped = new ImageRetentionPolicy(0).prune([message]);
+  const { droppedPathKeys } = new ImageRetentionPolicy(0).prune([message]);
 
-  for (const droppedPathKey of dropped) {
+  for (const droppedPathKey of droppedPathKeys) {
     liveImagePathKeys.delete(droppedPathKey);
   }
 
-  assert.deepEqual(dropped, [imagePathKey]);
+  assert.deepEqual(droppedPathKeys, [imagePathKey]);
   assert.equal(liveImagePathKeys.size, 0);
 });
 
@@ -265,6 +268,7 @@ test('a persisted tool_image replays immediately after its tool result', () => {
         toolCallTurn: 1,
         toolCallMaxTurns: 45,
         toolCallExitCode: 0,
+        toolCallExecutionState: 'completed' as const,
         toolCallStatus: 'done' as const,
         toolCallOutput: 'Image docs/arch.png (1440×900) attached below.',
         inputTokensEstimate: 0,

@@ -2,18 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  appendToolBatchExchange,
-  appendToolCallExchange,
+  buildToolBatchMessages,
+  buildToolExchangeMessages,
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
-  type ToolTranscriptMessage,
 } from '../src/tool-call-messages.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 
-test('appendToolCallExchange appends assistant tool_call and tool result messages', () => {
-  const messages: ToolTranscriptMessage[] = [];
-
-  appendToolCallExchange(
-    messages,
+test('buildToolExchangeMessages builds assistant tool_call and tool result messages', () => {
+  const messages = buildToolExchangeMessages(
     {
       toolName: 'grep',
       args: { command: 'rg -n "planner" src' },
@@ -35,8 +32,7 @@ test('appendToolCallExchange appends assistant tool_call and tool result message
   assert.equal(String(messages[1]?.content || ''), 'Invalid action: example');
 });
 
-test('appendToolBatchExchange emits one assistant message with all tool_calls followed by ordered tool replies', () => {
-  const messages: ToolTranscriptMessage[] = [];
+test('buildToolBatchMessages emits one assistant message with all tool_calls followed by ordered tool replies', () => {
   const outcomes: ToolBatchOutcome[] = [
     {
       action: { toolName: 'grep', args: { pattern: 'foo' } },
@@ -55,7 +51,7 @@ test('appendToolBatchExchange emits one assistant message with all tool_calls fo
     },
   ];
 
-  appendToolBatchExchange(messages, outcomes, 'batched thinking');
+  const messages = buildToolBatchMessages(outcomes, 'batched thinking');
 
   assert.equal(messages.length, 4);
   assert.equal(messages[0]?.role, 'assistant');
@@ -77,15 +73,12 @@ test('appendToolBatchExchange emits one assistant message with all tool_calls fo
   assert.equal(messages[3]?.content, 'result c');
 });
 
-test('appendToolBatchExchange is a no-op for an empty outcome list', () => {
-  const messages: ToolTranscriptMessage[] = [];
-  appendToolBatchExchange(messages, [], 'thinking');
-  assert.equal(messages.length, 0);
+test('buildToolBatchMessages yields nothing for an empty outcome list', () => {
+  assert.deepEqual(buildToolBatchMessages([], 'thinking'), []);
 });
 
-test('appendToolBatchExchange omits reasoning_content when thinking text is empty', () => {
-  const messages: ToolTranscriptMessage[] = [];
-  appendToolBatchExchange(messages, [
+test('buildToolBatchMessages omits reasoning_content when thinking text is empty', () => {
+  const messages = buildToolBatchMessages([
     { action: { toolName: 'grep', args: {} }, toolCallId: 'call_1', toolContent: 'r' },
   ], '');
   assert.equal(messages.length, 2);
@@ -93,7 +86,7 @@ test('appendToolBatchExchange omits reasoning_content when thinking text is empt
 });
 
 test('upsertTrailingUserMessage replaces the existing countdown message in place', () => {
-  const messages: ToolTranscriptMessage[] = [
+  const messages: ChatMessage[] = [
     { role: 'assistant', content: '' },
     { role: 'tool', content: 'Rejected command.' },
   ];

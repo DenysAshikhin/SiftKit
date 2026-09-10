@@ -153,7 +153,7 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   assert.match(transcript.render(false), /SUMMARY BODY/u);
   assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
   assert.equal(prepared.nextMockResponseIndex, 1);
-  assert.equal(transcript.generation, 1);
+  assert.equal(transcript.contextRevision, 1);
 
   assert.deepEqual(
     events.filter((event) => event.kind === 'prompt_cache_epoch_reset'),
@@ -195,7 +195,7 @@ test('prepareTurn returns a context_overflow outcome for an overflowing repo-sea
   // An overflowed prompt has no generation limit: nothing can be generated from it.
   assert.equal('maxOutputTokens' in prepared, false);
   // The transcript is left exactly as the loop handed it over: no compaction, no epoch reset.
-  assert.equal(transcript.generation, 0);
+  assert.equal(transcript.contextRevision, 0);
   assert.deepEqual(transcript.getMessages().map((message) => message.role), ['system', 'assistant', 'user']);
   assert.equal(events.filter((event) => event.kind === 'prompt_cache_epoch_reset').length, 0);
   assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
@@ -227,7 +227,7 @@ test('prepareTurn returns context_overflow without calling the compactor when no
   const prepared = withKind(await prepareTurn(preparer, 1, 0), 'context_overflow');
 
   assert.ok(prepared.overflowTokens > 0);
-  assert.equal(transcript.generation, 0);
+  assert.equal(transcript.contextRevision, 0);
   assert.equal(events.filter((event) => event.kind === 'turn_preflight_compaction_applied').length, 0);
   assert.equal(events.some((event) => event.kind === 'turn_preflight_forced_answer'), true);
 });

@@ -23,8 +23,8 @@ import {
   toProtocolTools,
   type CountInferenceTokensOptions,
   type InferenceGenerateResult,
-  type InferenceChatMessage,
 } from '../../providers/inference.js';
+import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getErrorMessage, toError } from '../../lib/errors.js';
 import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
@@ -77,8 +77,8 @@ import {
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';
 import {
-  appendToolCallExchange,
-  appendToolBatchExchange,
+  buildToolBatchMessages,
+  buildToolExchangeMessages,
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
 } from '../../tool-call-messages.js';
@@ -192,13 +192,13 @@ export class SummaryPlannerRequestContext {
 }
 
 type SummaryPlannerTranscriptStateInput = {
-  messages: InferenceChatMessage[];
+  messages: PlannerChatMessage[];
   toolResults: SummaryPlannerToolResultRecord[];
   inputText: string;
 };
 
 export class SummaryPlannerTranscriptState {
-  readonly messages: InferenceChatMessage[];
+  readonly messages: PlannerChatMessage[];
   readonly toolResults: SummaryPlannerToolResultRecord[];
   readonly inputLines: string[];
   readonly readLinesReturnedRanges: Array<{ start: number; end: number }> = [];
@@ -345,7 +345,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private get debugRecorder(): SummaryPlannerDebugRecorder {
     return this.requestContext.debugRecorder;
   }
-  private get messages(): InferenceChatMessage[] {
+  private get messages(): PlannerChatMessage[] {
     return this.transcriptState.messages;
   }
   private get toolResults(): SummaryPlannerToolResultRecord[] {
@@ -669,13 +669,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const invalidResponseError = getErrorMessage(context.error);
     const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
     if (context.error instanceof NativePlannerToolCallError) {
-      appendToolCallExchange(
-        this.messages,
+      this.messages.push(...buildToolExchangeMessages(
         { toolName: context.error.toolName, args: context.error.args },
         context.error.callId,
         invalidToolResultText,
         providerResponse.reasoningText || '',
-      );
+      ));
     } else {
       this.messages.push({
         role: 'assistant',
@@ -808,13 +807,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
         'Current evidence is already repeating and likely sufficient. Produce your final answer now.',
       );
-      appendToolCallExchange(
-        this.messages,
+      this.messages.push(...buildToolExchangeMessages(
         rejectedToolAction,
         rejectedToolAction.callId,
         forcedToolResultText,
         providerResponse.reasoningText || '',
-      );
+      ));
       this.transcriptState.forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
         this.messages,
         this.transcriptState.forcedFinishCountdownUserMessageIndex,
@@ -855,13 +853,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     });
     const limitedToolAction = toolActions[0];
     if (limitedToolAction) {
-      appendToolCallExchange(
-        this.messages,
+      this.messages.push(...buildToolExchangeMessages(
         limitedToolAction,
         limitedToolAction.callId,
         buildPlannerForcedFinishUserPrompt(),
         providerResponse.reasoningText || '',
-      );
+      ));
     }
     this.messages.push({
       role: 'user',
@@ -1076,12 +1073,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     if (this.transcriptState.invalidActionCount < MAX_PLANNER_INVALID_RESPONSES) {
       return null;
     }
-    appendToolBatchExchange(
-      this.messages,
+    this.messages.push(...buildToolBatchMessages(
       ctx.batchOutcomes,
       ctx.providerResponse.reasoningText || '',
       ctx.providerResponse.text,
-    );
+    ));
     this.debugRecorder.finish({
       status: 'failed',
       reason: 'planner_invalid_response_limit',
@@ -1336,12 +1332,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       outcomeCount: ctx.batchOutcomes.length,
       beforeMessageCount: this.messages.length,
     });
-    appendToolBatchExchange(
-      this.messages,
+    this.messages.push(...buildToolBatchMessages(
       ctx.batchOutcomes,
       ctx.providerResponse.reasoningText || '',
       ctx.providerResponse.text,
-    );
+    ));
     appendSpan?.end({ afterMessageCount: this.messages.length });
     if (ctx.batchDuplicateAnchorIndex !== null && ctx.batchOutcomes.length > 0) {
       this.transcriptState.duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + ctx.batchDuplicateAnchorIndex;
@@ -1401,7 +1396,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     allowsUnsupportedInput(options.sourceKind),
   );
   const toolResults: SummaryPlannerToolResultRecord[] = [];
-  const messages: InferenceChatMessage[] = [
+  const messages: PlannerChatMessage[] = [
     {
       role: 'system',
       content: buildPlannerSystemPrompt({

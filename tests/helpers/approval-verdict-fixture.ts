@@ -2,10 +2,10 @@ import {
   captureExecutingPlannerRequest,
   resolveRepoSearchPlannerToolDefinitions,
   serializeProtocolMessages,
-  type ChatMessage,
   type ExecutingPlannerRequest,
   type PlannerThinkingFlags,
 } from '../../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../../src/repo-search/planner-chat-message.js';
 import { toProtocolTools } from '../../src/providers/inference.js';
 
 export const THINKING_ON_FLAGS = {

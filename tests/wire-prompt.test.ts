@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
-import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { renderWirePrompt, WIRE_GENERATION_PROMPT } from '../src/repo-search/wire-prompt.js';
 
 // ChatML role markers. Built from a code-point concatenation so the token

@@ -49,7 +49,7 @@ test('pending and validated typed Git tools share one normalized identity', () =
     thinkingText: '',
     toolActions: [toolAction],
   });
-  assert.equal(pending.tool_calls[0]?.function.arguments, '{"operation":"status"}');
+  assert.equal(pending.tool_calls?.[0]?.function.arguments, '{"operation":"status"}');
 });
 
 test('the verdict prompt is transcript, then pending message, then question', () => {

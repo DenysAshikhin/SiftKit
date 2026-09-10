@@ -814,6 +814,7 @@ test('a stopped stream completion replaces live state with the complete persiste
         toolCallTurn: 1,
         toolCallMaxTurns: 2,
         toolCallExitCode: null,
+        toolCallExecutionState: 'uncertain',
         toolCallStatus: 'stopped',
       },
       chatMessage({

@@ -31,10 +31,10 @@ import {
   toProtocolChatMessages,
   type CompactionCacheOrigin,
   type ExecutingPlannerRequest,
-  type ChatMessage,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import {
   RepoSearchActionAdapter,
@@ -273,6 +273,7 @@ export class TaskLoop {
       initialUserImages: options.initialUserImages || [],
       initialFollowupMessages: initialQueuedMessages.slice(1).map((message) => ({ role: 'user' as const, content: buildUserContent(message.content, message.images) })),
       liveImagePathKeys: this.liveImagePathKeys,
+      contextRecorder: options.evidenceRecorder,
     });
     for (const message of initialQueuedMessages) {
       const event = { kind: 'queued_user_message' as const, id: message.id, turn: 0, boundary: 'successor_start' as const, content: message.content, images: message.images };
@@ -320,6 +321,7 @@ export class TaskLoop {
       maxInvalidResponses: this.maxInvalidResponses,
       allowedPlannerToolNames: this.allowedPlannerToolNames,
       approvalGate: this.buildApprovalRequester(options),
+      evidenceRecorder: options.evidenceRecorder ?? null,
       runtimeProfile: options.runtimeProfile,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,

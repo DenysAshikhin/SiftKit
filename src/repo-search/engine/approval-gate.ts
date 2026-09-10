@@ -5,7 +5,7 @@ import { getAbortError } from '../../lib/abort.js';
 import { ServerLogger, serverLogger, shortenRequestId } from '../../status-server/server-logger.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
-import type { ChatMessage } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import type { JsonObject } from '../../lib/json-types.js';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;

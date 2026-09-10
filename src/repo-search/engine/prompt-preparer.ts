@@ -4,10 +4,10 @@ import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorde
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import {
   plannerMessageKeepsReasoningContent,
-  type ChatMessage,
   type CompactionCacheOrigin,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import type { InferenceToolDefinition } from '../../llm-protocol/types.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
 import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';

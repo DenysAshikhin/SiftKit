@@ -100,6 +100,31 @@ export type ChatStreamPromptEvent = z.infer<typeof ChatStreamPromptEventSchema>;
 export const ToolCallStatusSchema = z.enum(['running', 'done', 'stopped']);
 export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
 
+/**
+ * Where a tool call actually got to. `not_started` means the process died before the command ran;
+ * `uncertain` means it may have run and its outcome was never recorded. They are deliberately
+ * different, because only the second one requires verifying the world before retrying.
+ */
+export const ChatToolExecutionStateSchema = z.enum([
+  'proposed',
+  'pending_approval',
+  'executing',
+  'completed',
+  'rejected',
+  'not_started',
+  'uncertain',
+]);
+export type ChatToolExecutionState = z.infer<typeof ChatToolExecutionStateSchema>;
+
+/**
+ * The display lifecycle is derived from execution state in one place, so a row can never claim a
+ * status its evidence does not support.
+ */
+export function toolCallStatusForExecutionState(state: ChatToolExecutionState): ToolCallStatus {
+  if (state === 'completed' || state === 'rejected') return 'done';
+  if (state === 'not_started' || state === 'uncertain') return 'stopped';
+  return 'running';
+}
 export const ChatTranscriptRoleSchema = z.enum(['user', 'assistant']);
 export type ChatTranscriptRole = z.infer<typeof ChatTranscriptRoleSchema>;
 
@@ -132,6 +157,7 @@ const ChatMessageBaseSchema = z.object({
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
   toolCallPromptTokenCount: z.number().nullable().optional(), toolCallOutputSnippet: z.string().nullable().optional(),
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: ToolCallStatusSchema.optional(),
+  toolCallExecutionState: ChatToolExecutionStateSchema.optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
   createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
@@ -153,12 +179,9 @@ const ChatToolCallFields = {
 export const ChatTranscriptToolCallMessageSchema = ChatMessageBaseSchema.extend({
   ...ChatToolCallFields,
   toolCallStatus: ToolCallStatusSchema,
+  toolCallExecutionState: ChatToolExecutionStateSchema,
 });
 export type ChatTranscriptToolCallMessage = z.infer<typeof ChatTranscriptToolCallMessageSchema>;
-
-const PersistedToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
-  toolCallStatus: z.enum(['done', 'stopped']),
-});
 
 const ReplayableToolCallMessageSchema = ChatTranscriptToolCallMessageSchema.extend({
   toolCallStatus: z.literal('done'),
@@ -198,7 +221,7 @@ export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
 export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
 export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
-  PersistedToolCallMessageSchema,
+  ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
   ChatTranscriptNonToolMessageSchema,
   ChatTranscriptStreamTextMessageSchema,
@@ -224,12 +247,15 @@ export const ChatPromptContextSchema = z.object({
 });
 export type ChatPromptContext = z.infer<typeof ChatPromptContextSchema>;
 
+export const ChatSessionModeSchema = z.enum(['chat', 'plan', 'repo-search']);
+export type ChatSessionMode = z.infer<typeof ChatSessionModeSchema>;
+
 export const ChatSessionSchema = z.object({
   id: z.string(), title: z.string(), modelPresetId: z.string().trim().min(1),
   modelPreset: ModelRuntimePresetSchema.optional(),
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
-  mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string(),
+  mode: ChatSessionModeSchema.optional(), planRepoRoot: z.string(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
   messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });

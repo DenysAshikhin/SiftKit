@@ -433,6 +433,7 @@ export async function executeRepoSearchRequest(
       progressWriter,
       approvalGate: request.approvalGate,
       queueDelivery: request.queueDelivery,
+      evidenceRecorder: request.evidenceRecorder,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

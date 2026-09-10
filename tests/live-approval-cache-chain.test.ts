@@ -13,11 +13,11 @@ import {
   requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
   serializeProtocolMessages,
-  type ChatMessage,
   type ExecutingPlannerRequest,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import {
   buildLiveContextTranscript,
   LIVE_PLANNER_MAX_TOKENS,

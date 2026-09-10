@@ -21,6 +21,7 @@ const BASE_MESSAGE: ChatMessage = {
   toolCallCommand: 'rg foo',
   toolCallOutputSnippet: 'hit',
   toolCallOutput: '',
+  toolCallExecutionState: 'executing',
   toolCallStatus: 'running',
   toolCallExitCode: null,
 };

@@ -1,9 +1,9 @@
 import type { SiftConfig } from '../../config/index.js';
 import {
   requestContextCompactionSummary,
-  type ChatMessage,
   type CompactionCacheOrigin,
 } from '../planner-protocol.js';
+import { findPlannerContextViolation, type ChatMessage } from '../planner-chat-message.js';
 import { buildCompactionSummaryInstruction } from '../prompts.js';
 import { countPlannerPromptTokens, countTokensWithFallback } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
@@ -116,6 +116,12 @@ export class TranscriptCompactor {
       buildCompactionSummaryMessage(summary.summaryText),
       ...partition.retainedMessages,
     ];
+    // A retention boundary that cut a tool batch in half would leave the model an answer to a call
+    // it cannot see, and a replay of it a transcript no provider accepts. Fail here, not there.
+    const violation = findPlannerContextViolation(rebuilt);
+    if (violation !== null) {
+      throw new Error(`TranscriptCompactor: retention would leave an invalid transcript — ${violation}`);
+    }
     const keptMessageCount = (systemMessage ? 1 : 0) + partition.retainedMessages.length;
 
     return {

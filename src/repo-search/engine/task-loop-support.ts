@@ -4,7 +4,8 @@ import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorde
 import { LENGTH_FINISH_REASON, LOOP_DETECTED_EOS_REASON, type StreamStop } from '../../llm-protocol/types.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import { type ChatMessage, type PlannerActionResponse, type PlannerThinkingFlags } from '../planner-protocol.js';
+import { type PlannerActionResponse, type PlannerThinkingFlags } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
@@ -23,6 +24,7 @@ import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 import type { ChatMessageQueueDelivery } from './queue-delivery.js';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -258,6 +260,8 @@ export type RunTaskLoopOptions = {
   timingRecorder?: TemporaryTimingRecorder | null;
   /** Server-owned FIFO delivery, consumed only after a complete tool batch is appended. */
   queueDelivery?: ChatMessageQueueDelivery;
+  /** Durable evidence for a run bound to a Web chat; absent for terminal and benchmark runs. */
+  evidenceRecorder?: ChatRunEvidenceRecorder;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig): boolean {

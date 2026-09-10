@@ -1,45 +1,51 @@
 import { extractContentText } from './llm-protocol/image-attachments.js';
-import type { InferenceContentPart } from './llm-protocol/types.js';
+import type { ChatMessage } from './repo-search/planner-chat-message.js';
 
-type RetainableMessage = {
-  role: string;
-  content?: string | InferenceContentPart[];
-  imagePathKey?: string;
+export type ImageRetentionOutcome = {
+  /** The same array instance when nothing aged out, so an owner can skip recording a no-op splice. */
+  messages: readonly ChatMessage[];
+  /** Labels of the images that aged out, oldest first. */
+  droppedPathKeys: string[];
 };
 
 /**
  * Bounds how many images stay live in a message array, mirroring ThinkingRetentionPolicy.
  * The window counts individual images, not messages, because one message can carry several.
  * Ageing out is oldest-first, and a degraded image becomes a text part in place, so its still-live
- * siblings are untouched.
+ * siblings are untouched. Messages are rebuilt rather than edited: the transcript that owns them
+ * decides when a rewrite becomes a recorded mutation.
  */
 export class ImageRetentionPolicy {
   constructor(private readonly retention: number) {}
 
-  /** Rewrites `messages` in place. Returns the labels of the images it dropped, oldest first. */
-  prune(messages: RetainableMessage[]): string[] {
+  prune(messages: readonly ChatMessage[]): ImageRetentionOutcome {
     if (this.retention < 0) {
-      return [];
+      return { messages, droppedPathKeys: [] };
     }
-    const positions: Array<{ message: RetainableMessage; partIndex: number }> = [];
-    for (const message of messages) {
-      if (!Array.isArray(message.content)) continue;
+    const positions: Array<{ messageIndex: number; partIndex: number }> = [];
+    messages.forEach((message, messageIndex) => {
+      if (!Array.isArray(message.content)) return;
       message.content.forEach((part, partIndex) => {
-        if (part.type === 'image_url') positions.push({ message, partIndex });
+        if (part.type === 'image_url') positions.push({ messageIndex, partIndex });
       });
-    }
+    });
     const dropCount = Math.max(0, positions.length - this.retention);
-    const dropped: string[] = [];
-    for (const { message, partIndex } of positions.slice(0, dropCount)) {
+    if (dropCount === 0) {
+      return { messages, droppedPathKeys: [] };
+    }
+    const rewritten = messages.map((message) => ({ ...message }));
+    const droppedPathKeys: string[] = [];
+    for (const { messageIndex, partIndex } of positions.slice(0, dropCount)) {
+      const message = rewritten[messageIndex];
+      if (!Array.isArray(message.content)) continue;
       const label = extractContentText(message.content).trim() || 'image';
       if (message.imagePathKey !== undefined) {
-        dropped.push(message.imagePathKey);
+        droppedPathKeys.push(message.imagePathKey);
       }
-      if (Array.isArray(message.content)) {
-        message.content[partIndex] = { type: 'text', text: `[${label}, dropped from context]` };
-      }
+      message.content = message.content.map((part, index) => (
+        index === partIndex ? { type: 'text', text: `[${label}, dropped from context]` } : part
+      ));
     }
-    return dropped;
+    return { messages: rewritten, droppedPathKeys };
   }
-
 }

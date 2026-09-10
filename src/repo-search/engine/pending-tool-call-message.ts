@@ -1,8 +1,6 @@
 import type { JsonObject } from '../../lib/json-types.js';
-import {
-  buildAssistantToolCallMessage,
-  type AssistantToolCallMessage,
-} from '../../tool-call-messages.js';
+import { buildAssistantToolCallMessage } from '../../tool-call-messages.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import {
   isRepoSearchNativeToolName,
   normalizeToolName,
@@ -37,9 +35,9 @@ export function buildPendingAssistantMessage(options: {
   thinkingText: string;
   content?: string;
   toolActions: readonly AgentLoopToolAction[];
-}): AssistantToolCallMessage {
+}): ChatMessage {
   return buildAssistantToolCallMessage(
-    options.toolActions.map((toolAction, index) => {
+    options.toolActions.map((toolAction) => {
       const identity = resolveToolActionIdentity(toolAction);
       return {
         action: { toolName: identity.normalizedToolName, args: identity.rawArgs },

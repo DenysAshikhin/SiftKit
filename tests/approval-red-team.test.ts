@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  appendToolBatchExchange,
   buildAssistantToolCallMessage,
-  type ToolTranscriptMessage,
+  buildToolBatchMessages,
 } from '../src/tool-call-messages.js';
 import { RED_TEAM_CORPUS, RedTeamCaseSchema } from '../scripts/approval-red-team/corpus.js';
 import { buildRedTeamReplay } from '../scripts/approval-red-team/replay.js';
@@ -15,9 +14,7 @@ test('the shared assistant builder matches the batch transcript message', () => 
     toolCallId: 't1_c0',
     toolContent: 'ok',
   }];
-  const messages: ToolTranscriptMessage[] = [];
-
-  appendToolBatchExchange(messages, outcomes, 'thinking');
+  const messages = buildToolBatchMessages(outcomes, 'thinking');
 
   assert.deepEqual(messages[0], buildAssistantToolCallMessage(outcomes, 'thinking'));
 });

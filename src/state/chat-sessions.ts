@@ -7,7 +7,9 @@ import {
   ChatTranscriptMessageKindSchema,
   ChatTranscriptRoleSchema,
   PersistedChatTranscriptMessageSchema,
+  ChatToolExecutionStateSchema,
   ToolCallStatusSchema,
+  type ChatToolExecutionState,
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
 } from '@siftkit/contracts';
@@ -108,6 +110,7 @@ const MessageRowSchema = z.object({
   tool_call_output_snippet: z.string().nullable(),
   tool_call_output: z.string().nullable(),
   tool_call_status: z.string().nullable(),
+  tool_call_execution_state: z.string().nullable(),
   approval_decision: z.string().nullable(),
   approval_tool_name: z.string().nullable(),
   approval_command: z.string().nullable(),
@@ -244,6 +247,9 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     toolCallStatus: kind === 'assistant_tool_call'
       ? ToolCallStatusSchema.parse(row.tool_call_status)
       : undefined,
+    toolCallExecutionState: kind === 'assistant_tool_call'
+      ? readToolExecutionState(row)
+      : undefined,
     approvalDecision: kind === 'repo_agent_approval'
       ? ChatRepoAgentApprovalMessageSchema.shape.approvalDecision.parse(row.approval_decision)
       : undefined,
@@ -266,6 +272,19 @@ function mapMessageRow(row: MessageRow): ChatMessage {
       : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta)),
     removedImageCount: row.removed_image_count ?? 0,
   });
+}
+
+/**
+ * A row written before the journal has no recorded execution state, so it is derived from the
+ * display status it does have. A stopped row reads as uncertain: the run never proved otherwise.
+ */
+function readToolExecutionState(row: MessageRow): ChatToolExecutionState {
+  if (row.tool_call_execution_state !== null) {
+    return ChatToolExecutionStateSchema.parse(row.tool_call_execution_state);
+  }
+  const status = ToolCallStatusSchema.parse(row.tool_call_status);
+  if (status === 'done') return 'completed';
+  return status === 'stopped' ? 'uncertain' : 'executing';
 }
 
 function toNullableInteger(value: number | null | undefined): number | null {
@@ -298,6 +317,58 @@ export function listChatSessionPaths(runtimeRoot: string): string[] {
     .map((id) => getChatSessionPath(runtimeRoot, id));
 }
 
+/** Every transcript column, shared by the session reader and the per-run projection reader. */
+const CHAT_MESSAGE_SELECT_COLUMNS = [
+  'id',
+  'role',
+  'kind',
+  'content',
+  'input_tokens_estimate',
+  'output_tokens_estimate',
+  'thinking_tokens',
+  'input_tokens_estimated',
+  'output_tokens_estimated',
+  'thinking_tokens_estimated',
+  'prompt_cache_tokens',
+  'prompt_eval_tokens',
+  'prompt_tokens_per_second',
+  'output_tokens_per_second',
+  'request_duration_ms',
+  'prompt_eval_duration_ms',
+  'generation_duration_ms',
+  'request_started_at_utc',
+  'thinking_started_at_utc',
+  'thinking_ended_at_utc',
+  'answer_started_at_utc',
+  'answer_ended_at_utc',
+  'speculative_accepted_tokens',
+  'speculative_generated_tokens',
+  'thinking_content',
+  'tool_call_command',
+  'tool_call_activity_kind',
+  'tool_call_activity_subject_kind',
+  'tool_call_activity_subject_value',
+  'tool_call_turn',
+  'tool_call_max_turns',
+  'tool_call_exit_code',
+  'tool_call_prompt_token_count',
+  'tool_call_output_snippet',
+  'tool_call_output',
+  'tool_call_status',
+  'tool_call_execution_state',
+  'approval_decision',
+  'approval_tool_name',
+  'approval_command',
+  'approval_reason',
+  'created_at_utc',
+  'source_run_id',
+  'compressed_into_summary',
+  'grounding_status',
+  'images',
+  'image_meta',
+  'removed_image_count',
+  'position',
+].join(', ');
 function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | null {
   const database = getSessionDatabase(runtimeRoot);
   const row = database.prepare(`
@@ -322,55 +393,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
   const session = SessionRowSchema.parse(row);
 
   const messageRows = database.prepare(`
-    SELECT
-      id,
-      role,
-      kind,
-      content,
-      input_tokens_estimate,
-      output_tokens_estimate,
-      thinking_tokens,
-      input_tokens_estimated,
-      output_tokens_estimated,
-      thinking_tokens_estimated,
-      prompt_cache_tokens,
-      prompt_eval_tokens,
-      prompt_tokens_per_second,
-      output_tokens_per_second,
-      request_duration_ms,
-      prompt_eval_duration_ms,
-      generation_duration_ms,
-      request_started_at_utc,
-      thinking_started_at_utc,
-      thinking_ended_at_utc,
-      answer_started_at_utc,
-      answer_ended_at_utc,
-      speculative_accepted_tokens,
-      speculative_generated_tokens,
-      thinking_content,
-      tool_call_command,
-      tool_call_activity_kind,
-      tool_call_activity_subject_kind,
-      tool_call_activity_subject_value,
-      tool_call_turn,
-      tool_call_max_turns,
-      tool_call_exit_code,
-      tool_call_prompt_token_count,
-      tool_call_output_snippet,
-      tool_call_output,
-      tool_call_status,
-      approval_decision,
-      approval_tool_name,
-      approval_command,
-      approval_reason,
-      created_at_utc,
-      source_run_id,
-      compressed_into_summary,
-      grounding_status,
-      images,
-      image_meta,
-      removed_image_count,
-      position
+    SELECT ${CHAT_MESSAGE_SELECT_COLUMNS}
     FROM chat_messages
     WHERE session_id = ?
     ORDER BY position ASC
@@ -631,129 +654,171 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
 
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(sessionId);
 
-    const insertMessage = database.prepare(`
-      INSERT INTO chat_messages (
-        session_id,
-        id,
-        role,
-        kind,
-        content,
-        input_tokens_estimate,
-        output_tokens_estimate,
-        thinking_tokens,
-        input_tokens_estimated,
-        output_tokens_estimated,
-        thinking_tokens_estimated,
-        prompt_cache_tokens,
-        prompt_eval_tokens,
-        prompt_tokens_per_second,
-        output_tokens_per_second,
-        request_duration_ms,
-        prompt_eval_duration_ms,
-        generation_duration_ms,
-        request_started_at_utc,
-        thinking_started_at_utc,
-        thinking_ended_at_utc,
-        answer_started_at_utc,
-        answer_ended_at_utc,
-        speculative_accepted_tokens,
-        speculative_generated_tokens,
-        thinking_content,
-        tool_call_command,
-        tool_call_activity_kind,
-        tool_call_activity_subject_kind,
-        tool_call_activity_subject_value,
-        tool_call_turn,
-        tool_call_max_turns,
-        tool_call_exit_code,
-        tool_call_prompt_token_count,
-        tool_call_output_snippet,
-        tool_call_output,
-        tool_call_status,
-        approval_decision,
-        approval_tool_name,
-        approval_command,
-        approval_reason,
-        created_at_utc,
-        source_run_id,
-        compressed_into_summary,
-        grounding_status,
-        images,
-        image_meta,
-        removed_image_count,
-        position
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?
-      )
-    `);
-
-    for (let index = 0; index < messages.length; index += 1) {
-      const message = messages[index];
-      const messageKind = ChatTranscriptMessageKindSchema.parse(message.kind);
-      const activitySubject = messageKind === 'assistant_tool_call'
-        ? ToolActivitySubjectSchema.parse(message.toolCallActivitySubject)
-        : null;
-      const approvalMessage = message.kind === 'repo_agent_approval' ? message : null;
-      insertMessage.run(
-        sessionId,
-        typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
-        ChatTranscriptRoleSchema.parse(message.role),
-        messageKind,
-        typeof message.content === 'string' ? message.content : '',
-        toNullableNonNegativeInteger(message.inputTokensEstimate) ?? estimateTokenCount(message.content),
-        toNullableNonNegativeInteger(message.outputTokensEstimate) ?? estimateTokenCount(message.content),
-        toNullableNonNegativeInteger(message.thinkingTokens) ?? 0,
-        message.inputTokensEstimated === false ? 0 : 1,
-        message.outputTokensEstimated === false ? 0 : 1,
-        message.thinkingTokensEstimated === false ? 0 : 1,
-        toNullableNonNegativeInteger(message.promptCacheTokens),
-        toNullableNonNegativeInteger(message.promptEvalTokens),
-        toNullableNonNegativeNumber(message.promptTokensPerSecond),
-        toNullableNonNegativeNumber(message.generationTokensPerSecond),
-        toNullableNonNegativeInteger(message.requestDurationMs),
-        toNullableNonNegativeInteger(message.promptEvalDurationMs),
-        toNullableNonNegativeInteger(message.generationDurationMs),
-        typeof message.requestStartedAtUtc === 'string' && message.requestStartedAtUtc.trim() ? message.requestStartedAtUtc : null,
-        typeof message.thinkingStartedAtUtc === 'string' && message.thinkingStartedAtUtc.trim() ? message.thinkingStartedAtUtc : null,
-        typeof message.thinkingEndedAtUtc === 'string' && message.thinkingEndedAtUtc.trim() ? message.thinkingEndedAtUtc : null,
-        typeof message.answerStartedAtUtc === 'string' && message.answerStartedAtUtc.trim() ? message.answerStartedAtUtc : null,
-        typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
-        toNullableNonNegativeInteger(message.speculativeAcceptedTokens),
-        toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
-        typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
-        typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
-        messageKind === 'assistant_tool_call'
-          ? ToolActivityKindSchema.parse(message.toolCallActivityKind)
-          : null,
-        activitySubject?.kind ?? null,
-        activitySubject?.kind === 'file' || activitySubject?.kind === 'host'
-          ? activitySubject.value
-          : null,
-        toNullableNonNegativeInteger(message.toolCallTurn),
-        toNullableNonNegativeInteger(message.toolCallMaxTurns),
-        toNullableInteger(message.toolCallExitCode),
-        toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
-        typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
-        typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,
-        message.kind === 'assistant_tool_call' ? message.toolCallStatus : null,
-        approvalMessage?.approvalDecision ?? null,
-        approvalMessage?.approvalToolName ?? null,
-        approvalMessage?.approvalCommand ?? null,
-        approvalMessage?.approvalReason ?? null,
-        typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
-        typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
-        message.compressedIntoSummary === true ? 1 : 0,
-        normalizeGroundingStatus(message.groundingStatus),
-        JSON.stringify(message.images ?? []),
-        message.imageMeta && message.imageMeta.length > 0 ? JSON.stringify(message.imageMeta) : null,
-        toNullableNonNegativeInteger(message.removedImageCount) ?? 0,
-        index,
-      );
-    }
+    insertChatMessages(database, sessionId, messages, 0, now);
 
   })();
+}
+
+/**
+ * Writes transcript rows for one session. `startPosition` is where this batch begins, so a run
+ * projected on its own lands after the rows already there instead of renumbering them.
+ */
+export function insertChatMessages(
+  database: ReturnType<typeof getRuntimeDatabase>,
+  sessionId: string,
+  messages: readonly PersistedChatTranscriptMessage[],
+  startPosition: number,
+  now: string,
+): void {
+  const insertMessage = database.prepare(`
+    INSERT INTO chat_messages (
+      session_id,
+      id,
+      role,
+      kind,
+      content,
+      input_tokens_estimate,
+      output_tokens_estimate,
+      thinking_tokens,
+      input_tokens_estimated,
+      output_tokens_estimated,
+      thinking_tokens_estimated,
+      prompt_cache_tokens,
+      prompt_eval_tokens,
+      prompt_tokens_per_second,
+      output_tokens_per_second,
+      request_duration_ms,
+      prompt_eval_duration_ms,
+      generation_duration_ms,
+      request_started_at_utc,
+      thinking_started_at_utc,
+      thinking_ended_at_utc,
+      answer_started_at_utc,
+      answer_ended_at_utc,
+      speculative_accepted_tokens,
+      speculative_generated_tokens,
+      thinking_content,
+      tool_call_command,
+      tool_call_activity_kind,
+      tool_call_activity_subject_kind,
+      tool_call_activity_subject_value,
+      tool_call_turn,
+      tool_call_max_turns,
+      tool_call_exit_code,
+      tool_call_prompt_token_count,
+      tool_call_output_snippet,
+      tool_call_output,
+      tool_call_status,
+      tool_call_execution_state,
+      approval_decision,
+      approval_tool_name,
+      approval_command,
+      approval_reason,
+      created_at_utc,
+      source_run_id,
+      compressed_into_summary,
+      grounding_status,
+      images,
+      image_meta,
+      removed_image_count,
+      position
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+  `);
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const messageKind = ChatTranscriptMessageKindSchema.parse(message.kind);
+    const activitySubject = messageKind === 'assistant_tool_call'
+      ? ToolActivitySubjectSchema.parse(message.toolCallActivitySubject)
+      : null;
+    const approvalMessage = message.kind === 'repo_agent_approval' ? message : null;
+    insertMessage.run(
+      sessionId,
+      typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
+      ChatTranscriptRoleSchema.parse(message.role),
+      messageKind,
+      typeof message.content === 'string' ? message.content : '',
+      toNullableNonNegativeInteger(message.inputTokensEstimate) ?? estimateTokenCount(message.content),
+      toNullableNonNegativeInteger(message.outputTokensEstimate) ?? estimateTokenCount(message.content),
+      toNullableNonNegativeInteger(message.thinkingTokens) ?? 0,
+      message.inputTokensEstimated === false ? 0 : 1,
+      message.outputTokensEstimated === false ? 0 : 1,
+      message.thinkingTokensEstimated === false ? 0 : 1,
+      toNullableNonNegativeInteger(message.promptCacheTokens),
+      toNullableNonNegativeInteger(message.promptEvalTokens),
+      toNullableNonNegativeNumber(message.promptTokensPerSecond),
+      toNullableNonNegativeNumber(message.generationTokensPerSecond),
+      toNullableNonNegativeInteger(message.requestDurationMs),
+      toNullableNonNegativeInteger(message.promptEvalDurationMs),
+      toNullableNonNegativeInteger(message.generationDurationMs),
+      typeof message.requestStartedAtUtc === 'string' && message.requestStartedAtUtc.trim() ? message.requestStartedAtUtc : null,
+      typeof message.thinkingStartedAtUtc === 'string' && message.thinkingStartedAtUtc.trim() ? message.thinkingStartedAtUtc : null,
+      typeof message.thinkingEndedAtUtc === 'string' && message.thinkingEndedAtUtc.trim() ? message.thinkingEndedAtUtc : null,
+      typeof message.answerStartedAtUtc === 'string' && message.answerStartedAtUtc.trim() ? message.answerStartedAtUtc : null,
+      typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
+      toNullableNonNegativeInteger(message.speculativeAcceptedTokens),
+      toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
+      typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
+      typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
+      messageKind === 'assistant_tool_call'
+        ? ToolActivityKindSchema.parse(message.toolCallActivityKind)
+        : null,
+      activitySubject?.kind ?? null,
+      activitySubject?.kind === 'file' || activitySubject?.kind === 'host'
+        ? activitySubject.value
+        : null,
+      toNullableNonNegativeInteger(message.toolCallTurn),
+      toNullableNonNegativeInteger(message.toolCallMaxTurns),
+      toNullableInteger(message.toolCallExitCode),
+      toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
+      typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
+      typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,
+      message.kind === 'assistant_tool_call' ? message.toolCallStatus : null,
+      message.kind === 'assistant_tool_call' ? message.toolCallExecutionState : null,
+      approvalMessage?.approvalDecision ?? null,
+      approvalMessage?.approvalToolName ?? null,
+      approvalMessage?.approvalCommand ?? null,
+      approvalMessage?.approvalReason ?? null,
+      typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
+      typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
+      message.compressedIntoSummary === true ? 1 : 0,
+      normalizeGroundingStatus(message.groundingStatus),
+      JSON.stringify(message.images ?? []),
+      message.imageMeta && message.imageMeta.length > 0 ? JSON.stringify(message.imageMeta) : null,
+      toNullableNonNegativeInteger(message.removedImageCount) ?? 0,
+      startPosition + index,
+    );
+  }
+}
+
+/** The transcript rows one run owns, in display order, so a rebuild can replace exactly those. */
+export function readChatRunMessages(
+  database: ReturnType<typeof getRuntimeDatabase>,
+  sessionId: string,
+  sourceRunId: string,
+): PersistedChatTranscriptMessage[] {
+  const rows = z.array(MessageRowSchema).parse(database.prepare(`
+    SELECT ${CHAT_MESSAGE_SELECT_COLUMNS}
+    FROM chat_messages
+    WHERE session_id = ? AND source_run_id = ?
+    ORDER BY position ASC
+  `).all(sessionId, sourceRunId));
+  return rows.map((row) => PersistedChatTranscriptMessageSchema.parse(mapMessageRow(row)));
+}
+
+/** The position a new run's rows start at: after everything already written for the session. */
+export function nextChatMessagePosition(
+  database: ReturnType<typeof getRuntimeDatabase>,
+  sessionId: string,
+): number {
+  const row = z.object({ next: z.number().int() }).parse(database.prepare(
+    'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM chat_messages WHERE session_id = ?',
+  ).get(sessionId));
+  return row.next;
 }

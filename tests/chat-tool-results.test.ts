@@ -379,6 +379,7 @@ test('a historical transcript never hydrates a live turn, whatever the row ids a
     toolCallTurn: 1,
     toolCallMaxTurns: 8,
     toolCallExitCode: 0,
+    toolCallExecutionState: 'completed',
     toolCallStatus: 'done',
   })];
   assert.throws(
@@ -409,6 +410,7 @@ function doneToolRow(requestId: string, toolCallId: string, command: string, tur
     toolCallMaxTurns: 8,
     toolCallExitCode: 0,
     toolCallOutputSnippet: snippet,
+    toolCallExecutionState: 'completed',
     toolCallStatus: 'done',
   });
 }

@@ -4,11 +4,12 @@ import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
 import { estimateTokenCount } from '../lib/token-estimate.js';
 import { InferenceClient } from '../llm-protocol/inference-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
-import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceContentPart, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.js';
+import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.js';
 import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
+import type { ChatMessage } from './planner-chat-message.js';
 import { toError } from '../lib/errors.js';
 import {
   buildProviderErrorMessage,
@@ -45,20 +46,6 @@ export type PlannerActionResponse = {
   speculativeGeneratedTokens?: number | null;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
-};
-
-export type ChatMessage = {
-  role: InferenceChatRole;
-  content?: string | InferenceContentPart[];
-  /** Internal repository-image identity; omitted by toProtocolChatMessages. */
-  imagePathKey?: string;
-  reasoning_content?: string;
-  tool_calls?: Array<{
-    id: string;
-    type: string;
-    function: { name: string; arguments: string };
-  }>;
-  tool_call_id?: string;
 };
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
@@ -608,8 +595,8 @@ export const APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE =
 
 /** Executing transcript, pending assistant tool call, then the transient verdict question. */
 export function buildApprovalVerdictPromptMessages(
-  transcriptMessages: ChatMessage[],
-  pendingMessages: ChatMessage[],
+  transcriptMessages: readonly ChatMessage[],
+  pendingMessages: readonly ChatMessage[],
   question: string,
 ): ChatMessage[] {
   return [...transcriptMessages, ...pendingMessages, { role: 'user', content: question }];
@@ -629,8 +616,8 @@ export async function requestApprovalVerdict(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
-  transcriptMessages: ChatMessage[];
-  pendingMessages: ChatMessage[];
+  transcriptMessages: readonly ChatMessage[];
+  pendingMessages: readonly ChatMessage[];
   question: string;
   executing: ExecutingPlannerRequest;
   timeoutMs: number;
@@ -822,7 +809,7 @@ export async function requestContextCompactionSummary(options: {
 export { isTransientProviderError } from '../lib/provider-helpers.js';
 
 export function renderTaskTranscript(
-  messages: ChatMessage[],
+  messages: readonly ChatMessage[],
   options: { includeReasoningContent: boolean },
 ): string {
   return messages.map((message) => {

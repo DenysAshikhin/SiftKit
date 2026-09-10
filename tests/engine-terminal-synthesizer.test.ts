@@ -15,8 +15,8 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import {
   captureExecutingPlannerRequest,
   serializeProtocolMessages,
-  type ChatMessage,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({

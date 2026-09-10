@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   requestApprovalVerdict,
-  type ChatMessage,
   type ExecutingPlannerRequest,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { buildApprovalVerdictJsonSchema } from '../src/repo-search/approval-verdict.js';
 import { ApprovalModeSchema } from '@siftkit/contracts';

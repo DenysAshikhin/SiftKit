@@ -6,27 +6,34 @@ export type { JsonObject, JsonValue } from '../lib/json-types.js';
 
 export const INFERENCE_PROTOCOL_FORMAT = 'openai-compatible' as const;
 
-export type InferenceChatRole = 'system' | 'user' | 'assistant' | 'tool';
+export const InferenceChatRoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
+export type InferenceChatRole = z.infer<typeof InferenceChatRoleSchema>;
 
-export type InferenceContentPart = {
-  type: string;
-  text?: string;
-  image_url?: { url: string };
-};
+/**
+ * Runtime shape of one content part. Message content crosses persistence and replay boundaries, so
+ * the part shape has exactly one definition and every reader derives its type from it.
+ */
+export const InferenceContentPartSchema = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+  image_url: z.object({ url: z.string() }).optional(),
+});
+export type InferenceContentPart = z.infer<typeof InferenceContentPartSchema>;
 
 export type InferenceReasoningPart = {
   type?: string;
   text?: string;
 };
 
-export type InferenceToolCall = {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
-};
+export const InferenceToolCallSchema = z.object({
+  id: z.string(),
+  type: z.literal('function'),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string(),
+  }),
+});
+export type InferenceToolCall = z.infer<typeof InferenceToolCallSchema>;
 
 export type InferenceChatMessage = {
   role: InferenceChatRole;

@@ -6,7 +6,7 @@ import {
   SIFT_MAX_IMAGE_BYTES,
   type ImageMime,
 } from '@siftkit/contracts';
-import type { InferenceContentPart } from './types.js';
+import { InferenceContentPartSchema, type InferenceContentPart } from './types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { admitImageBuffer, type AdmittedImage } from './image-admission.js';
@@ -108,14 +108,10 @@ export function buildUserContent(
 }
 
 // ── Content schema ──────────────────────────────────────────────────────
-// Runtime shape of `InferenceContentPart` for IO boundaries that persist or replay
-// message content. Kept here so the part shape has one definition.
+// The part shape itself lives with the protocol types it belongs to; these are the names the
+// persistence and replay boundaries already use for it.
 
-export const ContentPartSchema = z.object({
-  type: z.string(),
-  text: z.string().optional(),
-  image_url: z.object({ url: z.string() }).optional(),
-});
+export const ContentPartSchema = InferenceContentPartSchema;
 
 export const MessageContentSchema = z.union([z.string(), z.array(ContentPartSchema)]);
 

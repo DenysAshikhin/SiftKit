@@ -60,6 +60,11 @@ function findCaptionTarget(
 /** Runs one independent vision turn and caches its result on the selected message image. */
 export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<CaptionRequest> {
   protected readonly operationKind = 'message' as const;
+
+  /** Captioning edits an existing message; it is a history revision, not a run. */
+  protected describeRun(): null {
+    return null;
+  }
   protected readonly useSessionOperationLease = false;
 
   protected parseRequest(

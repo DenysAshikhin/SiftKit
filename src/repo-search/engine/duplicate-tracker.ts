@@ -8,7 +8,8 @@ export type DuplicateClassification = {
 
 export type DuplicateRegistration = {
   count: number;
-  activeReplayMessageIndex: number | null;
+  /** The tool call whose result the repeat should overwrite, or null when a new one must be appended. */
+  activeReplayToolCallId: string | null;
 };
 
 export function buildDuplicateFingerprint(toolName: string, normalizedKey: string, fingerprint: string): string {
@@ -20,8 +21,7 @@ export class DuplicateTracker {
   private readonly successfulFingerprints = new Set<string>();
   private replayFingerprint: string | null = null;
   private replayCount = 0;
-  private replayToolMessageIndex = -1;
-  private replayTranscriptGeneration = -1;
+  private replayToolCallId: string | null = null;
 
   classify(options: {
     toolName: string;
@@ -43,22 +43,25 @@ export class DuplicateTracker {
     };
   }
 
-  registerDuplicate(duplicateFingerprint: string, messageCount: number, transcriptGeneration: number): DuplicateRegistration {
+  /** The call a repeat would overwrite; the transcript still decides whether it survived compaction. */
+  get replayAnchorToolCallId(): string | null {
+    return this.replayToolCallId;
+  }
+
+  registerDuplicate(duplicateFingerprint: string, anchorAvailable: boolean): DuplicateRegistration {
     const isActiveReplay = this.replayFingerprint === duplicateFingerprint
-      && this.replayToolMessageIndex >= 0
-      && this.replayToolMessageIndex < messageCount
-      && this.replayTranscriptGeneration === transcriptGeneration;
+      && anchorAvailable
+      && this.replayToolCallId !== null;
     this.replayFingerprint = duplicateFingerprint;
     this.replayCount = isActiveReplay ? this.replayCount + 1 : 2;
     return {
       count: this.replayCount,
-      activeReplayMessageIndex: isActiveReplay ? this.replayToolMessageIndex : null,
+      activeReplayToolCallId: isActiveReplay ? this.replayToolCallId : null,
     };
   }
 
-  setReplayToolMessageIndex(index: number, transcriptGeneration: number): void {
-    this.replayToolMessageIndex = index;
-    this.replayTranscriptGeneration = transcriptGeneration;
+  setReplayToolCallId(toolCallId: string): void {
+    this.replayToolCallId = toolCallId;
   }
 
   shouldForceFinish(): boolean {
@@ -68,7 +71,7 @@ export class DuplicateTracker {
   recordSuccess(normalizedKey: string, fingerprint: string | null): void {
     this.replayFingerprint = null;
     this.replayCount = 0;
-    this.replayToolMessageIndex = -1;
+    this.replayToolCallId = null;
     this.successfulNormalizedKeys.add(normalizedKey);
     if (fingerprint) {
       this.successfulFingerprints.add(fingerprint);

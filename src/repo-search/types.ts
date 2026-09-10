@@ -12,7 +12,8 @@ export type JsonLogger = {
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ApprovalGate } from './engine/approval-gate.js';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
-import type { ChatMessage } from './planner-protocol.js';
+import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
+import type { ChatMessage } from './planner-chat-message.js';
 import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
 import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.js';
@@ -232,6 +233,8 @@ export type RepoSearchExecutionRequest = {
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
   queueDelivery?: ChatMessageQueueDelivery;
+  /** Durable chat evidence writer; a Web operation supplies one, a CLI run does not. */
+  evidenceRecorder?: ChatRunEvidenceRecorder;
   abortSignal?: AbortSignal;
 };
 

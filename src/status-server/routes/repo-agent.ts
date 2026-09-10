@@ -98,6 +98,8 @@ export type StartRepoAgentRunInput = {
   queueOwner?: ChatMessageQueue;
   queueSessionId?: string;
   queueForceId?: string;
+  /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
+  evidenceRecorder?: RepoSearchExecutionRequest['evidenceRecorder'];
 };
 
 export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
@@ -155,6 +157,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       mockResponses: input.mockResponses,
       mockCommandResults: input.mockCommandResults,
       ...(input.history === undefined ? {} : { history: input.history }),
+      ...(input.evidenceRecorder === undefined ? {} : { evidenceRecorder: input.evidenceRecorder }),
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
       ...(input.queueOwner && input.queueSessionId
         ? {

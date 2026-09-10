@@ -16,7 +16,7 @@ import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-d
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import type { ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
-import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import type { ChatQueuedMessage } from '../src/state/chat-message-queue.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
@@ -32,7 +32,7 @@ test('stopped deliveries retain their safe boundary before later reasoning and t
   const base = buildChatUserMessage('', [], [], '2026-09-09T00:00:00.000Z');
   const tool = (turn: number) => PersistedChatTranscriptMessageSchema.parse({
     ...base, id: `tool-${turn}`, role: 'assistant', kind: 'assistant_tool_call',
-    toolCallTurn: turn, toolCallStatus: 'done', toolCallOutput: `full-${turn}`,
+    toolCallTurn: turn, toolCallExecutionState: 'completed', toolCallStatus: 'done', toolCallOutput: `full-${turn}`,
     toolCallCommand: `read ${turn}`, toolCallActivityKind: 'read', toolCallActivitySubject: { kind: 'none' }, toolCallMaxTurns: 3, toolCallExitCode: 0,
   });
   const later = PersistedChatTranscriptMessageSchema.parse({ ...base, id: 'later', role: 'assistant', kind: 'assistant_thinking', content: 'later reasoning' });

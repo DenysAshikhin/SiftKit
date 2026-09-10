@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
 import type { ImageMetadata, ImageTokenBudget, ToolActivity } from '@siftkit/contracts';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
@@ -7,8 +8,10 @@ import {
 } from '../command-safety.js';
 import {
   isTreeMutatingToolName,
-  type ChatMessage,
 } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
+import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
 import type { AgentLoopToolAction } from '../../agent-loop/types.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
@@ -36,7 +39,6 @@ import { buildApprovalReviewPayload, type ApprovalRequester } from './approval-g
 import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
-import { ImageRetentionPolicy } from '../../image-retention-policy.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { getToolActivity } from '../tool-activity.js';
 import { buildReadPathKey } from './read-overlap.js';
@@ -72,6 +74,8 @@ type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
 type ToolActionOutcome = 'next' | 'stop_batch';
 
 type TurnBatchState = {
+  /** Identity of this turn's batch, so its calls can be regrouped from the journal alone. */
+  batchId: string;
   batchIndex: number;
   toolCallIds: string[];
   pendingMessages: ChatMessage[];
@@ -160,6 +164,8 @@ export type ToolActionProcessorDeps = {
   maxInvalidResponses: number;
   allowedPlannerToolNames: string[];
   approvalGate: ApprovalRequester | null;
+  /** Present only for a run bound to a durable chat; a terminal run records nothing. */
+  evidenceRecorder: ChatRunEvidenceRecorder | null;
   runtimeProfile: RepoSearchRuntimeProfile;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -192,7 +198,6 @@ export type ToolActionProcessorDeps = {
 export class ToolActionProcessor {
   private readonly collector = new ActivitySummaryCollector();
   private progressToolCallSeq = 0;
-  private forcedFinishCountdownUserMessageIndex = -1;
 
   constructor(private readonly deps: ToolActionProcessorDeps) {}
 
@@ -206,6 +211,7 @@ export class ToolActionProcessor {
   ): Promise<TurnOutcome> {
     const { transcript, duplicates, counters } = this.deps;
     const state: TurnBatchState = {
+      batchId: randomUUID(),
       batchIndex: 0,
       toolCallIds: toolActions.map((action) => action.callId),
       pendingMessages: [buildPendingAssistantMessage({
@@ -248,6 +254,17 @@ export class ToolActionProcessor {
         // Keep the original per-call evidence durable before any later tool can abort. The
         // finalization records only the text actually appended once the batch has settled.
         this.deps.logger?.write({ ...finalized, taskId: this.deps.task.id });
+        this.deps.evidenceRecorder?.recordToolResultFinalized({
+          call: {
+            toolCallId: lastOutcome.toolCallId,
+            displayToolCallId: lastOutcome.progressToolCallId,
+            batchId: state.batchId,
+            turn,
+            indexInBatch: state.batchOutcomes.length - 1,
+          },
+          modelVisibleText: finalized.insertedResultText,
+          contextRevision: transcript.contextRevision,
+        });
         lastOutcome.toolContent = finalized.insertedResultText;
         command.output = finalized.insertedResultText;
         command.promptOutput = finalized.insertedResultText;
@@ -275,8 +292,11 @@ export class ToolActionProcessor {
     );
     transcript.pruneThinking(this.deps.maintainPerStepThinking);
     appendSpan?.end({ afterMessageCount: transcript.length });
-    if (state.batchDuplicateAnchorIndex !== null && state.batchOutcomes.length > 0) {
-      duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + state.batchDuplicateAnchorIndex, transcript.generation);
+    const duplicateAnchor = state.batchDuplicateAnchorIndex === null
+      ? undefined
+      : state.batchOutcomes[state.batchDuplicateAnchorIndex];
+    if (duplicateAnchor !== undefined) {
+      duplicates.setReplayToolCallId(duplicateAnchor.toolCallId);
     }
     for (const pending of [...state.pendingToolImages].reverse()) {
       transcript.insertUserAfter(
@@ -287,17 +307,12 @@ export class ToolActionProcessor {
       );
       this.deps.liveImagePathKeys.add(pending.pathKey);
     }
-    for (const droppedPathKey of new ImageRetentionPolicy(this.deps.visionImageRetention).prune(transcript.getMessages())) {
-      this.deps.liveImagePathKeys.delete(droppedPathKey);
-    }
+    transcript.pruneImages(this.deps.visionImageRetention);
     for (const userMessage of state.pendingModeChangeUserMessages) {
       transcript.pushUser(userMessage);
     }
     if (state.pendingForcedFinishCountdownText !== null) {
-      this.forcedFinishCountdownUserMessageIndex = transcript.upsertTrailingUser(
-        this.forcedFinishCountdownUserMessageIndex,
-        state.pendingForcedFinishCountdownText,
-      );
+      transcript.upsertForcedFinishCountdown(state.pendingForcedFinishCountdownText);
     }
     const summary = this.collector.takeSummary(turn, this.deps.progress.getMaxTurns());
     if (summary !== null) {
@@ -323,6 +338,17 @@ export class ToolActionProcessor {
       return validated;
     }
     const { normalizedToolName, nativeCall, command } = validated;
+    this.deps.evidenceRecorder?.recordToolProposed({
+      call: this.callIdentity(turn, state, progressToolCallId),
+      toolName: normalizedToolName,
+      arguments: toolAction.args,
+      command,
+      activityKind: validated.activity.activityKind,
+      activitySubject: validated.activity.activitySubject,
+      maxTurns: this.deps.maxTurns,
+      promptTokenCount,
+      executionState: 'proposed',
+    });
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
@@ -521,6 +547,7 @@ export class ToolActionProcessor {
     },
   ): void {
     const { commands } = this.deps;
+    this.recordRejectionEvidence(turn, state, rejection.progressToolCallId, rejection.output ?? `Rejected command: ${rejection.reason}`);
     const output = rejection.output ?? `Rejected command: ${rejection.reason}`;
     commands.push({
       toolCallId: rejection.progressToolCallId,
@@ -551,6 +578,27 @@ export class ToolActionProcessor {
       }),
       toolCallId: this.getToolCallId(state),
       toolContent: output,
+    });
+  }
+
+  /** A refusal is an outcome the model saw, so it is recorded with no exit code to invent. */
+  private recordRejectionEvidence(
+    turn: number,
+    state: TurnBatchState,
+    progressToolCallId: string,
+    output: string,
+  ): void {
+    this.deps.evidenceRecorder?.recordToolResult({
+      call: this.callIdentity(turn, state, progressToolCallId),
+      executionState: 'rejected',
+      exitCode: null,
+      output,
+      images: [],
+      imageMeta: [],
+      outputTokens: 0,
+      outputTokensEstimated: true,
+      promptTokenCount: 0,
+      finishedAtUtc: new Date().toISOString(),
     });
   }
 
@@ -624,6 +672,17 @@ export class ToolActionProcessor {
     const id = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
     return id;
+  }
+
+  /** The two names one call answers to, plus where it sits in its batch. */
+  private callIdentity(turn: number, state: TurnBatchState, progressToolCallId: string): ChatToolCallIdentity {
+    return {
+      toolCallId: this.getToolCallId(state),
+      displayToolCallId: progressToolCallId,
+      batchId: state.batchId,
+      turn,
+      indexInBatch: state.batchIndex,
+    };
   }
 
   private getToolCallId(state: TurnBatchState): string {
@@ -709,10 +768,15 @@ export class ToolActionProcessor {
     const { toolAction, normalizedToolName, command, fingerprint } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
     const { reason, trigger, isSemantic } = REPEAT_KINDS[options.kind];
-    const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length, transcript.generation);
+    const anchorToolCallId = duplicates.replayAnchorToolCallId;
+    const registration = duplicates.registerDuplicate(
+      options.duplicateFingerprint,
+      anchorToolCallId !== null && transcript.hasToolResult(anchorToolCallId),
+    );
     const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.rejectedCalls += 1;
+    this.recordRejectionEvidence(turn, state, context.progressToolCallId, duplicateMessage);
     commands.push({
       toolCallId: context.progressToolCallId,
       command,
@@ -730,8 +794,8 @@ export class ToolActionProcessor {
       output: duplicateMessage,
       rejectionKind: 'duplicate',
     });
-    if (registration.activeReplayMessageIndex !== null) {
-      transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
+    if (registration.activeReplayToolCallId !== null) {
+      transcript.replaceToolResult(registration.activeReplayToolCallId, duplicateMessage);
     } else {
       state.batchOutcomes.push({
         progressToolCallId: context.progressToolCallId,
@@ -906,6 +970,10 @@ export class ToolActionProcessor {
     const activity = context.activity;
 
     const { progressToolCallId } = context;
+    this.deps.evidenceRecorder?.recordToolStarted({
+      call: this.callIdentity(turn, state, progressToolCallId),
+      startedAtUtc: new Date().toISOString(),
+    });
     this.deps.progress.toolStart(
       progressToolCallId, turn, activity.activityKind, activity.activitySubject,
       context.command, promptTokenCount, this.deps.tokenUsage.snapshot().thinkingTokens,
@@ -1091,6 +1159,25 @@ export class ToolActionProcessor {
       rawResultTokenCount, lineReadStats,
     } = fittedOutcome;
     const { perToolCapTokens, remainingTokenAllowance } = context.capacity;
+    const imageDataUrls = nativeExecution && nativeExecution.ok && nativeExecution.imageDataUrl
+      ? [nativeExecution.imageDataUrl]
+      : undefined;
+    const imageMeta = nativeExecution && nativeExecution.ok && nativeExecution.imageMetadata
+      ? [nativeExecution.imageMetadata]
+      : undefined;
+    // The complete result is durable before the next model turn or any later tool can consume it.
+    this.deps.evidenceRecorder?.recordToolResult({
+      call: this.callIdentity(turn, state, progressToolCallId),
+      executionState: 'completed',
+      exitCode: Number(executed.exitCode),
+      output: resultText,
+      images: imageDataUrls ?? [],
+      imageMeta: imageMeta ?? [],
+      outputTokens: Math.max(0, Math.ceil(resultTokenCount)),
+      outputTokensEstimated: resultTokenCountEstimated,
+      promptTokenCount,
+      finishedAtUtc: new Date().toISOString(),
+    });
 
     const toolType = normalizedToolName;
     toolStats.recordToolCall({
@@ -1145,12 +1232,6 @@ export class ToolActionProcessor {
     tokenUsage.addToolTokens(resultTokenCount, turn);
     progress.usageForTurn(turn, tokenUsage.turnRecords());
 
-    const imageDataUrls = nativeExecution && nativeExecution.ok && nativeExecution.imageDataUrl
-      ? [nativeExecution.imageDataUrl]
-      : undefined;
-    const imageMeta = nativeExecution && nativeExecution.ok && nativeExecution.imageMetadata
-      ? [nativeExecution.imageMetadata]
-      : undefined;
     commands.push({
       toolCallId: progressToolCallId,
       command: commandToRun,

@@ -12,12 +12,24 @@ import {
   getRuntimeDatabase,
   getSchemaVersion,
 } from '../src/state/runtime-db.js';
+import { CHAT_MESSAGES_COLUMNS } from '../src/state/runtime-schema.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import {
   REMOVED_BACKEND_COLUMN_PREFIX, REMOVED_BACKEND_ID, REMOVED_BACKEND_RUNS_TABLE,
   REMOVED_BACKEND_LOG_CHUNKS_TABLE, REMOVED_BACKEND_STREAM_KIND,
 } from './helpers/legacy-backend-fixtures.js';
+import {
+  CANONICAL_TOOL_CALL_STATUS_VALUES,
+  LEGACY_FIXTURE_MARKER_VERSION,
+  LEGACY_FIXTURE_SESSION_ID,
+  readChatMessageRows,
+  readMarkerVersion,
+  readTableColumns,
+  readTableDefinition,
+  seedLegacyChatDatabase,
+} from './helpers/legacy-chat-schema-fixture.js';
+import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
 
 const TableNameRowsSchema = z.array(z.object({ name: z.string() }));
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
@@ -47,8 +59,13 @@ const BOOTSTRAP_TABLES = [
   'benchmark_runs',
   'benchmark_sessions',
   'candidate_assertions',
+  'chat_context_snapshots',
   'chat_messages',
   'chat_pending_messages',
+  'chat_run_events',
+  'chat_runs',
+  'chat_runtime_owner',
+  'chat_session_recovery',
   'chat_sessions',
   'eval_results',
   'evidence_blobs',
@@ -218,7 +235,7 @@ test('opening a current database preserves stored values and device identity', (
 });
 
 test('historical and future schema markers are rejected without changing their contents', () => {
-  for (const version of [64, 65, 68]) {
+  for (const version of [64, 65, CURRENT_SCHEMA_VERSION + 1]) {
     const dbPath = tempDbPath(`siftkit-runtime-schema-version-${String(version)}-`);
     seedMarker(dbPath, version);
     const before = readFileSync(dbPath);
@@ -227,7 +244,7 @@ test('historical and future schema markers are rejected without changing their c
         assert.ok(error instanceof Error);
         assert.ok(error.message.includes(dbPath));
         assert.ok(error.message.includes(`version ${version}`));
-        assert.match(error.message, /expected 67/u);
+        assert.ok(error.message.includes(`expected ${String(CURRENT_SCHEMA_VERSION)}`));
         return true;
       });
       assert.deepEqual(readFileSync(dbPath), before);
@@ -238,7 +255,7 @@ test('historical and future schema markers are rejected without changing their c
   }
 });
 
-test('a version 66 database upgrades to 67 in place, adding the pending-message table and keeping chat and log rows', () => {
+test('a version 66 database upgrades in place, adding the pending-message table and keeping chat and log rows', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-66-');
   const CountRow = z.object({ count: z.number() });
   try {
@@ -257,7 +274,7 @@ test('a version 66 database upgrades to 67 in place, adding the pending-message 
 
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 67);
+    
     assert.ok(columnNames(upgraded, 'chat_pending_messages').includes('delivered_request_id'));
     assert.equal(CountRow.parse(upgraded.prepare("SELECT count(*) AS count FROM chat_messages WHERE content = 'kept message'").get()).count, 1);
     assert.equal(CountRow.parse(upgraded.prepare("SELECT count(*) AS count FROM run_logs WHERE run_id = 'run-1'").get()).count, 1);
@@ -352,7 +369,7 @@ for (const marker of [
             assert.equal(error.name, 'Error');
             assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
             assert.ok(error.message.includes(dbPath));
-            assert.match(error.message, /expected.*67/iu);
+            assert.ok(error.message.includes(String(CURRENT_SCHEMA_VERSION)));
             assert.ok(error.cause instanceof Error);
             return true;
           });
@@ -398,4 +415,180 @@ test('current inference and benchmark streams enforce constraints and foreign ke
     assert.equal(CountSchema.parse(database.prepare('SELECT count(*) AS count FROM inference_run_log_chunks').get()).count, 0);
     assert.equal(CountSchema.parse(database.prepare('SELECT count(*) AS count FROM benchmark_logs').get()).count, 0);
   } finally { closeRuntimeDatabase(); }
+});
+
+test('the seeded marker-67 fixture really rejects a stopped tool row', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-stale-check-');
+  seedLegacyChatDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  const database = new Database(dbPath);
+  try {
+    assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
+    assert.equal(readTableDefinition(database, 'chat_messages').includes("'stopped'"), false);
+    assert.throws(() => database.prepare(`
+      UPDATE chat_messages SET tool_call_status = 'stopped' WHERE id = 'message-populated'
+    `).run(), /CHECK constraint failed/u);
+  } finally {
+    database.close();
+  }
+});
+
+test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column value', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-');
+  seedLegacyChatDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  const reader = new Database(dbPath, { readonly: true });
+  let rowsBeforeUpgrade: ChatMessageRow[];
+  let columnsBeforeUpgrade: string[];
+  try {
+    rowsBeforeUpgrade = readChatMessageRows(reader);
+    columnsBeforeUpgrade = readTableColumns(reader, 'chat_messages');
+  } finally {
+    reader.close();
+  }
+
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
+    const tableDefinition = readTableDefinition(upgraded, 'chat_messages');
+    assert.match(tableDefinition, /'stopped'/u);
+    assert.deepEqual(readChatMessageRows(upgraded), rowsBeforeUpgrade);
+    const columnsAfterUpgrade = readTableColumns(upgraded, 'chat_messages');
+    assert.deepEqual(columnsAfterUpgrade, [...CHAT_MESSAGES_COLUMNS]);
+    assert.deepEqual(columnsBeforeUpgrade.filter((column) => !columnsAfterUpgrade.some((after) => after === column)), []);
+    assert.deepEqual(upgraded.prepare('PRAGMA foreign_key_check').all(), []);
+    upgraded.prepare("UPDATE chat_messages SET tool_call_status = 'stopped' WHERE id = 'message-populated'").run();
+    assert.equal(
+      z.object({ count: z.number() }).parse(upgraded.prepare(
+        'SELECT count(*) AS count FROM chat_pending_messages',
+      ).get()).count,
+      2,
+    );
+  } finally {
+    closeRuntimeDatabase();
+  }
+
+  const reopened = new Database(dbPath, { readonly: true });
+  try {
+    const stopped = readChatMessageRows(reopened).find((row) => row.id === 'message-populated');
+    assert.equal(stopped?.tool_call_status, 'stopped');
+  } finally {
+    reopened.close();
+  }
+});
+
+test('a marker-67 database that already accepts stopped converges without rewriting rows', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-current-');
+  seedLegacyChatDatabase(dbPath, { toolCallStatusValues: CANONICAL_TOOL_CALL_STATUS_VALUES });
+  closeRuntimeDatabase();
+
+  const reader = new Database(dbPath, { readonly: true });
+  let rowsBeforeUpgrade: ChatMessageRow[];
+  try {
+    rowsBeforeUpgrade = readChatMessageRows(reader);
+  } finally {
+    reader.close();
+  }
+
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
+    assert.match(readTableDefinition(upgraded, 'chat_messages'), /'stopped'/u);
+    assert.deepEqual(readChatMessageRows(upgraded), rowsBeforeUpgrade);
+    assert.deepEqual(upgraded.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('a row the canonical definition rejects aborts the rebuild and leaves marker 67 intact', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-uncopyable-');
+  seedLegacyChatDatabase(dbPath, { nullableContent: true });
+  closeRuntimeDatabase();
+
+  const reader = new Database(dbPath, { readonly: true });
+  let rowsBeforeUpgrade: ChatMessageRow[];
+  try {
+    rowsBeforeUpgrade = readChatMessageRows(reader);
+  } finally {
+    reader.close();
+  }
+
+  try {
+    assert.throws(() => getRuntimeDatabase(dbPath), /NOT NULL constraint failed/u);
+  } finally {
+    closeRuntimeDatabase();
+  }
+
+  assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
+  const reopened = new Database(dbPath, { readonly: true });
+  try {
+    assert.deepEqual(readChatMessageRows(reopened), rowsBeforeUpgrade);
+    assert.equal(readTableDefinition(reopened, 'chat_messages').includes("'stopped'"), false);
+    assert.deepEqual(
+      TableNameRowsSchema.parse(reopened.prepare(
+        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'chat_messages%'",
+      ).all()).map((row) => row.name),
+      ['chat_messages'],
+    );
+  } finally {
+    reopened.close();
+  }
+});
+
+test('an unknown legacy chat_messages column is rejected instead of silently dropped', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-drift-');
+  seedLegacyChatDatabase(dbPath, { extraColumn: true });
+  closeRuntimeDatabase();
+
+  try {
+    assert.throws(() => getRuntimeDatabase(dbPath), /legacy_only_column/u);
+  } finally {
+    closeRuntimeDatabase();
+  }
+  assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
+});
+
+test('the marker-67 upgrade adds the chat journal with its identity and active-run constraints', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-journal-');
+  seedLegacyChatDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    const insertRun = upgraded.prepare(`
+      INSERT INTO chat_runs (
+        operation_id, session_id, record_kind, operation_kind, run_order, owner_epoch,
+        created_at_utc, updated_at_utc, request_id
+      ) VALUES (?, ?, ?, ?, ?, 'owner:1', '2026-09-10T11:00:00.000Z', '2026-09-10T11:00:00.000Z', ?)
+    `);
+    insertRun.run('op-1', LEGACY_FIXTURE_SESSION_ID, 'execution', 'repo-agent', 1, 'request-1');
+
+    // A second unfinished execution in the same session, a reused engine request, and a run row
+    // that claims to be a baseline while carrying an operation kind are all rejected by the schema.
+    assert.throws(() => insertRun.run('op-2', LEGACY_FIXTURE_SESSION_ID, 'execution', 'message', 2, 'request-2'), /UNIQUE/u);
+    upgraded.prepare("UPDATE chat_runs SET terminal_cause = 'user_stop' WHERE operation_id = 'op-1'").run();
+    assert.throws(() => insertRun.run('op-3', LEGACY_FIXTURE_SESSION_ID, 'execution', 'message', 3, 'request-1'), /UNIQUE/u);
+    assert.throws(() => insertRun.run('op-4', LEGACY_FIXTURE_SESSION_ID, 'baseline', 'message', 4, null), /CHECK/u);
+    insertRun.run('op-5', LEGACY_FIXTURE_SESSION_ID, 'baseline', null, 5, null);
+
+    const insertEvent = upgraded.prepare(`
+      INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
+      VALUES (?, ?, ?, 1, '2026-09-10T11:00:00.000Z', 'display', '{}', 'digest')
+    `);
+    insertEvent.run('op-1', 1, 'event-1');
+    assert.throws(() => insertEvent.run('op-1', 2, 'event-1'), /UNIQUE/u);
+    assert.throws(() => insertEvent.run('op-1', 0, 'event-0'), /CHECK/u);
+    assert.throws(() => insertEvent.run('missing-op', 1, 'event-2'), /FOREIGN KEY/u);
+
+    upgraded.prepare("DELETE FROM chat_sessions WHERE id = ?").run(LEGACY_FIXTURE_SESSION_ID);
+    assert.equal(
+      z.object({ count: z.number() }).parse(upgraded.prepare('SELECT count(*) AS count FROM chat_run_events').get()).count,
+      0,
+    );
+  } finally {
+    closeRuntimeDatabase();
+  }
 });

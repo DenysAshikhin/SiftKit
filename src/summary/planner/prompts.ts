@@ -1,14 +1,12 @@
-import type { InferenceChatMessage } from '../../providers/inference.js';
 import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
 import type { SummarySourceKind } from '../types.js';
 import type { PlannerToolDefinition } from '../../planner-protocol/json-schema.js';
-import { buildSingleAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
-import type { SummaryNativeToolCall } from '../../planner-protocol/summary-tools.js';
+import type { ChatMessage } from '../../repo-search/planner-chat-message.js';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the
@@ -139,7 +137,7 @@ export function buildPlannerForcedFinishUserPrompt(reason?: string): string {
   ].join('\n');
 }
 
-export function renderPlannerTranscript(messages: InferenceChatMessage[]): string {
+export function renderPlannerTranscript(messages: readonly ChatMessage[]): string {
   return messages.map((message) => {
     const sections: string[] = [];
     if (typeof message.content === 'string' && message.content) {
@@ -155,11 +153,4 @@ export function renderPlannerTranscript(messages: InferenceChatMessage[]): strin
     }
     return sections.join('\n');
   }).join('\n\n');
-}
-
-export function buildPlannerAssistantToolMessage(
-  action: SummaryNativeToolCall,
-  toolCallId: string
-): InferenceChatMessage {
-  return buildSharedAssistantToolCallMessage(action, toolCallId);
 }

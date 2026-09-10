@@ -14,7 +14,9 @@ import {
 import { createTestChatSession } from './helpers/chat-sessions.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { startStatusServer } from '../src/status-server/index.js';
-import { getAddressInfo, requestJson, asObject } from './helpers/dashboard-http.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { z } from '../src/lib/zod.js';
+import { getAddressInfo, requestJson, requestSse, asObject } from './helpers/dashboard-http.js';
 import { configureDashboardTestEnv, enterDashboardTestRepo, restoreDashboardTestRepo } from './helpers/dashboard-test-repo.js';
 import path from 'node:path';
 import { writeConfig } from '../src/status-server/config-store.js';
@@ -816,6 +818,61 @@ test('deleting an image on an unknown message answers 404', async () => {
       { method: 'DELETE' },
     );
     assert.equal(response.statusCode, 404);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+const ChatRunRowSchema = z.object({
+  operation_id: z.string(),
+  run_order: z.number(),
+  terminal_cause: z.string().nullable(),
+});
+
+test('two sequential turns reusing one client operationId record two distinct runs', async () => {
+  const context = await withCaptionServer({}, new StaticCaptionEngineService('an answer'));
+  const clientOperationId = '4f9c1f9a-0000-4000-8000-000000000000';
+  const streamUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/stream`;
+  try {
+    for (const content of ['first question', 'second question']) {
+      const response = await requestSse(streamUrl, {
+        method: 'POST',
+        body: JSON.stringify({ content, operationId: clientOperationId }),
+      });
+      assert.equal(response.statusCode, 200, JSON.stringify(response.events));
+      assert.equal(response.events.some((event) => event.event === 'error'), false, JSON.stringify(response.events));
+    }
+
+    const runs = ChatRunRowSchema.array().parse(
+      getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'))
+        .prepare('SELECT operation_id, run_order, terminal_cause FROM chat_runs WHERE session_id = ? ORDER BY run_order')
+        .all(context.fixture.session.id),
+    );
+    assert.equal(runs.length, 2);
+    assert.notEqual(runs[0]?.operation_id, runs[1]?.operation_id);
+    assert.deepEqual(runs.map((run) => run.run_order), [1, 2]);
+    assert.deepEqual(runs.map((run) => run.terminal_cause), ['completed', 'completed']);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+class DatabaseClosingFailureEngineService extends StatusEngineService {
+  override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    closeRuntimeDatabase();
+    return Promise.reject(new Error('engine exploded'));
+  }
+}
+
+test('an engine failure survives a terminal write that lost its database handle', async () => {
+  const context = await withCaptionServer({}, new DatabaseClosingFailureEngineService());
+  try {
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`,
+      { method: 'POST', body: JSON.stringify({ content: 'a question' }) },
+    );
+    assert.equal(response.statusCode, 500);
+    assert.equal(String(asObject(response.body).error), 'engine exploded');
   } finally {
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }

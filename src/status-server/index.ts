@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ChatMessageQueue } from './chat-message-queue.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
@@ -247,6 +248,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     engineService,
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
+    chatRunOwnerEpoch: randomUUID(),
     server: null,
     getServiceBaseUrl() {
       const address = ctx.server?.address?.();

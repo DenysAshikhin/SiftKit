@@ -25,6 +25,7 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
       toolCallTurn: 1,
       toolCallMaxTurns: 45,
       toolCallExitCode: null,
+      toolCallExecutionState: 'completed',
       toolCallStatus: 'done',
       ...candidate,
     });
@@ -103,7 +104,8 @@ test('no message in a run is dropped: a second answer renders as a step, not sil
 test('all live messages collapse into one live turn with tools in the recent activity ring', () => {
   const messages = [
     message({ id: 'lt', kind: 'assistant_thinking', sourceRunId: null }),
-    message({ id: 'lc', kind: 'assistant_tool_call', sourceRunId: null, toolCallStatus: 'running' }),
+    message({ id: 'lc', kind: 'assistant_tool_call', sourceRunId: null, toolCallExecutionState: 'executing',
+ toolCallStatus: 'running' }),
   ];
   const turns = groupMessagesIntoTurns(messages, new Set(['lt', 'lc']));
   assert.equal(turns.length, 1);
@@ -141,9 +143,11 @@ test('empty input yields no turns', () => {
 test('a live turn keeps the newest thinking blocks and tools in separate live stacks', () => {
   const messages = [
     message({ id: 'th1', kind: 'assistant_thinking', sourceRunId: null }),
-    message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: null, toolCallStatus: 'done' }),
+    message({ id: 'tc1', kind: 'assistant_tool_call', sourceRunId: null, toolCallExecutionState: 'completed',
+ toolCallStatus: 'done' }),
     message({ id: 'th2', kind: 'assistant_thinking', sourceRunId: null }),
-    message({ id: 'tc2', kind: 'assistant_tool_call', sourceRunId: null, toolCallStatus: 'running' }),
+    message({ id: 'tc2', kind: 'assistant_tool_call', sourceRunId: null, toolCallExecutionState: 'executing',
+ toolCallStatus: 'running' }),
   ];
   const turns = groupMessagesIntoTurns(messages, new Set(['th1', 'tc1', 'th2', 'tc2']));
   assert.equal(turns.length, 1);

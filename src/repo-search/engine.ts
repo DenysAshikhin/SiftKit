@@ -31,7 +31,7 @@ import {
   type TaskDefinition,
   type TaskResult,
 } from './engine/task-loop.js';
-import type { ChatMessage } from './planner-protocol.js';
+import type { ChatMessage } from './planner-chat-message.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type {
@@ -46,6 +46,7 @@ import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
 import { IDENTIFIED_TOOL_RESULT_FORMAT } from './live-snapshot/schemas.js';
 import { RunOperationTypeSchema } from '@siftkit/contracts';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
+import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
 
 export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
@@ -162,6 +163,7 @@ export async function runRepoSearch(options: {
   approvalGate?: ApprovalGate;
   timingRecorder?: TemporaryTimingRecorder | null;
   queueDelivery?: ChatMessageQueueDelivery;
+  evidenceRecorder?: ChatRunEvidenceRecorder;
 }): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
@@ -246,6 +248,7 @@ export async function runRepoSearch(options: {
       approvalGate: options.approvalGate,
       timingRecorder: options.timingRecorder || null,
       queueDelivery: options.queueDelivery,
+      evidenceRecorder: options.evidenceRecorder,
     });
     const result = await loop.run();
     tasks.push(result);

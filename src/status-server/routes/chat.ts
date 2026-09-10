@@ -6,19 +6,8 @@ import { getChatRunFailure } from '../chat.js';
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  buildChatRunMessageIdPrefix,
-  ChatStreamToolEventSchema,
-  ChatStreamUsageEventSchema,
   PersistedChatTranscriptMessageSchema,
-  ChatStreamTextDeltaSchema,
-  ChatStreamQueuedUserMessageSchema,
   StopChatOperationRequestSchema,
-  finalizeStoppedChatTranscript,
-  reduceChatTranscript,
-  type ChatStreamToolEvent,
-  type ChatStreamUsageEvent,
-  type ChatTranscriptMessage,
-  type ChatTranscriptMetadata,
   type PersistedChatTranscriptMessage as WireChatMessage,
   type ChatSession as WireChatSession,
   type ChatSessionResponse,
@@ -114,7 +103,12 @@ import {
   getMockTokenConfig,
 } from '../chat-turn-telemetry.js';
 import { createServerJsonLogger, serverLogger } from '../server-logger.js';
-import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS, LiveTextDeltaTracker } from '../live-text-delta.js';
+import type { ChatFrameWriter } from '../chat-stream-frames.js';
+import { buildChatRunSettings } from '../chat-run-recorder.js';
+import {
+  ChatStreamProgressWriter,
+  STOPPED_BY_USER_MARKER,
+} from '../chat-stream-progress-writer.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -130,6 +124,7 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
+import type { ChatRunSubmission } from './chat-session-operation-endpoint.js';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
 import {
   GetActiveChatOperationsEndpoint,
@@ -162,96 +157,6 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
-/** Anything that accepts a chat stream frame. Structural, so tests can pass a recording stub. */
-export type ChatFrameWriter = Pick<ChatOperationBroadcast, 'writeEvent'>;
-
-function forwardRepoSearchToolEvent(
-  writer: ChatFrameWriter,
-  event: ChatStreamToolEvent,
-): void {
-  if (event.kind === 'tool_start') {
-    writer.writeEvent('tool_start', {
-      toolCallId: event.toolCallId,
-      turn: event.turn,
-      maxTurns: event.maxTurns,
-      activityKind: event.activityKind,
-      activitySubject: event.activitySubject,
-      command: event.command,
-      promptTokenCount: event.promptTokenCount,
-    });
-    return;
-  }
-  if (event.kind === 'tool_result') {
-    writer.writeEvent('tool_result', {
-      toolCallId: event.toolCallId,
-      turn: event.turn,
-      maxTurns: event.maxTurns,
-      activityKind: event.activityKind,
-      activitySubject: event.activitySubject,
-      command: event.command,
-      exitCode: event.exitCode,
-      outputSnippet: event.outputSnippet,
-      outputTokens: event.outputTokens,
-      outputTokensEstimated: event.outputTokensEstimated,
-      promptTokenCount: event.promptTokenCount,
-    });
-  }
-}
-
-function toChatStreamUsageEvent(
-  event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
-): ChatStreamUsageEvent {
-  return ChatStreamUsageEventSchema.parse({
-    turn: event.turn,
-    maxTurns: event.maxTurns,
-    record: event.record,
-    totals: event.totals,
-    charsPerToken: event.charsPerToken,
-  });
-}
-
-export function forwardRepoSearchUsageEvent(
-  writer: ChatFrameWriter,
-  event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
-): void {
-  writer.writeEvent('usage', toChatStreamUsageEvent(event));
-}
-
-export function forwardRepoSearchPromptEvent(
-  writer: ChatFrameWriter,
-  event: Extract<RepoSearchProgressEvent, { kind: 'prompt' }>,
-): void {
-  writer.writeEvent('prompt', {
-    turn: event.turn,
-    maxTurns: event.maxTurns,
-    promptTokens: event.promptTokens,
-    charsPerToken: event.charsPerToken,
-  });
-}
-
-function toChatStreamToolEvent(
-  event: Extract<RepoSearchProgressEvent, { kind: 'tool_start' | 'tool_result' }>,
-): ChatStreamToolEvent {
-  const common = {
-    kind: event.kind,
-    toolCallId: event.toolCallId,
-    turn: event.turn,
-    maxTurns: event.maxTurns,
-    activityKind: event.activityKind,
-    activitySubject: event.activitySubject,
-    command: event.command,
-    promptTokenCount: event.promptTokenCount,
-  };
-  return ChatStreamToolEventSchema.parse(event.kind === 'tool_start'
-    ? common
-    : {
-      ...common,
-      exitCode: event.exitCode,
-      outputSnippet: event.outputSnippet,
-      outputTokens: event.outputTokens,
-      outputTokensEstimated: event.outputTokensEstimated,
-    });
-}
 
 function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return {
@@ -370,177 +275,6 @@ type SessionSpeculativeMetrics = {
  * to whoever owns the operation — the repo-agent session, or the composed log writer at a
  * standalone route's boundary — so attaching a second reader can never double a console line.
  */
-export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(
-    private readonly writer: ChatFrameWriter,
-    private readonly phaseTracker: ChatTurnPhaseTracker | null,
-    requestId: string,
-    private readonly streamAnswer: boolean,
-  ) {
-    super();
-    this.transcriptMetadata = {
-      messageIdPrefix: buildChatRunMessageIdPrefix(requestId),
-      sourceRunId: requestId,
-      createdAtUtc: new Date().toISOString(),
-    };
-  }
-
-  get enabled(): boolean {
-    return true;
-  }
-
-  private readonly thinkingDeltas = new LiveTextDeltaTracker();
-  private readonly narrationDeltas = new LiveTextDeltaTracker();
-  private readonly answerDeltas = new LiveTextDeltaTracker();
-  private readonly transcriptMetadata: ChatTranscriptMetadata;
-  private transcriptMessages: ChatTranscriptMessage[] = [];
-  private flushTimer: NodeJS.Timeout | null = null;
-
-  write(event: RepoSearchProgressEvent): void {
-    if (event.kind === 'queued_user_message') {
-      const { kind, ...payload } = event;
-      const queued = ChatStreamQueuedUserMessageSchema.parse(payload);
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'user_message',
-        message: queued,
-      }, this.transcriptMetadata);
-      this.flushPending();
-      this.writer.writeEvent('queued_user_message', {
-        id: queued.id,
-        turn: queued.turn,
-        boundary: queued.boundary,
-        content: queued.content,
-        images: queued.images,
-      });
-      return;
-    }
-    if (event.kind === 'thinking') {
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'thinking',
-        delta: { turn: event.turn, offset: 0, text: event.thinkingText },
-      }, this.transcriptMetadata);
-      this.phaseTracker?.observeThinking(event.thinkingText);
-      this.thinkingDeltas.pushSnapshot(event.turn, event.thinkingText, Date.now());
-      this.emitDueDeltas(false);
-      return;
-    }
-    if (event.kind === 'narration') {
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'narration',
-        delta: { turn: event.turn, offset: 0, text: event.narrationText },
-      }, this.transcriptMetadata);
-      this.narrationDeltas.pushSnapshot(event.turn, event.narrationText, Date.now());
-      this.emitDueDeltas(false);
-      return;
-    }
-    if (event.kind === 'answer') {
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'answer',
-        delta: { turn: event.turn, offset: 0, text: event.answerText },
-      }, this.transcriptMetadata);
-      if (this.streamAnswer) {
-        this.phaseTracker?.observeAnswer(event.answerText);
-        this.answerDeltas.pushSnapshot(event.turn, event.answerText, Date.now());
-        this.emitDueDeltas(false);
-      }
-      return;
-    }
-    if (event.kind === 'context_warning') {
-      this.flushPending();
-      this.writer.writeEvent('warning', { warning: event.warningText });
-      return;
-    }
-    if (event.kind === 'progress_update') {
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'progress',
-        progress: {
-          turn: event.turn,
-          text: event.progressText,
-          elapsedMs: event.elapsedMs,
-        },
-      }, this.transcriptMetadata);
-      this.flushPending();
-      this.writer.writeEvent('progress', {
-        turn: event.turn,
-        text: event.progressText,
-        elapsedMs: event.elapsedMs,
-      });
-      return;
-    }
-    if (event.kind === 'usage') {
-      this.flushPending();
-      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-        kind: 'usage', usage: toChatStreamUsageEvent(event),
-      }, this.transcriptMetadata);
-      forwardRepoSearchUsageEvent(this.writer, event);
-      return;
-    }
-    if (event.kind === 'prompt') {
-      // The frame rebases the client's streaming tail, so text buffered against the previous
-      // base has to reach the client before it arrives.
-      this.flushPending();
-      forwardRepoSearchPromptEvent(this.writer, event);
-      return;
-    }
-    if (event.kind !== 'tool_start' && event.kind !== 'tool_result') {
-      this.flushPending();
-      return;
-    }
-    const toolEvent = toChatStreamToolEvent(event);
-    this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
-      kind: 'tool',
-      tool: toolEvent,
-    }, this.transcriptMetadata);
-    this.flushPending();
-    forwardRepoSearchToolEvent(this.writer, toolEvent);
-  }
-
-  flushPending(): void {
-    this.emitDueDeltas(true);
-  }
-
-  getStoppedMessages(marker = STOPPED_BY_USER_MARKER): PersistedChatTranscriptMessage[] {
-    return finalizeStoppedChatTranscript(
-      this.transcriptMessages,
-      marker,
-      this.transcriptMetadata,
-    );
-  }
-
-  private emitDueDeltas(force: boolean): void {
-    const now = Date.now();
-    this.emitTrackerDeltas(this.thinkingDeltas, 'thinking', now, force);
-    this.emitTrackerDeltas(this.narrationDeltas, 'narration', now, force);
-    this.emitTrackerDeltas(this.answerDeltas, 'answer', now, force);
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-    if (this.thinkingDeltas.hasPending() || this.narrationDeltas.hasPending() || this.answerDeltas.hasPending()) {
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null;
-        this.emitDueDeltas(true);
-      }, LIVE_TEXT_FLUSH_MAX_LATENCY_MS);
-    }
-  }
-
-  private emitTrackerDeltas(
-    tracker: LiveTextDeltaTracker,
-    event: 'thinking' | 'narration' | 'answer',
-    now: number,
-    force: boolean,
-  ): void {
-    for (
-      let delta = tracker.takeDue(now, force);
-      delta !== null;
-      delta = tracker.takeDue(now, force)
-    ) {
-      this.writer.writeEvent(event, ChatStreamTextDeltaSchema.parse(delta));
-    }
-  }
-}
-
-const STOPPED_BY_USER_MARKER = '*Stopped by user.*';
 
 function registerChatAbort<T>(
   ctx: ServerContext,
@@ -1220,6 +954,25 @@ class ChatMessageTurn {
 class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
 
+  protected describeRun(
+    session: ChatSession,
+    value: ChatMessageRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'message',
+        repoRoot: session.planRepoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
+
   protected parseRequest(
     res: ServerResponse,
     _session: ChatSession,
@@ -1292,6 +1045,25 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
 
 export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
+
+  protected describeRun(
+    session: ChatSession,
+    value: ChatMessageRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'message',
+        repoRoot: session.planRepoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
   protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
@@ -1392,6 +1164,26 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
 class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'plan' as const;
 
+  /** A repository operation records the root it ran against; approval and turns are fixed here. */
+  protected describeRun(
+    session: ChatSession,
+    value: ResolvedChatRepoRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'plan',
+        repoRoot: value.repoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
+
   protected parseRequest(
     res: ServerResponse,
     session: ChatSession,
@@ -1464,6 +1256,26 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
 
 export class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'plan' as const;
+
+  /** A repository operation records the root it ran against; approval and turns are fixed here. */
+  protected describeRun(
+    session: ChatSession,
+    value: ResolvedChatRepoRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'plan',
+        repoRoot: value.repoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
   protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
@@ -1555,6 +1367,26 @@ export class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<Resolve
 class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'repo-search' as const;
 
+  /** A repository operation records the root it ran against; approval and turns are fixed here. */
+  protected describeRun(
+    session: ChatSession,
+    value: ResolvedChatRepoRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'repo-search',
+        repoRoot: value.repoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
+
   protected parseRequest(
     res: ServerResponse,
     session: ChatSession,
@@ -1627,6 +1459,26 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
 
 export class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'repo-search' as const;
+
+  /** A repository operation records the root it ran against; approval and turns are fixed here. */
+  protected describeRun(
+    session: ChatSession,
+    value: ResolvedChatRepoRequest,
+    config: SiftConfig,
+  ): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'repo-search',
+        repoRoot: value.repoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: value.content,
+      images: value.images,
+    };
+  }
   protected readonly clientOwnedOperation = true;
 
   protected parseRequest(
@@ -1717,6 +1569,22 @@ export class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<Resol
 
 class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense'> {
   protected readonly operationKind = 'condense' as const;
+
+  /** Condense is a model run over the existing history; it carries no new user text of its own. */
+  protected describeRun(session: ChatSession, _value: 'condense', config: SiftConfig): ChatRunSubmission {
+    return {
+      settings: buildChatRunSettings({
+        session,
+        config,
+        operationKind: 'condense',
+        repoRoot: session.planRepoRoot,
+        approval: null,
+        maxTurns: null,
+      }),
+      content: '',
+      images: [],
+    };
+  }
 
   protected parseRequest(): 'condense' {
     return 'condense';

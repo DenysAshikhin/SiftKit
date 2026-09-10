@@ -2,7 +2,8 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
-import type { ChatMessage, PlannerActionResponse } from '../planner-protocol.js';
+import type { PlannerActionResponse } from '../planner-protocol.js';
+import type { ChatMessage } from '../planner-chat-message.js';
 import {
   APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_POLICY_LINES,

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   APPROVAL_VERDICT_REASONING_BUDGET_MESSAGE,
   requestApprovalVerdict,
-  type ChatMessage,
 } from '../src/repo-search/planner-protocol.js';
+import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { asObject } from './helpers/dashboard-http.js';
