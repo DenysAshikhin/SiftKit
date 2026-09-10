@@ -1,5 +1,7 @@
 # Repo-agent continuation and console logging implementation plan
 
+> **Superseded in part by `2026-09-09-shared-tool-history-boundaries.md`.** The route-specific hydration in Task 2 and the identity-then-historical matching in Tasks 1 and 3 below are obsolete. The current design: `src/status-server/chat-tool-results.ts` classifies a transcript's format (`identified-v1` or `historical-unidentified`) and provenance from its `run_start` header before any matching; `appendChatStoppedTurn` hydrates every stopped turn (chat, plan, repo-search, repo-agent) inside the shared writer; historical command matching runs only for `historical-unidentified` transcripts inside the explicit repair, which repairs only positively identified repo-agent runs and reports other operations and unknown origins separately. The completed logging and collapsed-DOM behavior in Task 4 is unchanged.
+
 > **For agentic workers:** Use `superpowers:executing-plans` to execute the tasks sequentially. Follow the user's instruction not to use SiftKit. Do not commit or create a worktree. This document is a plan, not authorization to start implementation.
 
 **Goal:** Preserve the complete model-visible tool evidence across web UI repo-agent stop/continue, and print each server command-start line exactly once.

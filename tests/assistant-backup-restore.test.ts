@@ -369,7 +369,7 @@ for (const invalidFormat of ['older manifest', 'newer manifest', 'older snapshot
           assert.equal(error.name, 'Error');
           assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
           assert.ok(error.message.includes(context.runtimeRoot));
-          assert.match(error.message, /expected.*66/iu);
+          assert.match(error.message, new RegExp(`expected.*${CURRENT_SCHEMA_VERSION}`, 'iu'));
           assert.ok(error.cause instanceof Error);
         } else {
           assert.match(error.message, /schema|column|table|version/iu);

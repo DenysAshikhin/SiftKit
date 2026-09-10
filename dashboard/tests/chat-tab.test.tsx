@@ -123,6 +123,9 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {},
     onChangeRepoAgentApprovalMode: async () => {},
     onStopOperation: async () => {},
+    onForceQueue: async () => {},
+    onLoadQueueMessage: async (id) => ({ message: { id, content: '', revision: 1, imageCount: 0 } }),
+    onEditQueueMessage: async () => {}, onRemoveQueueMessage: async () => {},
     onPendingImagesChange: () => {},
     onPendingImagesAppend: () => {},
     onPendingImageError: () => {},
@@ -135,8 +138,42 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
   return renderToStaticMarkup(React.createElement(ChatTab, buildProps(overrides)));
 }
 
+function toggleDisclosure(element: Element, open: boolean): void {
+  if (open) element.setAttribute('open', '');
+  else element.removeAttribute('open');
+  fireEvent(element, new window.Event('toggle'));
+}
+
+function renderExpanded(overrides: Partial<ChatTabProps>): string {
+  const view = renderComponent(<ChatTab {...buildProps(overrides)} />);
+  for (const element of view.container.querySelectorAll('details')) toggleDisclosure(element, true);
+  const html = view.container.innerHTML;
+  view.unmount();
+  return html;
+}
+
 test('repo-agent composer uses the Run Agent label', () => {
   assert.match(render({ chatMode: 'repo-agent', isRepoToolMode: true }), />Run Agent<\/button>/u);
+});
+
+test('busy composer stays editable and offers Queue alongside Stop', () => {
+  const store = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
+  renderComponent(<ChatTab {...buildProps({ selectedRuntime: store.get('session-a') })} />);
+  assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), false);
+  assert.ok(screen.getByRole('button', { name: 'Queue', exact: true }));
+  assert.ok(screen.getByRole('button', { name: 'Stop', exact: true }));
+});
+
+test('closed thinking disclosures mount their body only while expanded', () => {
+  const selectedSession = { ...SESSION_A, messages: [msg({ id: 'answer', kind: 'assistant_answer', content: 'answer', thinkingContent: 'HIDDEN_REASONING_SENTINEL' })] };
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSession })} />);
+  const disclosure = view.container.querySelector('details.thinking-box');
+  assert.ok(disclosure);
+  assert.equal(view.container.textContent?.includes('HIDDEN_REASONING_SENTINEL'), false);
+  toggleDisclosure(disclosure, true);
+  assert.equal(view.container.textContent?.includes('HIDDEN_REASONING_SENTINEL'), true);
+  toggleDisclosure(disclosure, false);
+  assert.equal(view.container.textContent?.includes('HIDDEN_REASONING_SENTINEL'), false);
 });
 
 test('repo-agent turns control is visible only in repo-agent mode', () => {
@@ -320,7 +357,7 @@ test('repo-agent pending approval renders actions and reject requires a reason',
     onSubmitRepoAgentDecision: async (decision) => { decisions.push(decision); },
   })} />);
   assert.equal(screen.getByText('npm test').textContent, 'npm test');
-  assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
+  assert.equal(screen.getByRole('button', { name: 'Queue' }).hasAttribute('disabled'), false);
   assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
   assert.ok(screen.getByRole('button', { name: 'Approve' }));
   assert.ok(screen.getByRole('button', { name: 'Abort' }));
@@ -547,7 +584,7 @@ test('resolved and persisted repo-agent approvals render compact audit rows', ()
   assert.doesNotMatch(markup, /class="approval-card"/u);
 });
 
-test('a locally active operation replaces the send control with an enabled Stop button', async () => {
+test('a locally active operation offers Queue and an enabled Stop button', async () => {
   let stops = 0;
   const store = buildDefaultStore(SESSION_A.id)
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
@@ -562,10 +599,10 @@ test('a locally active operation replaces the send control with an enabled Stop 
   assert.match(stop.className, /stop/u);
   await act(async () => { fireEvent.click(stop); });
   assert.equal(stops, 1);
-  assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), true);
+  assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), false);
 });
 
-test('an operation owned by another client keeps the mode button disabled without showing Stop', () => {
+test('an operation owned by another client allows Queue before attachment supplies its Stop identity', () => {
   const store = buildDefaultStore(SESSION_A.id).apply({
     kind: 'remote-begin',
     sessionId: SESSION_A.id,
@@ -577,7 +614,7 @@ test('an operation owned by another client keeps the mode button disabled withou
     sessionRuntimes: store.getAll(),
   })} />);
   assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
-  assert.equal(screen.getByRole('button', { name: 'Run Agent' }).hasAttribute('disabled'), true);
+  assert.equal(screen.getByRole('button', { name: 'Queue' }).hasAttribute('disabled'), false);
 });
 
 function installImageReadControls(): {
@@ -1045,10 +1082,11 @@ test('a compacted session renders the divider, the collapsed originals and the s
   });
 
   assert.match(markup, /Context compacted \(2 messages summarized\)/u);
-  assert.match(markup, /compaction-originals/u);
+  assert.doesNotMatch(markup, /compaction-originals/u);
   assert.match(markup, /Compacted summary/u);
   assert.match(markup, /SUMMARY OF THE OLD EXCHANGE/u);
-  assert.match(markup, /old answer/u);
+  assert.doesNotMatch(markup, /old answer/u);
+  assert.match(renderExpanded({ selectedSessionId: COMPACTED_SESSION.id, selectedSession: COMPACTED_SESSION }), /old answer/u);
   assert.match(markup, /new answer/u);
 });
 
@@ -1068,8 +1106,8 @@ test('repeated compaction renders one closed fold, the latest summary, then live
   assert.ok(foldStart >= 0);
   assert.ok(foldEnd > foldStart);
   assert.equal((markup.match(/<details class="compaction-history">/gu) ?? []).length, 1);
-  assert.equal((foldedMarkup.match(/<article class="msg/gu) ?? []).length, 5);
-  assert.match(foldedMarkup, /FIRST SUMMARY/u);
+  assert.equal((foldedMarkup.match(/<article class="msg/gu) ?? []).length, 0);
+  assert.match(renderExpanded({ selectedSessionId: TWICE_COMPACTED_SESSION.id, selectedSession: TWICE_COMPACTED_SESSION }), /FIRST SUMMARY/u);
   assert.ok(latestSummaryIndex > foldEnd);
   assert.ok(liveQuestionIndex > latestSummaryIndex);
   assert.ok(liveAnswerIndex > liveQuestionIndex);
@@ -1187,7 +1225,8 @@ test('a flagged message after the summary row stays in compacted history', () =>
   const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
 
   assert.match(markup, /Context compacted \(3 messages summarized\)/u);
-  assert.match(markup, /compaction-originals[\s\S]*stale flagged answer/u);
+  assert.doesNotMatch(markup, /stale flagged answer/u);
+  assert.match(renderExpanded({ selectedSessionId: session.id, selectedSession: session }), /compaction-originals[\s\S]*stale flagged answer/u);
 });
 
 test('flagged messages stay hidden from the live conversation when the summary row is gone', () => {
@@ -1206,7 +1245,8 @@ test('flagged messages stay hidden from the live conversation when the summary r
   const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
 
   assert.match(markup, /live answer/u);
-  assert.match(markup, /compaction-originals[\s\S]*orphaned answer/u);
+  assert.doesNotMatch(markup, /orphaned answer/u);
+  assert.match(renderExpanded({ selectedSessionId: session.id, selectedSession: session }), /compaction-originals[\s\S]*orphaned answer/u);
   assert.doesNotMatch(markup, /Compacted summary/u);
 });
 
@@ -1265,7 +1305,7 @@ test('a live turn that has only streamed thinking renders no empty Internal Logi
   assert.ok(html.includes('Recent activity'), 'the activity ring shell must render before the first tool call');
 });
 
-test('once the answer streams, the answer and the thinking both render', () => {
+test('once the answer streams, thinking moves into a lazy disclosure', () => {
   const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' })
     .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } });
   const html = render({
@@ -1274,7 +1314,8 @@ test('once the answer streams, the answer and the thinking both render', () => {
     sessionRuntimes: store.getAll(),
   });
   assert.ok(html.includes('ANSWER_MARKER'), 'the streamed answer must render');
-  assert.ok(html.includes('THINK_MARKER_ONE'), 'the thinking must remain visible once the answer arrives');
+  assert.ok(!html.includes('THINK_MARKER_ONE'), 'closed thinking must leave the DOM');
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /THINK_MARKER_ONE/u);
 });
 
 test('the outer turn badge sums the live bubble counters once and labels them run tokens', () => {
@@ -1300,7 +1341,8 @@ test('the outer turn badge sums the live bubble counters once and labels them ru
   // Every token badge on the page, in DOM order: the submitted user row, then the run total and
   // the two bubbles it sums. Asserting the whole list is what proves no badge claims an estimate
   // and no bubble is counted twice.
-  assert.deepEqual(readTokenBadges(html), ['0 tokens', '4 run tokens', '2 tokens', '2 tokens']);
+  assert.deepEqual(readTokenBadges(html), ['0 tokens', '4 run tokens', '2 tokens']);
+  assert.deepEqual(readTokenBadges(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) })), ['0 tokens', '4 run tokens', '2 tokens', '2 tokens']);
 });
 
 test('a live turn with a running tool call renders recent activity and the thinking that led to it', () => {
@@ -1345,7 +1387,8 @@ test('the activity ring disappears into Internal Logic when final answer streami
   const logicEnd = html.indexOf('</details>', logicStart);
   const logic = html.slice(logicStart, logicEnd);
   assert.ok(logicStart >= 0, 'Internal Logic must contain the completed live activity');
-  assert.match(logic, /Running command\u2026/u, 'the friendly tool status moves into Internal Logic');
+  assert.doesNotMatch(logic, /Running command\u2026/u, 'closed Internal Logic does not mount tool cards');
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /Running command\u2026/u);
   assert.ok(!html.includes('Recent activity'), 'the visible activity ring ends when answer streaming begins');
   assert.ok(html.includes('FINAL_ANSWER_MARKER'), 'the final answer remains visible');
 });
@@ -1368,13 +1411,14 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
     sessionRuntimes: store.getAll(),
   });
   assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous bar text');
-  assert.ok(html.includes('PROGRESS_MARKER_TWO'), 'the latest progress text must render');
+  assert.ok(!html.includes('PROGRESS_MARKER_TWO'), 'closed progress must leave the DOM');
   assert.ok(!html.includes('turn-progress-bar'), 'raw model progress must not render as an exposed block');
   const logicStart = html.indexOf('<details class="internal-logic">');
   const logicEnd = html.indexOf('</details>', logicStart);
   const logic = html.slice(logicStart, logicEnd);
   assert.ok(logicStart >= 0, 'Internal Logic must render');
-  assert.ok(logic.includes('PROGRESS_MARKER_TWO'), 'raw model progress must stay inside Internal Logic');
+  assert.ok(!logic.includes('PROGRESS_MARKER_TWO'), 'closed Internal Logic stays unmounted');
+  assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /PROGRESS_MARKER_TWO/u);
   assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
 });
 
@@ -1416,7 +1460,7 @@ test('the approval mode control stays enabled while this client owns a running r
     selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
   })} />);
   assert.equal(screen.getByRole('button', { name: 'Auto' }).hasAttribute('disabled'), false);
-  assert.equal(screen.getByPlaceholderText('Describe the task for the repo agent…').hasAttribute('disabled'), true);
+  assert.equal(screen.getByPlaceholderText('Describe the task for the repo agent…').hasAttribute('disabled'), false);
 });
 
 test('the approval mode control stays enabled when another client owns the run', () => {

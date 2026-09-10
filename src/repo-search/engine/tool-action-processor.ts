@@ -65,6 +65,7 @@ import {
   resolveToolActionIdentity,
 } from './pending-tool-call-message.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
+import { TurnCommandResultFinalizedEventSchema } from '../live-snapshot/schemas.js';
 
 type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
 
@@ -74,7 +75,7 @@ type TurnBatchState = {
   batchIndex: number;
   toolCallIds: string[];
   pendingMessages: ChatMessage[];
-  batchOutcomes: ToolBatchOutcome[];
+  batchOutcomes: Array<ToolBatchOutcome & { progressToolCallId: string }>;
   /** One entry per tool result that produced an image, in batch order. */
   pendingToolImages: Array<{ outcomeIndex: number; dataUrl: string; pathKey: string; metadata: ImageMetadata }>;
   pendingModeChangeUserMessages: string[];
@@ -236,7 +237,20 @@ export class ToolActionProcessor {
     if (notice !== null) {
       const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
       if (lastOutcome !== undefined) {
-        lastOutcome.toolContent = `${lastOutcome.toolContent}\n\n${notice}`;
+        const command = this.deps.commands.find((entry) => entry.toolCallId === lastOutcome.progressToolCallId);
+        if (!command) throw new Error(`Missing command for completed call ${lastOutcome.progressToolCallId}.`);
+        const finalized = TurnCommandResultFinalizedEventSchema.parse({
+          kind: 'turn_command_result_finalized',
+          toolCallId: lastOutcome.progressToolCallId,
+          turn,
+          insertedResultText: `${lastOutcome.toolContent}\n\n${notice}`,
+        });
+        // Keep the original per-call evidence durable before any later tool can abort. The
+        // finalization records only the text actually appended once the batch has settled.
+        this.deps.logger?.write({ ...finalized, taskId: this.deps.task.id });
+        lastOutcome.toolContent = finalized.insertedResultText;
+        command.output = finalized.insertedResultText;
+        command.promptOutput = finalized.insertedResultText;
       } else {
         // All actions took the duplicate-replay path, which replaces transcript messages
         // instead of pushing outcomes; the batch still consumed a budget unit, so the
@@ -529,6 +543,7 @@ export class ToolActionProcessor {
       rejectionKind: rejection.rejectionKind,
     });
     state.batchOutcomes.push({
+      progressToolCallId: rejection.progressToolCallId,
       action: buildRejectedTranscriptAction({
         toolName: rejection.toolName,
         rawArgs: rejection.rawArgs,
@@ -584,9 +599,19 @@ export class ToolActionProcessor {
       output: message,
     });
     state.batchOutcomes.push({
+      progressToolCallId,
       action: { toolName: displayToolName, args: toolAction.args },
       toolCallId: this.getToolCallId(state),
       toolContent: message,
+    });
+    this.logRejectedCommand({
+      turn,
+      progressToolCallId,
+      toolName: displayToolName,
+      command: displayToolName,
+      reason: 'invalid action',
+      output: message,
+      rejectionKind: 'invalid',
     });
     return this.logInvalidAction(turn, toolAction, message);
   }
@@ -694,7 +719,7 @@ export class ToolActionProcessor {
       activityKind: context.activity.activityKind,
       activitySubject: context.activity.activitySubject,
       turn, safe: false, reason, exitCode: null,
-      output: `Rejected: ${duplicateMessage}`,
+      output: duplicateMessage,
     });
     this.logRejectedCommand({
       turn,
@@ -702,13 +727,14 @@ export class ToolActionProcessor {
       toolName: normalizedToolName,
       command,
       reason,
-      output: `Rejected: ${duplicateMessage}`,
+      output: duplicateMessage,
       rejectionKind: 'duplicate',
     });
     if (registration.activeReplayMessageIndex !== null) {
       transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
     } else {
       state.batchOutcomes.push({
+        progressToolCallId: context.progressToolCallId,
         action: buildRejectedTranscriptAction({
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
@@ -1150,6 +1176,7 @@ export class ToolActionProcessor {
     }
     const toolCallId = this.getToolCallId(state);
     state.batchOutcomes.push({
+      progressToolCallId,
       action: buildEffectiveTranscriptAction({
         toolName: normalizedToolName,
         rawArgs: toolAction.args,

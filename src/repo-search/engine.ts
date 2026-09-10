@@ -43,6 +43,9 @@ import type {
 import type { PresetSystemContext } from '../preset-system-context.js';
 import type { RepoSearchTaskKind } from './task-kind.js';
 import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
+import { IDENTIFIED_TOOL_RESULT_FORMAT } from './live-snapshot/schemas.js';
+import { RunOperationTypeSchema } from '@siftkit/contracts';
+import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
 
 export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
@@ -158,6 +161,7 @@ export async function runRepoSearch(options: {
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
   timingRecorder?: TemporaryTimingRecorder | null;
+  queueDelivery?: ChatMessageQueueDelivery;
 }): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
@@ -183,7 +187,17 @@ export async function runRepoSearch(options: {
   const model = getConfiguredModel(config);
   const baseUrl = options.baseUrl || getConfiguredEngineBaseUrl(config);
 
-  options.logger?.write({ kind: 'run_start', repoRoot, requestedModel: options.model || null, configuredModel: model, baseUrl });
+  // The header declares the transcript format and the operation that wrote it, so a later reader
+  // classifies the evidence from what the run recorded instead of guessing from its shape.
+  options.logger?.write({
+    kind: 'run_start',
+    repoRoot,
+    requestedModel: options.model || null,
+    configuredModel: model,
+    baseUrl,
+    operationType: RunOperationTypeSchema.parse(options.taskKind),
+    toolResultFormat: IDENTIFIED_TOOL_RESULT_FORMAT,
+  });
 
   const inventorySpan = options.timingRecorder?.start('repo.model_inventory', {
     mock: Array.isArray(options.mockResponses),
@@ -231,6 +245,7 @@ export async function runRepoSearch(options: {
       progressWriter,
       approvalGate: options.approvalGate,
       timingRecorder: options.timingRecorder || null,
+      queueDelivery: options.queueDelivery,
     });
     const result = await loop.run();
     tasks.push(result);

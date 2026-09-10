@@ -1,3 +1,4 @@
+import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 import {
   SIFT_DEFAULT_ENGINE_REASONING_BUDGET_MESSAGE,
   getActiveModelPreset,
@@ -262,6 +263,7 @@ export class TaskLoop {
       maxTurns: this.maxTurns,
       taskStartedAt: this.taskStartedAt,
     });
+    const initialQueuedMessages = options.queueDelivery?.initial() ?? [];
     this.transcript = new TranscriptManager({
       systemPromptContent,
       historyMessages: options.historyMessages || [],
@@ -269,8 +271,14 @@ export class TaskLoop {
         ? task.question
         : buildTaskInitialUserPrompt(task.question),
       initialUserImages: options.initialUserImages || [],
+      initialFollowupMessages: initialQueuedMessages.slice(1).map((message) => ({ role: 'user' as const, content: buildUserContent(message.content, message.images) })),
       liveImagePathKeys: this.liveImagePathKeys,
     });
+    for (const message of initialQueuedMessages) {
+      const event = { kind: 'queued_user_message' as const, id: message.id, turn: 0, boundary: 'successor_start' as const, content: message.content, images: message.images };
+      options.logger?.write({ ...event, taskId: task.id });
+      options.progressWriter?.write(event);
+    }
     this.promptPreparer = new PromptPreparer({
       taskId: task.id,
       config: options.config,
@@ -600,6 +608,21 @@ export class TaskLoop {
       context.preparedTurn.inForcedFinishMode,
       response.text,
     );
+    throwIfAborted(this.options.abortSignal);
+    if (outcome === 'continue') {
+      const queuedMessages = this.options.queueDelivery?.consume(context.turnNumber, this.transcript) ?? [];
+      for (const message of queuedMessages) {
+        this.options.logger?.write({ kind: 'queued_user_message', taskId: this.task.id, id: message.id, turn: context.turnNumber, boundary: 'post_tool_batch', content: message.content, images: message.images });
+        this.options.progressWriter?.write({
+          kind: 'queued_user_message',
+          id: message.id,
+          turn: context.turnNumber,
+          boundary: 'post_tool_batch',
+          content: message.content,
+          images: message.images,
+        });
+      }
+    }
     const newCommands = this.commands.slice(beforeCommandCount);
     return {
       outcome,

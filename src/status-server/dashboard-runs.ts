@@ -233,6 +233,7 @@ const LIVE_TEXT_PROGRESS_KINDS: Record<RepoSearchProgressEvent['kind'], boolean>
   tool_result: false,
   usage: false,
   prompt: false,
+  queued_user_message: false,
 };
 
 export function isLiveTextProgressEvent(event: RepoSearchProgressEvent): boolean {

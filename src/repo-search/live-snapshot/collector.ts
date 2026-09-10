@@ -481,7 +481,7 @@ export class LiveRunSnapshotCollector {
     if ('rejectionKind' in parsed.data) {
       if (parsed.data.rejectionKind === 'safety') {
         this.counters.safetyRejects += 1;
-      } else {
+      } else if (parsed.data.rejectionKind !== 'invalid') {
         this.counters.rejectedCalls += 1;
       }
     }

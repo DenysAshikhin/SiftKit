@@ -296,6 +296,132 @@ export const StopChatOperationResponseSchema = z.strictObject({
 });
 export type StopChatOperationResponse = z.infer<typeof StopChatOperationResponseSchema>;
 
+/** The chat operations whose engine path consumes queued messages at safe boundaries. */
+export const ChatQueueOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'repo-agent']);
+export type ChatQueueOperationKind = z.infer<typeof ChatQueueOperationKindSchema>;
+
+/** Queue limits. Full contents are bounded separately from the previews the listing carries. */
+export const CHAT_QUEUE_MAX_PENDING = 50;
+export const CHAT_QUEUE_MAX_DELIVERED_PREVIEWS = 50;
+export const CHAT_QUEUE_MAX_CONTENT_CHARS = 200_000;
+export const CHAT_QUEUE_MAX_IMAGES = 8;
+export const CHAT_QUEUE_PREVIEW_CHARS = 200;
+
+export const ChatQueuedMessageIdSchema = z.string().uuid();
+export type ChatQueuedMessageId = z.infer<typeof ChatQueuedMessageIdSchema>;
+export const ChatQueuedMessageStateSchema = z.enum(['pending', 'delivered']);
+export type ChatQueuedMessageState = z.infer<typeof ChatQueuedMessageStateSchema>;
+
+/**
+ * Everything about a send except its text and images, captured at enqueue time so a queued
+ * message later starts exactly the operation the user would have started by pressing Send.
+ */
+export const ChatQueueSendOptionsSchema = z.strictObject({
+  operationKind: ChatQueueOperationKindSchema,
+  approval: ApprovalModeSchema.optional(),
+  repoRoot: z.string().trim().min(1).optional(),
+  maxTurns: z.number().int().positive().optional(),
+  webSearchOverride: z.enum(['on', 'off']).optional(),
+  availableModels: z.array(z.string()).optional(),
+  mockResponses: z.array(z.json()).optional(),
+  mockCommandResults: z.record(z.string(), z.json()).optional(),
+});
+export type ChatQueueSendOptions = z.infer<typeof ChatQueueSendOptionsSchema>;
+
+export const ChatQueueEnqueueRequestSchema = z.strictObject({
+  /** Client-minted idempotency key: a retried enqueue with the same id and content is one entry. */
+  id: ChatQueuedMessageIdSchema,
+  /** A busy submission may continue this normally completed operation if it just settled. */
+  afterOperationId: ChatOperationIdSchema.optional(),
+  content: z.string().max(CHAT_QUEUE_MAX_CONTENT_CHARS),
+  images: z.array(ImageDataUrlSchema).max(CHAT_QUEUE_MAX_IMAGES).default([]),
+  options: ChatQueueSendOptionsSchema,
+}).refine((request) => request.content.trim().length > 0 || request.images.length > 0, {
+  message: 'Expected content or images.',
+});
+export type ChatQueueEnqueueRequest = z.infer<typeof ChatQueueEnqueueRequestSchema>;
+
+/** Selected pending message only: full text for editing without enlarging status frames. */
+export const ChatQueueMessageResponseSchema = z.strictObject({
+  message: z.strictObject({
+    id: ChatQueuedMessageIdSchema,
+    content: z.string().max(CHAT_QUEUE_MAX_CONTENT_CHARS),
+    revision: z.number().int().positive(),
+    imageCount: z.number().int().nonnegative(),
+  }),
+});
+export type ChatQueueMessageResponse = z.infer<typeof ChatQueueMessageResponseSchema>;
+
+export const ChatQueueEditRequestSchema = z.strictObject({
+  content: z.string().trim().min(1).max(CHAT_QUEUE_MAX_CONTENT_CHARS),
+  /** The revision the editor saw; a row that moved on since is reported back, not overwritten. */
+  revision: z.number().int().positive(),
+});
+export type ChatQueueEditRequest = z.infer<typeof ChatQueueEditRequestSchema>;
+
+/** `operationId` names the run to stop first; null delivers the pending batch to an idle session. */
+export const ChatQueueForceRequestSchema = z.strictObject({ id: z.string().uuid(), operationId: ChatOperationIdSchema.nullable() });
+export type ChatQueueForceRequest = z.infer<typeof ChatQueueForceRequestSchema>;
+
+export const ChatQueuedMessagePreviewSchema = z.strictObject({
+  id: ChatQueuedMessageIdSchema,
+  position: z.number().int().nonnegative(),
+  preview: z.string().max(CHAT_QUEUE_PREVIEW_CHARS),
+  contentChars: z.number().int().nonnegative(),
+  imageCount: z.number().int().nonnegative(),
+  revision: z.number().int().positive(),
+  state: ChatQueuedMessageStateSchema,
+  createdAtUtc: z.string().datetime(),
+});
+export type ChatQueuedMessagePreview = z.infer<typeof ChatQueuedMessagePreviewSchema>;
+
+export const ChatMessageQueueForceStateSchema = z.strictObject({
+  id: z.string().uuid(),
+  operationId: ChatOperationIdSchema.nullable(),
+  phase: z.enum(['stopping', 'sending', 'failed']),
+  messageIds: z.array(ChatQueuedMessageIdSchema),
+  successorOperationId: ChatOperationIdSchema,
+  failureDetail: z.string().nullable(),
+});
+export type ChatMessageQueueForceState = z.infer<typeof ChatMessageQueueForceStateSchema>;
+
+/** The queue as every client sees it: bounded previews, never full bodies or image data. */
+export const ChatMessageQueueStateSchema = z.strictObject({
+  sessionId: z.string().min(1),
+  revision: z.number().int().nonnegative(),
+  messages: z.array(ChatQueuedMessagePreviewSchema),
+  /** Stop paused automatic delivery; pending messages wait for Force now or a new Send. */
+  paused: z.boolean(),
+  force: ChatMessageQueueForceStateSchema.nullable(),
+  activeOperationId: ChatOperationIdSchema.nullable().optional(),
+  activeOperationKind: ChatSessionOperationKindSchema.nullable().optional(),
+});
+export type ChatMessageQueueState = z.infer<typeof ChatMessageQueueStateSchema>;
+
+export const ChatMessageQueueResponseSchema = z.strictObject({ queue: ChatMessageQueueStateSchema });
+export type ChatMessageQueueResponse = z.infer<typeof ChatMessageQueueResponseSchema>;
+export const ChatMessageQueueConflictResponseSchema = z.strictObject({
+  error: z.string().min(1),
+  queue: ChatMessageQueueStateSchema,
+});
+export type ChatMessageQueueConflictResponse = z.infer<typeof ChatMessageQueueConflictResponseSchema>;
+export const ChatQueueForceResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  successorOperationId: ChatOperationIdSchema,
+  queue: ChatMessageQueueStateSchema,
+});
+export type ChatQueueForceResponse = z.infer<typeof ChatQueueForceResponseSchema>;
+
+/** A queued message the engine appended to its transcript; the frame that puts its bubble in place. */
+export const ChatStreamQueuedUserMessageSchema = z.strictObject({
+  id: ChatQueuedMessageIdSchema,
+  turn: z.number().int().nonnegative(),
+  boundary: z.enum(['post_tool_batch', 'successor_start']),
+  content: z.string(),
+  images: z.array(ImageDataUrlSchema),
+});
+export type ChatStreamQueuedUserMessage = z.infer<typeof ChatStreamQueuedUserMessageSchema>;
+
 /** Every SSE frame name a chat stream can carry. The wire contract, so no caller spells one out. */
 export const ChatStreamEventNameSchema = z.enum([
   'thinking',
@@ -312,6 +438,8 @@ export const ChatStreamEventNameSchema = z.enum([
   'approval_resolved',
   'attached',
   'submitted',
+  'queue',
+  'queued_user_message',
   'done',
   'error',
   'ended',

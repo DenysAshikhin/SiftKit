@@ -19,7 +19,7 @@ import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 
 /** Approval history is replaced by live state on attach, so a decided card is never resurrected. */
-const REPLAY_SUPPRESSED_EVENTS: ReadonlySet<ChatStreamEventName> = new Set(['approval', 'approval_resolved']);
+const REPLAY_SUPPRESSED_EVENTS: ReadonlySet<ChatStreamEventName> = new Set(['approval', 'approval_resolved', 'queue']);
 
 function toFrame(event: ChatStreamEventName, payload: JsonSerializable): ChatOperationFrame {
   return { event, data: JSON.stringify(payload) };
@@ -86,6 +86,7 @@ export class GetChatOperationStreamEndpoint implements RouteEndpoint {
     for (const frame of preamble) {
       writer.writeSerializedEvent(frame.event, frame.data);
     }
+    writer.writeEvent('queue', ctx.chatMessageQueue.state(sessionId));
     res.on('close', () => broadcast.detach(subscriber));
   }
 }

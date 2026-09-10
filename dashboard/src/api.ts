@@ -7,6 +7,13 @@ import {
   DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
   ManagedFilePickerResponseSchema, EngineConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
+  ChatMessageQueueResponseSchema,
+  ChatQueueMessageResponseSchema,
+  ChatQueueForceResponseSchema,
+  ChatQueueEnqueueRequestSchema,
+  ChatQueueForceRequestSchema,
+  ChatMessageQueueConflictResponseSchema,
+  type ChatMessageQueueConflictResponse,
   ChatSessionBusyResponseSchema,
   ActiveChatOperationsResponseSchema,
   StopChatOperationResponseSchema,
@@ -388,6 +395,73 @@ export function getChatSessions(): Promise<ChatSessionsResponse> {
 
 export function getChatSession(id: string): Promise<ChatSessionResponse> {
   return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(id)}`, ChatSessionResponseSchema);
+}
+
+function chatQueueUrl(sessionId: string): string {
+  return `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/queue`;
+}
+
+export function getChatQueue(sessionId: string) {
+  return fetchJson(chatQueueUrl(sessionId), ChatMessageQueueResponseSchema);
+}
+
+export function enqueueChatMessage(sessionId: string, input: z.infer<typeof ChatQueueEnqueueRequestSchema>) {
+  return fetchJson(chatQueueUrl(sessionId), ChatMessageQueueResponseSchema, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ChatQueueEnqueueRequestSchema.parse(input)),
+  });
+}
+
+export function getQueuedChatMessage(sessionId: string, id: string) {
+  return fetchJson(`${chatQueueUrl(sessionId)}/${encodeURIComponent(id)}`, ChatQueueMessageResponseSchema);
+}
+
+export function editQueuedChatMessage(sessionId: string, id: string, content: string, revision: number) {
+  return fetchJson(`${chatQueueUrl(sessionId)}/${encodeURIComponent(id)}`, ChatMessageQueueResponseSchema, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, revision }),
+  });
+}
+
+export function removeQueuedChatMessage(sessionId: string, id: string) {
+  return fetchJson(`${chatQueueUrl(sessionId)}/${encodeURIComponent(id)}`, ChatMessageQueueResponseSchema, { method: 'DELETE' });
+}
+
+export class ChatQueueRejectedError extends Error {
+  constructor(readonly response: ChatMessageQueueConflictResponse) { super(response.error); }
+}
+
+export async function forceChatQueue(sessionId: string, input: z.infer<typeof ChatQueueForceRequestSchema>) {
+  const response = await fetch(`${chatQueueUrl(sessionId)}/force`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ChatQueueForceRequestSchema.parse(input)),
+  });
+  if (!response.ok) throw new ChatQueueRejectedError(ChatMessageQueueConflictResponseSchema.parse(await response.json()));
+  return ChatQueueForceResponseSchema.parse(await response.json());
+}
+
+const QUEUE_RECONNECT_DELAY_MS = 1000;
+
+/** Connection retry only. All message delivery remains server-owned. */
+export async function* streamChatQueue(sessionId: string, signal: AbortSignal) {
+  while (!signal.aborted) {
+    try {
+      const response = await fetch(`${chatQueueUrl(sessionId)}/stream`, { signal });
+      if (response.status === 404) return;
+      if (!response.ok) throw new Error(`Queue connection failed (${response.status}).`);
+      if (!response.body) throw new Error('Queue response body was empty.');
+      for await (const event of new ChatStreamReader(response.body.getReader()).events()) {
+        if (signal.aborted) return;
+        if (event.kind === 'queue') yield event.queue;
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error instanceof z.ZodError) throw error;
+    }
+    if (signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
+      const timer = setTimeout(done, QUEUE_RECONNECT_DELAY_MS);
+      signal.addEventListener('abort', done, { once: true });
+    });
+  }
 }
 
 export function deleteChatSession(id: string): Promise<{ ok: boolean; deleted: boolean; id: string }> {

@@ -14,6 +14,8 @@ import {
   type ChatStreamTextDelta,
   type ChatStreamUsageEvent,
   type ChatTranscriptEvent,
+  type ChatMessageQueueState,
+  type ChatStreamQueuedUserMessage,
 } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 import type { RepoAgentDecision } from '../api';
@@ -31,6 +33,7 @@ export type ResolvedRepoAgentApproval = {
 };
 
 export type ChatSessionRuntime = {
+  queue: ChatMessageQueueState | null;
   sessionId: string;
   activity: ChatSessionActivity;
   liveMessages: ChatMessage[];
@@ -54,6 +57,9 @@ export type ChatSessionRuntime = {
 };
 
 export type ChatSessionRuntimeTransition =
+  | { kind: 'queue'; sessionId: string; queue: ChatMessageQueueState }
+  | { kind: 'queued-user'; sessionId: string; message: ChatStreamQueuedUserMessage }
+  | { kind: 'queued-submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
   | { kind: 'attach'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
   | { kind: 'user-turn'; sessionId: string; content: string; images: string[] }
@@ -85,6 +91,7 @@ export type ChatSessionRuntimeTransition =
 function createChatSessionRuntime(sessionId: string, planRepoRootInput: string): ChatSessionRuntime {
   return {
     sessionId,
+    queue: null,
     activity: { kind: 'idle' },
     liveMessages: [],
     error: null,
@@ -142,6 +149,19 @@ function applyTransition(
   transition: ChatSessionRuntimeTransition,
 ): ChatSessionRuntime {
   switch (transition.kind) {
+    case 'queue':
+      if (transition.queue.sessionId !== runtime.sessionId) throw new Error('Queue session mismatch.');
+      return runtime.queue && runtime.queue.revision > transition.queue.revision
+        ? runtime : { ...runtime, queue: transition.queue };
+    case 'queued-user':
+      return applyTranscriptEvent(runtime, { kind: 'user_message', message: transition.message });
+    case 'queued-submit':
+      return {
+        ...runtime,
+        error: null,
+        draft: runtime.draft.trim() === transition.content ? '' : runtime.draft,
+        pendingImages: runtime.pendingImages.filter((image) => !transition.images.includes(image)),
+      };
     case 'begin':
       // A new run measures its own prompt: the previous run's base counts a context this one
       // no longer generates against, so the bar would restart behind itself if it survived.
@@ -234,8 +254,6 @@ function applyTransition(
         activity: { kind: 'idle' },
         contextUsage: transition.response.contextUsage,
         error: null,
-        draft: '',
-        pendingImages: [],
       };
     case 'failure':
       return {
@@ -243,8 +261,8 @@ function applyTransition(
         ...clearedLiveTurn(),
         activity: { kind: 'idle' },
         error: transition.message,
-        draft: runtime.submittedInput ? runtime.submittedInput.content : runtime.draft,
-        pendingImages: runtime.submittedInput ? runtime.submittedInput.images : runtime.pendingImages,
+        draft: runtime.draft || runtime.submittedInput?.content || '',
+        pendingImages: [...(runtime.submittedInput?.images ?? []), ...runtime.pendingImages],
       };
     case 'control-error':
       return { ...runtime, error: transition.message };

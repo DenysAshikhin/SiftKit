@@ -10,17 +10,20 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
-import { PersistedChatTranscriptMessageSchema } from '@siftkit/contracts';
+import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatToolMessageId } from '@siftkit/contracts';
 import {
   appendChatMessagesWithUsage,
   appendChatStoppedTurn,
   buildChatHistoryMessages,
+  buildChatSessionWithStoppedTurn,
   buildCompactionSummaryRow,
   condenseChatSession,
 } from '../src/status-server/chat.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.js';
+import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -52,6 +55,7 @@ test('appendChatStoppedTurn persists exactly one ordered final turn', () => {
     images: [],
     imageMeta: [],
     approvalMessages: [],
+    requestId: 'run-1',
     transcriptMessages: [PersistedChatTranscriptMessageSchema.parse({
       id: 'stopped-answer', role: 'assistant', kind: 'assistant_answer', content: '*Stopped by user.*',
       inputTokensEstimate: 0, outputTokensEstimate: 5, thinkingTokens: 0,
@@ -828,4 +832,95 @@ test('stopped transcript segments round-trip through the chat database', () => {
       /Invalid option/u,
     );
   });
+});
+
+function completedToolRow(requestId: string, toolCallId: string, options: { output?: string; snippet: string; createdAtUtc: string }): ChatMessage {
+  return PersistedChatTranscriptMessageSchema.parse({
+    id: buildChatToolMessageId(buildChatRunMessageIdPrefix(requestId), toolCallId),
+    role: 'assistant', kind: 'assistant_tool_call', content: 'read path="doc.txt"',
+    inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+    toolCallCommand: 'read path="doc.txt"', toolCallActivityKind: 'read',
+    toolCallActivitySubject: { kind: 'file', value: 'doc.txt' },
+    toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
+    toolCallOutputSnippet: options.snippet,
+    ...(options.output === undefined ? {} : { toolCallOutput: options.output }),
+    toolCallStatus: 'done', createdAtUtc: options.createdAtUtc, sourceRunId: requestId,
+  });
+}
+
+function stoppedTurnSession(id: string, createdAtUtc: string): ChatSession {
+  return {
+    id, title: 'Stopped writer', modelPresetId: 'default',
+    modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
+    planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat', createdAtUtc, updatedAtUtc: createdAtUtc, messages: [],
+  };
+}
+
+test('appendChatStoppedTurn hydrates a completed tool from the run transcript and refuses to save a preview without one', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-stopped-turn-hydration-');
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const fullOutput = `${'x'.repeat(240)}\nsentinel-after-character-200`;
+  const previewRow = completedToolRow('run-hydrate', 'tc_0', { snippet: `${fullOutput.slice(0, 200)}...`, createdAtUtc });
+  const session = stoppedTurnSession('stopped-hydration', createdAtUtc);
+  saveChatSession(runtimeRoot, session);
+  const turn = { content: 'read it', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [previewRow] };
+
+  assert.throws(
+    () => appendChatStoppedTurn(runtimeRoot, session, { ...turn, requestId: 'run-hydrate' }),
+    (error: Error) => error instanceof ChatToolResultsError && error.reason === 'unavailable',
+  );
+  assert.deepEqual(readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id))?.messages, []);
+
+  upsertRuntimeTextArtifact({
+    artifactKind: 'repo_search_transcript', requestId: 'run-hydrate', title: 'transcript',
+    databasePath: path.join(runtimeRoot, 'runtime.sqlite'),
+    content: [
+      { kind: 'run_start', operationType: 'chat', toolResultFormat: 'identified-v1' },
+      { kind: 'turn_command_start', turn: 1, toolCallId: 'tc_0', toolName: 'read', commandToRun: 'read path="doc.txt"' },
+      {
+        kind: 'turn_command_result', turn: 1, toolCallId: 'tc_0', command: 'read path="doc.txt"',
+        requestedCommand: 'read path="doc.txt"', executedCommand: 'read path="doc.txt"',
+        exitCode: 0, output: fullOutput, insertedResultText: fullOutput,
+      },
+    ].map((event) => `${JSON.stringify({ at: createdAtUtc, ...event })}\n`).join(''),
+  });
+  const updated = appendChatStoppedTurn(runtimeRoot, session, { ...turn, requestId: 'run-hydrate' });
+  const savedCompletedTool = updated.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.equal(savedCompletedTool?.toolCallOutput, fullOutput);
+  assert.equal(savedCompletedTool?.toolCallOutputSnippet, previewRow.toolCallOutputSnippet);
+  const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+  assert.equal(loaded?.messages?.find((message) => message.kind === 'assistant_tool_call')?.toolCallOutput, fullOutput);
+});
+
+test('the pure stopped-turn builder refuses a completed row without its full result', () => {
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const session = stoppedTurnSession('stopped-builder', createdAtUtc);
+  const previewOnly = completedToolRow('run-builder', 'tc_0', { snippet: 'short', createdAtUtc });
+  assert.throws(
+    () => buildChatSessionWithStoppedTurn(session, { content: 'x', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [previewOnly] }),
+    (error: Error) => error instanceof ChatToolResultsError && error.reason === 'missing_result',
+  );
+  const empty = completedToolRow('run-builder', 'tc_1', { snippet: '', output: '', createdAtUtc });
+  const built = buildChatSessionWithStoppedTurn(session, { content: 'x', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [empty] });
+  assert.equal(built.messages.find((message) => message.kind === 'assistant_tool_call')?.toolCallOutput, '');
+});
+
+test('replay refuses a preview-only completed row and replays an empty full result verbatim', () => {
+  const createdAtUtc = '2026-09-03T12:00:00.000Z';
+  const config = mockOfflineSiftConfig();
+  const previewOnlySession: ChatSession = {
+    ...stoppedTurnSession('replay-preview', createdAtUtc),
+    messages: [completedToolRow('run-replay', 'tc_0', { snippet: 'a preview', createdAtUtc })],
+  };
+  assert.throws(
+    () => buildChatHistoryMessages(config, previewOnlySession),
+    (error: Error) => error instanceof ChatToolResultsError && error.reason === 'missing_result' && error.message.includes('tc_0'),
+  );
+  const emptyOutputSession: ChatSession = {
+    ...stoppedTurnSession('replay-empty', createdAtUtc),
+    messages: [completedToolRow('run-replay', 'tc_1', { snippet: '', output: '', createdAtUtc })],
+  };
+  const emptyOutputReplay = buildChatHistoryMessages(config, emptyOutputSession).find((message) => message.role === 'tool');
+  assert.ok(emptyOutputReplay);
+  assert.equal(emptyOutputReplay.content, '');
 });

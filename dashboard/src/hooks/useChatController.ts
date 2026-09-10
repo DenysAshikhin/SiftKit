@@ -138,6 +138,10 @@ export function useChatController(deps: {
     onChangeRepoAgentApprovalMode: chatSessionsHook.setRepoAgentApprovalMode,
     onStopOperation: chatSessionsHook.stopOperation,
     onSendMessage: chatSessionsHook.sendMessage,
+    onForceQueue: chatSessionsHook.forceQueue,
+    onLoadQueueMessage: chatSessionsHook.loadQueueMessage,
+    onEditQueueMessage: chatSessionsHook.editQueueMessage,
+    onRemoveQueueMessage: chatSessionsHook.removeQueueMessage,
     onPendingImagesChange: (images: PendingImage[]) => {
       if (chatSessionsHook.selectedSessionId) {
         chatSessionsHook.setSessionImages(chatSessionsHook.selectedSessionId, images);

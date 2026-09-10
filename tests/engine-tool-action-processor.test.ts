@@ -14,6 +14,8 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { readChatToolResults } from '../src/status-server/chat-tool-results.js';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -44,6 +46,17 @@ function writeNoisyValidationRepo(root: string): void {
 }
 
 const TurnCommandResultSchema = z.object({ perToolCapTokens: z.number() });
+
+function readCanonicalProcessorResults(root: string, events: readonly JsonObject[]) {
+  closeRuntimeDatabase();
+  const database = getRuntimeDatabase(path.join(root, 'runtime.sqlite'));
+  database.prepare(`
+    INSERT OR REPLACE INTO runtime_artifacts (
+      id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
+    ) VALUES ('transcript', 'repo_search_transcript', 'processor-run', 'transcript', ?, NULL, '2026-09-09', '2026-09-09')
+  `).run(events.map((event) => JSON.stringify(event)).join('\n'));
+  return readChatToolResults(database, 'processor-run');
+}
 
 function perToolCapTokensFromEvents(events: JsonObject[]): number[] {
   return events
@@ -629,6 +642,57 @@ test('budget notice still reaches the model when a batch collapses onto a duplic
   const last = messages[messages.length - 1];
   assert.equal(last?.role, 'user');
   assert.match(String(last?.content ?? ''), /2 tool-call turns remaining \(3\/5 used\)/u);
+});
+
+for (const outcomeKind of ['accepted', 'rejected', 'duplicate', 'invalid'] as const) {
+  test(`canonical ${outcomeKind} outcomes equal the actual transcript including a turn budget notice`, async () => {
+    const root = createManagedTempDir('siftkit-canonical-notice-');
+    fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+    const gate: ApprovalRequester | null = outcomeKind === 'rejected'
+      ? { request: async () => ({ kind: 'deny', reason: 'test denial' }) }
+      : null;
+    const { processor, commands, events, transcript } = makeProcessor(root, ['ls'], 'repo-agent', gate);
+    const actions: AgentLoopToolAction[] = [
+      { kind: 'tool', callId: 'notice_call_1', toolName: outcomeKind === 'invalid' ? 'invalid_tool' : 'ls', args: { path: '.' } },
+    ];
+    if (outcomeKind === 'duplicate') {
+      actions.push({ kind: 'tool', callId: 'notice_call_2', toolName: 'ls', args: { path: '.' } });
+    }
+    await processor.executeBatch(3, actions, '', 0, false);
+    const modelOutputs = transcript.getMessages().filter((message) => message.role === 'tool').map((message) => message.content);
+    assert.match(String(modelOutputs.at(-1)), /2 tool-call turns remaining \(3\/5 used\)/u);
+    const canonical = readCanonicalProcessorResults(root, events);
+    assert.deepEqual(canonical.outcomes.map((outcome) => outcome.output), modelOutputs);
+    assert.deepEqual(commands.map((command) => command.promptOutput ?? command.output), modelOutputs);
+    assert.equal(events.filter((event) => event.kind === 'turn_command_result').length, actions.length);
+    assert.equal(events.filter((event) => event.kind === 'turn_command_result_finalized').length, 1);
+  });
+}
+
+test('canceling a later batch tool retains completed canonical evidence and earlier finalized notices', async () => {
+  const root = createManagedTempDir('siftkit-canonical-notice-stop-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'b.ts'), 'beta\n', 'utf8');
+  let requestedApprovals = 0;
+  const gate: ApprovalRequester = {
+    async request() {
+      requestedApprovals += 1;
+      return requestedApprovals === 3 ? { kind: 'abort', reason: 'stop between tools' } : { kind: 'approve' };
+    },
+  };
+  const { processor, commands, events, transcript } = makeProcessor(root, ['ls', 'read'], 'repo-agent', gate);
+  await processor.executeBatch(3, [{ kind: 'tool', callId: 'finished', toolName: 'ls', args: { path: '.' } }], '', 0, false);
+  const completedModelOutput = transcript.getMessages().find((message) => message.role === 'tool')?.content;
+  await assert.rejects(processor.executeBatch(4, [
+    { kind: 'tool', callId: 'partial_done', toolName: 'read', args: { path: 'a.ts' } },
+    { kind: 'tool', callId: 'partial_aborted', toolName: 'read', args: { path: 'b.ts' } },
+  ], '', 0, false), /stop between tools/u);
+  const canonical = readCanonicalProcessorResults(root, events);
+  assert.equal(canonical.outcomes.length, 2);
+  assert.equal(canonical.outcomes[0]?.output, completedModelOutput);
+  assert.deepEqual(canonical.outcomes.map((outcome) => outcome.output), commands.map((command) => command.promptOutput ?? command.output));
+  assert.match(canonical.outcomes[1]?.output ?? '', /alpha/u);
+  assert.equal(events.filter((event) => event.kind === 'turn_command_result_finalized').length, 1);
 });
 
 // A tool whose result cannot be represented in the transcript must not run: no approval

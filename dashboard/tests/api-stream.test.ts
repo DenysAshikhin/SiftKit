@@ -5,6 +5,27 @@ import { CHAT_SESSION_RESPONSE } from './fixtures.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
+test('queue status reconnects after EOF and abort cancels further connections', async () => {
+  const { streamChatQueue } = await import('../src/api');
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  const controller = new AbortController();
+  globalThis.fetch = async () => {
+    requests++;
+    return new Response(`event: queue\ndata: ${JSON.stringify({ sessionId: 's1', revision: requests, paused: false, force: null, messages: [] })}\n\n`);
+  };
+  try {
+    const stream = streamChatQueue('s1', controller.signal);
+    assert.equal((await stream.next()).value?.revision, 1);
+    const second = await stream.next();
+    assert.equal(second.done, false);
+    assert.equal(second.value?.revision, 2);
+    controller.abort();
+    assert.equal((await stream.next()).done, true);
+    assert.equal(requests, 2);
+  } finally { controller.abort(); globalThis.fetch = originalFetch; }
+});
+
 const SAMPLE_DONE: ChatSessionResponse = {
   session: {
     id: 's',

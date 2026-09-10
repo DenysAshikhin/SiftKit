@@ -22,6 +22,7 @@ import type { WebSearchConfig } from '../../web-search/types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
+import type { ChatMessageQueueDelivery } from './queue-delivery.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -255,6 +256,8 @@ export type RunTaskLoopOptions = {
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
   timingRecorder?: TemporaryTimingRecorder | null;
+  /** Server-owned FIFO delivery, consumed only after a complete tool batch is appended. */
+  queueDelivery?: ChatMessageQueueDelivery;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig): boolean {
@@ -326,7 +329,7 @@ export type LoopCounters = {
  * it as unsafe. Naming the kind at the emit site is what lets a consumer reproduce the engine's
  * split — `safety` tallies to `safetyRejects`, the rest to `rejectedCalls`.
  */
-export const RejectionKindSchema = z.enum(['budget', 'duplicate', 'safety']);
+export const RejectionKindSchema = z.enum(['budget', 'duplicate', 'safety', 'invalid']);
 export type RejectionKind = z.infer<typeof RejectionKindSchema>;
 
 /**

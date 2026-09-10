@@ -9,6 +9,31 @@ import {
 import { getDefaultOperationModeAllowedTools } from '../presets.js';
 import type { RuntimeDatabase } from './database-handle.js';
 
+/**
+ * Durable chat queue entries. Shared by the fresh bootstrap and the 66 -> 67 upgrade so the two
+ * paths cannot drift: a row is a user message that is waiting (`pending`) or has been claimed by
+ * one engine request at one turn boundary (`delivered`) but not yet written into chat history.
+ * `delivered_turn` 0 marks the message an operation started with as its own prompt.
+ */
+export const CHAT_PENDING_MESSAGES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS chat_pending_messages (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    images_json TEXT NOT NULL,
+    options_json TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'delivered')),
+    delivered_request_id TEXT,
+    delivered_turn INTEGER,
+    delivered_at_utc TEXT,
+    created_at_utc TEXT NOT NULL,
+    UNIQUE (session_id, id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_pending_messages_session ON chat_pending_messages(session_id, state, sequence);
+`;
+
 function sqlString(value: string): string {
   return value.replaceAll("'", "''");
 }
@@ -499,6 +524,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
         ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);
     `);
 
+  database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL);
   database.exec(ASSISTANT_CORE_SCHEMA_SQL);
   database.exec(ASSISTANT_FTS_SCHEMA_SQL);
   database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);

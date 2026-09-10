@@ -88,13 +88,13 @@ test('every terminal frame name in the contract is remembered as terminal', () =
     const broadcast = new ChatOperationBroadcast();
     broadcast.writeEvent('thinking', { turn: 0, offset: 0, text: 'a' });
     assert.equal(broadcast.hasTerminalFrame(), false, event);
-    broadcast.writeEvent(event, {});
+    broadcast.writeEvent(event, event === 'error' ? { error: 'failed' } : {});
     assert.equal(broadcast.hasTerminalFrame(), true, event);
   }
 });
 
 test('the buffer drops the oldest frames past the byte ceiling and reports truncation', () => {
-  const broadcast = new ChatOperationBroadcast(64);
+  const broadcast = new ChatOperationBroadcast(100);
   broadcast.writeEvent('answer', { turn: 0, offset: 0, text: 'first-frame-padding' });
   broadcast.writeEvent('answer', { turn: 0, offset: 1, text: 'second-frame-padding' });
   broadcast.writeEvent('answer', { turn: 0, offset: 2, text: 'third-frame-padding' });
@@ -102,4 +102,17 @@ test('the buffer drops the oldest frames past the byte ceiling and reports trunc
   assert.equal(replay.truncated, true);
   assert.ok(replay.frames.length < 3);
   assert.ok(replay.frames[replay.frames.length - 1]?.data.includes('third-frame-padding'));
+});
+
+test('replay enforces its byte ceiling even for one oversized multibyte frame and zero capacity', () => {
+  for (const limit of [0, 64]) {
+    const broadcast = new ChatOperationBroadcast(limit);
+    const live = new RecordingSubscriber();
+    broadcast.attach(live);
+    broadcast.writeEvent('answer', { turn: 1, offset: 0, text: '界'.repeat(30) });
+    assert.equal(live.frames.length, 1);
+    const replay = broadcast.attach(new RecordingSubscriber());
+    assert.equal(replay.frames.length, 0);
+    assert.equal(replay.truncated, true);
+  }
 });

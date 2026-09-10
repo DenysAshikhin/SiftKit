@@ -33,6 +33,7 @@ import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.js';
 import { APPROVAL_MODE_ERROR, type ApprovalMode } from '@siftkit/contracts';
 import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+import type { ChatMessageQueue } from '../chat-message-queue.js';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
@@ -74,6 +75,7 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
 }
 
 export type StartRepoAgentRunInput = {
+  requestId?: string;
   prompt: string;
   repoRoot: string | undefined;
   approvalMode: ApprovalMode;
@@ -93,6 +95,9 @@ export type StartRepoAgentRunInput = {
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  queueOwner?: ChatMessageQueue;
+  queueSessionId?: string;
+  queueForceId?: string;
 };
 
 export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
@@ -109,6 +114,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
   };
   const config = input.config ?? readConfig(ctx.configPath);
   const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
+  if (input.requestId) admission.requestId = input.requestId;
   upsertRepoSearchAdmission(admission);
   const runId = randomUUID();
   ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
@@ -150,6 +156,16 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       mockCommandResults: input.mockCommandResults,
       ...(input.history === undefined ? {} : { history: input.history }),
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
+      ...(input.queueOwner && input.queueSessionId
+        ? {
+          queueDelivery: input.queueOwner.createDelivery({
+            sessionId: input.queueSessionId,
+            requestId: admission.requestId,
+            operationKind: 'repo-agent',
+            forceId: input.queueForceId,
+          }),
+        }
+        : {}),
     },
   });
   return { runId, session, admission };

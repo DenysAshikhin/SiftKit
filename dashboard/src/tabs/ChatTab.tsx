@@ -21,6 +21,7 @@ import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { ToolActivityRow } from '../components/ToolActivityRow';
 import { PendingImageStrip } from '../components/PendingImageStrip';
+import { ChatPendingQueue, type ChatPendingQueueActions } from '../components/ChatPendingQueue';
 import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
@@ -63,7 +64,7 @@ export type ChatSessionIndicatorView = {
   indicator: SessionIndicator;
 };
 
-export type ChatTabProps = {
+export type ChatTabProps = ChatPendingQueueActions & {
   sessions: ChatSession[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;
@@ -203,6 +204,7 @@ export function ChatTab({
   onPendingImagesChange,
   onPendingImagesAppend,
   onPendingImageError,
+  onForceQueue, onLoadQueueMessage, onEditQueueMessage, onRemoveQueueMessage,
 }: ChatTabProps) {
   const pendingImageReadState = React.useRef({ generation: 0, tail: Promise.resolve() });
   const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
@@ -224,7 +226,8 @@ export function ChatTab({
   const liveHistory = persistedMessages.filter((message) => message.compressedIntoSummary !== true);
   const compactionSummaryMessage = liveHistory.find((message) => message.kind === 'compaction_summary') ?? null;
   const conversationMessages = liveHistory.filter((message) => message.kind !== 'compaction_summary');
-  const visibleMessages = [...conversationMessages, ...liveMessages];
+  const persistedIds = new Set(conversationMessages.map((message) => message.id));
+  const visibleMessages = [...conversationMessages, ...liveMessages.filter((message) => !persistedIds.has(message.id))];
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
@@ -241,6 +244,7 @@ export function ChatTab({
   );
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
+  const queueMode = selectedSessionBusy || Boolean(selectedRuntime?.queue?.messages.some((message) => message.state === 'pending'));
   const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
@@ -278,7 +282,7 @@ export function ChatTab({
   }
 
   function handleComposerPaste(event: React.ClipboardEvent<HTMLTextAreaElement>): void {
-    if (selectedSessionBusy || effectiveImagePixelCeiling === null) {
+    if (effectiveImagePixelCeiling === null) {
       return;
     }
     const files = extractClipboardImageFiles(event.clipboardData);
@@ -503,6 +507,9 @@ export function ChatTab({
               </div>
             ) : null}
 
+            <ChatPendingQueue key={selectedSessionId} queue={selectedRuntime?.queue ?? null}
+              onForceQueue={onForceQueue} onLoadQueueMessage={onLoadQueueMessage}
+              onEditQueueMessage={onEditQueueMessage} onRemoveQueueMessage={onRemoveQueueMessage} />
             <div className="composer">
               {showSettings ? (
                 <SettingsPopover
@@ -570,7 +577,6 @@ export function ChatTab({
                   onChange={(event) => onChangeDraft(event.target.value)}
                   onPaste={handleComposerPaste}
                   rows={2}
-                  disabled={selectedSessionBusy}
                 />
                 {liveContextUsage ? (
                   <span className="ctx-label">{formatLiveContextTokens(liveContextUsage, formatCompactTokenCount)} / {formatCompactTokenCount(liveContextUsage.contextWindowTokens)}</span>
@@ -581,7 +587,7 @@ export function ChatTab({
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/gif"
                     multiple
-                    disabled={selectedSessionBusy || effectiveImagePixelCeiling === null}
+                    disabled={effectiveImagePixelCeiling === null}
                     onChange={(event) => {
                       if (effectiveImagePixelCeiling === null) {
                         return;
@@ -601,16 +607,15 @@ export function ChatTab({
                   >
                     Stop
                   </button>
-                ) : (
+                ) : null}
                   <button
                     type="button"
                     className="send"
                     onClick={dispatchSend}
-                    disabled={selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
+                    disabled={invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
                   >
-                    {getSendLabel(chatMode)}
+                    {queueMode ? 'Queue' : getSendLabel(chatMode)}
                   </button>
-                )}
               </div>
               <ChatStatsBar
                 lastTurn={lastTurnTelemetry}
@@ -640,13 +645,14 @@ function CompactedHistoryPanel(props: {
 }) {
   const { compactedMessages, summary, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage } = props;
   const messageCount = compactedMessages.length;
+  const [expanded, setExpanded] = React.useState(false);
   return (
     <section className="compaction">
-      <details className="compaction-history">
+      <details className="compaction-history" onToggle={(event) => setExpanded(event.currentTarget.open)}>
         <summary className="compaction-divider">
           — Context compacted ({messageCount} {messageCount === 1 ? 'message' : 'messages'} summarized) —
         </summary>
-        <div className="compaction-originals">
+        {expanded ? <div className="compaction-originals">
           {compactedMessages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -660,7 +666,7 @@ function CompactedHistoryPanel(props: {
               onDeleteMessageImage={onDeleteMessageImage}
             />
           ))}
-        </div>
+        </div> : null}
       </details>
       {summary ? (
         <article className="msg ai compaction-summary">
@@ -777,6 +783,7 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   isDirectChatMode: boolean;
 }) {
   const content = useSmoothedText(message.content, isLive);
+  const [expandedThinking, setExpandedThinking] = React.useState(false);
   const messageKind = message.kind;
   const groundingStatusLabel = messageKind === 'assistant_answer'
     ? getGroundingStatusLabel(message.groundingStatus)
@@ -785,9 +792,9 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
     <div className={isLive ? 'markdown-body caret' : 'markdown-body'}>
       {groundingStatusLabel ? <span className="chat-grounding-badge">{groundingStatusLabel}</span> : null}
       {isDirectChatMode && message.thinkingContent ? (
-        <details className="thinking-box">
+        <details className="thinking-box" onToggle={(event) => setExpandedThinking(event.currentTarget.open)}>
           <summary>Thinking</summary>
-          <pre className="mono">{message.thinkingContent}</pre>
+          {expandedThinking ? <pre className="mono">{message.thinkingContent}</pre> : null}
         </details>
       ) : null}
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
@@ -866,6 +873,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
   const aggregateTokens = getTurnTokenDisplay(turn);
+  const [expandedLogic, setExpandedLogic] = React.useState(false);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   const tokenLabel = aggregateTokens.exact
     ? formatTokenLabel(aggregateTokens.tokenCount, 'run tokens')
@@ -911,11 +919,11 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
         </span>
       </div>
       {turn.steps.length > 0 ? (
-        <details className="internal-logic">
+        <details className="internal-logic" onToggle={(event) => setExpandedLogic(event.currentTarget.open)}>
           <summary>Internal Logic ({turn.steps.length})</summary>
-          <div className="internal-logic-steps">
+          {expandedLogic ? <div className="internal-logic-steps">
             {turn.steps.map((step) => renderTurnMessage(step))}
-          </div>
+          </div> : null}
         </details>
       ) : null}
       {turn.liveThinking.length > 0 ? (

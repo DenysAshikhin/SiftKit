@@ -29,6 +29,7 @@ import { asObject, requestJson, requestSse, type SseResponse } from './helpers/d
 import { requestSse as requestOperationSse } from './helpers/sse-http.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
+import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -877,96 +878,6 @@ test('deciding an approval broadcasts an approval_resolved frame to attached rea
 const READ_SENTINEL = 'sentinel-after-character-200';
 const HOLD_COMMAND = buildRepoToolRequestedCommand('run', { command: 'hold-until-stopped' });
 
-/**
- * Forwards every progress event to the real writer and reports the first tool start whose command
- * matches, so a test can stop a run at an exact point instead of racing a timer.
- */
-class ObservingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  constructor(
-    private readonly inner: ProgressWriter<RepoSearchProgressEvent>,
-    private readonly onEvent: (event: RepoSearchProgressEvent) => void,
-  ) {
-    super();
-  }
-
-  get enabled(): boolean {
-    return this.inner.enabled;
-  }
-
-  override get wantsLiveText(): boolean {
-    return this.inner.wantsLiveText;
-  }
-
-  write(event: RepoSearchProgressEvent): void {
-    this.onEvent(event);
-    this.inner.write(event);
-  }
-}
-
-class Deferred {
-  readonly promise: Promise<void>;
-  private settle: (() => void) | null = null;
-
-  constructor() {
-    this.promise = new Promise<void>((resolve) => { this.settle = resolve; });
-  }
-
-  notify(): void {
-    const settle = this.settle;
-    this.settle = null;
-    settle?.();
-  }
-}
-
-class HoldingCaptureEngineService extends StatusEngineService {
-  readonly requests: RepoSearchExecutionRequest[] = [];
-  private readonly held = new Deferred();
-  private readonly unwound = new Deferred();
-  private readonly released = new Deferred();
-
-  constructor(
-    private readonly holdCommand: string,
-    private readonly pauseAfterAbort = false,
-  ) {
-    super();
-  }
-
-  waitUntilHoldingTool(): Promise<void> {
-    return this.held.promise;
-  }
-
-  /** Resolves once the aborted run has unwound but before the chat turn is persisted. */
-  waitUntilUnwound(): Promise<void> {
-    return this.unwound.promise;
-  }
-
-  releaseAfterAbort(): void {
-    this.released.notify();
-  }
-
-  override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
-    this.requests.push(request);
-    const inner = request.progressWriter;
-    if (!inner) {
-      return await super.executeRepoSearch(request);
-    }
-    const progressWriter = new ObservingProgressWriter(inner, (event) => {
-      if (event.kind === 'tool_start' && event.command === this.holdCommand) {
-        this.held.notify();
-      }
-    });
-    try {
-      return await super.executeRepoSearch({ ...request, progressWriter });
-    } catch (error) {
-      this.unwound.notify();
-      if (this.pauseAfterAbort) {
-        await this.released.promise;
-      }
-      throw error;
-    }
-  }
-}
-
 function writeSentinelDocument(): string {
   const filler = Array.from({ length: 24 }, (_, index) => `filler line ${index + 1} of the document`);
   const text = `${filler.join('\n')}\n${READ_SENTINEL}\ntrailing line\n`;
@@ -1502,4 +1413,76 @@ test('an automatic approval prints one approval line for the run that made it', 
   );
   assert.equal(response.statusCode, 200);
   assert.equal(countConsoleLines(capture, 'auto-approval', 'approve'), 1);
+});
+
+test('a mixed session switches to repo-agent after unrelated run-log cleanup, while unresolved repo-agent history stays blocked', async (t) => {
+  const engineService = new HoldingCaptureEngineService('never-matched');
+  const harness = await startHarness('siftkit-chat-mixed-provenance-', t, { engineService });
+  const sessionId = await createSession(harness, 'Mixed provenance');
+  writeSentinelDocument();
+
+  // A repo-search turn reads the document: a completed tool row whose source run is not repo-agent.
+  const searched = await requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'search the document',
+        repoRoot: process.cwd(),
+        operationId: OPERATION_A,
+        maxTurns: 2,
+        mockResponses: [
+          { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+          { content: 'searched' },
+        ],
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(searched.statusCode, 200);
+  const searchRow = readToolRows(readDoneResponse(searched).session.messages)[0];
+  assert.ok(searchRow);
+  const searchRunId = engineService.requireRequest('search the document').requestId;
+  assert.equal(typeof searchRunId, 'string');
+  await awaitRepoSearchRunPersistence();
+
+  // Its archives disappear; its identity survives. That must not hold the session hostage.
+  const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' AND request_id = ?").run(searchRunId);
+  database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL WHERE request_id = ?').run(searchRunId);
+
+  const agent = await runReadTurn(harness, sessionId, 'now use the agent', OPERATION_B);
+  assert.equal(agent.statusCode, 200);
+  const agentReplay = (engineService.requireRequest('now use the agent').history ?? []).filter((message) => message.role === 'tool');
+  assert.equal(agentReplay.length, 1);
+  assert.equal(agentReplay[0]?.content, searchRow.toolCallOutput);
+  const agentRow = readToolRows(readDoneResponse(agent).session.messages)[1];
+  assert.ok(agentRow);
+  const agentRunId = engineService.requireRequest('now use the agent').requestId;
+  await awaitRepoSearchRunPersistence();
+
+  // Now the repo-agent turn itself looks like pre-fix history with no evidence left: blocked, by name.
+  database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ? AND id = ?').run(sessionId, agentRow.id);
+  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
+  database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' AND request_id = ?").run(agentRunId);
+  database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL WHERE request_id = ?').run(agentRunId);
+  const blocked = await requestJson(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'blocked continuation',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_A,
+        mockResponses: repoAgentFinishResponses('unreachable'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(String(blocked.body.error).includes(String(agentRunId)), true);
+  assert.equal(String(blocked.body.error).includes(String(searchRunId)), false);
+  assert.equal(engineService.requests.some((entry) => entry.prompt === 'blocked continuation'), false);
 });

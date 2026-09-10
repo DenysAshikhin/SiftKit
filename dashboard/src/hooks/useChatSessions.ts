@@ -4,6 +4,9 @@ import {
   assessImageVramHeadroom,
   estimateVisionPeakVramBytesForImagePixels,
   type ApprovalMode,
+  type ChatQueueOperationKind,
+  type ChatQueueEnqueueRequest,
+  type ChatQueueForceRequest,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.js';
 import {
@@ -27,6 +30,9 @@ import {
   updateChatSession,
   updateRepoAgentApprovalMode,
   ChatOperationIdleError,
+  getChatQueue, enqueueChatMessage, streamChatQueue, forceChatQueue,
+  getQueuedChatMessage, editQueuedChatMessage, removeQueuedChatMessage,
+  ChatQueueRejectedError,
   type RepoAgentDecision,
 } from '../api';
 import {
@@ -38,7 +44,7 @@ import {
   type ParsedMaxTurnsOverride,
 } from '../lib/chat-composer-inputs';
 import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
-import { hasActiveRepoAgentRun } from '../lib/chat-session-state';
+import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
@@ -86,6 +92,10 @@ export function useChatSessions(deps: {
   // in-flight work, read at the instant the attach effect runs, and no render displays it. The
   // effect must not read activity instead — it writes activity, so that guard would be circular.
   const ownedStreamSessionIds = useRef<Set<string>>(new Set());
+  const queueSubmissions = useRef(new Map<string, ChatQueueEnqueueRequest>());
+  const forceSubmissions = useRef(new Map<string, ChatQueueForceRequest>());
+  const queueMutations = useRef(new Set<string>());
+  const queueOperationIds = useRef(new Map<string, string | null>());
   // Bumped when a submitted turn is rejected because the session is already running elsewhere.
   // Nothing else tells the attach effect that a run it should follow now exists.
   const [remoteRunGeneration, setRemoteRunGeneration] = useState(0);
@@ -191,6 +201,30 @@ export function useChatSessions(deps: {
   // Sessions are seeded into the runtime store together with the listing, so a runtime exists
   // exactly when the selected session does.
   const selectedLoaded = selectedSession !== null;
+
+  useEffect(() => {
+    if (!selectedSessionId || !selectedLoaded) return;
+    const sessionId = selectedSessionId;
+    const controller = new AbortController();
+    let lastOperationId: string | null | undefined;
+    void (async () => {
+      try {
+        for await (const queue of streamChatQueue(sessionId, controller.signal)) {
+          if (controller.signal.aborted) return;
+          if (queue.sessionId !== sessionId) throw new Error('Queue session mismatch.');
+          setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+          queueOperationIds.current.set(sessionId, queue.activeOperationId ?? null);
+          if (lastOperationId !== queue.activeOperationId) {
+            lastOperationId = queue.activeOperationId;
+            if (queue.activeOperationId) setRemoteRunGeneration((generation) => generation + 1);
+          }
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+      }
+    })();
+    return () => controller.abort();
+  }, [selectedSessionId, selectedLoaded]);
 
   useEffect(() => {
     // A turn this client started already renders its own frames; latching on again would double
@@ -486,18 +520,14 @@ export function useChatSessions(deps: {
         if (transition.kind === 'done') {
           setSessions((previous) => upsertSession(previous, transition.response.session));
         }
-        if (transition.kind === 'remote-begin') {
-          ownedElsewhere = true;
-        }
+        if (transition.kind === 'remote-begin') ownedElsewhere = true;
       }
     } finally {
       // Released before the re-arm, so the attach effect cannot run while this session still
       // looks owned and skip the very run it was woken for.
       ownedStreamSessionIds.current.delete(sessionId);
-      if (ownedElsewhere) {
-        // Another client owns this session; latch onto its stream instead of sitting on a 409.
-        setRemoteRunGeneration((generation) => generation + 1);
-      }
+      const queuedOperationId = queueOperationIds.current.get(sessionId);
+      if (ownedElsewhere || (queuedOperationId && queuedOperationId !== operationId)) setRemoteRunGeneration((generation) => generation + 1);
     }
   }
 
@@ -542,6 +572,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft && inputs.pendingImages.length === 0) {
       return;
     }
+    if (shouldQueue(selectedSession.id)) { await queueMessage('message'); return; }
     if (inputs.pendingImages.length > 0) {
       try {
         const runtimeStatus = await getInferenceRuntimeStatus();
@@ -583,6 +614,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    if (shouldQueue(session.id)) { await queueMessage('plan'); return; }
     const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
     if (!maxTurnsOverride) {
       return;
@@ -604,6 +636,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    if (shouldQueue(session.id)) { await queueMessage('repo-search'); return; }
     const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
     if (!maxTurnsOverride) {
       return;
@@ -625,6 +658,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    if (shouldQueue(session.id)) { await queueMessage('repo-agent'); return; }
     const maxTurnsOverride = parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
     if (!maxTurnsOverride) {
       return;
@@ -644,6 +678,83 @@ export function useChatSessions(deps: {
   async function submitRepoAgentDecision(decision: RepoAgentDecision): Promise<void> {
     const session = requireSelectedSession(selectedSession);
     await decideRepoAgent(session.id, decision);
+  }
+
+  function shouldQueue(sessionId: string): boolean {
+    const runtime = runtimeStore.get(sessionId);
+    return isSessionBusy(runtime) || Boolean(runtime.queue?.messages.some((message) => message.state === 'pending'));
+  }
+
+  async function refreshQueue(sessionId: string): Promise<void> {
+    const { queue } = await getChatQueue(sessionId);
+    setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+  }
+
+  async function queueMessage(operationKind: ChatQueueOperationKind): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    if (queueMutations.current.has(session.id)) return;
+    const inputs = readRuntimeInputs(session.id);
+    const maxTurns = operationKind === 'message' ? {} : parseSessionMaxTurnsOverride(session.id, inputs.planMaxTurnsInput);
+    if (!maxTurns) return;
+    const body = {
+      content: inputs.draft,
+      images: inputs.pendingImages.map((image) => image.dataUrl),
+      options: { operationKind, repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), approval: inputs.repoAgentApprovalMode, ...maxTurns },
+    };
+    const runtime = runtimeStore.get(session.id);
+    const afterOperationId = runtime.activity.kind === 'local' ? runtime.activity.operationId : runtime.queue?.activeOperationId ?? undefined;
+    const previous = queueSubmissions.current.get(session.id);
+    const request = previous && JSON.stringify({ content: previous.content, images: previous.images, options: previous.options }) === JSON.stringify(body)
+      ? previous : { id: crypto.randomUUID(), ...body, ...(afterOperationId ? { afterOperationId } : {}) };
+    queueSubmissions.current.set(session.id, request);
+    queueMutations.current.add(session.id);
+    try {
+      const { queue } = await enqueueChatMessage(session.id, request);
+      setRuntimeStore((store) => store
+        .apply({ kind: 'queue', sessionId: session.id, queue })
+        .apply({ kind: 'queued-submit', sessionId: session.id, content: inputs.draft, images: inputs.pendingImages }));
+      queueSubmissions.current.delete(session.id);
+    } catch (error) {
+      setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId: session.id, message: toError(error).message }));
+    } finally { queueMutations.current.delete(session.id); }
+  }
+
+  async function forceQueue(): Promise<void> {
+    const sessionId = selectedSessionId;
+    if (!sessionId || queueMutations.current.has(sessionId)) return;
+    const runtime = runtimeStore.get(sessionId);
+    const operationId = runtime.queue?.activeOperationId ?? (runtime.activity.kind === 'local' ? runtime.activity.operationId : null);
+    const request = forceSubmissions.current.get(sessionId) ?? { id: crypto.randomUUID(), operationId };
+    forceSubmissions.current.set(sessionId, request);
+    queueMutations.current.add(sessionId);
+    try {
+      const { queue } = await forceChatQueue(sessionId, request);
+      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+      forceSubmissions.current.delete(sessionId);
+      setRemoteRunGeneration((generation) => generation + 1);
+    } catch (error) {
+      setRuntimeStore((store) => store.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+      if (error instanceof ChatQueueRejectedError) {
+        setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue: error.response.queue }));
+        forceSubmissions.current.delete(sessionId);
+      }
+    } finally { queueMutations.current.delete(sessionId); }
+  }
+
+  async function editQueueMessage(id: string, content: string, revision: number): Promise<void> {
+    const sessionId = selectedSessionId;
+    try {
+      const { queue } = await editQueuedChatMessage(sessionId, id, content, revision);
+      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+    } catch (error) { await refreshQueue(sessionId); throw error; }
+  }
+
+  async function removeQueueMessage(id: string): Promise<void> {
+    const sessionId = selectedSessionId;
+    try {
+      const { queue } = await removeQueuedChatMessage(sessionId, id);
+      setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
+    } catch (error) { await refreshQueue(sessionId); throw error; }
   }
 
   async function setRepoAgentApprovalMode(approval: ApprovalMode): Promise<void> {
@@ -712,6 +823,10 @@ export function useChatSessions(deps: {
     submitRepoAgentDecision,
     setRepoAgentApprovalMode,
     stopOperation,
+    forceQueue,
+    editQueueMessage,
+    removeQueueMessage,
+    loadQueueMessage: (id: string) => getQueuedChatMessage(selectedSessionId, id),
   };
 }
 

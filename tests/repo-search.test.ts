@@ -280,6 +280,12 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
     assert.equal(listRuntimeArtifacts({ artifactKind: 'repo_search_transcript' }).length, 1);
     assert.match(String(transcript?.contentText || ''), /"kind":"run_start"/u);
     assert.match(String(transcript?.contentText || ''), /"kind":"run_done"/u);
+    // The header names the operation and the tool-result format the transcript was written in.
+    const runStartLine = String(transcript?.contentText || '').split('\n').find((line) => line.includes('"kind":"run_start"'));
+    assert.ok(runStartLine);
+    const runStart = z.object({ operationType: z.string(), toolResultFormat: z.string() }).parse(JSON.parse(runStartLine));
+    assert.equal(runStart.operationType, 'repo-search');
+    assert.equal(runStart.toolResultFormat, 'identified-v1');
 
     const artifactId = parseRuntimeArtifactUri(result.artifactPath);
     assert.ok(artifactId);
@@ -532,9 +538,9 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
 
     assert.equal(task.finalOutput, 'budget answer');
     assert.equal(task.commands.length, 2);
-    assert.equal(task.commands[0].output, 'slow evidence');
+    assert.equal(task.commands[0].output, 'slow evidence\n\n[tool budget] 2 tool-call turns remaining (1/3 used). Prioritize verification and finishing.');
     assert.equal(task.commands[1].safe, true);
-    assert.equal(task.commands[1].output, 'should not run');
+    assert.equal(task.commands[1].output, 'should not run\n\n[tool budget] 1 tool-call turn remaining (2/3 used). Prioritize verification and finishing.');
   });
 });
 

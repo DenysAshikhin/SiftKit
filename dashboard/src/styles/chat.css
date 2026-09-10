@@ -165,3 +165,8 @@
 .compaction-originals { display: grid; gap: 8px; margin-top: 8px; opacity: 0.55; }
 .compaction-summary { border: 1px dashed var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; }
 .compaction-summary-body { white-space: pre-wrap; font-size: 0.8rem; }
+.chat-pending-queue { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 8px 0; max-height: 240px; overflow: auto; }
+.chat-pending-queue ol { list-style: none; padding: 0; margin: 8px 0 0; }
+.chat-pending-queue li { padding: 4px 0; overflow-wrap: anywhere; }
+.chat-pending-queue .mini-btn { margin-left: 8px; }
+.chat-pending-queue textarea { width: 100%; min-height: 80px; }

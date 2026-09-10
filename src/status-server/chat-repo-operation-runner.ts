@@ -27,6 +27,7 @@ import {
   buildPlanRequestPrompt,
   buildRepoSearchMarkdown,
   getScorecardTotal,
+  getChatRunFailure,
   resolveChatSessionConfig,
 } from './chat.js';
 import {
@@ -40,6 +41,7 @@ import {
 } from './chat-turn-phase-tracker.js';
 import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
+import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import {
   normalizeRepoSearchScorecard,
@@ -65,10 +67,12 @@ export type ChatRepoOperationRequest = {
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
+  queueDelivery?: ChatMessageQueueDelivery;
 };
 
 export type ChatRepoOperationResult = {
   updatedSession: ChatSession;
+  failure: string | null;
   repoSearch: {
     requestId: string;
     transcriptPath: string | null;
@@ -153,6 +157,7 @@ export class ChatRepoOperationRunner {
         mockCommandResults: request.mockCommandResults,
         requestId: request.requestId,
         progressWriter: progress,
+        queueDelivery: request.queueDelivery,
         ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
     });
     const assistantContent = this.buildAssistantContent(
@@ -175,6 +180,7 @@ export class ChatRepoOperationRunner {
     });
     return {
       updatedSession,
+      failure: getChatRunFailure(engineResult),
       repoSearch: {
         requestId: engineResult.requestId,
         transcriptPath: engineResult.transcriptPath || null,
@@ -213,7 +219,7 @@ export class ChatRepoOperationRunner {
     admittedImageMeta: ImageMetadata[];
     startedAt: number;
     progress: ChatRepoOperationProgressTracker;
-  }): Promise<ChatSession> {
+    }): Promise<ChatSession> {
     const scorecard = options.engineResult.scorecard;
     const tokenConfig = Array.isArray(options.request.mockResponses)
       ? undefined

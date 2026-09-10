@@ -1,3 +1,5 @@
+import { RunOperationTypeSchema } from '@siftkit/contracts';
+
 import { z } from '../../lib/zod.js';
 import { JsonValueSchema } from '../../lib/json-types.js';
 import { StreamStopSchema } from '../../llm-protocol/types.js';
@@ -128,9 +130,20 @@ const OptionalString = z.string().nullable().optional();
 
 export const LoggerEventKindSchema = z.object({ kind: z.string() });
 
+/**
+ * How a transcript identifies its tool outcomes. Modern runs declare `identified-v1` in their
+ * `run_start` header and stamp every start/result with a `toolCallId`; transcripts written before
+ * identity existed omit the field everywhere and are read only by the explicit historical repair.
+ */
+export const ToolResultFormatSchema = z.enum(['identified-v1', 'historical-unidentified']);
+export type ToolResultFormat = z.infer<typeof ToolResultFormatSchema>;
+export const IDENTIFIED_TOOL_RESULT_FORMAT = 'identified-v1' satisfies ToolResultFormat;
+
 export const RunStartEventSchema = z.object({
   configuredModel: OptionalString,
   baseUrl: OptionalString,
+  operationType: RunOperationTypeSchema.nullable().optional(),
+  toolResultFormat: ToolResultFormatSchema.optional(),
 });
 
 export const TurnPreflightStartEventSchema = z.object({
@@ -219,6 +232,14 @@ export const TurnCommandResultEventSchema = z.union([
   RejectedCommandResultSchema,
   ExecutedCommandResultSchema,
 ]);
+
+/** A batch may add a budget notice after the per-call result was durably logged. */
+export const TurnCommandResultFinalizedEventSchema = z.object({
+  kind: z.literal('turn_command_result_finalized'),
+  toolCallId: z.string().min(1),
+  turn: z.number().int().nonnegative(),
+  insertedResultText: z.string(),
+});
 
 export const ApprovalVerdictEventSchema = z.object({
   turn: z.number(),

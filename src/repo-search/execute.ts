@@ -432,6 +432,7 @@ export async function executeRepoSearchRequest(
       timingRecorder,
       progressWriter,
       approvalGate: request.approvalGate,
+      queueDelivery: request.queueDelivery,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

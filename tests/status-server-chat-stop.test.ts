@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
@@ -10,6 +11,9 @@ import { startHarness, type StreamedOperationHarness } from './helpers/streamed-
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { StoppedChatEngineService } from './helpers/stopped-chat-engine-service.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
@@ -392,6 +396,154 @@ test('stopping a message stream with no generated segments persists only the mar
       'stop before anything streams',
       '*Stopped by user.*',
     ]);
+  } finally {
+    await harness.close();
+  }
+});
+
+const READ_SENTINEL = 'sentinel-after-character-200';
+const DOC_FILLER = Array.from({ length: 24 }, (_, index) => `filler line ${index + 1} of the document`).join('\n');
+const DOC_TEXT = `${DOC_FILLER}\n${READ_SENTINEL}\ntrailing line\n`;
+const GREP_HOLD_COMMAND = buildRepoToolRequestedCommand('grep', { pattern: 'hold-until-stopped' });
+const FETCH_DOC_COMMAND = buildRepoToolRequestedCommand('web_fetch', { url: 'https://example.test/doc' });
+const FETCH_HOLD_COMMAND = buildRepoToolRequestedCommand('web_fetch', { url: 'https://example.test/hold' });
+
+type SharedStopCase = {
+  operationKind: 'message' | 'plan' | 'repo-search';
+  segment: string;
+  holdCommand: string;
+  body: (content: string, operationId: string, continuation: boolean) => JsonObject;
+};
+
+function fileToolBody(content: string, operationId: string, continuation: boolean): JsonObject {
+  return {
+    content,
+    operationId,
+    repoRoot: process.cwd(),
+    maxTurns: 3,
+    mockResponses: continuation
+      ? [{ content: 'continued' }]
+      : [
+        { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
+        { toolCalls: [{ name: 'grep', arguments: { pattern: 'hold-until-stopped' } }] },
+        { content: 'unreachable' },
+      ],
+    mockCommandResults: {
+      [GREP_HOLD_COMMAND]: { exitCode: 0, stdout: 'never observed', stderr: '', delayMs: 30_000 },
+    },
+  };
+}
+
+function webToolBody(content: string, operationId: string, continuation: boolean): JsonObject {
+  return {
+    content,
+    operationId,
+    webSearchOverride: 'on',
+    maxTurns: 3,
+    mockResponses: continuation
+      ? [{ content: 'continued' }]
+      : [
+        { toolCalls: [{ name: 'web_fetch', arguments: { url: 'https://example.test/doc' } }] },
+        { toolCalls: [{ name: 'web_fetch', arguments: { url: 'https://example.test/hold' } }] },
+        { content: 'unreachable' },
+      ],
+    mockCommandResults: {
+      [FETCH_DOC_COMMAND]: { exitCode: 0, stdout: DOC_TEXT, stderr: '' },
+      [FETCH_HOLD_COMMAND]: { exitCode: 0, stdout: 'never observed', stderr: '', delayMs: 30_000 },
+    },
+  };
+}
+
+const SHARED_STOP_CASES: readonly SharedStopCase[] = [
+  { operationKind: 'message', segment: 'messages', holdCommand: FETCH_HOLD_COMMAND, body: webToolBody },
+  { operationKind: 'plan', segment: 'plan', holdCommand: GREP_HOLD_COMMAND, body: fileToolBody },
+  { operationKind: 'repo-search', segment: 'repo-search', holdCommand: GREP_HOLD_COMMAND, body: fileToolBody },
+];
+
+function readToolRows(response: SseResponse): Dict[] {
+  const done = response.events.find((event) => event.event === 'done');
+  assert.ok(done?.payload, 'Expected a done event.');
+  return asObjectArray(asObject(done.payload.session).messages)
+    .filter((message) => message.kind === 'assistant_tool_call');
+}
+
+for (const stopCase of SHARED_STOP_CASES) {
+  test(`a stopped ${stopCase.operationKind} turn saves its completed tool result in full and replays it after a restart`, async (t) => {
+    const engineService = new HoldingCaptureEngineService(stopCase.holdCommand);
+    const harness = await startHarness(`siftkit-chat-stop-full-${stopCase.operationKind}-`, t, { engineService });
+    fs.writeFileSync(path.join(process.cwd(), 'doc.txt'), DOC_TEXT, 'utf8');
+    const sessionId = await createSession(harness, `Full evidence ${stopCase.operationKind}`);
+    const stopped = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/${stopCase.segment}/stream`, {
+      method: 'POST', timeoutMs: 20_000,
+      body: JSON.stringify(stopCase.body('read the document then hold', OPERATION_A, false)),
+    });
+    await engineService.waitUntilHoldingTool();
+    const stopResponse = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+    });
+    assert.equal(stopResponse.statusCode, 200);
+
+    const toolRows = readToolRows(await stopped);
+    assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
+    const savedCompletedTool = toolRows[0];
+    assert.ok(savedCompletedTool);
+    const fullOutput = savedCompletedTool.toolCallOutput;
+    assert.equal(typeof fullOutput, 'string');
+    assert.equal(String(fullOutput).includes(READ_SENTINEL), true);
+    assert.equal(String(fullOutput).length > 203, true);
+    assert.equal(String(savedCompletedTool.toolCallOutputSnippet).length <= 203, true);
+    assert.notEqual(savedCompletedTool.toolCallOutputSnippet, fullOutput);
+
+    await harness.restart();
+
+    const continued = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/${stopCase.segment}/stream`, {
+      method: 'POST', timeoutMs: 20_000,
+      body: JSON.stringify(stopCase.body('continue after the restart', OPERATION_B, true)),
+    });
+    assert.equal(continued.statusCode, 200);
+    assert.equal(continued.events.some((event) => event.event === 'error'), false, JSON.stringify(continued.events));
+    const nextRequestToolMessages = (engineService.requireRequest('continue after the restart').history ?? [])
+      .filter((message) => message.role === 'tool');
+    // One completed execution replays, exactly as saved; the held tool is not invented.
+    assert.equal(nextRequestToolMessages.length, 1);
+    assert.equal(nextRequestToolMessages[0]?.content, fullOutput);
+    assert.equal(String(nextRequestToolMessages[0]?.content).includes(READ_SENTINEL), true);
+  });
+}
+
+test('a stopped turn whose completed tool has no canonical evidence fails persistence instead of saving a preview', async () => {
+  const engineService = new StoppedChatEngineService({
+    prompt: 'stop without evidence',
+    progressEvents: [
+      {
+        turn: 1, maxTurns: 2, kind: 'tool_start', toolCallId: 'unrecorded-tool',
+        activityKind: 'search', activitySubject: { kind: 'none' },
+        command: 'search query="transcript"', promptTokenCount: 4, thinkingTokenCount: 0, elapsedMs: 2,
+      },
+      {
+        turn: 1, maxTurns: 2, kind: 'tool_result', toolCallId: 'unrecorded-tool',
+        activityKind: 'search', activitySubject: { kind: 'none' },
+        command: 'search query="transcript"', exitCode: 0, outputSnippet: 'match found',
+        outputTokens: 2, outputTokensEstimated: false, promptTokenCount: 4,
+        thinkingTokenCount: 0, elapsedMs: 3,
+      },
+    ],
+    recordEvidence: false,
+  });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-stop-no-evidence-', { parallelSlots: 1, engineService });
+  await harness.start();
+  try {
+    const sessionId = await harness.createChatSession('No evidence', 'model-a');
+    const stream = harness.startChatOperationStream('message', sessionId, 'stop without evidence', OPERATION_A);
+    await engineService.waitUntilEntered();
+    const stopped = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/stop`, {
+      method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+    });
+    assert.equal(stopped.statusCode, 500);
+    const streamed = await stream;
+    assert.equal(streamed.events.some((event) => event.event === 'done'), false);
+    const session = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
+    assert.deepEqual(asObjectArray(asObject(session.body.session).messages), []);
   } finally {
     await harness.close();
   }

@@ -17,6 +17,7 @@ import type { ChatSessionOperationRegistry } from './chat-session-operation-regi
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
 import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
+import type { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -124,6 +125,8 @@ export type ServerContext = {
   // Run state
   statusRuns: StatusRunRegistry;
   chatSessionOperations: ChatSessionOperationRegistry;
+  chatMessageQueue: import('./chat-message-queue.js').ChatMessageQueue;
+  chatQueueSuccessor?: ChatQueueSuccessorRunner;
   chatRepoAgentRuns: Map<string, ChatRepoAgentRunBinding>;
   approvalGates: Map<string, ApprovalGate>;
   activeModelRequests: Map<string, ModelRequestLock>;

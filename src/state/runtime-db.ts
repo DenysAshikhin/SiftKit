@@ -6,7 +6,7 @@ import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import { SystemClock } from '../assistant/clock.js';
 import { seedAssistantRegistries } from '../assistant/storage/schema.js';
-import { initializeRuntimeSchema } from './runtime-schema.js';
+import { CHAT_PENDING_MESSAGES_SCHEMA_SQL, initializeRuntimeSchema } from './runtime-schema.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
@@ -17,7 +17,28 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 66;
+export const CURRENT_SCHEMA_VERSION = 67;
+
+type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
+
+/**
+ * Explicit, ordered, in-place upgrades. Each step takes a database at exactly `from` and leaves it
+ * at `from + 1`; the whole chain runs in one transaction with the marker bump, so a failure leaves
+ * the file at its original version. A version with no step here is rejected, never guessed at.
+ */
+const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
+  { from: 66, apply: (database) => database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL) },
+];
+
+function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
+  const chain: SchemaUpgradeStep[] = [];
+  for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version += 1) {
+    const step = SCHEMA_UPGRADES.find((candidate) => candidate.from === version);
+    if (!step) return null;
+    chain.push(step);
+  }
+  return chain;
+}
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -49,18 +70,19 @@ function hasDatabaseObjects(database: RuntimeDatabase): boolean {
   return ObjectCountRowSchema.parse(rawRow).object_count > 0;
 }
 
-type RuntimeDatabaseState = 'fresh' | 'current';
+type RuntimeDatabaseState = { kind: 'fresh' } | { kind: 'current' } | { kind: 'upgrade'; fromVersion: number };
 
 function inspectRuntimeDatabase(database: RuntimeDatabase, databasePath: string): RuntimeDatabaseState {
-  if (!hasDatabaseObjects(database)) return 'fresh';
+  if (!hasDatabaseObjects(database)) return { kind: 'fresh' };
 
   const version = getSchemaVersion(database);
-  if (version !== CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `Runtime schema version ${String(version)} is incompatible at ${databasePath}; expected ${String(CURRENT_SCHEMA_VERSION)}.`,
-    );
+  if (version === CURRENT_SCHEMA_VERSION) return { kind: 'current' };
+  if (version < CURRENT_SCHEMA_VERSION && findUpgradeChain(version) !== null) {
+    return { kind: 'upgrade', fromVersion: version };
   }
-  return 'current';
+  throw new Error(
+    `Runtime schema version ${String(version)} is incompatible at ${databasePath}; expected ${String(CURRENT_SCHEMA_VERSION)}.`,
+  );
 }
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
@@ -118,8 +140,16 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
     const state = inspectRuntimeDatabase(database, resolvedPath);
     configureRuntimeDatabase(database);
     database.transaction(() => {
+      if (state.kind === 'upgrade') {
+        // Upgrades run before the idempotent bootstrap so each step sees exactly the shape it
+        // was written for, and the marker moves only once every step has succeeded.
+        for (const step of findUpgradeChain(state.fromVersion) ?? []) {
+          step.apply(database);
+        }
+        database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(CURRENT_SCHEMA_VERSION);
+      }
       initializeRuntimeSchema(database);
-      if (state === 'fresh') {
+      if (state.kind === 'fresh') {
         seedAssistantRegistries(database, new SystemClock(), randomUUID());
         database.prepare('INSERT INTO runtime_schema (id, version) VALUES (1, ?)').run(CURRENT_SCHEMA_VERSION);
       }

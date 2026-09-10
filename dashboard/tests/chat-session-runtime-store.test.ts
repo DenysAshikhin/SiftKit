@@ -12,6 +12,20 @@ const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
 const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
+test('queued delivery keeps stable FIFO bubbles and completion preserves the next draft', () => {
+  let store = new ChatSessionRuntimeStore().ensureSession('s1', '')
+    .apply({ kind: 'submit', sessionId: 's1', content: 'original', images: [] })
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'still typing' });
+  for (const id of ['4f9c1f9a-0000-4000-8000-000000000001', '4f9c1f9a-0000-4000-8000-000000000002']) {
+    const message = { id, content: id, images: [], turn: 1, boundary: 'post_tool_batch' as const };
+    store = store.apply({ kind: 'queued-user', sessionId: 's1', message })
+      .apply({ kind: 'queued-user', sessionId: 's1', message });
+  }
+  assert.equal(store.get('s1').liveMessages.length, 3);
+  store = store.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
+  assert.equal(store.get('s1').draft, 'still typing');
+});
+
 const SAMPLE_RESPONSE: ChatSessionResponse = {
   session: {
     id: 's1',
@@ -456,7 +470,7 @@ test('apply rejects a session that was never seeded by ensureSession', () => {
   );
 });
 
-test('applyDone clears live messages and draft for the session', () => {
+test('applyDone clears live messages and preserves the next draft for the session', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
@@ -464,7 +478,7 @@ test('applyDone clears live messages and draft for the session', () => {
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);
-  assert.equal(runtime.draft, '');
+  assert.equal(runtime.draft, 'draft');
   assert.deepEqual(runtime.pendingImages, []);
 });
 

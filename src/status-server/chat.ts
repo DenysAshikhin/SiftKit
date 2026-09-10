@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { z } from '../lib/zod.js';
 import { buildChatRunMessageIdPrefix, buildChatToolMessageId, ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
@@ -14,7 +15,8 @@ import type { OptionalJsonValue } from '../lib/json-types.js';
 import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
-import type { JsonLogger } from '../repo-search/types.js';
+import type { JsonLogger, RepoSearchExecutionResult } from '../repo-search/types.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import {
@@ -42,6 +44,9 @@ import {
   saveChatSession,
 } from '../state/chat-sessions.js';
 import type { ChatRepoAgentDecisionRecord } from './chat-repo-agent-types.js';
+import { ChatMessageQueueStore, type ChatQueuedMessage } from '../state/chat-message-queue.js';
+import { hydrateTerminalChatMessages, requireDurableToolResult } from './chat-tool-results.js';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../state/runtime-db.js';
 import { buildUserContent, parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import {
   parseWebToolCommand,
@@ -375,21 +380,21 @@ function buildReplayToolCallId(messageId: string): string {
 
 /**
  * The persisted result is replayed exactly as it was inserted — no trimming, no refitting, and
- * never the preview. A row that carries an authoritative output uses it even when that output is
- * empty; substituting a 200-character preview there is what made a stopped run forget what it read.
+ * never the preview. A completed row without its full result is a history-integrity failure that
+ * names the row; replaying a 200-character preview there is what made a stopped run forget what
+ * it read.
  */
-function resolveReplayToolOutput(message: PersistedChatTranscriptMessage): string {
-  return typeof message.toolCallOutput === 'string'
-    ? message.toolCallOutput
-    : trimText(message.toolCallOutputSnippet);
+function resolveReplayToolOutput(message: ReplayableChatMessage & { kind: 'assistant_tool_call' }): string {
+  return requireDurableToolResult(message);
 }
 
-function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatTranscriptMessage, reasoningContent: string): void {
+function appendReplayToolMessages(
+  history: PlannerChatMessage[],
+  message: ReplayableChatMessage & { kind: 'assistant_tool_call' },
+  reasoningContent: string,
+): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
   const output = resolveReplayToolOutput(message);
-  if (!command && !output) {
-    return;
-  }
   const toolCallId = buildReplayToolCallId(message.id);
   history.push({
     role: 'assistant',
@@ -400,7 +405,7 @@ function appendReplayToolMessages(history: PlannerChatMessage[], message: Persis
   history.push({
     role: 'tool',
     tool_call_id: toolCallId,
-    content: output || '(empty output)',
+    content: output,
   });
 }
 
@@ -479,6 +484,8 @@ export type PersistTurn = {
   toolMessages: PersistToolMessage[];
 };
 
+export type PersistQueuedMessage = Pick<ChatQueuedMessage, 'id' | 'content' | 'images' | 'deliveredTurn'>;
+
 type AppendChatOptions = {
   turns: PersistTurn[];
   turnRecords: TurnTokenRecord[];
@@ -503,6 +510,7 @@ type AppendChatOptions = {
   groundingStatus?: ChatGroundingStatus | null;
   images?: string[];
   imageMeta?: ImageMetadata[];
+  queuedMessages?: PersistQueuedMessage[];
 };
 
 /**
@@ -533,9 +541,10 @@ export function buildChatUserMessage(
   images: string[],
   imageMeta: ImageMetadata[],
   createdAtUtc: string,
+  id: string = randomUUID(),
 ): PersistedChatTranscriptMessage {
   return PersistedChatTranscriptMessageSchema.parse({
-    id: randomUUID(),
+    id,
     role: 'user',
     kind: 'user_text',
     content,
@@ -552,13 +561,69 @@ export function buildChatUserMessage(
   });
 }
 
+export function getChatRunFailure(result: RepoSearchExecutionResult): string | null {
+  const tasks = result.scorecard.tasks;
+  if (result.scorecard.verdict === 'pass' && tasks.length > 0 && tasks.every((task) => task.reason === 'finish')) return null;
+  return `Run did not finish normally: ${result.scorecard.failureReasons.length > 0 ? result.scorecard.failureReasons.join('; ') : tasks.map((task) => task.reason).join(', ') || 'missing terminal result'}.`;
+}
+
+export function buildQueuedChatUserMessage(
+  session: ChatSession,
+  delivery: Pick<PersistQueuedMessage, 'id' | 'content' | 'images'>,
+  createdAtUtc: string,
+): PersistedChatTranscriptMessage {
+  const images = admitImagesForPreset(session.modelPreset, delivery.images);
+  return buildChatUserMessage(delivery.content, images.map((image) => image.dataUrl), images.map((image) => image.metadata), createdAtUtc, delivery.id);
+}
+
 export type BuildChatStoppedTurnInput = {
   content: string;
   images: string[];
   imageMeta: ImageMetadata[];
   transcriptMessages: PersistedChatTranscriptMessage[];
   approvalMessages: PersistedChatTranscriptMessage[];
+  queuedMessages?: PersistQueuedMessage[];
 };
+
+/** Reconcile only the new turn, using the recorded complete tool-batch boundary. */
+function mergeQueueDeliveries(
+  messages: PersistedChatTranscriptMessage[],
+  deliveries: readonly PersistQueuedMessage[],
+  session: ChatSession,
+): PersistedChatTranscriptMessage[] {
+  if (deliveries.length === 0) return messages;
+  const first = messages[0];
+  if (!first || first.kind !== 'user_text') throw new Error('Queued history requires the initial user row.');
+  const ids = new Set(deliveries.map((message) => message.id));
+  if (ids.size !== deliveries.length) throw new Error('Duplicate queued delivery identity.');
+  const body = messages.slice(1).filter((message) => !ids.has(message.id));
+  const initial: PersistedChatTranscriptMessage[] = [];
+  const after = new Map<number, PersistedChatTranscriptMessage[]>();
+  let previousBoundary = 0;
+  for (const delivery of deliveries) {
+    const boundary = z.number().int().nonnegative().parse(delivery.deliveredTurn);
+    if (boundary < previousBoundary) throw new Error(`Queued delivery ${delivery.id} violates FIFO boundaries.`);
+    previousBoundary = boundary;
+    const row = buildQueuedChatUserMessage(session, delivery, first.createdAtUtc);
+    if (boundary === 0) { initial.push(row); continue; }
+    let index = -1;
+    for (const [position, message] of body.entries()) {
+      if (message.kind === 'assistant_tool_call' && message.toolCallTurn === boundary) index = position;
+    }
+    if (index < 0) throw new Error(`Queued delivery ${delivery.id} has no completed batch boundary ${boundary}.`);
+    while (body[index + 1]?.kind === 'tool_image') index += 1;
+    const group = after.get(index) ?? [];
+    group.push(row);
+    after.set(index, group);
+  }
+  return [
+    ...(initial.length > 0 ? initial : [first]),
+    ...body.flatMap((message, index) => [message, ...(after.get(index) ?? [])]),
+  ];
+}
+
+/** The engine request the stopped turn ran as: the key its canonical tool evidence is stored under. */
+export type AppendChatStoppedTurnInput = Omit<BuildChatStoppedTurnInput, 'queuedMessages'> & { requestId: string };
 
 export function buildChatSessionWithStoppedTurn(
   session: ChatSession,
@@ -566,11 +631,16 @@ export function buildChatSessionWithStoppedTurn(
 ): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
   const now = new Date().toISOString();
   const transcriptMessages = PersistedChatTranscriptMessageSchema.array().parse(input.transcriptMessages);
-  if (transcriptMessages.some((message) => message.role !== 'assistant')) {
-    throw new Error('Stopped chat transcript may contain only assistant messages.');
+  if (transcriptMessages.some((message) => message.role !== 'assistant' && message.kind !== 'user_text' && message.kind !== 'tool_image')) {
+    throw new Error('Stopped chat transcript contains an invalid user message kind.');
   }
   if (transcriptMessages.filter((message) => message.kind === 'assistant_answer').length > 1) {
     throw new Error('Stopped chat transcript contains multiple answer rows.');
+  }
+  for (const message of transcriptMessages) {
+    if (message.kind === 'assistant_tool_call' && message.toolCallStatus === 'done') {
+      requireDurableToolResult(message);
+    }
   }
   const approvalMessages = ChatRepoAgentApprovalMessageSchema.array().parse(input.approvalMessages);
   return {
@@ -578,21 +648,48 @@ export function buildChatSessionWithStoppedTurn(
     updatedAtUtc: now,
     messages: [
       ...(session.messages ?? []),
-      buildChatUserMessage(input.content, input.images, input.imageMeta, now),
-      ...approvalMessages,
-      ...transcriptMessages,
+      ...mergeQueueDeliveries([
+        buildChatUserMessage(input.content, input.images, input.imageMeta, now),
+        ...approvalMessages,
+        ...transcriptMessages,
+      ], input.queuedMessages ?? [], session),
     ],
   };
 }
 
+function getRuntimeDatabaseForRoot(runtimeRoot: string): RuntimeDatabase {
+  return getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite'));
+}
+
+/**
+ * The one durable-write path for a stopped turn, whatever route ran it. The incoming turn's
+ * completed tool rows carry previews from the live stream; they are hydrated from the run's own
+ * transcript here, before the pure builder validates and the session is saved. Earlier messages
+ * of the session are neither inspected nor rebuilt.
+ */
 export function appendChatStoppedTurn(
   runtimeRoot: string,
   session: ChatSession,
-  input: BuildChatStoppedTurnInput,
+  input: AppendChatStoppedTurnInput,
 ): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
-  const updated = buildChatSessionWithStoppedTurn(session, input);
+  const { requestId, ...turn } = input;
+  const database = getRuntimeDatabaseForRoot(runtimeRoot);
+  return database.transaction(() => {
+  const queue = new ChatMessageQueueStore(database);
+  const deliveries = queue.listDelivered(session.id, requestId);
+  const updated = buildChatSessionWithStoppedTurn(session, {
+    ...turn,
+    queuedMessages: deliveries,
+    transcriptMessages: hydrateTerminalChatMessages(
+      getRuntimeDatabaseForRoot(runtimeRoot),
+      requestId,
+      turn.transcriptMessages,
+    ),
+  });
   saveChatSession(runtimeRoot, updated);
+  queue.deleteIncorporated(session.id, requestId);
   return updated;
+  })();
 }
 
 export function buildChatSessionWithAppendedTurn(
@@ -634,8 +731,14 @@ export function buildChatSessionWithAppendedTurn(
   const thinkingTokensEstimated = false;
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
+  const turnStart = messages.length;
   messages.push({
-    ...buildChatUserMessage(content, options.images ?? [], options.imageMeta ?? [], now),
+    ...buildChatUserMessage(
+      content,
+      options.images ?? [],
+      options.imageMeta ?? [],
+      now,
+    ),
     inputTokensEstimate: userTokens,
     inputTokensEstimated,
   });
@@ -663,11 +766,7 @@ export function buildChatSessionWithAppendedTurn(
     const turnToolMessages = Array.isArray(turn.toolMessages) ? turn.toolMessages : [];
     for (const toolMessage of turnToolMessages) {
       const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : randomUUID();
-      const toolOutput = typeof toolMessage.toolCallOutput === 'string'
-        ? toolMessage.toolCallOutput
-        : typeof toolMessage.toolCallOutputSnippet === 'string'
-          ? toolMessage.toolCallOutputSnippet
-          : '';
+      const toolOutput = requireDurableToolResult({ id: toolMessageId, sourceRunId, toolCallOutput: toolMessage.toolCallOutput });
       const explicitToolOutputTokens = getChatUsageValue(toolMessage.outputTokens);
       const toolOutputTokens = explicitToolOutputTokens ?? estimateTokenCount(toolOutput);
       const toolOutputTokensEstimated = explicitToolOutputTokens === null || toolMessage.outputTokensEstimated !== false;
@@ -760,6 +859,7 @@ export function buildChatSessionWithAppendedTurn(
     sourceRunId,
     groundingStatus,
   });
+  messages.splice(turnStart, messages.length - turnStart, ...mergeQueueDeliveries(messages.slice(turnStart), options.queuedMessages ?? [], session));
   const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
     .prunePersistedMessages(messages);
   const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = {
@@ -776,17 +876,23 @@ export function appendChatMessagesWithUsage(
   content: string,
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
-  options: AppendChatOptions = { turns: [], turnRecords: [] },
+  options: Omit<AppendChatOptions, 'queuedMessages'> = { turns: [], turnRecords: [] },
 ): ChatSession & { messages: PersistedChatTranscriptMessage[] } {
+  const database = getRuntimeDatabaseForRoot(runtimeRoot);
+  return database.transaction(() => {
+  const queue = new ChatMessageQueueStore(database);
+  const deliveries = options.sourceRunId ? queue.listDelivered(session.id, options.sourceRunId) : [];
   const updated = buildChatSessionWithAppendedTurn(
     session,
     content,
     assistantContent,
     usage,
-    options,
+    { ...options, queuedMessages: deliveries },
   );
   saveChatSession(runtimeRoot, updated);
+  if (options.sourceRunId) queue.deleteIncorporated(session.id, options.sourceRunId);
   return updated;
+  })();
 }
 
 export function buildRepoAgentResultMarkdown(result: RepoAgentRunResult): string {
@@ -852,6 +958,10 @@ export function appendChatRepoAgentMessages(
     maintainPerStepThinking: boolean;
   },
 ): ChatSession {
+  const database = getRuntimeDatabaseForRoot(runtimeRoot);
+  return database.transaction(() => {
+  const queue = new ChatMessageQueueStore(database);
+  const deliveries = queue.listDelivered(sessionId, input.requestId);
   const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
   const session = readChatSessionFromPath(sessionPath);
   if (!session) {
@@ -865,17 +975,27 @@ export function appendChatRepoAgentMessages(
       imageMeta: [],
       transcriptMessages: input.terminalMessages,
       approvalMessages,
+      requestId: input.requestId,
     });
   }
-  // A provider failure has no scorecard, but its completed tools and partial text still exist.
-  const terminalEvidence = input.turns.length === 0 ? input.terminalMessages : [];
+  // A provider failure has no scorecard, but its completed tools and partial text still exist —
+  // hydrated from the run's transcript, exactly as a stopped turn's are.
+  const terminalEvidence = input.turns.length === 0
+    ? hydrateTerminalChatMessages(getRuntimeDatabaseForRoot(runtimeRoot), input.requestId, input.terminalMessages)
+    : [];
   const terminalAnswer = terminalEvidence.find((message) => message.kind === 'assistant_answer');
   const persisted = buildChatSessionWithAppendedTurn(
     session,
     input.content,
     terminalAnswer?.content ?? buildRepoAgentResultMarkdown(input.result),
     {},
-    { turns: input.turns, turnRecords: input.turnRecords, maintainPerStepThinking: input.maintainPerStepThinking, sourceRunId: input.requestId, images: input.images },
+    {
+      turns: input.turns,
+      turnRecords: input.turnRecords,
+      maintainPerStepThinking: input.maintainPerStepThinking,
+      sourceRunId: input.requestId,
+      images: input.images,
+    },
   );
   const assistantMessage = persisted.messages[persisted.messages.length - 1];
   if (!assistantMessage || assistantMessage.kind !== 'assistant_answer') {
@@ -890,12 +1010,17 @@ export function appendChatRepoAgentMessages(
       assistantMessage,
     ]),
   };
+  const previousCount = session.messages?.length ?? 0;
+  withApprovals.messages.splice(previousCount, withApprovals.messages.length - previousCount,
+    ...mergeQueueDeliveries(withApprovals.messages.slice(previousCount), deliveries, session));
   saveChatSession(runtimeRoot, withApprovals);
+  queue.deleteIncorporated(sessionId, input.requestId);
   const authoritative = readChatSessionFromPath(sessionPath);
   if (!authoritative) {
     throw new Error(`Chat session disappeared after repo-agent persistence: ${sessionId}`);
   }
   return authoritative;
+  })();
 }
 
 

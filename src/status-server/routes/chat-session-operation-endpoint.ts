@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 
-import { ChatOperationIdSchema, type ChatSessionOperationKind } from '@siftkit/contracts';
+import { ChatOperationIdSchema, ChatQueueOperationKindSchema, type ChatSessionOperationKind } from '@siftkit/contracts';
 
 import { toError } from '../../lib/errors.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { ChatSession } from '../../state/chat-sessions.js';
+import type { ChatQueuedMessage } from '../../state/chat-message-queue.js';
 import { getRuntimeRoot } from '../paths.js';
 import {
   getChatSessionPath,
@@ -31,6 +32,8 @@ export type ResolvedChatRepoRequest = {
 };
 
 export type ChatSessionOperationRequest<TParsed> = {
+  queuedMessages?: ChatQueuedMessage[];
+  queueIntentId?: string;
   sessionId: string;
   sessionPath: string;
   session: ChatSession;
@@ -123,10 +126,15 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
 
   protected abstract run(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
     request: ChatSessionOperationRequest<TParsed>,
   ): Promise<void>;
+
+  async executeDetached(ctx: ServerContext, request: ChatSessionOperationRequest<TParsed>): Promise<void> {
+    if (!this.clientOwnedOperation || !request.lease) throw new Error('This operation cannot execute detached.');
+    await this.run(ctx, null, null, request);
+  }
 
   async handle(
     ctx: ServerContext,
@@ -159,6 +167,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       sendJson(res, 400, { error: 'operationId must be a UUID.' });
       return;
     }
+    if (this.useSessionOperationLease && ChatQueueOperationKindSchema.safeParse(this.operationKind).success
+      && !ctx.chatSessionOperations.getActive(sessionId)
+      && ctx.chatMessageQueue.store.state(sessionId).messages.some((message) => message.state === 'pending')) {
+      sendJson(res, 409, { error: 'Pending messages must be sent first with Force now.', queue: ctx.chatMessageQueue.state(sessionId) });
+      return;
+    }
     const acquisition = this.useSessionOperationLease
       ? ctx.chatSessionOperations.acquire(
           sessionId,
@@ -172,6 +186,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       return;
     }
     const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
+    if (lease) ctx.chatMessageQueue.publish(sessionId);
     try {
       await this.run(ctx, req, res, {
         sessionId,
@@ -181,12 +196,20 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         value,
         lease,
       });
+      if (lease && res.statusCode >= 400) lease.failure ??= `Chat operation returned HTTP ${res.statusCode}.`;
       if (lease && !ctx.chatSessionOperations.finish(lease, { kind: 'completed' })) {
         throw new Error(`Failed to finish chat session operation ${lease.sessionId}.`);
+      }
+      if (lease) {
+        if (ctx.chatSessionOperations.getCompletion(sessionId, lease.operationId)?.kind === 'completed') await ctx.chatQueueSuccessor?.startPending(sessionId);
+        else ctx.chatMessageQueue.store.setPaused(sessionId, true);
+        ctx.chatMessageQueue.publish(sessionId);
       }
     } catch (error) {
       if (lease) {
         ctx.chatSessionOperations.finish(lease, { kind: 'failed', error: toError(error).message });
+        ctx.chatMessageQueue.store.setPaused(sessionId, true);
+        ctx.chatMessageQueue.publish(sessionId);
       }
       throw error;
     }

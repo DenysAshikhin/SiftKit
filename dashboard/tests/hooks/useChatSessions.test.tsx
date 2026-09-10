@@ -8,6 +8,7 @@ import type {
   ChatRepoAgentApprovalModeResponse,
   ChatRepoAgentDecideResponse,
 } from '@siftkit/contracts';
+import { ChatQueueEnqueueRequestSchema, type ChatQueueEnqueueRequest } from '@siftkit/contracts';
 import { renderHook, waitFor } from '../react-test-environment.js';
 
 import {
@@ -186,6 +187,8 @@ type ChatFixtureResponse = {
 };
 
 class ChatFetchFixture {
+  readonly queuedBodies: ChatQueueEnqueueRequest[] = [];
+  readonly forcedBodies: string[] = [];
   readonly requestedUrls: string[] = [];
   readonly sentBodies: string[] = [];
   detailRequestCount = 0;
@@ -213,6 +216,8 @@ class ChatFetchFixture {
     approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
     holdStream?: boolean;
     stopStatus?: number;
+    queueStatus?: number;
+    loseFirstForceResponse?: boolean;
   }) {
     const sessions = this.options.sessions ?? [this.options.session];
     const hasMultipleSessions = this.options.sessions !== undefined;
@@ -229,6 +234,30 @@ class ChatFetchFixture {
         return new Response(JSON.stringify({ operations: this.options.activeOperations ?? [] }), { status: 200 });
       }
       const requestedSession = sessions.find((session) => url.startsWith(`/dashboard/chat/sessions/${session.id}`));
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/queue/force`) {
+        this.forcedBodies.push(String(init?.body));
+        if (this.options.loseFirstForceResponse && this.forcedBodies.length === 1) throw new Error('response lost');
+        return new Response(JSON.stringify({ ok: true, successorOperationId: RUN_ID, queue: { sessionId: requestedSession.id, revision: 1, paused: false, force: null, messages: [] } }));
+      }
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/queue` && init?.method !== 'POST') {
+        return new Response(JSON.stringify({ queue: { sessionId: requestedSession.id, revision: 0, paused: false, force: null, messages: [] } }));
+      }
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/queue` && init?.method === 'POST') {
+        const body = ChatQueueEnqueueRequestSchema.parse(JSON.parse(String(init.body)));
+        this.queuedBodies.push(body);
+        return new Response(JSON.stringify(this.options.queueStatus === 409 ? { error: 'overflow' } : { queue: {
+          sessionId: requestedSession.id, revision: this.queuedBodies.length, paused: false, force: null,
+          messages: this.queuedBodies.map((message, position) => ({ id: message.id, preview: message.content.slice(0, 200), contentChars: message.content.length, imageCount: message.images.length, revision: 1, state: 'pending', position, createdAtUtc: '2026-09-09T00:00:00Z' })),
+        } }), { status: this.options.queueStatus ?? 200 });
+      }
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/queue/stream`) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start: (controller) => {
+            controller.enqueue(new TextEncoder().encode(`event: queue\ndata: ${JSON.stringify({ sessionId: requestedSession.id, revision: 0, paused: false, force: null, messages: [], activeOperationId: null, activeOperationKind: null })}\n\n`));
+            init?.signal?.addEventListener('abort', () => controller.close(), { once: true });
+          },
+        }), { headers: { 'Content-Type': 'text/event-stream' } });
+      }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
         const response = hasMultipleSessions
@@ -350,6 +379,38 @@ class ChatFetchFixture {
     globalThis.fetch = this.originalFetch;
   }
 }
+
+for (const queueStatus of [200, 409]) test(`busy submission queues server-side and ${queueStatus === 200 ? 'clears only the submitted draft' : 'preserves a rejected draft'}`, async () => {
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, holdStream: true, queueStatus });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0, buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    act(() => hook.result.current.setSessionDraft('s1', 'original'));
+    let running = Promise.resolve();
+    act(() => { running = hook.result.current.sendMessage(); });
+    await waitFor(() => assert.equal(fixture.streamRequestCount, 1));
+    act(() => hook.result.current.setSessionDraft('s1', 'queued follow-up'));
+    await act(async () => hook.result.current.sendMessage());
+    assert.equal(fixture.streamRequestCount, 1);
+    assert.equal(fixture.queuedBodies[0]?.content, 'queued follow-up');
+    assert.equal(hook.result.current.runtimeStore.get('s1').draft, queueStatus === 200 ? '' : 'queued follow-up');
+    act(() => hook.result.current.setSessionDraft('s1', 'next draft'));
+    await act(async () => { fixture.finishHeldStream(); await running; });
+    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'next draft');
+  } finally { fixture.restore(); }
+});
+
+test('a lost Force now response retries the same idempotency request', async () => {
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, loseFirstForceResponse: true });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0, buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    await act(async () => hook.result.current.forceQueue());
+    await act(async () => hook.result.current.forceQueue());
+    assert.equal(fixture.forcedBodies.length, 2);
+    assert.equal(fixture.forcedBodies[0], fixture.forcedBodies[1]);
+  } finally { fixture.restore(); }
+});
 
 test('sendRepoAgent forwards a valid session-local turns override', async () => {
   const fixture = new ChatFetchFixture({

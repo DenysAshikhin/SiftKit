@@ -34,6 +34,7 @@ export class TranscriptManager {
     historyMessages: ChatMessage[];
     initialUserContent: string;
     initialUserImages: readonly string[];
+    initialFollowupMessages?: ChatMessage[];
     liveImagePathKeys: Set<string>;
   }) {
     this.liveImagePathKeys = options.liveImagePathKeys;
@@ -41,6 +42,7 @@ export class TranscriptManager {
       { role: 'system', content: options.systemPromptContent },
       ...options.historyMessages,
       { role: 'user', content: buildUserContent(options.initialUserContent, options.initialUserImages) },
+      ...(options.initialFollowupMessages ?? []),
     ];
     this.currentTurnStartIndexValue = 1 + options.historyMessages.length;
   }

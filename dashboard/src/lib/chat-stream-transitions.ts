@@ -25,7 +25,12 @@ export async function* toRuntimeTransitions(
   let completed = false;
   try {
     for await (const event of stream) {
-      if (event.kind === 'thinking') {
+      if (event.kind === 'queue') {
+        if (event.queue.sessionId !== sessionId) throw new Error('Queue stream session mismatch.');
+        yield { kind: 'queue', sessionId, queue: event.queue };
+      } else if (event.kind === 'queued-user') {
+        yield { kind: 'queued-user', sessionId, message: event.message };
+      } else if (event.kind === 'thinking') {
         if (thinkingEnabled) {
           yield { kind: 'thinking', sessionId, delta: event.delta };
         }

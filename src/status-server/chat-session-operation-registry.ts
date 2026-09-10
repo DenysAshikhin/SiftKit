@@ -11,6 +11,7 @@ export type ChatSessionOperation = {
   operationId: string;
   startedAtMs: number;
   abort?: () => void;
+  failure?: string;
 };
 
 export type ChatSessionOperationAcquireResult =
@@ -46,6 +47,12 @@ function requireSessionId(sessionId: string): void {
 
 export class ChatSessionOperationRegistry {
   private readonly activeBySessionId = new Map<string, ActiveChatSessionOperation>();
+  private readonly latestCompletion = new Map<string, { lease: ChatSessionOperation; completion: ChatSessionOperationCompletion }>();
+
+  getCompletion(sessionId: string, operationId: string): ChatSessionOperationCompletion | null {
+    const last = this.latestCompletion.get(sessionId);
+    return last?.lease.operationId === operationId ? last.completion : null;
+  }
 
   acquire(
     sessionId: string,
@@ -74,6 +81,10 @@ export class ChatSessionOperationRegistry {
     if (active === null || active.lease.token !== lease.token) {
       return false;
     }
+    const error = lease.failure ?? active.broadcast.failure;
+    if (error) completion = { kind: 'failed', error };
+    this.latestCompletion.set(lease.sessionId, { lease, completion });
+    delete lease.abort;
     this.activeBySessionId.delete(lease.sessionId);
     // Every stream ends with a terminal frame, so an attached reader can always tell "the run
     // failed" from "the run finished without a payload" from "the socket dropped".

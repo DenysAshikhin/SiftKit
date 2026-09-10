@@ -153,6 +153,35 @@ test('empty snapshots do not create transcript rows', () => {
   assert.deepEqual(messages, []);
 });
 
+test('queued transcript events keep each stable user identity and delivery boundary', () => {
+  let messages: ChatTranscriptMessage[] = [];
+  messages = reduceChatTranscript(messages, {
+    kind: 'user_message',
+    message: {
+      id: '4f9c1f9a-0000-4000-8000-000000000001',
+      turn: 2,
+      boundary: 'post_tool_batch',
+      content: 'first queued message',
+      images: [],
+    },
+  }, metadata);
+  messages = reduceChatTranscript(messages, {
+    kind: 'user_message',
+    message: {
+      id: '4f9c1f9a-0000-4000-8000-000000000002',
+      turn: 2,
+      boundary: 'post_tool_batch',
+      content: 'second queued message',
+      images: [],
+    },
+  }, metadata);
+
+  assert.deepEqual(messages.map((message) => [message.id, message.role, message.content]), [
+    ['4f9c1f9a-0000-4000-8000-000000000001', 'user', 'first queued message'],
+    ['4f9c1f9a-0000-4000-8000-000000000002', 'user', 'second queued message'],
+  ]);
+});
+
 test('stopped transcript finalization rejects multiple answer rows', () => {
   let messages: ChatTranscriptMessage[] = [];
   messages = reduceChatTranscript(messages, {

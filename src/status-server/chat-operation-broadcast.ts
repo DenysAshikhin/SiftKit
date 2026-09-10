@@ -4,6 +4,7 @@ import {
 } from '@siftkit/contracts';
 
 import type { JsonSerializable } from '../lib/json-types.js';
+import { z } from '../lib/zod.js';
 
 /** One already-serialized SSE frame. Replaying the stored `data` reproduces the live bytes exactly. */
 export type ChatOperationFrame = {
@@ -33,6 +34,7 @@ export const CHAT_OPERATION_REPLAY_MAX_BYTES = 8 * 1024 * 1024;
  * client that started the run and a client that reconnects later see the same stream.
  */
 export class ChatOperationBroadcast {
+  failure: string | null = null;
   private readonly frames: ChatOperationFrame[] = [];
   private readonly subscribers = new Set<ChatOperationSubscriber>();
   private bufferedBytes = 0;
@@ -46,9 +48,10 @@ export class ChatOperationBroadcast {
     if (this.closed) {
       return;
     }
+    if (event === 'error') this.failure = z.object({ error: z.string() }).parse(payload).error;
     const frame: ChatOperationFrame = { event, data: JSON.stringify(payload) };
     this.frames.push(frame);
-    this.bufferedBytes += frame.data.length;
+    this.bufferedBytes += Buffer.byteLength(frame.data, 'utf8');
     if (isTerminalChatStreamEventName(event)) {
       this.terminal = true;
     }
@@ -97,12 +100,12 @@ export class ChatOperationBroadcast {
   }
 
   private trim(): void {
-    while (this.bufferedBytes > this.maxBufferedBytes && this.frames.length > 1) {
+    while (this.bufferedBytes > this.maxBufferedBytes && this.frames.length > 0) {
       const dropped = this.frames.shift();
       if (!dropped) {
         return;
       }
-      this.bufferedBytes -= dropped.data.length;
+      this.bufferedBytes -= Buffer.byteLength(dropped.data, 'utf8');
       this.truncated = true;
     }
   }

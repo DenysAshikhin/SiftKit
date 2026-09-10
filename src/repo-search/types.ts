@@ -11,12 +11,14 @@ export type JsonLogger = {
 };
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ApprovalGate } from './engine/approval-gate.js';
+import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
 import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.js';
 import type { RepoSearchTaskKind } from './task-kind.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
+import { ChatStreamQueuedUserMessageSchema } from '@siftkit/contracts';
 
 export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.js';
 
@@ -172,6 +174,9 @@ export const RepoSearchProgressEventSchema = z.discriminatedUnion('kind', [
     reason: z.string(),
   }),
   ActivitySummaryProgressEventSchema,
+  ChatStreamQueuedUserMessageSchema.extend({
+    kind: z.literal('queued_user_message'),
+  }),
 ]);
 
 export type RepoSearchProgressEvent = z.infer<typeof RepoSearchProgressEventSchema>;
@@ -226,6 +231,7 @@ export type RepoSearchExecutionRequest = {
   initialUserImages?: readonly string[];
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
+  queueDelivery?: ChatMessageQueueDelivery;
   abortSignal?: AbortSignal;
 };
 

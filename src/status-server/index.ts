@@ -1,3 +1,8 @@
+import { ChatMessageQueue } from './chat-message-queue.js';
+import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
+import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
+import { recoverInterruptedChatQueue } from './chat-queue-recovery.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
 /**
  * Status server entry point: creates the server context, wires together the
  * managed-engine lifecycle, route handling, and server bootstrap/teardown.
@@ -232,6 +237,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   // Build the shared mutable context.
   const engineService = options.engineService ?? new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
+  const chatSessionOperations = new ChatSessionOperationRegistry();
   const ctx: ServerContext = {
     configPath,
     statusPath,
@@ -251,7 +257,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     },
     metrics,
     statusRuns: new StatusRunRegistry(),
-    chatSessionOperations: new ChatSessionOperationRegistry(),
+    chatSessionOperations,
+    chatMessageQueue: new ChatMessageQueue(new ChatMessageQueueStore(getRuntimeDatabase()), chatSessionOperations),
     chatRepoAgentRuns: new Map(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
@@ -288,6 +295,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
+  recoverInterruptedChatQueue(getRuntimeRoot());
+  ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
     ctx.inferenceRunFlushQueue,

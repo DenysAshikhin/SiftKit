@@ -1,4 +1,7 @@
 import path from 'node:path';
+import { ChatMessageQueue } from '../../src/status-server/chat-message-queue.js';
+import { ChatMessageQueueStore } from '../../src/state/chat-message-queue.js';
+import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
 
 import { getActiveModelPreset } from '../../src/config/getters.js';
 import { getDefaultConfig } from '../../src/status-server/config-store.js';
@@ -22,6 +25,8 @@ import { AssistantRateLimiter } from '../../src/status-server/assistant-rate-lim
 export function createTestServerContext(configPath: string, root = path.dirname(configPath)): ServerContext {
   const engineService = new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(path.join(root, 'repo-agent', 'runs'));
+  const chatSessionOperations = new ChatSessionOperationRegistry();
+  let chatMessageQueue: ChatMessageQueue | null = null;
   return {
     configPath,
     statusPath: path.join(root, 'status.txt'),
@@ -37,7 +42,11 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     },
     metrics: getDefaultMetrics(),
     statusRuns: new StatusRunRegistry(),
-    chatSessionOperations: new ChatSessionOperationRegistry(),
+    chatSessionOperations,
+    get chatMessageQueue() {
+      chatMessageQueue ??= new ChatMessageQueue(new ChatMessageQueueStore(getRuntimeDatabase(path.join(root, 'runtime.sqlite'))), chatSessionOperations);
+      return chatMessageQueue;
+    },
     chatRepoAgentRuns: new Map(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),

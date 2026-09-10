@@ -1,6 +1,10 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
 import {
   ChatOperationAttachedEventSchema,
+  ChatMessageQueueStateSchema,
+  ChatStreamQueuedUserMessageSchema,
+  type ChatMessageQueueState,
+  type ChatStreamQueuedUserMessage,
   ChatSessionResponseSchema,
   ChatStreamApprovalResolvedSchema,
   ChatStreamApprovalSchema,
@@ -25,6 +29,8 @@ import {
 export type { ChatStreamToolEvent } from '@siftkit/contracts';
 
 export type ChatStreamEvent =
+  | { kind: 'queue'; queue: ChatMessageQueueState }
+  | { kind: 'queued-user'; message: ChatStreamQueuedUserMessage }
   | { kind: 'thinking'; delta: ChatStreamTextDelta }
   | { kind: 'narration'; delta: ChatStreamTextDelta }
   | { kind: 'warning'; text: string }
@@ -66,6 +72,14 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
   if (!parsed || !isRecord(parsed.data)) return null;
   const record = parsed.data;
   switch (parsed.eventName) {
+    case 'queue': {
+      const result = ChatMessageQueueStateSchema.safeParse(record);
+      return result.success ? { kind: 'queue', queue: result.data } : null;
+    }
+    case 'queued_user_message': {
+      const result = ChatStreamQueuedUserMessageSchema.safeParse(record);
+      return result.success ? { kind: 'queued-user', message: result.data } : null;
+    }
     case 'thinking': {
       const result = ChatStreamTextDeltaSchema.safeParse(record);
       return result.success ? { kind: 'thinking', delta: result.data } : null;

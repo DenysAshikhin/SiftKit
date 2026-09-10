@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ChatStreamProgressSchema,
+  ChatStreamQueuedUserMessageSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
   ChatStreamUsageEventSchema,
@@ -18,6 +19,7 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('progress'), progress: ChatStreamProgressSchema }),
   z.strictObject({ kind: z.literal('tool'), tool: ChatStreamToolEventSchema }),
   z.strictObject({ kind: z.literal('usage'), usage: ChatStreamUsageEventSchema }),
+  z.strictObject({ kind: z.literal('user_message'), message: ChatStreamQueuedUserMessageSchema }),
 ]);
 export type ChatTranscriptEvent = z.infer<typeof ChatTranscriptEventSchema>;
 
@@ -222,6 +224,33 @@ function reduceUsageEvent(
   });
 }
 
+/**
+ * A queued message the engine appended mid-run. Its row keeps the queue id, so the bubble a client
+ * shows live, the row the stopped or completed turn persists, and the ledger entry the server
+ * cleans up are all the same identity; a later delivery never overwrites an earlier one.
+ */
+function reduceUserMessageEvent(
+  messages: readonly ChatTranscriptMessage[],
+  event: Extract<ChatTranscriptEvent, { kind: 'user_message' }>,
+  metadata: ChatTranscriptMetadata,
+): ChatTranscriptMessage[] {
+  return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
+    id: event.message.id,
+    role: 'user',
+    kind: 'user_text',
+    content: event.message.content,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
+    createdAtUtc: metadata.createdAtUtc,
+    sourceRunId: metadata.sourceRunId,
+    images: event.message.images,
+  }));
+}
+
 export function reduceChatTranscript(
   messages: readonly ChatTranscriptMessage[],
   event: ChatTranscriptEvent,
@@ -232,6 +261,7 @@ export function reduceChatTranscript(
   }
   if (event.kind === 'progress') return reduceProgressEvent(messages, event, metadata);
   if (event.kind === 'usage') return reduceUsageEvent(messages, event, metadata);
+  if (event.kind === 'user_message') return reduceUserMessageEvent(messages, event, metadata);
   return reduceToolEvent(messages, event, metadata);
 }
 

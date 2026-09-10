@@ -48,6 +48,7 @@ const BOOTSTRAP_TABLES = [
   'benchmark_sessions',
   'candidate_assertions',
   'chat_messages',
+  'chat_pending_messages',
   'chat_sessions',
   'eval_results',
   'evidence_blobs',
@@ -217,7 +218,7 @@ test('opening a current database preserves stored values and device identity', (
 });
 
 test('historical and future schema markers are rejected without changing their contents', () => {
-  for (const version of [64, 65, 67]) {
+  for (const version of [64, 65, 68]) {
     const dbPath = tempDbPath(`siftkit-runtime-schema-version-${String(version)}-`);
     seedMarker(dbPath, version);
     const before = readFileSync(dbPath);
@@ -226,7 +227,7 @@ test('historical and future schema markers are rejected without changing their c
         assert.ok(error instanceof Error);
         assert.ok(error.message.includes(dbPath));
         assert.ok(error.message.includes(`version ${version}`));
-        assert.match(error.message, /expected 66/u);
+        assert.match(error.message, /expected 67/u);
         return true;
       });
       assert.deepEqual(readFileSync(dbPath), before);
@@ -234,6 +235,41 @@ test('historical and future schema markers are rejected without changing their c
     } finally {
       closeRuntimeDatabase();
     }
+  }
+});
+
+test('a version 66 database upgrades to 67 in place, adding the pending-message table and keeping chat and log rows', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-66-');
+  const CountRow = z.object({ count: z.number() });
+  try {
+    const database = getRuntimeDatabase(dbPath);
+    database.exec(`
+      INSERT INTO chat_sessions (id, title, model_preset_id, thinking_enabled, web_search_enabled, preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc)
+      VALUES ('s1', 'Kept', 'preset', 1, 1, 'chat', 'chat', 'C:/repo', '2026-09-09T00:00:00.000Z', '2026-09-09T00:00:00.000Z');
+      INSERT INTO chat_messages (session_id, id, role, kind, content, input_tokens_estimate, output_tokens_estimate, thinking_tokens, input_tokens_estimated, output_tokens_estimated, thinking_tokens_estimated, created_at_utc, compressed_into_summary, position)
+      VALUES ('s1', 'm1', 'user', 'user_text', 'kept message', 1, 0, 0, 1, 0, 0, '2026-09-09T00:00:00.000Z', 0, 0);
+      INSERT INTO run_logs (run_id, request_id, run_kind, run_group, terminal_state, title, flushed_at_utc)
+      VALUES ('run-1', 'run-1', 'chat', 'chat', 'completed', 'kept run', '2026-09-09T00:00:00.000Z');
+    `);
+    // The exact shape a database left by the previous release has: no queue table, marker 66.
+    database.exec('DROP TABLE chat_pending_messages; UPDATE runtime_schema SET version = 66 WHERE id = 1;');
+    closeRuntimeDatabase();
+
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
+    assert.equal(CURRENT_SCHEMA_VERSION, 67);
+    assert.ok(columnNames(upgraded, 'chat_pending_messages').includes('delivered_request_id'));
+    assert.equal(CountRow.parse(upgraded.prepare("SELECT count(*) AS count FROM chat_messages WHERE content = 'kept message'").get()).count, 1);
+    assert.equal(CountRow.parse(upgraded.prepare("SELECT count(*) AS count FROM run_logs WHERE run_id = 'run-1'").get()).count, 1);
+    assert.equal(CountRow.parse(upgraded.prepare('SELECT count(*) AS count FROM chat_pending_messages').get()).count, 0);
+    upgraded.prepare(`
+      INSERT INTO chat_pending_messages (session_id, id, content, images_json, options_json, revision, state, created_at_utc)
+      VALUES ('s1', 'q1', 'queued', '[]', '{}', 1, 'pending', '2026-09-09T00:00:00.000Z')
+    `).run();
+    upgraded.exec("DELETE FROM chat_sessions WHERE id = 's1'");
+    assert.equal(CountRow.parse(upgraded.prepare('SELECT count(*) AS count FROM chat_pending_messages').get()).count, 0);
+  } finally {
+    closeRuntimeDatabase();
   }
 });
 
@@ -316,7 +352,7 @@ for (const marker of [
             assert.equal(error.name, 'Error');
             assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
             assert.ok(error.message.includes(dbPath));
-            assert.match(error.message, /expected.*66/iu);
+            assert.match(error.message, /expected.*67/iu);
             assert.ok(error.cause instanceof Error);
             return true;
           });

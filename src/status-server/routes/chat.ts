@@ -1,3 +1,5 @@
+import { ChatMessageQueueEndpoint, ChatMessageQueueForceEndpoint, ChatMessageQueueStreamEndpoint } from './chat-message-queue.js';
+import { getChatRunFailure } from '../chat.js';
 /**
  * Dashboard chat session routes: CRUD, message generation, streaming,
  * plan/repo-search execution, condensation, and tool-context management.
@@ -8,6 +10,7 @@ import {
   ChatStreamToolEventSchema,
   PersistedChatTranscriptMessageSchema,
   ChatStreamTextDeltaSchema,
+  ChatStreamQueuedUserMessageSchema,
   StopChatOperationRequestSchema,
   finalizeStoppedChatTranscript,
   reduceChatTranscript,
@@ -138,6 +141,8 @@ import {
 } from './chat-repo-agent.js';
 import type { ChatMessageRequest } from '../chat-route-request-normalizers.js';
 import type { JsonObject } from '../../lib/json-types.js';
+import type { ChatMessageQueueDelivery } from '../../repo-search/engine/queue-delivery.js';
+import { ChatMessageQueueStore } from '../../state/chat-message-queue.js';
 
 async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
   const localConfig = readConfig(configPath);
@@ -278,7 +283,7 @@ export function buildChatSessionResponse(config: SiftConfig, session: ChatSessio
   };
 }
 
-function admitSelectedChatImages(
+export function admitSelectedChatImages(
   config: SiftConfig,
   session: ChatSession,
   requestedImages: string[],
@@ -324,6 +329,7 @@ function buildChatRepoOperationRequest(options: {
   requestId: string;
   progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   abortSignal?: AbortSignal;
+  queueDelivery?: ChatMessageQueueDelivery;
 }): ChatRepoOperationRequest {
   return {
     runtimeRoot: options.runtimeRoot,
@@ -342,6 +348,7 @@ function buildChatRepoOperationRequest(options: {
     mockResponses: readRouteMockResponses(options.reader, 'mockResponses'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    ...(options.queueDelivery ? { queueDelivery: options.queueDelivery } : {}),
   };
 }
 
@@ -382,6 +389,23 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
   private flushTimer: NodeJS.Timeout | null = null;
 
   write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'queued_user_message') {
+      const { kind, ...payload } = event;
+      const queued = ChatStreamQueuedUserMessageSchema.parse(payload);
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'user_message',
+        message: queued,
+      }, this.transcriptMetadata);
+      this.flushPending();
+      this.writer.writeEvent('queued_user_message', {
+        id: queued.id,
+        turn: queued.turn,
+        boundary: queued.boundary,
+        content: queued.content,
+        images: queued.images,
+      });
+      return;
+    }
     if (event.kind === 'thinking') {
       this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
         kind: 'thinking',
@@ -532,7 +556,7 @@ export function requireChatOperationBroadcast<T>(
 /** Everything a streaming chat endpoint needs before it can run its body. */
 type OpenedChatOperationStream = {
   stream: ChatOperationBroadcast;
-  sseWriter: SseResponseWriter;
+  sseWriter: SseResponseWriter | null;
   modelRequestLock: ModelRequestLock;
   activeSession: ChatSession;
 };
@@ -545,18 +569,18 @@ type OpenedChatOperationStream = {
  */
 async function openChatOperationStream<TParsed extends { content: string; images: string[] }>(
   ctx: ServerContext,
-  req: IncomingMessage,
-  res: ServerResponse,
+  req: IncomingMessage | null,
+  res: ServerResponse | null,
   request: ChatSessionOperationRequest<TParsed>,
   lockKind: string,
 ): Promise<OpenedChatOperationStream | null> {
   const stream = requireChatOperationBroadcast(ctx, request);
   // Buffered before the queue wait, so a client that attaches while this turn is still queued
   // already sees the prompt that started it.
-  stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
+  if (!request.queuedMessages) stream.writeEvent('submitted', { content: request.value.content, images: request.value.images });
   const fail = (status: number, error: string): null => {
     stream.writeEvent('error', { error });
-    sendJson(res, status, { error });
+    if (res) sendJson(res, status, { error });
     return null;
   };
   // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
@@ -576,24 +600,31 @@ async function openChatOperationStream<TParsed extends { content: string; images
     releaseModelRequest(ctx, modelRequestLock.token);
     return fail(503, error instanceof Error ? error.message : String(error));
   }
-  const sseWriter = new SseResponseWriter(req, res);
-  sseWriter.open();
-  stream.attach(new ChatOperationSseSubscriber(sseWriter));
+  const sseWriter = req && res ? new SseResponseWriter(req, res) : null;
+  if (sseWriter) {
+    sseWriter.open();
+    stream.attach(new ChatOperationSseSubscriber(sseWriter));
+  }
   return { stream, sseWriter, modelRequestLock, activeSession };
 }
 
 function finishStoppedChatStream(options: {
   signal: AbortSignal;
+  failureDetail: string;
   runtimeRoot: string;
   session: ChatSession;
   content: string;
   images: string[];
   imageMeta: ImageMetadata[];
   stoppedMessages: PersistedChatTranscriptMessage[];
+  /** The engine request the turn ran as; the shared writer hydrates completed tools from it. */
+  requestId: string;
   configPath: string;
   writer: ChatFrameWriter;
 }): boolean {
-  if (!options.signal.aborted) {
+  const deliveries = new ChatMessageQueueStore(getRuntimeDatabase(join(options.runtimeRoot, 'runtime.sqlite')))
+    .listDelivered(options.session.id, options.requestId);
+  if (!options.signal.aborted && deliveries.length === 0) {
     return false;
   }
   const updatedSession = appendChatStoppedTurn(options.runtimeRoot, options.session, {
@@ -602,9 +633,116 @@ function finishStoppedChatStream(options: {
     imageMeta: options.imageMeta,
     transcriptMessages: options.stoppedMessages,
     approvalMessages: [],
+    requestId: options.requestId,
   });
   options.writer.writeEvent('done', buildChatSessionResponse(readConfig(options.configPath), updatedSession));
+  if (!options.signal.aborted) options.writer.writeEvent('error', { error: options.failureDetail });
   return true;
+}
+
+/** Runs one message operation without owning an HTTP request, so Force now can reuse the same
+ * engine, transcript, persistence, and queue-delivery path as the attached stream. */
+export async function executeChatMessageOperation(options: {
+  ctx: ServerContext;
+  session: ChatSession;
+  content: string;
+  images: string[];
+  requestId: string;
+  progressWriter: ChatStreamProgressWriter;
+  operationProgressWriter: ProgressWriter<RepoSearchProgressEvent>;
+  queueDelivery?: ChatMessageQueueDelivery;
+  abortSignal?: AbortSignal;
+  parsedBody: ReturnType<typeof parseJsonBody>;
+  phaseTracker?: ChatTurnPhaseTracker;
+  startedAtMs?: number;
+}): Promise<{ updatedSession: ChatSession; failure: string | null }> {
+  const runtimeRoot = getRuntimeRoot();
+  const config = readConfig(options.ctx.configPath);
+  const selected = new ChatOperationPresetSelector(config.Presets).select(options.session, 'chat');
+  const selectedImages = admitSelectedChatImages(config, selected.session, options.images);
+  const memory = new ChatMemorySeam(options.ctx.assistant);
+  const memoryContext = await memory.buildMemoryContext(selected.preset, options.content);
+  const reader = new JsonRecordReader(options.parsedBody);
+  const webOverrideRaw = reader.optionalString('webSearchOverride');
+  const webEnabled = webOverrideRaw === 'on'
+    ? true
+    : webOverrideRaw === 'off'
+      ? false
+      : selected.session.webSearchEnabled === true;
+  const mockResponses = readRouteMockResponses(reader, 'mockResponses');
+  const effectiveConfig = selectedImages.effectiveConfig;
+  const telemetry = new ChatTurnTelemetry(effectiveConfig, getMockTokenConfig(effectiveConfig, mockResponses));
+  const result = await options.ctx.engineService.executeRepoSearch({
+    presetId: selected.preset.id,
+    requestId: options.requestId,
+    taskKind: 'chat',
+    modelPresetId: selected.session.modelPresetId,
+    modelPreset: selected.session.modelPreset,
+    prompt: options.content,
+    repoRoot: process.cwd(),
+    statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
+    config: effectiveConfig,
+    systemPrompt: buildChatSystemContent(
+      effectiveConfig,
+      selected.session,
+      memoryContext.length === 0 ? {} : { memoryContext },
+    ),
+    history: buildChatHistoryMessages(effectiveConfig, selected.session),
+    thinkingEnabled: selected.session.thinkingEnabled !== false,
+    allowedTools: ['web_search', 'web_fetch'],
+    webToolsEnabled: webEnabled,
+    retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selected.session) : [],
+    maxTurns: readRouteNumber(reader, 'maxTurns'),
+    availableModels: readRouteStringArray(reader, 'availableModels'),
+    mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
+    initialUserImages: selectedImages.images,
+    ...(mockResponses ? { mockResponses } : {}),
+    progressWriter: options.operationProgressWriter,
+    queueDelivery: options.queueDelivery,
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+  });
+  const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
+  const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
+  const scorecardSpeculative = readScorecardSpeculativeMetrics(result.scorecard);
+  const usage: ChatUsage = {
+    promptTokens: getScorecardTotal(result.scorecard, 'promptTokens'),
+    promptCacheTokens: getScorecardTotal(result.scorecard, 'promptCacheTokens'),
+    promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
+    promptEvalDurationMs: getScorecardTotal(result.scorecard, 'promptEvalDurationMs'),
+    generationDurationMs: getScorecardTotal(result.scorecard, 'generationDurationMs'),
+    promptTokensPerSecond: null,
+    generationTokensPerSecond: null,
+    speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
+  };
+  const persistTurns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result));
+  const phaseTracker = options.phaseTracker ?? new ChatTurnPhaseTracker(new Date().toISOString());
+  phaseTracker.observeAnswer(assistantContent);
+  const phaseTimestamps = phaseTracker.snapshot();
+  const inputTokenCount = await telemetry.countInputTokens(options.content);
+  const updatedSession = appendChatMessagesWithUsage(runtimeRoot, selected.session, options.content, assistantContent, usage, {
+    turns: persistTurns,
+    turnRecords: result.turnRecords,
+    maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(selected.session),
+    inputTokens: inputTokenCount.tokenCount,
+    inputTokensEstimated: inputTokenCount.estimated,
+    requestDurationMs: Date.now() - (options.startedAtMs ?? Date.now()),
+    requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
+    thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,
+    thinkingEndedAtUtc: phaseTimestamps.thinkingEndedAtUtc,
+    answerStartedAtUtc: phaseTimestamps.answerStartedAtUtc,
+    answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
+    speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
+    groundingStatus: getChatGroundingStatus(result.scorecard),
+    sourceRunId: String(result.requestId || ''),
+    compactionSummary: scorecardTasks[0]?.compactionSummary ?? '',
+    images: selectedImages.images,
+    imageMeta: selectedImages.imageMeta,
+  });
+  ingestAssistantMemoryTurn(memory, selected.preset, selected.session.id, phaseTimestamps.requestStartedAtUtc ?? new Date().toISOString(), updatedSession.messages ?? []);
+  options.progressWriter.flushPending();
+  return { updatedSession, failure: getChatRunFailure(result) };
 }
 
 function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
@@ -1140,7 +1278,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
   }
 }
 
-class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
+export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
   protected readonly clientOwnedOperation = true;
 
@@ -1154,8 +1292,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
 
   protected async run(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
     request: ChatSessionOperationRequest<ChatMessageRequest>,
   ): Promise<void> {
     const { configPath } = ctx;
@@ -1172,16 +1310,20 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
-    const engineRequestId = randomUUID();
+    const engineRequestId = request.queuedMessages && request.lease ? request.lease.operationId : randomUUID();
     const progressWriter = new ChatStreamProgressWriter(stream, phaseTracker, engineRequestId, true);
+    const queueDelivery = ctx.chatMessageQueue.createDelivery({
+      sessionId: activeSession.id,
+      requestId: engineRequestId,
+      operationKind: 'message',
+      forceId: request.queueIntentId,
+    });
     // One owner for the console: the presentation writer renders, this one logs.
     const operationProgressWriter = new CompositeRepoSearchProgressWriter(
       progressWriter,
       new RepoSearchToolLogProgressWriter('plan', engineRequestId),
     );
     let selectedImagesForError: { images: string[]; imageMeta: ImageMetadata[]; visionMaxImagePixels: number } | null = null;
-    // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
-    // non-engine branch here to report for.
     try {
       const config = readConfig(configPath);
       const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
@@ -1191,107 +1333,35 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         imageMeta: selectedImages.imageMeta,
         visionMaxImagePixels: getActiveModelPreset(selectedImages.effectiveConfig).VisionMaxImagePixels,
       };
-      const selectedSession = selected.session;
-      const memory = new ChatMemorySeam(ctx.assistant);
-      const memoryContext = await memory.buildMemoryContext(selected.preset, userContent);
-      const reader = new JsonRecordReader(request.parsedBody);
-      const webOverrideRaw = reader.optionalString('webSearchOverride');
-      const webEnabled = webOverrideRaw === 'on'
-        ? true
-        : webOverrideRaw === 'off'
-          ? false
-          : selectedSession.webSearchEnabled === true;
-      const mockResponses = readRouteMockResponses(reader, 'mockResponses');
-      const mockTokenConfig = getMockTokenConfig(selectedImages.effectiveConfig, mockResponses);
-      const telemetry = new ChatTurnTelemetry(selectedImages.effectiveConfig, mockTokenConfig);
-      const result = await ctx.engineService.executeRepoSearch({
-        presetId: selected.preset.id,
+      const { updatedSession, failure } = await executeChatMessageOperation({
+        ctx,
+        session: activeSession,
+        content: userContent,
+        images: messageRequest.images,
         requestId: engineRequestId,
-        taskKind: 'chat',
-        modelPresetId: selectedSession.modelPresetId,
-        modelPreset: selectedSession.modelPreset,
-        prompt: userContent,
-        repoRoot: process.cwd(),
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: selectedImages.effectiveConfig,
-        systemPrompt: buildChatSystemContent(
-          selectedImages.effectiveConfig,
-          selectedSession,
-          memoryContext.length === 0 ? {} : { memoryContext },
-        ),
-        history: buildChatHistoryMessages(selectedImages.effectiveConfig, selectedSession),
-        thinkingEnabled: selectedSession.thinkingEnabled !== false,
-        // Chat's tool surface is always web-only; whether the web tools are actually
-        // offered is decided once, by the web tool policy reading `webToolsEnabled`.
-        allowedTools: ['web_search', 'web_fetch'],
-        webToolsEnabled: webEnabled,
-        retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selectedSession) : [],
-        maxTurns: readRouteNumber(reader, 'maxTurns'),
-        availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockCommandResults: normalizeRepoSearchMockCommandResults(request.parsedBody.mockCommandResults),
-        initialUserImages: selectedImages.images,
-        ...(mockResponses ? { mockResponses } : {}),
-        progressWriter: operationProgressWriter,
+        progressWriter,
+        operationProgressWriter,
+        queueDelivery,
         abortSignal: abortController.signal,
+        parsedBody: request.parsedBody,
+        phaseTracker,
+        startedAtMs: startedAt,
       });
-      const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
-      const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
-      const scorecardSpeculative = readScorecardSpeculativeMetrics(result?.scorecard);
-      const usage: ChatUsage = {
-        promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-        promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
-        promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
-        promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
-        generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
-        promptTokensPerSecond: null,
-        generationTokensPerSecond: null,
-        speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
-        speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
-      };
-      const persistTurns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result));
-      const speculativeMetrics = resolveSessionSpeculativeMetrics(scorecardSpeculative);
-      phaseTracker.observeAnswer(assistantContent);
-      const phaseTimestamps = phaseTracker.snapshot();
-      const inputTokenCount = await telemetry.countInputTokens(userContent);
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, selectedSession, userContent, assistantContent, usage, {
-        turns: persistTurns,
-        turnRecords: result.turnRecords,
-        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(selectedSession),
-        inputTokens: inputTokenCount.tokenCount,
-        inputTokensEstimated: inputTokenCount.estimated,
-        requestDurationMs: Date.now() - startedAt,
-        requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
-        thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,
-        thinkingEndedAtUtc: phaseTimestamps.thinkingEndedAtUtc,
-        answerStartedAtUtc: phaseTimestamps.answerStartedAtUtc,
-        answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
-        groundingStatus: getChatGroundingStatus(result.scorecard),
-        sourceRunId: String(result.requestId || ''),
-        compactionSummary: scorecardTasks[0]?.compactionSummary ?? '',
-        images: selectedImages.images,
-        imageMeta: selectedImages.imageMeta,
-      });
-      ingestAssistantMemoryTurn(
-        memory,
-        selected.preset,
-        selectedSession.id,
-        requestStartedAtUtc,
-        updatedSession.messages ?? [],
-      );
       progressWriter.flushPending();
+      if (failure && request.lease) request.lease.failure = failure;
       stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
       if (!finishStoppedChatStream({
         signal: abortController.signal,
+        failureDetail: toError(error).message,
         runtimeRoot,
         session: activeSession,
         content: userContent,
         images: selectedImagesForError?.images ?? messageRequest.images,
         imageMeta: selectedImagesForError?.imageMeta ?? [],
-        stoppedMessages: progressWriter.getStoppedMessages(),
+        stoppedMessages: progressWriter.getStoppedMessages(abortController.signal.aborted ? STOPPED_BY_USER_MARKER : `*Run failed: ${toError(error).message}*`),
+        requestId: engineRequestId,
         configPath,
         writer: stream,
       })) {
@@ -1302,7 +1372,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
-      sseWriter.end();
+      sseWriter?.end();
     }
   }
 }
@@ -1347,6 +1417,7 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
       const engineRequestId = randomUUID();
+      const progressWriter = new RepoSearchToolLogProgressWriter('plan', engineRequestId);
       const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
         ctx,
         runtimeRoot,
@@ -1358,8 +1429,15 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter: new RepoSearchToolLogProgressWriter('plan', engineRequestId),
+        progressWriter,
+        queueDelivery: ctx.chatMessageQueue.createDelivery({
+          sessionId: activeSession.id,
+          requestId: engineRequestId,
+          operationKind: 'plan',
+      forceId: request.queueIntentId,
+        }),
       }));
+      if (result.failure && request.lease) request.lease.failure = result.failure;
       sendJson(res, 200, {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
@@ -1372,7 +1450,7 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
   }
 }
 
-class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+export class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'plan' as const;
   protected readonly clientOwnedOperation = true;
 
@@ -1386,8 +1464,8 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
 
   protected async run(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
     request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
     const { configPath } = ctx;
@@ -1399,8 +1477,14 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       return;
     }
     const { stream, sseWriter, modelRequestLock, activeSession } = opened;
-    const engineRequestId = randomUUID();
+    const engineRequestId = request.queuedMessages && request.lease ? request.lease.operationId : randomUUID();
     const progressWriter = new ChatStreamProgressWriter(stream, null, engineRequestId, false);
+    const queueDelivery = ctx.chatMessageQueue.createDelivery({
+      sessionId: activeSession.id,
+      requestId: engineRequestId,
+      operationKind: 'plan',
+      forceId: request.queueIntentId,
+    });
     // One owner for the console: the presentation writer renders, this one logs.
     const operationProgressWriter = new CompositeRepoSearchProgressWriter(
       progressWriter,
@@ -1423,8 +1507,10 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         requestId: engineRequestId,
         progressWriter: operationProgressWriter,
         abortSignal: abortController.signal,
+        queueDelivery,
       }));
       progressWriter.flushPending();
+      if (result.failure && request.lease) request.lease.failure = result.failure;
       stream.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
@@ -1433,12 +1519,14 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
       progressWriter.flushPending();
       if (!finishStoppedChatStream({
         signal: abortController.signal,
+        failureDetail: toError(error).message,
         runtimeRoot,
         session: activeSession,
         content: request.value.content,
         images: request.value.images,
         imageMeta: [],
-        stoppedMessages: progressWriter.getStoppedMessages(),
+        stoppedMessages: progressWriter.getStoppedMessages(abortController.signal.aborted ? STOPPED_BY_USER_MARKER : `*Run failed: ${toError(error).message}*`),
+        requestId: engineRequestId,
         configPath,
         writer: stream,
       })) {
@@ -1447,7 +1535,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
-      sseWriter.end();
+      sseWriter?.end();
     }
   }
 }
@@ -1492,6 +1580,7 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
       const engineRequestId = randomUUID();
+      const progressWriter = new RepoSearchToolLogProgressWriter('rs', engineRequestId);
       const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
         ctx,
         runtimeRoot,
@@ -1503,8 +1592,15 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter: new RepoSearchToolLogProgressWriter('rs', engineRequestId),
+        progressWriter,
+        queueDelivery: ctx.chatMessageQueue.createDelivery({
+          sessionId: activeSession.id,
+          requestId: engineRequestId,
+          operationKind: 'repo-search',
+      forceId: request.queueIntentId,
+        }),
       }));
+      if (result.failure && request.lease) request.lease.failure = result.failure;
       sendJson(res, 200, {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
@@ -1517,7 +1613,7 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
   }
 }
 
-class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+export class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   protected readonly operationKind = 'repo-search' as const;
   protected readonly clientOwnedOperation = true;
 
@@ -1531,8 +1627,8 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
 
   protected async run(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
     request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
     const { configPath } = ctx;
@@ -1544,8 +1640,14 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       return;
     }
     const { stream, sseWriter, modelRequestLock, activeSession } = opened;
-    const engineRequestId = randomUUID();
+    const engineRequestId = request.queuedMessages && request.lease ? request.lease.operationId : randomUUID();
     const progressWriter = new ChatStreamProgressWriter(stream, null, engineRequestId, false);
+    const queueDelivery = ctx.chatMessageQueue.createDelivery({
+      sessionId: activeSession.id,
+      requestId: engineRequestId,
+      operationKind: 'repo-search',
+      forceId: request.queueIntentId,
+    });
     // One owner for the console: the presentation writer renders, this one logs.
     const operationProgressWriter = new CompositeRepoSearchProgressWriter(
       progressWriter,
@@ -1568,8 +1670,10 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         requestId: engineRequestId,
         progressWriter: operationProgressWriter,
         abortSignal: abortController.signal,
+        queueDelivery,
       }));
       progressWriter.flushPending();
+      if (result.failure && request.lease) request.lease.failure = result.failure;
       stream.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
@@ -1578,12 +1682,14 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
       progressWriter.flushPending();
       if (!finishStoppedChatStream({
         signal: abortController.signal,
+        failureDetail: toError(error).message,
         runtimeRoot,
         session: activeSession,
         content: request.value.content,
         images: request.value.images,
         imageMeta: [],
-        stoppedMessages: progressWriter.getStoppedMessages(),
+        stoppedMessages: progressWriter.getStoppedMessages(abortController.signal.aborted ? STOPPED_BY_USER_MARKER : `*Run failed: ${toError(error).message}*`),
+        requestId: engineRequestId,
         configPath,
         writer: stream,
       })) {
@@ -1592,7 +1698,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
-      sseWriter.end();
+      sseWriter?.end();
     }
   }
 }
@@ -1667,6 +1773,13 @@ export class StopChatOperationEndpoint implements RouteEndpoint {
       return;
     }
     const completionPromise = ctx.chatSessionOperations.waitForCompletion(active);
+    ctx.chatMessageQueue.store.setPaused(sessionId, true);
+    const force = ctx.chatMessageQueue.store.state(sessionId).force;
+    if (force?.operationId === active.operationId) {
+      ctx.chatMessageQueue.store.updateForce(sessionId, force.id, { phase: 'failed', failureDetail: 'Continuation cancelled by Stop.' });
+      ctx.chatMessageQueue.store.clearForce(sessionId, force.id);
+    }
+    ctx.chatMessageQueue.publish(sessionId);
     active.abort();
     const completion = await completionPromise;
     if (completion.kind === 'failed') {
@@ -1677,6 +1790,13 @@ export class StopChatOperationEndpoint implements RouteEndpoint {
   }
 }
 const CHAT_ROUTES = new RouteTable([
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue\/stream$/u, endpoint: new ChatMessageQueueStreamEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue\/force$/u, endpoint: new ChatMessageQueueForceEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue\/([^/]+)$/u, endpoint: new ChatMessageQueueEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue$/u, endpoint: new ChatMessageQueueEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue$/u, endpoint: new ChatMessageQueueEndpoint() },
+  { method: 'PUT', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue\/([^/]+)$/u, endpoint: new ChatMessageQueueEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/queue\/([^/]+)$/u, endpoint: new ChatMessageQueueEndpoint() },
   { method: 'GET', path: '/dashboard/chat/sessions', endpoint: new ListChatSessionsEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new GetChatSessionEndpoint() },
   { method: 'PUT', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new UpdateChatSessionEndpoint() },

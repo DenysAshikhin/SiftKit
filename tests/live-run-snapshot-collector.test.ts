@@ -259,6 +259,36 @@ test('collector counters agree with the task result for one run', async () => {
   assert.equal(result.nonZeroExits, 1);
   assert.equal(snapshot.counters.rejectedCalls, result.rejectedCalls);
   assert.equal(snapshot.counters.nonZeroExits, result.nonZeroExits);
+  // Every tool start and outcome the engine logs is identified: a reader that finds one without an
+  // identity is looking at an integrity failure, never at a modern run.
+  const toolEvents = events.filter((event) => event.kind === 'turn_command_start' || event.kind === 'turn_command_result');
+  assert.equal(toolEvents.length >= 4, true);
+  assert.equal(toolEvents.every((event) => typeof event.toolCallId === 'string' && event.toolCallId.length > 0), true);
+});
+
+test('an invalid action outcome preserves the engine rejection-counter semantics', () => {
+  const collector = makeCollector();
+  collector.record({
+    kind: 'turn_command_result', turn: 1, toolCallId: 'tc_invalid', toolName: 'invalid_tool',
+    command: 'invalid_tool', exitCode: null, output: 'Invalid action',
+    rejectionKind: 'invalid', rejectionReason: 'invalid action',
+  });
+  const snapshot = LiveRunSnapshotSchema.parse(collector.build());
+  assert.equal(snapshot.turns[0]?.tool?.outputHead, 'Invalid action');
+  assert.equal(snapshot.counters.rejectedCalls, 0);
+  assert.equal(snapshot.counters.safetyRejects, 0);
+  assert.equal(snapshot.counters.nonZeroExits, 0);
+});
+
+test('collector accepts the format and operation header fields on run_start', () => {
+  const collector = makeCollector();
+  collector.record({
+    kind: 'run_start', repoRoot: 'C:/repo', requestedModel: null, configuredModel: 'model-b',
+    baseUrl: 'http://127.0.0.1:5000', operationType: 'repo-agent', toolResultFormat: 'identified-v1',
+  });
+  const snapshot = LiveRunSnapshotSchema.parse(collector.build());
+  assert.equal(snapshot.model, 'model-b');
+  assert.equal(snapshot.phase.name, 'starting');
 });
 
 test('a screened call counts as a safety reject in both the task result and the snapshot', async () => {
