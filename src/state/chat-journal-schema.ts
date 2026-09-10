@@ -56,6 +56,7 @@ export const ChatHistoryRevisionSchema = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('message_deleted'),
     messageIds: z.array(z.string().min(1)).min(1),
+    toolCallIds: z.array(z.string().min(1)).optional(),
   }),
   z.strictObject({
     action: z.literal('image_removed'),

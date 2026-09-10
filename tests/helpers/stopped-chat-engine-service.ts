@@ -7,6 +7,7 @@ import type {
 } from '../../src/repo-search/types.js';
 import { upsertRuntimeTextArtifact } from '../../src/state/runtime-artifacts.js';
 import { StatusEngineService } from '../../src/status-server/engine-service.js';
+import { buildUserContent } from '../../src/llm-protocol/image-attachments.js';
 
 class DeferredNotification {
   readonly promise: Promise<void>;
@@ -73,7 +74,29 @@ export class StoppedChatEngineService extends StatusEngineService {
     if (!signal) {
       throw new Error('StoppedChatEngineService requires an abort signal.');
     }
+    if (this.scenario.recordEvidence !== false) request.evidenceRecorder?.recordContextInitialized({
+      messages: [...(request.history ?? []), { role: 'user', content: buildUserContent(request.prompt, request.initialUserImages ?? []) }],
+      contextRevision: 0, turnBoundary: request.history?.length ?? 0,
+    });
+    const identities = new Map<string, { toolCallId: string; displayToolCallId: string; batchId: string; turn: number; indexInBatch: number }>();
     for (const event of this.scenario.progressEvents) {
+      if (this.scenario.recordEvidence !== false && event.kind === 'tool_start') {
+        const call = { toolCallId: event.toolCallId, displayToolCallId: event.toolCallId, batchId: `batch-${event.turn}`,
+          turn: event.turn, indexInBatch: [...identities.values()].filter(value => value.turn === event.turn).length };
+        identities.set(event.toolCallId, call);
+        request.evidenceRecorder?.recordToolProposed({ call, toolName: event.activityKind, arguments: { command: event.command }, command: event.command,
+          activityKind: event.activityKind, activitySubject: event.activitySubject, maxTurns: event.maxTurns,
+          promptTokenCount: event.promptTokenCount, executionState: 'proposed' });
+        request.evidenceRecorder?.recordToolStarted({ call, startedAtUtc: new Date().toISOString() });
+      }
+      if (this.scenario.recordEvidence !== false && event.kind === 'tool_result') {
+        const call = identities.get(event.toolCallId);
+        if (!call) throw new Error('Fixture tool result has no proposal');
+        request.evidenceRecorder?.recordToolResult({ call, executionState: 'completed', exitCode: event.exitCode,
+          output: this.scenario.canonicalOutputs?.[event.toolCallId] ?? event.outputSnippet, images: [], imageMeta: [],
+          outputTokens: event.outputTokens, outputTokensEstimated: event.outputTokensEstimated,
+          promptTokenCount: event.promptTokenCount, finishedAtUtc: new Date().toISOString() });
+      }
       request.progressWriter?.write(event);
     }
     this.entered.notify();

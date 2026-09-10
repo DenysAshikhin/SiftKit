@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ImageDataUrlSchema } from './image.js';
 import {
+  ChatAnswerCompletionSchema,
   ChatStreamProgressSchema,
   ChatStreamQueuedUserMessageSchema,
   ChatStreamTextDeltaSchema,
@@ -38,6 +39,7 @@ export const ChatToolOutcomeSchema = z.strictObject({
 export type ChatToolOutcome = z.infer<typeof ChatToolOutcomeSchema>;
 
 export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('answer_completed'), answer: ChatAnswerCompletionSchema }),
   z.strictObject({ kind: z.literal('thinking'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('narration'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('answer'), delta: ChatStreamTextDeltaSchema }),
@@ -318,6 +320,14 @@ export function reduceChatTranscript(
   event: ChatTranscriptEvent,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
+  if (event.kind === 'answer_completed') {
+    const answerIndex = findAnswerIndex(messages);
+    const existing = answerIndex === null ? undefined : messages[answerIndex];
+    return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
+      ...(existing ?? textMessage(`${metadata.messageIdPrefix}-answer-final`, 'assistant_answer', '', metadata)),
+      ...event.answer,
+    }));
+  }
   if (event.kind === 'thinking' || event.kind === 'narration' || event.kind === 'answer') {
     return reduceTextEvent(messages, event, metadata);
   }

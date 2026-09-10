@@ -12,6 +12,7 @@ export type ChatSessionOperation = {
   startedAtMs: number;
   abort?: () => void;
   failure?: string;
+  stopRequested?: boolean;
 };
 
 export type ChatSessionOperationAcquireResult =

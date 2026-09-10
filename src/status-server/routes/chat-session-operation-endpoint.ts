@@ -27,9 +27,11 @@ import {
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { ChatRunRecorder } from '../chat-run-recorder.js';
-import { getRuntimeDatabasePath } from '../../state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../state/runtime-db.js';
+import { importChatSessionBaseline } from '../chat-history-import.js';
 import { readConfig } from '../config-store.js';
 import type { SiftConfig } from '../../config/types.js';
+import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
 import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -62,6 +64,11 @@ export type ChatSessionOperationRequest<TParsed> = {
   /** The run's durable writer, present whenever `describeRun` claimed this is a model run. */
   recorder: ChatRunRecorder | null;
 };
+
+export function requireChatRunRecorder(request: { recorder: ChatRunRecorder | null }): ChatRunRecorder {
+  if (request.recorder === null) throw new Error('Web model operation has no admitted chat recorder.');
+  return request.recorder;
+}
 
 function readChatSessionIdFromMatch(routeMatch: RouteMatch): string {
   const [rawSessionId] = routeMatch.captures;
@@ -168,7 +175,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     request: Omit<ChatSessionOperationRequest<TParsed>, 'recorder'>,
   ): Promise<void> {
     if (!this.clientOwnedOperation || !request.lease) throw new Error('This operation cannot execute detached.');
-    const recorder = this.beginRun(ctx, request.sessionId, request.session, request.value);
+    const recorder = this.beginRun(ctx, request.sessionId, request.session, request.value, request.queuedMessages?.[0]?.id);
     await this.runRecorded(ctx, null, null, { ...request, recorder });
   }
 
@@ -190,7 +197,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     try {
       await this.run(ctx, req, res, request);
     } catch (error) {
-      recorder.finish({
+      if (recorder.terminalCause === null) recorder.finish({
         terminalCause: 'execution_failure',
         detail: toError(error).message,
         usage: null,
@@ -198,7 +205,15 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       });
       throw error;
     }
-    recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+    if (recorder.terminalCause !== null) return;
+    const failure = request.lease?.failure ?? ctx.chatSessionOperations.getBroadcast(request.sessionId)?.failure
+      ?? (res && res.statusCode >= 400 ? `Chat operation returned HTTP ${res.statusCode}.` : null);
+    recorder.finish({
+      terminalCause: request.lease?.stopRequested ? 'user_stop' : failure ? 'execution_failure' : 'completed',
+      detail: failure,
+      usage: null,
+      recoveryStatus: failure ? 'recovery_needed' : 'ok',
+    });
   }
 
   /**
@@ -210,18 +225,23 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     sessionId: string,
     session: ChatSession,
     value: TParsed,
+    userMessageId: string = randomUUID(),
   ): ChatRunRecorder | null {
-    const submission = this.describeRun(session, value, readConfig(ctx.configPath));
+    const config = readConfig(ctx.configPath);
+    ctx.chatRuntimeOwner.assertOwned();
+    const submission = this.describeRun(session, value, config);
     if (submission === null) return null;
+    importChatSessionBaseline(getRuntimeDatabase(getRuntimeDatabasePath()), session, config);
+    const admittedImages = admitImagesForPreset(session.modelPreset, submission.images);
     return ChatRunRecorder.begin(getRuntimeDatabasePath(), {
       operationId: randomUUID(),
       sessionId,
       ownerEpoch: ctx.chatRunOwnerEpoch,
       operationKind: this.operationKind,
-      userMessageId: randomUUID(),
+      userMessageId,
       content: submission.content,
-      images: submission.images,
-      imageMeta: [],
+      images: admittedImages.map(image => image.dataUrl),
+      imageMeta: admittedImages.map(image => image.metadata),
       settings: submission.settings,
       retainedHistoryRevision: 0,
       startedAtUtc: new Date().toISOString(),
@@ -279,8 +299,8 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     }
     const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
     if (lease) ctx.chatMessageQueue.publish(sessionId);
-    const recorder = this.beginRun(ctx, sessionId, session, value);
     try {
+      const recorder = this.beginRun(ctx, sessionId, session, value);
       await this.runRecorded(ctx, req, res, {
         sessionId,
         sessionPath,

@@ -33,6 +33,8 @@ import type { RepoSearchAdmissionRecord } from '../repo-search-admissions.js';
 import { APPROVAL_MODE_ERROR, type ApprovalMode } from '@siftkit/contracts';
 import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+import type { ChatRunRecorder } from '../chat-run-recorder.js';
+import { requireChatRunRecorder } from './chat-session-operation-endpoint.js';
 import type { ChatMessageQueue } from '../chat-message-queue.js';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
@@ -99,7 +101,7 @@ export type StartRepoAgentRunInput = {
   queueSessionId?: string;
   queueForceId?: string;
   /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
-  evidenceRecorder?: RepoSearchExecutionRequest['evidenceRecorder'];
+  evidenceRecorder?: ChatRunRecorder;
 };
 
 export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
@@ -119,6 +121,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
   if (input.requestId) admission.requestId = input.requestId;
   upsertRepoSearchAdmission(admission);
   const runId = randomUUID();
+  input.evidenceRecorder?.bindEngine({ requestId: admission.requestId, repoAgentSessionId: runId });
   ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
     runId,
     task: repoSearchRequest.prompt,
@@ -162,6 +165,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       ...(input.queueOwner && input.queueSessionId
         ? {
           queueDelivery: input.queueOwner.createDelivery({
+            recorder: requireChatRunRecorder({ recorder: input.evidenceRecorder ?? null }),
             sessionId: input.queueSessionId,
             requestId: admission.requestId,
             operationKind: 'repo-agent',

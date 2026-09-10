@@ -149,6 +149,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
     this.engineRequest = options.engineRequest;
     this.state = this.store.readState(this.runId);
     this.gate = new ApprovalGate({
+      evidenceRecorder: options.engineRequest.evidenceRecorder,
       requestId: options.requestId,
       progressWriter: this.progressWriter,
       abortSignal: this.abortController.signal,

@@ -1,76 +1,69 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { IncomingMessage,ServerResponse } from 'node:http';
 
 import {
-  MockPlannerResponsesSchema,
-} from '../../planner-protocol/mock-response.js';
-import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
-import {
-  APPROVAL_MODE_ERROR,
-  ApprovalModeSchema,
-  ChatRepoAgentApprovalModeRequestSchema,
-  ChatRepoAgentApprovalModeResponseSchema,
-  ActiveChatRepoAgentResponseSchema,
-  ChatRepoAgentDecideResponseSchema,
-  ChatStreamApprovalResolvedSchema,
-  type RepoAgentDecision,
+ActiveChatRepoAgentResponseSchema,
+APPROVAL_MODE_ERROR,
+ApprovalModeSchema,
+ChatRepoAgentApprovalModeRequestSchema,
+ChatRepoAgentApprovalModeResponseSchema,
+ChatRepoAgentDecideResponseSchema,
+ChatStreamApprovalResolvedSchema,
+type RepoAgentDecision,
 } from '@siftkit/contracts';
-import {
-  RepoSearchMockCommandResultSchema,
-} from '../../repo-search/types.js';
-import { z } from '../../lib/zod.js';
-import type { JsonObject } from '../../lib/json-types.js';
-import { toError } from '../../lib/errors.js';
-import { readChatSessionFromPath } from '../../state/chat-sessions.js';
 import type { SiftConfig } from '../../config/types.js';
+import { toError } from '../../lib/errors.js';
+import type { JsonObject } from '../../lib/json-types.js';
+import { z } from '../../lib/zod.js';
+import {
+MockPlannerResponsesSchema,
+} from '../../planner-protocol/mock-response.js';
 import { PresetCatalog } from '../../preset-catalog.js';
-import {
-  appendChatRepoAgentMessages,
-  buildChatHistoryMessages,
-  buildRepoAgentResultMarkdown,
-  buildPersistTurnsFromRepoSearchResult,
-  resolveChatSessionConfig,
-} from '../chat.js';
-import { ChatTurnTelemetry, getMockTokenConfig } from '../chat-turn-telemetry.js';
-import { readConfig } from '../config-store.js';
-import {
-  parseJsonBody,
-  readBody,
-  sendBodyReadError,
-  sendJson,
-} from '../http-utils.js';
-import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
-import { getRuntimeRoot } from '../paths.js';
-import { getRuntimeDatabase } from '../../state/runtime-db.js';
-import { ChatToolResultsError } from '../chat-tool-results.js';
-import { migrateRepoAgentHistory } from '../repo-agent-history-repair.js';
-import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
+import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
 import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
 import {
-  toChatStreamApproval,
-  type ChatRepoAgentDecisionRecord,
-  type ChatRepoAgentRunBinding,
+RepoSearchMockCommandResultSchema,
+} from '../../repo-search/types.js';
+import type { ChatSession } from '../../state/chat-sessions.js';
+import { readChatSessionFromPath } from '../../state/chat-sessions.js';
+import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import {
+toChatStreamApproval,
+type ChatRepoAgentDecisionRecord,
+type ChatRepoAgentRunBinding,
 } from '../chat-repo-agent-types.js';
+import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
+import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
+import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
+import {
+buildChatHistoryMessages,
+buildRepoAgentResultMarkdown,
+resolveChatSessionConfig
+} from '../chat.js';
+import { readConfig } from '../config-store.js';
+import {
+parseJsonBody,
+readBody,
+sendBodyReadError,
+sendJson,
+} from '../http-utils.js';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import type { RepoAgentSession } from '../repo-agent-sessions.js';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
+import type { RouteEndpoint,RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
-import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import {
-  ChatSessionOperationEndpoint,
-  parseChatRepoOperationRequest,
-  type ChatSessionOperationRequest,
-  type ResolvedChatRepoRequest,
-} from './chat-session-operation-endpoint.js';
 import type { ChatRunSubmission } from './chat-session-operation-endpoint.js';
-import { buildChatSessionResponse, requireChatOperationBroadcast } from './chat.js';
-import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
-import type { ChatSession } from '../../state/chat-sessions.js';
-import { buildChatRunSettings } from '../chat-run-recorder.js';
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import {
+ChatSessionOperationEndpoint,
+parseChatRepoOperationRequest,
+requireChatRunRecorder,
+type ChatSessionOperationRequest,
+type ResolvedChatRepoRequest,
+} from './chat-session-operation-endpoint.js';
+import { buildChatSessionResponse,requireChatOperationBroadcast } from './chat.js';
 import { startRepoAgentRun } from './repo-agent.js';
-import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
-import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
   approval: ApprovalModeSchema,
@@ -162,19 +155,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       return;
     }
     const config = readConfig(ctx.configPath);
-    const blockers = migrateRepoAgentHistory(
-      getRuntimeDatabase(join(getRuntimeRoot(), 'runtime.sqlite')),
-      request.sessionId,
-    );
-    if (blockers.length > 0) {
-      if (!res) throw new Error(`Repo-agent history cannot be verified: ${blockers.join(', ')}`);
-      sendJson(res, 409, {
-        error: 'Repo-agent history cannot be verified against its source runs: '
-          + `${blockers.join(', ')}. The transcript is intact; continuation needs the run evidence.`,
-      });
-      return;
-    }
-    // Migration updates persisted outputs. Load only afterwards so this request sees the repair.
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       if (!res) throw new Error('Session not found.');
@@ -186,11 +166,10 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     // any engine dispatch, as the actionable conflict it is.
     let history;
     try {
-      history = buildChatHistoryMessages(effectiveConfig, activeSession);
+      history = requireChatRunRecorder(request).readHistory();
     } catch (error) {
-      if (!(error instanceof ChatToolResultsError)) throw error;
       if (!res) throw error;
-      sendJson(res, 409, { error: `${error.message} Repair the history before continuing.` });
+      sendJson(res, 409, { error: `${toError(error).message} Repair the history before continuing.` });
       return;
     }
     const presetMaxTurns = request.value.maxTurns === undefined
@@ -201,6 +180,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     try {
       const { updatedSession } = await executeChatRepoAgentOperation({
         ctx,
+        recorder: requireChatRunRecorder(request),
         sessionId: request.sessionId,
         session: activeSession,
         content: request.value.content,
@@ -231,6 +211,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
 
 /** Shared chat repo-agent execution used by attached streams and detached Force successors. */
 export async function executeChatRepoAgentOperation(options: {
+  recorder: ChatRunRecorder;
   ctx: ServerContext;
   sessionId: string;
   session: ChatSessionOperationRequest<ChatRepoAgentRequest>['session'];
@@ -249,10 +230,11 @@ export async function executeChatRepoAgentOperation(options: {
   connection?: SseResponseWriter;
   queueStart?: Pick<ChatSessionOperationRequest<ChatRepoAgentRequest>, 'sessionId' | 'queuedMessages' | 'queueIntentId'>;
   lease?: ChatSessionOperation;
-}): Promise<{ updatedSession: ReturnType<typeof appendChatRepoAgentMessages> }> {
+}): Promise<{ updatedSession: ChatSession }> {
   const engineRequestId = options.lease?.operationId ?? randomUUID();
-  const progressWriter = new ChatStreamProgressWriter(options.stream, null, engineRequestId, false);
+  const progressWriter = new ChatStreamProgressWriter(options.stream, null, false, options.recorder);
   const started = startRepoAgentRun(options.ctx, {
+    evidenceRecorder: options.recorder,
     requestId: engineRequestId,
     prompt: options.content,
     repoRoot: options.repoRoot,
@@ -296,25 +278,15 @@ export async function executeChatRepoAgentOperation(options: {
   try {
     const result = await started.session.waitForBoundary(0);
     await started.session.settled;
-    const telemetry = new ChatTurnTelemetry(options.effectiveConfig, getMockTokenConfig(options.effectiveConfig, options.mockResponses));
-    const executionResult = started.session.getExecutionResult();
-    const turns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(executionResult));
-    const requestId = started.admission.requestId;
-    const updatedSession = appendChatRepoAgentMessages(getRuntimeRoot(), options.sessionId, {
-      content: options.content,
-      images: options.images,
-      decisions: binding.decisions,
-      result,
-      requestId,
-      turns,
-      turnRecords: executionResult === null ? [] : executionResult.turnRecords,
-      terminalMessages: progressWriter.getStoppedMessages(result.status === 'aborted'
-        ? 'Repo-agent run stopped by user.'
-        : buildRepoAgentResultMarkdown(result)),
-      maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(options.session),
-    });
     progressWriter.flushPending();
-    if (result.status !== 'completed' && result.status !== 'aborted' && options.lease) options.lease.failure = buildRepoAgentResultMarkdown(result);
+    const executionResult = started.session.getExecutionResult();
+    const text = buildRepoAgentResultMarkdown(result);
+    const cause = result.status === 'completed' ? 'completed' : result.status === 'aborted' ? 'user_stop'
+      : result.status === 'approval_timeout' ? 'approval_timeout' : 'execution_failure';
+    const updatedSession = result.status === 'completed'
+      ? options.recorder.completeAnswer(executionResult ? buildChatAnswerCompletion(executionResult, text) : { content: text })
+      : options.recorder.stop(cause, text);
+    if (cause !== 'completed' && cause !== 'user_stop' && options.lease) options.lease.failure = text;
     return { updatedSession };
   } finally {
     detach();

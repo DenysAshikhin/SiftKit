@@ -20,6 +20,9 @@ export const PlannerChatMessageSchema = z.object({
   content: MessageContentSchema.optional(),
   /** Internal repository-image identity; omitted by toProtocolChatMessages. */
   imagePathKey: z.string().optional(),
+  /** Durable display identities; omitted from provider requests. */
+  chatMessageId: z.string().optional(),
+  thinkingMessageId: z.string().optional(),
   reasoning_content: z.string().optional(),
   tool_calls: z.array(PlannerToolCallSchema).optional(),
   tool_call_id: z.string().optional(),
@@ -43,6 +46,7 @@ export type ChatContextSpliceReason = z.infer<typeof ChatContextSpliceReasonSche
 
 /** The first recorded state of a run's planner history: everything later is a splice against it. */
 export const ChatContextInitSchema = z.strictObject({
+  queueMessageIds: z.array(z.string().min(1)).optional(),
   messages: PlannerChatMessagesSchema,
   contextRevision: z.number().int().nonnegative(),
   turnBoundary: z.number().int().nonnegative(),
@@ -55,6 +59,7 @@ export type ChatContextInit = z.infer<typeof ChatContextInitSchema>;
  * applying a splice at the wrong offset.
  */
 export const ChatContextSpliceSchema = z.strictObject({
+  queueMessageIds: z.array(z.string().min(1)).optional(),
   expectedRevision: z.number().int().nonnegative(),
   contextRevision: z.number().int().positive(),
   startIndex: z.number().int().nonnegative(),

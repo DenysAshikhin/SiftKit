@@ -30,6 +30,8 @@ import { requestSse as requestOperationSse } from './helpers/sse-http.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -318,13 +320,13 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   assert.equal(ChatStreamApprovalSchema.parse(approvalEvent.payload).runId, runId);
   const completed = readDoneResponse(response);
   const messages = completed.session.messages;
-  assert.deepEqual(messages.slice(-4).map((message) => message.kind), [
+  assert.deepEqual(messages.filter(message => message.kind !== 'assistant_narration' && message.kind !== 'assistant_progress').slice(-4).map((message) => message.kind), [
     'user_text',
     'assistant_tool_call',
     'repo_agent_approval',
     'assistant_answer',
   ]);
-  const approval = messages.at(-2);
+  const approval = messages.find(message => message.kind === 'repo_agent_approval');
   assert.equal(approval?.kind, 'repo_agent_approval');
   if (approval?.kind === 'repo_agent_approval') {
     assert.equal(approval.approvalDecision, 'approve');
@@ -334,10 +336,11 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   assert.ok(chatAgentRequest);
   // Every row of the turn carries the engine request id: that is what the run's transcript, its
   // run log and its tool-row identities are keyed on, so the turn groups and joins as one unit.
-  assert.deepEqual(
-    [...new Set(messages.slice(-3).map((message) => message.sourceRunId))],
-    [chatAgentRequest.requestId],
-  );
+  const sourceRunIds = [...new Set(messages.slice(-3).map(message => message.sourceRunId))];
+  assert.equal(sourceRunIds.length, 1);
+  const sourceRunId = sourceRunIds[0];
+  assert.ok(sourceRunId);
+  assert.equal(new ChatJournalStore(getRuntimeDatabase()).readRun(sourceRunId)?.requestId, chatAgentRequest.requestId);
   assert.equal(chatAgentRequest.prompt, 'write a file');
   assert.deepEqual(chatAgentRequest.history, [
     { role: 'user', content: 'prior question' },
@@ -499,18 +502,13 @@ test('a repo-agent follow-up receives the preceding repo-agent turn as replayabl
   const followUp = engineService.requests.find((request) => request.prompt === 'follow up using that result');
   assert.ok(followUp);
   assert.equal(followUp.presetId, 'repo-agent');
-  assert.deepEqual(followUp.history?.map((message) => message.role), [
-    'user',
-    'assistant',
-    'tool',
-    'user',
-    'assistant',
-  ]);
-  const approvalHistory = followUp.history?.[3];
-  assert.equal(typeof approvalHistory?.content, 'string');
-  if (typeof approvalHistory?.content === 'string') {
-    assert.match(approvalHistory.content, /^\[repo-agent approval\] approve write:/u);
-  }
+  assert.ok(followUp.history);
+  assert.equal(findPlannerContextViolation(followUp.history), null);
+  assert.equal(followUp.history.filter(message => message.role === 'tool').length, 1);
+  assert.equal(followUp.history.at(-1)?.content, 'wrote it');
+  const nativeCall = followUp.history.flatMap(message => message.tool_calls ?? [])[0];
+  assert.equal(nativeCall?.function.arguments, JSON.stringify({ path: 'history-tool.txt', content: 'approved' }));
+  assert.ok(firstDone.session.messages.some(message => message.kind === 'repo_agent_approval' && message.approvalDecision === 'approve'));
   assert.equal(followUp.modelPresetId, firstDone.session.modelPresetId);
   assert.deepEqual(followUp.modelPreset, originalModelPreset);
   assert.ok(followUp.config);
@@ -576,7 +574,7 @@ test('chat repo-agent persists deny reasons and abort outcomes', async (t) => {
     assert.equal(decide.statusCode, 200);
     const completed = readDoneResponse(await stream);
     const messages = completed.session.messages;
-    const approval = messages.at(-2);
+    const approval = messages.find(message => message.kind === 'repo_agent_approval');
     assert.equal(approval?.kind, 'repo_agent_approval');
     if (approval?.kind === 'repo_agent_approval') {
       assert.equal(approval.approvalDecision, scenario.decision);

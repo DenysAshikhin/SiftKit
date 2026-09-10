@@ -46,7 +46,8 @@ import {
   buildDashboardDailyMetrics,
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
-import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
+import { closeRuntimeDatabase, pruneRuntimeHistory, getRuntimeDatabasePath } from '../state/runtime-db.js';
+import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS } from '../state/chat-runtime-owner.js';
 import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
 import { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import { RepoAgentSessionManager } from './repo-agent-sessions.js';
@@ -239,6 +240,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const engineService = options.engineService ?? new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
   const chatSessionOperations = new ChatSessionOperationRegistry();
+  const chatRuntimeOwner = ChatRuntimeOwner.acquire(getRuntimeDatabasePath(), randomUUID());
   const ctx: ServerContext = {
     configPath,
     statusPath,
@@ -248,7 +250,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     engineService,
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
-    chatRunOwnerEpoch: randomUUID(),
+    chatRunOwnerEpoch: chatRuntimeOwner.ownerEpoch,
+    chatRuntimeOwner,
     server: null,
     getServiceBaseUrl() {
       const address = ctx.server?.address?.();
@@ -298,6 +301,14 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
   recoverInterruptedChatQueue(getRuntimeRoot());
+  const chatOwnerHeartbeat = setInterval(() => {
+    try { chatRuntimeOwner.renew(); }
+    catch {
+      clearInterval(chatOwnerHeartbeat);
+      for (const operation of ctx.chatSessionOperations.listActive()) operation.abort?.();
+    }
+  }, CHAT_OWNER_HEARTBEAT_MS);
+  chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
@@ -454,6 +465,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     }
   });
   server.on('close', () => {
+    clearInterval(chatOwnerHeartbeat);
+    chatRuntimeOwner.release();
     clearIdleSummaryTimer(ctx);
     if (ctx.assistantDrainTimer !== null) {
       clearInterval(ctx.assistantDrainTimer);

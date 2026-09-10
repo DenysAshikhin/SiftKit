@@ -27,6 +27,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { buildChatUserMessage, buildChatSessionWithStoppedTurn, appendChatMessagesWithUsage } from '../src/status-server/chat.js';
 import { PersistedChatTranscriptMessageSchema } from '@siftkit/contracts';
 import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 
 test('stopped deliveries retain their safe boundary before later reasoning and tools', () => {
   const base = buildChatUserMessage('', [], [], '2026-09-09T00:00:00.000Z');
@@ -138,7 +139,8 @@ test('initial queue delivery claims the fixed force snapshot only at the engine 
     store.enqueue('session-1', message(id, 'first'));
     store.beginForce('session-1', { id: forceId, operationId: null }, '4f9c1f9a-0000-4000-8000-000000000003');
     const owner = new ChatMessageQueue(store, new ChatSessionOperationRegistry());
-    const delivery = owner.createDelivery({ sessionId: 'session-1', requestId: 'admitted', operationKind: 'message', forceId });
+    const recorder = createTestChatRunRecorder(runtimeRoot, session(), mockSiftConfig());
+    const delivery = owner.createDelivery({ recorder, sessionId: 'session-1', requestId: 'admitted', operationKind: 'message', forceId });
     store.enqueue('session-1', message('4f9c1f9a-0000-4000-8000-000000000004', 'arrived after force'));
     assert.equal(store.get('session-1', id)?.state, 'pending');
     assert.deepEqual(delivery.initial().map((row) => [row.id, row.deliveredTurn, row.deliveredRequestId]), [[id, 0, 'admitted']]);
@@ -222,6 +224,7 @@ test('queue delivery claims and appends one FIFO snapshot at a post-tool boundar
     assert.equal(queue.store.enqueue('session-1', message(firstId, 'first')).kind, 'enqueued');
     assert.equal(queue.store.enqueue('session-1', message(secondId, 'second')).kind, 'enqueued');
     const delivery = queue.createDelivery({
+      recorder: createTestChatRunRecorder(runtimeRoot, session(), mockSiftConfig()),
       sessionId: 'session-1',
       requestId: 'request-1',
       operationKind: 'message',

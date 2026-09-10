@@ -50,6 +50,7 @@ export class TranscriptManager {
     initialUserContent: string;
     initialUserImages: readonly string[];
     initialFollowupMessages?: readonly ChatMessage[];
+    initialQueueMessageIds?: string[];
     liveImagePathKeys: Set<string>;
     contextRecorder?: ChatContextRecorder;
   }) {
@@ -63,6 +64,7 @@ export class TranscriptManager {
     ];
     this.currentTurnStartIndexValue = 1 + options.historyMessages.length;
     this.recorder?.recordContextInitialized(ChatContextInitSchema.parse({
+      ...(options.initialQueueMessageIds ? { queueMessageIds: options.initialQueueMessageIds } : {}),
       messages: this.messages,
       contextRevision: 0,
       turnBoundary: this.currentTurnStartIndexValue,
@@ -128,6 +130,10 @@ export class TranscriptManager {
 
   pushUser(content: string, images: readonly string[] = [], imagePathKey?: string): void {
     this.append([buildUserMessage(content, images, imagePathKey)]);
+  }
+
+  pushQueuedUser(id: string, content: string, images: readonly string[]): void {
+    this.applySplice(this.messages.length, 0, [buildUserMessage(content, images)], 'append', this.currentTurnStartIndexValue, [id]);
   }
 
   insertUserAfter(index: number, content: string, images: readonly string[], imagePathKey?: string): void {
@@ -213,8 +219,10 @@ export class TranscriptManager {
     inserted: readonly ChatMessage[],
     reason: ChatContextSpliceReason,
     turnBoundary: number,
+    queueMessageIds?: string[],
   ): void {
     const splice = ChatContextSpliceSchema.parse({
+      ...(queueMessageIds ? { queueMessageIds } : {}),
       expectedRevision: this.contextRevisionValue,
       contextRevision: this.contextRevisionValue + 1,
       startIndex,

@@ -478,6 +478,24 @@ test('recovered history for a session that never ran is empty and clean', () => 
   assert.deepEqual(recovered.interruptionNotices, []);
 });
 
+test('a submission lost before engine initialization continues from the previous retained context', () => {
+  const database = openSessionDatabase('chat-history-before-engine-');
+  const store = new ChatJournalStore(database);
+  const first = writeRun(store, [{ kind: 'context_initialized', messages: [
+    { role: 'user', content: 'earlier request' }, { role: 'assistant', content: 'earlier answer' },
+  ], contextRevision: 0, turnBoundary: 0 }]);
+  store.finish({ operationId: first, ownerEpoch: OWNER_EPOCH, terminalCause: 'completed', updatedAtUtc: RECORDED_AT });
+  const settings = {
+    operationKind: 'repo-agent', mode: 'repo-search', modelPresetId: 'preset-a', model: 'model-a', repoRoot: 'C:/repo',
+    approval: 'interactive', maxTurns: 120, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
+  } as const;
+  writeRun(store, [{ kind: 'run_started', sessionId: SESSION_ID, operationKind: 'repo-agent', runOrder: 2,
+    userMessageId: 'lost-submission', content: 'new request before provider failure', images: [], imageMeta: [], settings, retainedHistoryRevision: 0 }]);
+  const history = buildRecoveredChatHistory(database, SESSION_ID);
+  assert.notEqual(history.status, 'recovery_failed');
+  assert.deepEqual(history.messages.map(message => message.content), ['earlier request', 'earlier answer', 'new request before provider failure']);
+});
+
 test('recovered history reports the integrity failure rather than a truncated context', () => {
   const database = openSessionDatabase('chat-context-replay-broken-');
   const store = new ChatJournalStore(database);

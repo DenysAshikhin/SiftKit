@@ -4,8 +4,10 @@ import type { ChatSessionOperationRegistry } from './chat-session-operation-regi
 import type { ChatQueueOperationKind } from '@siftkit/contracts';
 import type { TranscriptManager } from '../repo-search/engine/transcript-manager.js';
 import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
+import type { ChatRunRecorder } from './chat-run-recorder.js';
 
 type QueueDeliveryOptions = {
+  recorder: ChatRunRecorder;
   sessionId: string;
   requestId: string;
   operationKind: ChatQueueOperationKind;
@@ -67,9 +69,8 @@ class SessionChatMessageQueueDelivery implements ChatMessageQueueDelivery {
     if (!this.options.forceId) return [];
     const force = this.owner.store.state(this.options.sessionId).force;
     if (!force || force.id !== this.options.forceId || force.phase === 'failed') throw new Error('Queued continuation was cancelled.');
-    const messages = this.owner.store.claim(this.options.sessionId, { requestId: this.options.requestId, turn: 0, ids: force.messageIds });
-    this.owner.store.setPaused(this.options.sessionId, false);
-    this.owner.store.clearForce(this.options.sessionId, force.id);
+    const messages = this.options.recorder.claimQueuedMessages(this.options.sessionId,
+      { requestId: this.options.requestId, turn: 0, ids: force.messageIds }, force.id);
     this.owner.publish(this.options.sessionId);
     return messages;
   }
@@ -85,13 +86,13 @@ class SessionChatMessageQueueDelivery implements ChatMessageQueueDelivery {
         + `but active operation is ${this.options.operationKind}.`,
       );
     }
-    const claimed = this.owner.store.claim(this.options.sessionId, {
+    const claimed = this.options.recorder.claimQueuedMessages(this.options.sessionId, {
       requestId: this.options.requestId,
       turn,
       ids: pending.map((message) => message.id),
     });
     for (const message of claimed) {
-      transcript.pushUser(message.content, message.images);
+      transcript.pushQueuedUser(message.id, message.content, message.images);
     }
     if (claimed.length > 0) this.owner.publish(this.options.sessionId);
     return claimed;

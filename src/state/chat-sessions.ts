@@ -22,6 +22,8 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
+import { recordChatHistoryRevision } from './chat-history-revisions.js';
 import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
@@ -472,6 +474,7 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   if (!deletedMessage) {
     return null;
   }
+  recordChatHistoryRevision(getSessionDatabase(runtimeRoot), normalizedSessionId, { action: 'message_deleted', messageIds: [normalizedMessageId] });
   const updatedSession: ChatSession = {
     ...current,
     updatedAtUtc: new Date().toISOString(),
@@ -729,6 +732,9 @@ export function insertChatMessages(
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
+    ON CONFLICT(session_id, id) DO UPDATE SET
+      ${CHAT_MESSAGES_COLUMNS.filter(column => column !== 'session_id' && column !== 'id')
+        .map(column => `${column} = excluded.${column}`).join(', ')}
   `);
 
   for (let index = 0; index < messages.length; index += 1) {

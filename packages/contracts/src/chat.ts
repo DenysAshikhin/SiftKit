@@ -176,6 +176,11 @@ const ChatToolCallFields = {
   toolCallExitCode: z.number().int().nullable(),
 } as const;
 
+export const ChatAnswerCompletionSchema = ChatMessageBaseSchema.omit({
+  id: true, role: true, createdAtUtc: true, sourceRunId: true,
+}).partial().required({ content: true });
+export type ChatAnswerCompletion = z.infer<typeof ChatAnswerCompletionSchema>;
+
 export const ChatTranscriptToolCallMessageSchema = ChatMessageBaseSchema.extend({
   ...ChatToolCallFields,
   toolCallStatus: ToolCallStatusSchema,

@@ -7,6 +7,8 @@ import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { ChatMessage } from '../planner-chat-message.js';
 import type { JsonObject } from '../../lib/json-types.js';
+import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;
 
@@ -30,6 +32,7 @@ export const RepoSearchApprovalResultSchema = z.object({ accepted: z.literal(tru
 export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSchema>;
 
 export type HumanApprovalRequestInput = {
+  call?: ChatToolCallIdentity;
   turn: number;
   toolName: string;
   command: string;
@@ -142,6 +145,7 @@ export class ApprovalGate {
   private readonly logger: ServerLogger;
   private readonly observer: ApprovalGateObserver | undefined;
   private currentMode: ApprovalMode;
+  private readonly evidenceRecorder: ChatRunEvidenceRecorder | null;
 
   constructor(options: {
     requestId: string;
@@ -152,6 +156,7 @@ export class ApprovalGate {
     decisionTimeoutMs?: number;
     logger?: ServerLogger;
     observer?: ApprovalGateObserver;
+    evidenceRecorder?: ChatRunEvidenceRecorder;
   }) {
     this.logger = options.logger ?? serverLogger;
     this.requestId = options.requestId;
@@ -161,6 +166,7 @@ export class ApprovalGate {
     this.bypassReadOnlyTools = options.bypassReadOnlyTools;
     this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
     this.observer = options.observer;
+    this.evidenceRecorder = options.evidenceRecorder ?? null;
     if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
       throw new Error('Approval decision timeout must be a positive number of milliseconds.');
     }
@@ -184,10 +190,22 @@ export class ApprovalGate {
       return Promise.resolve({ kind: 'approve' });
     }
     const approvalId = randomUUID();
+    const startedAtMs = Date.now();
+    if (this.evidenceRecorder) {
+      if (!input.call) throw new Error('Chat approval requires its exact proposed tool identity.');
+      this.evidenceRecorder.recordApprovalRequested({ approvalId, call: input.call, toolName: input.toolName,
+        command: input.command, reviewPayload: input.reviewPayload, mode: this.currentMode,
+        requestedAtUtc: new Date(startedAtMs).toISOString(), expiresAtUtc: new Date(startedAtMs + this.decisionTimeoutMs).toISOString(),
+      });
+    }
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const abortListener = () => {
         const parked = entry.timeoutHandle !== null;
         this.clearPending(approvalId);
+        try {
+          this.evidenceRecorder?.recordApprovalResolved({ approvalId, outcome: 'aborted', decision: null,
+            reason: CLIENT_ABORT_MESSAGE, decidedAtUtc: new Date().toISOString() });
+        } catch (error) { reject(error); return; }
         if (parked) {
           this.logger.dim({
             scope: 'rs',
@@ -202,7 +220,7 @@ export class ApprovalGate {
         resolve,
         abortListener,
         timeoutHandle: null,
-        startedAtMs: Date.now(),
+        startedAtMs,
       };
       this.pending.set(approvalId, entry);
       this.abortSignal.addEventListener('abort', abortListener, { once: true });
@@ -222,6 +240,8 @@ export class ApprovalGate {
             + `waited_ms=${this.decisionTimeoutMs}`,
         });
         try {
+          this.evidenceRecorder?.recordApprovalResolved({ approvalId, outcome: 'timeout', decision: null,
+            reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs), decidedAtUtc: new Date().toISOString() });
           this.observer?.onTimeout();
           resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
         } catch (error) {
@@ -262,6 +282,11 @@ export class ApprovalGate {
     if (!entry) {
       return false;
     }
+    this.evidenceRecorder?.recordApprovalResolved({ approvalId,
+      outcome: decision.kind === 'approve' ? 'approved' : decision.kind === 'deny' ? 'denied' : 'aborted',
+      decision: decision.kind === 'deny' ? { decision: 'deny', reason: decision.reason } : { decision: decision.kind },
+      reason: decision.kind === 'approve' ? null : decision.reason, decidedAtUtc: new Date().toISOString(),
+    });
     this.clearPending(approvalId);
     this.logger.event({
       scope: 'rs',

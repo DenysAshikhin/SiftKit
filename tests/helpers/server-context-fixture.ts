@@ -3,6 +3,7 @@ import path from 'node:path';
 import { ChatMessageQueue } from '../../src/status-server/chat-message-queue.js';
 import { ChatMessageQueueStore } from '../../src/state/chat-message-queue.js';
 import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.js';
 
 import { getActiveModelPreset } from '../../src/config/getters.js';
 import { getDefaultConfig } from '../../src/status-server/config-store.js';
@@ -36,6 +37,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     disableManagedEngineStartup: false,
     engineService,
     chatRunOwnerEpoch: randomUUID(),
+    chatRuntimeOwner: new ChatRuntimeOwner(path.join(root, 'runtime.sqlite'), 'test-owner', 1),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     server: null,

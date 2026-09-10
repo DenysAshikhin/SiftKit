@@ -237,6 +237,21 @@ test('projecting a run leaves rows that belong to other runs alone', () => {
     messages.map((message) => message.sourceRunId),
     [first, first, first, first, second, second, second, second],
   );
+  rebuildChatRun(database, first);
+  assert.deepEqual(projectedMessages(runtimeRoot).map(message => message.id), messages.map(message => message.id));
+});
+
+test('incremental projection does not rewrite unrelated or unchanged rows', () => {
+  const { database } = openSession('chat-projection-incremental-');
+  const operationId = writeRun(database, runEvents());
+  reconcileChatRun(database, operationId);
+  database.exec(`CREATE TRIGGER keep_submission BEFORE DELETE ON chat_messages WHEN OLD.kind = 'user_text'
+    BEGIN SELECT RAISE(ABORT, 'unchanged submission was rewritten'); END;`);
+  new ChatJournalStore(database).append({
+    operationId, ownerEpoch: OWNER_EPOCH, expectedSequence: 6, eventId: 'later-answer', occurredAtUtc: AT,
+    event: { kind: 'display', event: { kind: 'answer', delta: { turn: 2, offset: 30, text: ' More.' } } },
+  });
+  assert.equal(reconcileChatRun(database, operationId).status, 'ok');
 });
 
 test('a terminal run projects exactly one answer row and its recorded outcome', () => {
@@ -257,4 +272,20 @@ test('a terminal run projects exactly one answer row and its recorded outcome', 
 
   assert.equal(report.terminalCause, 'completed');
   assert.equal(projectedMessages(runtimeRoot).filter((message) => message.kind === 'assistant_answer').length, 1);
+});
+
+test('final answer metadata updates the streamed answer without duplicating it', () => {
+  const { database, runtimeRoot } = openSession('chat-answer-finalization-');
+  const operationId = writeRun(database, [
+    ...runEvents(),
+    { kind: 'display', event: { kind: 'answer_completed', answer: {
+      content: 'Final answer.', outputTokensEstimate: 123, outputTokensEstimated: false, requestDurationMs: 250,
+    } } },
+  ]);
+  assert.equal(reconcileChatRun(database, operationId).status, 'ok');
+  const answers = projectedMessages(runtimeRoot).filter(message => message.kind === 'assistant_answer');
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0]?.content, 'Final answer.');
+  assert.equal(answers[0]?.outputTokensEstimate, 123);
+  assert.equal(answers[0]?.requestDurationMs, 250);
 });

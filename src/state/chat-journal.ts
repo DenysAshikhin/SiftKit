@@ -20,6 +20,7 @@ import {
 } from './chat-journal-schema.js';
 import { ChatRunTerminalCauseSchema } from '@siftkit/contracts';
 import type { RuntimeDatabase } from './database-handle.js';
+import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.js';
 
 const RunRowSchema = z.object({
   operation_id: z.string(),
@@ -194,6 +195,7 @@ export class ChatJournalStore {
     const payloadDigest = digestEvent(write.event);
     return this.database.transaction(() => {
       const run = this.requireRun(write.operationId);
+      this.requireOwner(run, write.ownerEpoch);
 
       const existing = this.readEventById(write.operationId, write.eventId);
       if (existing) {
@@ -304,6 +306,13 @@ export class ChatJournalStore {
     return raw == null ? null : toChatRun(RunRowSchema.parse(raw));
   }
 
+  readApprovalRequests(operationId: string): ChatJournalEnvelope[] {
+    return EventRowsSchema.parse(this.database.prepare(`
+      SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+      FROM chat_run_events WHERE operation_id = ? AND kind = 'approval_requested' ORDER BY sequence
+    `).all(z.string().uuid().parse(operationId))).map(toEnvelope);
+  }
+
   listSessionRuns(sessionId: string): ChatRun[] {
     const rows = z.array(RunRowSchema).parse(this.database.prepare(
       'SELECT * FROM chat_runs WHERE session_id = ? ORDER BY run_order',
@@ -331,6 +340,15 @@ export class ChatJournalStore {
         `Chat run ${run.operationId} is owned by epoch ${run.ownerEpoch};`
         + ` a write from ${ownerEpoch} is fenced out.`,
       );
+    }
+    if (run.recordKind === 'execution') {
+      const raw = this.database.prepare('SELECT * FROM chat_runtime_owner WHERE id = 1').get();
+      if (raw !== undefined) {
+        const owner = ChatRuntimeOwnerSchema.parse(raw);
+        if (`${owner.owner_id}:${owner.epoch}` !== ownerEpoch || Date.parse(owner.lease_expires_at_utc) <= Date.now()) {
+          throw new Error('Chat runtime owner lease expired or fenced out this writer.');
+        }
+      }
     }
   }
 }

@@ -8,6 +8,8 @@ export type ChatToolProposedEvidence = EvidenceBody<'tool_proposed'>;
 export type ChatToolStartedEvidence = EvidenceBody<'tool_started'>;
 export type ChatToolResultEvidence = EvidenceBody<'tool_result'>;
 export type ChatToolResultFinalizedEvidence = EvidenceBody<'tool_result_finalized'>;
+export type ChatApprovalRequestedEvidence = EvidenceBody<'approval_requested'>;
+export type ChatApprovalResolvedEvidence = EvidenceBody<'approval_resolved'>;
 
 /**
  * Where planner history is written down before it is applied. A run bound to a durable chat supplies
@@ -23,6 +25,8 @@ export interface ChatContextRecorder {
  * failed write: unrecorded evidence must stop the run rather than let it act unrecorded.
  */
 export interface ChatRunEvidenceRecorder extends ChatContextRecorder {
+  recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void;
+  recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void;
   recordToolProposed(evidence: ChatToolProposedEvidence): void;
   recordToolStarted(evidence: ChatToolStartedEvidence): void;
   recordToolResult(evidence: ChatToolResultEvidence): void;

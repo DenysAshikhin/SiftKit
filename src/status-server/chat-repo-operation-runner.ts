@@ -1,56 +1,46 @@
-import type { ImageMetadata } from '@siftkit/contracts';
+import { buildChatAnswerCompletion,type ChatRunRecorder } from './chat-run-recorder.js';
 
 import {
-  getActiveModelPreset,
-  type SiftConfig,
+getActiveModelPreset,
+type SiftConfig,
 } from '../config/index.js';
-import type {
-  RepoSearchExecutionResult,
-  RepoSearchMockCommandResult,
-  RepoSearchProgressEvent,
-} from '../repo-search/types.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
+import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
+import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
+import type {
+RepoSearchExecutionResult,
+RepoSearchMockCommandResult,
+RepoSearchProgressEvent,
+} from '../repo-search/types.js';
 import {
-  getGenerationTokensPerSecond,
-  getPromptTokensPerSecond,
-} from '../lib/telemetry-metrics.js';
-import {
-  getChatSessionPath,
-  readChatSessionFromPath,
-  type ChatSession,
+type ChatSession
 } from '../state/chat-sessions.js';
 import {
-  appendChatMessagesWithUsage,
-  buildChatHistoryMessages,
-  buildPersistTurnsFromRepoSearchResult,
-  buildPlanMarkdownFromRepoSearch,
-  buildPlanRequestPrompt,
-  buildRepoSearchMarkdown,
-  getScorecardTotal,
-  getChatRunFailure,
-  resolveChatSessionConfig,
-} from './chat.js';
-import {
-  buildChatOperationAllowedTools,
-  ChatOperationPresetSelector,
+buildChatOperationAllowedTools,
+ChatOperationPresetSelector,
 } from './chat-operation-preset.js';
-import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import {
-  ChatTurnPhaseTracker,
-  type ChatTurnPhaseTimestamps,
+ChatTurnPhaseTracker,
+type ChatTurnPhaseTimestamps,
 } from './chat-turn-phase-tracker.js';
-import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
-import type { StatusEngineService } from './engine-service.js';
-import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
-import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import {
-  normalizeRepoSearchScorecard,
-  type RepoSearchScorecard,
+buildPlanMarkdownFromRepoSearch,
+buildPlanRequestPrompt,
+buildRepoSearchMarkdown,
+getChatRunFailure,
+resolveChatSessionConfig
+} from './chat.js';
+import type { StatusEngineService } from './engine-service.js';
+import {
+normalizeRepoSearchScorecard,
+type RepoSearchScorecard,
 } from './repo-search-scorecard-types.js';
 
 type ChatRepoOperation = 'plan' | 'repo-search';
 
 export type ChatRepoOperationRequest = {
+  recorder: ChatRunRecorder;
   runtimeRoot: string;
   session: ChatSession;
   config: SiftConfig;
@@ -132,18 +122,19 @@ export class ChatRepoOperationRunner {
     const activePreset = getActiveModelPreset(effectiveConfig);
     const admitted = admitImagesForPreset(activePreset, request.images);
     const admittedImages = admitted.map((image) => image.dataUrl);
-    const admittedImageMeta = admitted.map((image) => image.metadata);
     const session = {
       ...selected.session,
       planRepoRoot: request.repoRoot,
     };
+    request.recorder.bindEngine({ requestId: request.requestId, repoAgentSessionId: null });
     const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
+        evidenceRecorder: request.recorder,
         presetId: selected.preset.id,
         taskKind: operation,
         modelPresetId: selected.session.modelPresetId,
         modelPreset: selected.session.modelPreset,
         prompt: this.buildPrompt(operation, request.content),
-        history: buildChatHistoryMessages(effectiveConfig, session),
+        history: request.recorder.readHistory(),
         initialUserImages: admittedImages,
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
@@ -167,17 +158,13 @@ export class ChatRepoOperationRunner {
       engineResult,
     );
     progress.observeAnswer(assistantContent);
-    const updatedSession = await this.persistResult({
-      request,
-      operation,
-      session,
-      engineResult,
-      assistantContent,
-      admittedImages,
-      admittedImageMeta,
-      startedAt,
-      progress,
-    });
+    const failure = getChatRunFailure(engineResult);
+    const updatedSession = request.recorder.completeAnswer({
+      ...buildChatAnswerCompletion(engineResult, assistantContent),
+      requestDurationMs: Date.now() - startedAt,
+      ...progress.snapshot(),
+      groundingStatus: operation === 'repo-search' ? normalizeRepoSearchScorecard(engineResult.scorecard).tasks[0]?.groundingStatus ?? null : null,
+    }, failure ? 'execution_failure' : 'completed', failure);
     return {
       updatedSession,
       failure: getChatRunFailure(engineResult),
@@ -209,73 +196,4 @@ export class ChatRepoOperationRunner {
     return buildRepoSearchMarkdown(content, repoRoot, result);
   }
 
-  private async persistResult(options: {
-    request: ChatRepoOperationRequest;
-    operation: ChatRepoOperation;
-    session: ChatSession;
-    engineResult: RepoSearchExecutionResult;
-    assistantContent: string;
-    admittedImages: string[];
-    admittedImageMeta: ImageMetadata[];
-    startedAt: number;
-    progress: ChatRepoOperationProgressTracker;
-    }): Promise<ChatSession> {
-    const scorecard = options.engineResult.scorecard;
-    const tokenConfig = Array.isArray(options.request.mockResponses)
-      ? undefined
-      : options.request.config;
-    const telemetry = new ChatTurnTelemetry(options.request.config, tokenConfig);
-    const inputTokenCount = await telemetry.countInputTokens(options.request.content);
-    const turns = await telemetry.countThinkingTokens(
-      buildPersistTurnsFromRepoSearchResult(options.engineResult),
-    );
-    const promptEvalTokens = getScorecardTotal(scorecard, 'promptEvalTokens');
-    const promptEvalDurationMs = getScorecardTotal(scorecard, 'promptEvalDurationMs');
-    appendChatMessagesWithUsage(
-      options.request.runtimeRoot,
-      options.session,
-      options.request.content,
-      options.assistantContent,
-      {
-        promptTokens: getScorecardTotal(scorecard, 'promptTokens'),
-        promptCacheTokens: getScorecardTotal(scorecard, 'promptCacheTokens'),
-        promptEvalTokens,
-      },
-      {
-        turns,
-        images: options.admittedImages,
-        imageMeta: options.admittedImageMeta,
-        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(options.session),
-        inputTokens: inputTokenCount.tokenCount,
-        inputTokensEstimated: inputTokenCount.estimated,
-        requestDurationMs: Date.now() - options.startedAt,
-        promptEvalDurationMs,
-        generationDurationMs: getScorecardTotal(scorecard, 'generationDurationMs'),
-        promptTokensPerSecond: getPromptTokensPerSecond(
-          promptEvalTokens,
-          promptEvalDurationMs,
-        ),
-        generationTokensPerSecond: getGenerationTokensPerSecond(
-          getScorecardTotal(scorecard, 'outputTokens'),
-          getScorecardTotal(scorecard, 'thinkingTokens'),
-          getScorecardTotal(scorecard, 'generationDurationMs'),
-        ),
-        ...options.progress.snapshot(),
-        speculativeAcceptedTokens: getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
-        speculativeGeneratedTokens: getScorecardTotal(scorecard, 'speculativeGeneratedTokens'),
-        turnRecords: options.engineResult.turnRecords,
-        sourceRunId: options.engineResult.requestId,
-        groundingStatus: options.operation === 'repo-search'
-          ? normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus ?? null
-          : null,
-      },
-    );
-    const authoritativeSession = readChatSessionFromPath(
-      getChatSessionPath(options.request.runtimeRoot, options.session.id),
-    );
-    if (!authoritativeSession) {
-      throw new Error(`Chat session disappeared after persistence: ${options.session.id}`);
-    }
-    return authoritativeSession;
-  }
 }

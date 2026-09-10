@@ -5,6 +5,13 @@ import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progr
 import { forwardRepoSearchPromptEvent, forwardRepoSearchUsageEvent } from '../src/status-server/chat-stream-frames.js';
 import { ChatStreamPromptEventSchema } from '@siftkit/contracts';
 import type { JsonSerializable } from '../src/lib/json-types.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { createTestChatSession } from './helpers/chat-sessions.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { join } from 'node:path';
 
 type WrittenEvent = { eventName: string; payload: JsonSerializable };
 
@@ -13,7 +20,9 @@ for (const kind of ['thinking', 'narration', 'answer'] as const) {
     test(`usage flushes buffered ${kind}, prefix=${prefix.length}`, (t) => {
       t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
       const { written, writer } = createRecordingWriter();
-      const progress = new ChatStreamProgressWriter(writer, null, 'test', true);
+      const root = createManagedTempDir('chat-stream-journal-');
+      const recorder = createTestChatRunRecorder(root, createTestChatSession(root), getDefaultConfigObject());
+      const progress = new ChatStreamProgressWriter(writer, null, true, recorder);
       t.after(() => progress.flushPending());
       const text = prefix + 'short';
       if (prefix) progress.write({ kind, turn: 1, maxTurns: 2, thinkingText: prefix, narrationText: prefix, answerText: prefix });
@@ -25,7 +34,10 @@ for (const kind of ['thinking', 'narration', 'answer'] as const) {
       });
       progress.flushPending();
       assert.deepEqual(written.map((event) => event.eventName), prefix ? [kind, kind, 'usage'] : [kind, 'usage']);
-      const stopped = progress.getStoppedMessages();
+      const committed = new ChatJournalStore(getRuntimeDatabase(join(root, 'runtime.sqlite')))
+        .readAfter(recorder.operationId, 0, 100).filter(envelope => envelope.event.kind === 'display');
+      assert.equal(committed.length, written.length);
+      const stopped = (recorder.stop('user_stop', '*Stopped by user.*').messages ?? []).filter(message => message.role === 'assistant');
       if (kind === 'thinking') {
         assert.equal(stopped[0]?.thinkingTokens, 200);
         assert.equal(stopped[0]?.thinkingTokensEstimated, true);

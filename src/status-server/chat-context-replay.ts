@@ -16,6 +16,7 @@ import type { JsonObject } from '../lib/json-types.js';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import type { ChatJournalEnvelope, ChatJournalEvent } from '../state/chat-journal-schema.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
+import { buildUserContent } from '../llm-protocol/image-attachments.js';
 
 /** One journal page; the whole run is read in pages so memory follows the page, not the chat. */
 const EVENT_PAGE_SIZE = 500;
@@ -138,10 +139,15 @@ export function replayChatContext(events: readonly ChatJournalEnvelope[]): ChatR
   const batches = new Map<string, string[]>();
   /** Every call ever written into history, including ones a later splice removed. */
   const declaredCallIds = new Set<string>();
+  const pendingQueue = new Map<string, Extract<ChatJournalEvent, { kind: 'queue_delivered' }>['message']>();
 
   for (const envelope of events) {
     const anchor = { eventId: envelope.eventId, sequence: envelope.sequence };
     const event = envelope.event;
+    if (event.kind === 'queue_delivered') pendingQueue.set(event.message.id, event.message);
+    if (event.kind === 'context_initialized' || event.kind === 'context_spliced') {
+      for (const id of event.queueMessageIds ?? []) pendingQueue.delete(id);
+    }
     if (event.kind === 'context_initialized') {
       if (messages !== null) {
         return failure(operationId, issue(operationId, 'context_gap', 'context initialized twice', anchor));
@@ -189,6 +195,7 @@ export function replayChatContext(events: readonly ChatJournalEnvelope[]): ChatR
   }
 
   const closed = closeInterruptedBatches(messages, toolCalls, batches, declaredCallIds);
+  for (const queued of pendingQueue.values()) messages.push({ role: 'user', content: buildUserContent(queued.content, queued.images) });
   const violation = findPlannerContextViolation(messages);
   if (violation !== null) {
     return failure(operationId, issue(operationId, 'context_gap', violation, {
@@ -198,7 +205,7 @@ export function replayChatContext(events: readonly ChatJournalEnvelope[]): ChatR
   }
 
   return {
-    status: closed ? 'recovery_needed' : 'ok',
+    status: closed || pendingQueue.size > 0 ? 'recovery_needed' : 'ok',
     messages,
     contextRevision,
     turnBoundary,
@@ -284,16 +291,34 @@ function closeInterruptedBatches(
  * The conversation a continuation starts from. The system prompt and retention policy are rebuilt
  * by the run that is about to start; what is recovered here is only what was actually said.
  */
-export function buildRecoveredChatHistory(database: RuntimeDatabase, sessionId: string): ChatRecoveredHistory {
+export function buildRecoveredChatHistory(database: RuntimeDatabase, sessionId: string, beforeOperationId?: string): ChatRecoveredHistory {
   const store = new ChatJournalStore(database);
   const runs = store.listSessionRuns(sessionId);
-  for (let index = runs.length - 1; index >= 0; index -= 1) {
-    const run = runs[index];
+  let history: ChatRecoveredHistory = { sessionId, operationId: null, status: 'ok', messages: [], interruptionNotices: [], issues: [] };
+  for (const run of runs) {
+    if (run.operationId === beforeOperationId) break;
     const events = readAllEvents(store, run.operationId);
     if (events.length === 0) continue;
-    return buildHistoryFromRun(sessionId, run.operationId, events);
+    const baseline = events.find(envelope => envelope.event.kind === 'baseline_imported')?.event;
+    if (baseline?.kind === 'baseline_imported') {
+      history = { ...history, operationId: run.operationId, messages: baseline.retainedContext };
+      continue;
+    }
+    if (!events.some(envelope => envelope.event.kind === 'context_initialized')) {
+      const submission = events.find(envelope => envelope.event.kind === 'run_started')?.event;
+      if (submission?.kind === 'run_started' && !events.some(envelope => envelope.event.kind.startsWith('tool_'))) {
+        history = { ...history, operationId: run.operationId, messages: [
+          ...history.messages, { role: 'user', content: buildUserContent(submission.content, submission.images) },
+          ...events.flatMap(envelope => envelope.event.kind === 'queue_delivered' && envelope.event.message.id !== submission.userMessageId
+            ? [{ role: 'user' as const, content: buildUserContent(envelope.event.message.content, envelope.event.message.images) }] : []),
+        ] };
+        continue;
+      }
+    }
+    history = buildHistoryFromRun(sessionId, run.operationId, events);
+    if (history.status === 'recovery_failed') return history;
   }
-  return { sessionId, operationId: null, status: 'ok', messages: [], interruptionNotices: [], issues: [] };
+  return history;
 }
 
 function buildHistoryFromRun(

@@ -415,6 +415,7 @@ export class ToolActionProcessor {
 
     if (this.deps.approvalGate) {
       const decision = await this.deps.approvalGate.request({
+        call: this.callIdentity(turn, state, progressToolCallId),
         turn,
         toolName: normalizedToolName,
         command,

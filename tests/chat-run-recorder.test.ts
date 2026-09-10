@@ -19,6 +19,7 @@ import type {
 } from '../src/repo-search/engine/chat-run-evidence.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
 
 const SESSION_ID = 'recorder-session';
 const OWNER_EPOCH = 'owner-a:1';
@@ -84,6 +85,43 @@ function call(indexInBatch: number, toolCallId: string) {
 function readAll(database: RuntimeDatabase, operationId: string): ChatJournalEnvelope[] {
   return new ChatJournalStore(database).readAfter(operationId, 0, 500);
 }
+
+test('a rejected submission event leaves no unfinished admission behind', () => {
+  const { database, databasePath } = openSessionDatabase('chat-admission-rollback-');
+  database.exec(`CREATE TRIGGER reject_submission BEFORE INSERT ON chat_run_events WHEN NEW.kind = 'run_started'
+    BEGIN SELECT RAISE(ABORT, 'submission write refused'); END;`);
+  assert.throws(() => beginRecorder(databasePath), /submission write refused/u);
+  assert.deepEqual(new ChatJournalStore(database).listSessionRuns(SESSION_ID), []);
+});
+
+test('retrying a failed terminal row update commits one terminal event', () => {
+  const { database, databasePath } = openSessionDatabase('chat-terminal-rollback-');
+  const recorder = beginRecorder(databasePath);
+  const outcome = { terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' } as const;
+  database.exec(`CREATE TRIGGER reject_terminal BEFORE UPDATE OF terminal_cause ON chat_runs
+    BEGIN SELECT RAISE(ABORT, 'terminal write refused'); END;`);
+  assert.throws(() => recorder.finish(outcome), /terminal write refused/u);
+  database.exec('DROP TRIGGER reject_terminal');
+  recorder.finish(outcome);
+  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'run_finished').length, 1);
+});
+
+test('queue delivery and journal evidence commit together or leave the message pending', () => {
+  const { database, databasePath } = openSessionDatabase('chat-queue-journal-atomic-');
+  const recorder = beginRecorder(databasePath);
+  const queue = new ChatMessageQueueStore(database);
+  const id = randomUUID();
+  queue.enqueue(SESSION_ID, { id, content: 'steering', images: [], options: { operationKind: 'repo-agent' } });
+  const input = { requestId: 'request-queue', turn: 1, ids: [id] };
+  database.exec(`CREATE TRIGGER reject_delivery BEFORE INSERT ON chat_run_events WHEN NEW.kind = 'queue_delivered'
+    BEGIN SELECT RAISE(ABORT, 'delivery write refused'); END;`);
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, input), /delivery write refused/u);
+  assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
+  database.exec('DROP TRIGGER reject_delivery');
+  assert.equal(recorder.claimQueuedMessages(SESSION_ID, input)[0]?.id, id);
+  const events = readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'queue_delivered');
+  assert.equal(events.length, 1);
+});
 
 test('a run records its submission, engine binding and tool lifecycle in committed order', () => {
   const { databasePath } = openSessionDatabase('chat-run-recorder-lifecycle-');
@@ -194,6 +232,8 @@ test('a recorder fenced out by a newer owner cannot commit further evidence', ()
 
 /** Watches the recorder boundary and reports whether the command's side effect exists yet. */
 class OrderSpy implements ChatRunEvidenceRecorder {
+  recordApprovalRequested(): void { this.note('approval_requested'); }
+  recordApprovalResolved(): void { this.note('approval_resolved'); }
   readonly steps: string[] = [];
   readonly results: ChatToolResultEvidence[] = [];
 

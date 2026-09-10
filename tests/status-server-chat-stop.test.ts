@@ -15,6 +15,8 @@ import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-to
 import type { JsonObject } from '../src/lib/json-types.js';
 import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
 import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 
 test('HTTP stop retains completed thinking usage and partial answer usage after appending the marker', async (t) => {
   const engineService = new StoppedChatEngineService({
@@ -37,6 +39,8 @@ test('HTTP stop retains completed thinking usage and partial answer usage after 
   });
   assert.equal(stop.statusCode, 200);
   await stream;
+  const runs = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath())).listSessionRuns(sessionId);
+  assert.deepEqual(runs.map(run => run.terminalCause), ['user_stop']);
   const saved = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
   const messages = asObjectArray(asObject(saved.body.session).messages);
   const thinking = messages.find((message) => message.kind === 'assistant_thinking');

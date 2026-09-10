@@ -27,6 +27,7 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { ScorecardSchema } from '../src/repo-search/engine.js';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 
 function imageMetadata(width = 1, height = 1, caption: string | null = null) {
   return ImageMetadataSchema.parse({
@@ -224,7 +225,14 @@ class StaticCaptionEngineService extends StatusEngineService {
     super();
   }
 
-  override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+  override executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    const messages = [...(request.history ?? []), { role: 'user' as const, content: request.prompt }];
+    request.evidenceRecorder?.recordContextInitialized({ messages, contextRevision: 0, turnBoundary: messages.length - 1 });
+    if (this.compactionSummary) request.evidenceRecorder?.recordContextSpliced({
+      expectedRevision: 0, contextRevision: 1, startIndex: 0, deleteCount: messages.length,
+      inserted: [buildCompactionSummaryMessage(this.compactionSummary), { role: 'user', content: request.prompt }],
+      turnBoundary: 1, reason: 'compacted',
+    });
     return Promise.resolve(mockedCaptionExecution(this.finalOutput, this.compactionSummary));
   }
 }
@@ -845,12 +853,12 @@ test('two sequential turns reusing one client operationId record two distinct ru
 
     const runs = ChatRunRowSchema.array().parse(
       getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'))
-        .prepare('SELECT operation_id, run_order, terminal_cause FROM chat_runs WHERE session_id = ? ORDER BY run_order')
+        .prepare("SELECT operation_id, run_order, terminal_cause FROM chat_runs WHERE session_id = ? AND record_kind = 'execution' ORDER BY run_order")
         .all(context.fixture.session.id),
     );
     assert.equal(runs.length, 2);
     assert.notEqual(runs[0]?.operation_id, runs[1]?.operation_id);
-    assert.deepEqual(runs.map((run) => run.run_order), [1, 2]);
+    assert.equal(runs[1]?.run_order, (runs[0]?.run_order ?? 0) + 1);
     assert.deepEqual(runs.map((run) => run.terminal_cause), ['completed', 'completed']);
   } finally {
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
@@ -864,6 +872,36 @@ class DatabaseClosingFailureEngineService extends StatusEngineService {
   }
 }
 
+class RecordedChatEngineService extends StatusEngineService {
+  override executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    assert.ok(request.evidenceRecorder, 'Web engine dispatch requires its admitted recorder');
+    request.evidenceRecorder.recordContextInitialized({
+      messages: [{ role: 'user', content: request.prompt }], contextRevision: 0, turnBoundary: 0,
+    });
+    return Promise.resolve(mockedCaptionExecution('recorded answer'));
+  }
+}
+
+test('streaming and non-streaming message dispatch commit engine context to their admitted run', async () => {
+  const context = await withCaptionServer({}, new RecordedChatEngineService());
+  try {
+    const url = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`;
+    const normal = await requestJson(url, { method: 'POST', body: JSON.stringify({ content: 'normal' }) });
+    assert.equal(normal.statusCode, 200, JSON.stringify(normal.body));
+    const streamed = await requestSse(`${url}/stream`, {
+      method: 'POST', body: JSON.stringify({ content: 'streamed', operationId: '4f9c1f9a-0000-4000-8000-000000000000' }),
+    });
+    assert.equal(streamed.events.some(event => event.event === 'error'), false, JSON.stringify(streamed.events));
+    const rows = z.array(z.object({ kind: z.string() })).parse(
+      getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'))
+        .prepare("SELECT kind FROM chat_run_events WHERE kind = 'context_initialized'").all(),
+    );
+    assert.equal(rows.length, 2);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
 test('an engine failure survives a terminal write that lost its database handle', async () => {
   const context = await withCaptionServer({}, new DatabaseClosingFailureEngineService());
   try {
@@ -873,6 +911,9 @@ test('an engine failure survives a terminal write that lost its database handle'
     );
     assert.equal(response.statusCode, 500);
     assert.equal(String(asObject(response.body).error), 'engine exploded');
+    const runs = ChatRunRowSchema.array().parse(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'))
+      .prepare("SELECT operation_id, run_order, terminal_cause FROM chat_runs WHERE session_id = ? AND record_kind = 'execution'").all(context.fixture.session.id));
+    assert.deepEqual(runs.map(run => run.terminal_cause), ['execution_failure']);
   } finally {
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }

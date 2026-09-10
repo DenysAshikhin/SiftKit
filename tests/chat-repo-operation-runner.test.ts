@@ -27,6 +27,9 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 import { buildChatHistoryMessages, resolveChatSessionConfig } from '../src/status-server/chat.js';
 import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
@@ -51,6 +54,7 @@ class StubStatusEngineService extends StatusEngineService {
   }
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    assert.ok(request.evidenceRecorder, 'repository Web operations require their admitted recorder');
     this.request = request;
     request.progressWriter?.write({ kind: 'context_warning', warningText: 'autoload skipped', elapsedMs: 0 });
     request.progressWriter?.write({ kind: 'thinking', thinkingText: 'inspect files', turn: 1, maxTurns: 7 });
@@ -194,6 +198,7 @@ function createRequest(
   return {
     runtimeRoot,
     session,
+    recorder: createTestChatRunRecorder(runtimeRoot, session, config),
     config,
     content: 'find target',
     images: [],
@@ -349,7 +354,7 @@ test('chat repo operations inherit the chat conversation history without a syste
   }
 });
 
-test('chat repo operation runner propagates engine failures without persisting messages', async () => {
+test('chat repo operation runner propagates engine failures while retaining the admitted submission', async () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-failure-');
   const engineService = new StubStatusEngineService(buildResult('unused'), new Error('engine failed'));
   try {
@@ -358,7 +363,10 @@ test('chat repo operation runner propagates engine failures without persisting m
       runner.runPlan(createRequest(runtimeRoot, engineService, new RecordingProgressWriter())),
       /engine failed/u,
     );
-    assert.equal(fs.existsSync(path.join(runtimeRoot, 'runtime.sqlite')), false);
+    const journal = new ChatJournalStore(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')));
+    const run = journal.listSessionRuns(createSession().id)[0];
+    assert.ok(run);
+    assert.equal(journal.readAfter(run.operationId, 0, 1)[0]?.event.kind, 'run_started');
   } finally {
     closeRuntimeDatabase();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });

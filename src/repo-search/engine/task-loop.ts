@@ -272,6 +272,7 @@ export class TaskLoop {
         : buildTaskInitialUserPrompt(task.question),
       initialUserImages: options.initialUserImages || [],
       initialFollowupMessages: initialQueuedMessages.slice(1).map((message) => ({ role: 'user' as const, content: buildUserContent(message.content, message.images) })),
+      initialQueueMessageIds: initialQueuedMessages.map(message => message.id),
       liveImagePathKeys: this.liveImagePathKeys,
       contextRecorder: options.evidenceRecorder,
     });
@@ -828,6 +829,7 @@ export class TaskLoop {
       });
       return 'continue';
     }
+    this.transcript.pushAssistant(buildAssistantReplayMessage(response));
     this.finalOutput = action.text;
     if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
       this.progress.answer(turn, this.finalOutput);
@@ -865,6 +867,7 @@ export class TaskLoop {
         mockResponseIndex: this.mockResponseIndex,
       });
       this.finalOutput = synthesis.finalOutput;
+      this.transcript.pushAssistant({ role: 'assistant', content: synthesis.finalOutput });
       this.mockResponseIndex = synthesis.nextMockResponseIndex;
     }
 
