@@ -6,13 +6,45 @@ import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ChatSessionResponseSchema } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
-import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
+import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
+import { ChatStreamReader } from '../src/lib/chat-stream-parser';
+import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
+import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
+import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.js';
+import { ChatMessageQueueResponseSchema } from '@siftkit/contracts';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
 import { buildUsageFrame } from './usage-frame';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
+test('active token badges grow before usage and settle without losing late text accounting', () => {
+  let store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID })
+    .apply({ kind: 'prompt', sessionId: 'session-b', prompt: { turn: 1, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } });
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  try {
+    for (const length of [400, 800]) {
+      store = store.apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 0, text: 'x'.repeat(length) } });
+      view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+      assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, `~${length / 4} tokens`);
+      assert.equal(store.get('session-b').liveMessages[0]?.thinkingTokens, 0);
+    }
+    store = store.apply({ kind: 'usage', sessionId: 'session-b', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) })
+      .apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 800, text: 'tail' } });
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '187 tokens');
+    assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '187 run tokens');
+    store = store.apply({ kind: 'usage', sessionId: 'session-b', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) });
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '~187 run tokens');
+    store = store.apply({ kind: 'attach', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID })
+      .apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 0, text: 'truncated replay' } });
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, 'tokens unavailable');
+    assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, 'tokens unavailable');
+  } finally { view.unmount(); }
+});
 import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
 import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
 import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
@@ -24,6 +56,205 @@ import { saveChatSession } from '../../src/state/chat-sessions.js';
 /** Every rendered token badge, in DOM order, so an assertion names the badges and not the markup. */
 function readTokenBadges(html: string): string[] {
   return [...html.matchAll(/<span class="msg-tokens"[^>]*>([^<]*)<\/span>/gu)].map((match) => match[1] ?? '');
+}
+
+async function* readHttpChat(url: string, signal: AbortSignal, body?: Record<string, string | number | boolean>) {
+  const response = await fetch(url, body ? {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
+  } : { signal });
+  assert.equal(response.status, 200);
+  assert.ok(response.body);
+  yield* new ChatStreamReader(response.body.getReader()).events();
+}
+
+async function readThrough(
+  stream: AsyncGenerator<ChatSessionRuntimeTransition>,
+  store: ChatSessionRuntimeStore,
+  kind: ChatSessionRuntimeTransition['kind'],
+  thinkingTurn?: number,
+) {
+  for (;;) {
+    const next = await stream.next();
+    assert.equal(next.done, false, `stream ended before ${kind}`);
+    assert.ok(next.value);
+    store = store.apply(next.value);
+    if (next.value.kind === 'failure') throw new Error(next.value.message);
+    if (next.value.kind === kind && (thinkingTurn === undefined || (next.value.kind === 'thinking' && next.value.delta.turn === thinkingTurn))) return { store, transition: next.value };
+  }
+}
+
+test('a rejected chat route fails promptly even when no provider request arrives', async (t) => {
+  const backend = new GatedChatBackend();
+  t.after(() => backend.close());
+  const baseUrl = await backend.start();
+  const store = new ChatSessionRuntimeStore().ensureSession('s', '');
+  const stream = toRuntimeTransitions('s', { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${baseUrl}/missing-chat-route`, t.signal), true);
+  t.after(async () => { await stream.return(); });
+  await assert.rejects(Promise.all([readThrough(stream, store, 'prompt'), backend.nextRequest()]), /404/u);
+});
+
+for (const queued of [false, true]) {
+  test(`gated HTTP thinking grows before completion${queued ? ' across FIFO delivery and replay' : ''} and settles to persisted totals`, { timeout: 20000 }, async (t) => {
+    const backend = new GatedChatBackend();
+    t.after(() => backend.close());
+    const server = await DashboardTestServer.start('chat-token-e2e-', { baseUrl: await backend.start(), model: 'mock' });
+    t.after(() => server.close());
+    const created = ChatSessionResponseSchema.parse((await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST', body: JSON.stringify({ title: 'tokens', thinkingEnabled: true }),
+    })).body);
+    const sessionId = created.session.id;
+    const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
+    let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '')
+      .apply({ kind: 'submit', sessionId, content: 'inspect', images: [] });
+    let session = created.session;
+    const props = () => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [session], selectedRuntime: store.get(sessionId), sessionRuntimes: store.getAll() });
+    const view = renderComponent(<ChatTab {...props()} />);
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, maxTurns: 3 }), true);
+    t.after(async () => { await stream.return(); });
+    try {
+      const firstPrompt = readThrough(stream, store, 'prompt');
+      const [first, initial] = await Promise.all([backend.nextRequest(), firstPrompt]);
+      store = initial.store;
+      for (const [expectedLength, expectedBadge] of [[400, '~100 tokens'], [800, '~200 tokens']] as const) {
+        backend.write(first, { reasoning_content: 'x'.repeat(400) });
+        store = (await readThrough(stream, store, 'thinking')).store;
+        view.rerender(<ChatTab {...props()} />);
+        const count = store.get(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.content.length;
+        assert.equal(count, expectedLength);
+        assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, expectedBadge);
+        assert.equal(store.get(sessionId).tokenTurns.get(1)?.usage, null);
+        if (queued && expectedLength === 400) {
+          for (const [index, id] of [QUEUE_ONE_ID, '4f9c1f9a-0000-4000-8000-000000000002'].entries()) {
+            const response = await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id, content: `queued ${index}`, images: [], options: { operationKind: 'plan', repoRoot: server.tempRoot } }) });
+            assert.equal(response.statusCode, 200);
+            const tokenTurns = store.get(sessionId).tokenTurns;
+            store = store.apply({ kind: 'queue', sessionId, queue: ChatMessageQueueResponseSchema.parse(response.body).queue })
+              .apply({ kind: 'queued-submit', sessionId, content: `queued ${index}`, images: [] });
+            assert.equal(store.get(sessionId).tokenTurns, tokenTurns);
+          }
+        }
+      }
+      if (queued) {
+        backend.write(first, { tool_calls: [{ index: 0, id: 'read-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'package.json' }) } }] });
+        backend.finish(first);
+        const nextPrompt = readThrough(stream, store, 'prompt');
+        const [second, next] = await Promise.all([backend.nextRequest(), nextPrompt]);
+        store = next.store;
+        assert.deepEqual(store.get(sessionId).liveMessages.filter((message) => message.role === 'user').map((message) => message.content), ['inspect', 'queued 0', 'queued 1']);
+        assert.equal(store.get(sessionId).liveMessages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
+        backend.write(second, { reasoning_content: 'y'.repeat(400) });
+        store = (await readThrough(stream, store, 'thinking')).store;
+        view.rerender(<ChatTab {...props()} />);
+        assert.equal(view.container.querySelectorAll('.msg.turn').length, 2);
+        const beforeReplay = readTokenBadges(view.container.innerHTML);
+        const replay = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
+        t.after(async () => { await replay.return(); });
+        const replayStore = (await readThrough(replay, new ChatSessionRuntimeStore().ensureSession(sessionId, ''), 'thinking')).store;
+        const replayNext = await readThrough(replay, replayStore, 'thinking', 2);
+        const originalStore = store;
+        store = replayNext.store;
+        view.rerender(<ChatTab {...props()} />);
+        assert.deepEqual(readTokenBadges(view.container.innerHTML), beforeReplay);
+        store = originalStore;
+        backend.write(second, { content: 'finished' });
+        backend.finish(second);
+        const replayDone = readThrough(replay, replayNext.store, 'done');
+        const completed = await readThrough(stream, store, 'done');
+        await replayDone;
+        store = completed.store;
+        assert.equal(completed.transition.kind, 'done');
+        if (completed.transition.kind === 'done') session = completed.transition.response.session;
+      } else {
+        backend.write(first, { content: 'finished' });
+        backend.finish(first);
+        const completed = await readThrough(stream, store, 'done');
+        store = completed.store;
+        assert.equal(completed.transition.kind, 'done');
+        if (completed.transition.kind === 'done') session = completed.transition.response.session;
+      }
+      view.rerender(<ChatTab {...props()} />);
+      const persisted = ChatSessionResponseSchema.parse((await requestJson(url)).body);
+      assert.deepEqual(session.messages, persisted.session.messages);
+      assert.equal(store.get(sessionId).tokenTurns.size, 0);
+      const expectedLabels = groupMessagesIntoTurns(persisted.session.messages, new Set())
+        .filter((turn) => turn.messages.some((message) => message.role === 'assistant'))
+        .map((turn) => {
+          const count = turn.messages.reduce((sum, message) => sum + message.thinkingTokens + message.outputTokensEstimate + message.inputTokensEstimate, 0);
+          const estimated = turn.messages.some((message) => message.thinkingTokensEstimated || message.outputTokensEstimated || message.inputTokensEstimated);
+          return `${estimated ? '~' : ''}${count.toLocaleString()} run tokens`;
+        });
+      assert.deepEqual([...view.container.querySelectorAll('.msg.turn > .who .msg-tokens')].map((badge) => badge.textContent), expectedLabels);
+    } finally {
+      view.unmount();
+    }
+  });
+}
+
+for (const force of [false, true]) {
+  test(`a ${force ? 'forced' : 'pending'} HTTP successor starts with its own token metadata`, { timeout: 20000 }, async (t) => {
+    const backend = new GatedChatBackend();
+    t.after(() => backend.close());
+    const server = await DashboardTestServer.start('chat-token-successor-', { baseUrl: await backend.start(), model: 'mock' });
+    t.after(() => server.close());
+    const created = ChatSessionResponseSchema.parse((await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'successor' }) })).body);
+    const sessionId = created.session.id;
+    const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
+    let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '');
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, maxTurns: 3 }), true);
+    t.after(async () => { await stream.return(); });
+    const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: created.session, selectedRuntime: store.get(sessionId) })} />);
+    try {
+      const prompt = readThrough(stream, store, 'prompt');
+      const [firstProvider, initial] = await Promise.all([backend.nextRequest(), prompt]);
+      let provider = firstProvider;
+      store = initial.store;
+      backend.write(provider, { reasoning_content: 'x'.repeat(400) });
+      store = (await readThrough(stream, store, 'thinking')).store;
+      if (force) {
+        backend.write(provider, { tool_calls: [{ index: 0, id: 'read-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'package.json' }) } }] });
+        backend.finish(provider);
+        const secondPrompt = readThrough(stream, store, 'prompt');
+        const [secondProvider, next] = await Promise.all([backend.nextRequest(), secondPrompt]);
+        provider = secondProvider;
+        store = next.store;
+        backend.write(provider, { reasoning_content: 'y'.repeat(400) });
+        store = (await readThrough(stream, store, 'thinking')).store;
+      }
+      const queued = await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: QUEUE_ONE_ID, content: 'successor', images: [], options: { operationKind: 'plan', repoRoot: server.tempRoot } }) });
+      assert.equal(queued.statusCode, 200);
+      if (force) {
+        const stopped = await requestJson(`${url}/queue/force`, { method: 'POST', body: JSON.stringify({ id: '4f9c1f9a-0000-4000-8000-000000000003', operationId: OPERATION_ID }) });
+        assert.equal(stopped.statusCode, 200);
+      } else {
+        backend.write(provider, { content: 'first finished' });
+        backend.finish(provider);
+      }
+      const done = await readThrough(stream, store, 'done');
+      store = done.store;
+      assert.equal(store.get(sessionId).tokenTurns.size, 0);
+      assert.equal(done.transition.kind, 'done');
+      if (done.transition.kind !== 'done') throw new Error('Expected completion');
+      const saved = done.transition.response.session;
+      assert.equal(saved.messages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
+      if (force) assert.match(saved.messages.at(-1)?.content ?? '', /Stopped/u);
+      const successorProvider = await backend.nextRequest();
+      const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
+      t.after(async () => { await successor.return(); });
+      store = (await readThrough(successor, store, 'prompt')).store;
+      assert.equal(store.get(sessionId).tokenTurns.size, 1);
+      assert.equal(store.get(sessionId).tokenTurns.get(1)?.usage, null);
+      backend.write(successorProvider, { reasoning_content: 'z'.repeat(400) });
+      store = (await readThrough(successor, store, 'thinking')).store;
+      view.rerender(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: saved, selectedRuntime: store.get(sessionId) })} />);
+      assert.equal([...view.container.querySelectorAll('.assistant_thinking .msg-tokens')].at(-1)?.textContent, '~100 tokens');
+      backend.write(successorProvider, { content: 'successor finished' });
+      backend.finish(successorProvider);
+      store = (await readThrough(successor, store, 'done')).store;
+      assert.equal(store.get(sessionId).tokenTurns.size, 0);
+    } finally {
+      view.unmount();
+    }
+  });
 }
 
 const IMAGE = 'data:image/png;base64,AA==';
@@ -841,6 +1072,31 @@ test('selected session alone supplies errors and warnings', () => {
   assert.match(selectedA, /error-a/u);
 });
 
+test('switching away from queued work keeps token badges and queue state in their owning session', () => {
+  const queue = ChatMessageQueueResponseSchema.parse({ queue: {
+    sessionId: SESSION_A.id, revision: 1, paused: false, force: null, activeOperationId: OPERATION_ID,
+    messages: [{ id: QUEUE_ONE_ID, position: 0, preview: 'queued for A', contentChars: 12, imageCount: 0, revision: 1, state: 'pending', createdAtUtc: '2026-09-10T00:00:00.000Z' }],
+  } }).queue;
+  let store = buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
+    .apply({ kind: 'queue', sessionId: SESSION_A.id, queue })
+    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 4 } })
+    .apply({ kind: 'thinking', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'A'.repeat(400) } });
+  const view = renderComponent(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
+  try {
+    assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~100 tokens');
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id), sessionRuntimes: store.getAll() })} />);
+    assert.equal(view.container.querySelector('.assistant_thinking'), null);
+    assert.doesNotMatch(view.container.textContent ?? '', /queued for A/u);
+    store = store.apply({ kind: 'thinking', sessionId: SESSION_A.id, delta: { turn: 1, offset: 400, text: 'A'.repeat(400) } });
+    view.rerender(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
+    assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~200 tokens');
+    assert.equal(store.get(SESSION_A.id).queue, queue);
+    assert.equal(store.get(SESSION_B.id).tokenTurns.size, 0);
+    assert.equal(store.get(SESSION_B.id).queue, null);
+  } finally { view.unmount(); }
+});
+
 test('a running tool message renders a neutral friendly activity row', () => {
   const store = buildDefaultStore('session-a')
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
@@ -1420,6 +1676,81 @@ test('raw streamed model progress renders only inside closed Internal Logic', ()
   assert.ok(!logic.includes('PROGRESS_MARKER_TWO'), 'closed Internal Logic stays unmounted');
   assert.match(renderExpanded({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id) }), /PROGRESS_MARKER_TWO/u);
   assert.ok(html.includes('Recent activity'), 'the friendly activity ring remains visible before the answer');
+});
+
+const QUEUE_ONE_ID = '4f9c1f9a-0000-4000-8000-000000000001';
+const SEGMENT_TWO_THINKING = 'SEGMENT_TWO_THINKING';
+
+/** A live run whose four thinking turns are interrupted by one delivered queued message. */
+function buildSplitSegmentStore(sessionId: string): ChatSessionRuntimeStore {
+  let store = buildDefaultStore(sessionId)
+    .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: OPERATION_ID });
+  for (const turn of [1, 2, 3, 4]) {
+    store = store
+      .apply({ kind: 'prompt', sessionId, prompt: { turn, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } })
+      .apply({ kind: 'thinking', sessionId, delta: { turn, offset: 0, text: `SEGMENT_ONE_THINKING_${turn}` } });
+  }
+  return store
+    .apply({
+      kind: 'queued-user',
+      sessionId,
+      message: { id: QUEUE_ONE_ID, turn: 4, boundary: 'post_tool_batch', content: 'QUEUED_ONE', images: [] },
+    })
+    .apply({ kind: 'prompt', sessionId, prompt: { turn: 5, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } })
+    .apply({ kind: 'thinking', sessionId, delta: { turn: 5, offset: 0, text: SEGMENT_TWO_THINKING } });
+}
+
+test('a delivered queued message gives the two assistant segments independent React identities', async (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {});
+  const propsFor = (store: ChatSessionRuntimeStore): ChatTabProps => buildProps({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+    chatMode: 'repo-agent',
+    isRepoToolMode: true,
+  });
+  let store = buildSplitSegmentStore(SESSION_B.id);
+  const view = renderComponent(<ChatTab {...propsFor(store)} />);
+  const turnBubbles = (): Element[] => [...view.container.querySelectorAll('.msg.turn')];
+  try {
+    assert.equal(turnBubbles().length, 2, 'the delivered queued bubble splits the live run into two assistant segments');
+    const first = turnBubbles()[0];
+    const second = turnBubbles()[1];
+    assert.ok(first && second);
+    assert.ok(view.container.textContent?.includes('QUEUED_ONE'), 'the queued user bubble stays between the segments');
+    const firstLogic = first.querySelector('details.internal-logic');
+    assert.ok(firstLogic, 'the earlier segment keeps its overflowed thinking in Internal Logic');
+    toggleDisclosure(firstLogic, true);
+    assert.match(first.textContent ?? '', /SEGMENT_ONE_THINKING_1/u);
+    assert.equal(
+      second.querySelector('.assistant_thinking .msg-tokens')?.textContent,
+      `~${SEGMENT_TWO_THINKING.length / 4} tokens`,
+    );
+
+    store = store.apply({
+      kind: 'thinking',
+      sessionId: SESSION_B.id,
+      delta: { turn: 5, offset: SEGMENT_TWO_THINKING.length, text: ' keeps streaming' },
+    });
+    await act(async () => { view.rerender(<ChatTab {...propsFor(store)} />); });
+
+    assert.equal(turnBubbles()[0], first, 'the earlier segment must not remount');
+    assert.equal(turnBubbles()[1], second, 'the streaming segment must not remount');
+    assert.equal(firstLogic.hasAttribute('open'), true, 'the earlier disclosure must stay expanded');
+    assert.match(first.textContent ?? '', /SEGMENT_ONE_THINKING_1/u, 'the earlier disclosure must keep its own steps');
+    assert.doesNotMatch(first.textContent ?? '', /SEGMENT_TWO_THINKING/u, 'the streaming segment must not fold into the earlier one');
+    assert.equal(
+      second.querySelector('.assistant_thinking .msg-tokens')?.textContent,
+      `~${Math.ceil((SEGMENT_TWO_THINKING.length + ' keeps streaming'.length) / 4)} tokens`,
+      'the streaming segment badge must grow in place',
+    );
+    const keyWarnings = consoleError.mock.calls
+      .map((call) => call.arguments.map((arg) => String(arg)).join(' '))
+      .filter((line) => /same key/u.test(line));
+    assert.deepEqual(keyWarnings, [], 'assistant segments must not share a React key');
+  } finally {
+    view.unmount();
+  }
 });
 
 test('repo-agent composer shows the approval mode control with Auto selected by default', () => {

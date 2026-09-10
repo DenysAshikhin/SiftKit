@@ -39,7 +39,7 @@ function liveTurnFor(store: ChatSessionRuntimeStore, sessionId: string): ChatTur
     runtime.liveMessages,
     new Set(runtime.liveMessages.map((message) => message.id)),
   );
-  const turn = turns.find((entry) => entry.key === 'live');
+  const turn = turns.find((entry) => entry.isLive && entry.messages.some((message) => message.role === 'assistant'));
   if (!turn) {
     throw new Error('Expected a live turn');
   }

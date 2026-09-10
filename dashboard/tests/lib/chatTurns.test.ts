@@ -40,7 +40,7 @@ test('groups a settled run turn: steps are thinking+tool, main is the answer', (
   ];
   const turns = groupMessagesIntoTurns(messages, new Set());
   assert.equal(turns.length, 1);
-  assert.equal(turns[0].key, 'run:run-1');
+  assert.equal(turns[0].key, 'assistant-segment:t');
   assert.equal(turns[0].isLive, false);
   assert.deepEqual(turns[0].steps.map((m) => m.id), ['t', 'c']);
   assert.equal(turns[0].main?.id, 'a');
@@ -57,7 +57,7 @@ test('streamed chat run groups all internal steps and answer by sourceRunId', ()
   const turns = groupMessagesIntoTurns(messages, new Set());
 
   assert.equal(turns.length, 2);
-  assert.equal(turns[1]?.key, 'run:run-chat-1');
+  assert.equal(turns[1]?.key, 'assistant-segment:t1');
   assert.equal(turns[1]?.main?.id, 'a1');
   assert.deepEqual(turns[1]?.steps.map((step) => step.id), ['t1', 't2']);
 });
@@ -65,7 +65,7 @@ test('streamed chat run groups all internal steps and answer by sourceRunId', ()
 test('a solo answer (null run) is its own turn with no steps', () => {
   const turns = groupMessagesIntoTurns([message({ id: 'a', kind: 'assistant_answer', sourceRunId: null })], new Set());
   assert.equal(turns.length, 1);
-  assert.equal(turns[0].key, 'solo:a');
+  assert.equal(turns[0].key, 'assistant-segment:a');
   assert.deepEqual(turns[0].steps, []);
   assert.equal(turns[0].main?.id, 'a');
 });
@@ -107,7 +107,7 @@ test('all live messages collapse into one live turn with tools in the recent act
   ];
   const turns = groupMessagesIntoTurns(messages, new Set(['lt', 'lc']));
   assert.equal(turns.length, 1);
-  assert.equal(turns[0].key, 'live');
+  assert.equal(turns[0].key, 'assistant-segment:lt');
   assert.equal(turns[0].isLive, true);
   assert.deepEqual(turns[0].steps, []);
   assert.deepEqual(turns[0].liveThinking.map((m) => m.id), ['lt']);
@@ -122,7 +122,7 @@ test('preserves order and separates user turn from following run turn', () => {
     message({ id: 'a', kind: 'assistant_answer', sourceRunId: 'run-9' }),
   ];
   const turns = groupMessagesIntoTurns(messages, new Set());
-  assert.deepEqual(turns.map((turn) => turn.key), ['user:u', 'run:run-9']);
+  assert.deepEqual(turns.map((turn) => turn.key), ['user:u', 'assistant-segment:t']);
 });
 
 test('blank/whitespace sourceRunId is treated as solo, not grouped', () => {
@@ -131,7 +131,7 @@ test('blank/whitespace sourceRunId is treated as solo, not grouped', () => {
     message({ id: 'b', kind: 'assistant_answer', sourceRunId: '' }),
   ];
   const turns = groupMessagesIntoTurns(messages, new Set());
-  assert.deepEqual(turns.map((turn) => turn.key), ['solo:a', 'solo:b']);
+  assert.deepEqual(turns.map((turn) => turn.key), ['assistant-segment:a', 'assistant-segment:b']);
 });
 
 test('empty input yields no turns', () => {
@@ -261,4 +261,124 @@ test('an assistant_progress message lands only in collapsed Internal Logic steps
   assert.deepEqual(turn.steps.map((message) => message.id), ['live-progress']);
   assert.equal('progress' in turn, false);
   assert.equal(turn.main, null);
+});
+
+test('a delivered queued message splits the live run into assistant segments with unique keys', () => {
+  const messages = [
+    message({ id: 'live-thinking-1', kind: 'assistant_thinking' }),
+    message({ id: 'queue-1', role: 'user', kind: 'user_text', content: 'queued one' }),
+    message({ id: 'live-thinking-2', kind: 'assistant_thinking' }),
+  ];
+
+  const turns = groupMessagesIntoTurns(messages, new Set(messages.map((candidate) => candidate.id)));
+
+  assert.deepEqual(turns.map((turn) => turn.key), [
+    'assistant-segment:live-thinking-1',
+    'user:queue-1',
+    'assistant-segment:live-thinking-2',
+  ]);
+  assert.equal(new Set(turns.map((turn) => turn.key)).size, turns.length);
+  assert.deepEqual(
+    turns.flatMap((turn) => turn.messages.map((candidate) => candidate.id)),
+    messages.map((candidate) => candidate.id),
+  );
+});
+
+test('two queued deliveries keep every segment key unique and the message order intact', () => {
+  const messages = [
+    message({ id: 'live-thinking-1', kind: 'assistant_thinking' }),
+    message({ id: 'queue-1', role: 'user', kind: 'user_text' }),
+    message({ id: 'live-thinking-2', kind: 'assistant_thinking' }),
+    message({ id: 'queue-2', role: 'user', kind: 'user_text' }),
+    message({ id: 'live-answer', kind: 'assistant_answer' }),
+  ];
+  const inputIds = messages.map((candidate) => candidate.id);
+
+  const turns = groupMessagesIntoTurns(messages, new Set(inputIds));
+
+  assert.equal(new Set(turns.map((turn) => turn.key)).size, turns.length);
+  assert.deepEqual(
+    turns.flatMap((turn) => turn.messages.map((candidate) => candidate.id)),
+    inputIds,
+  );
+});
+
+test('persisted rows sharing one sourceRunId split by a user row get unique segment keys', () => {
+  const messages = [
+    message({ id: 't1', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'u1', role: 'user', kind: 'user_text' }),
+    message({ id: 't2', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'a1', kind: 'assistant_answer', sourceRunId: 'run-1' }),
+  ];
+
+  const turns = groupMessagesIntoTurns(messages, new Set());
+
+  assert.deepEqual(turns.map((turn) => turn.key), [
+    'assistant-segment:t1',
+    'user:u1',
+    'assistant-segment:t2',
+  ]);
+  assert.deepEqual(
+    turns.map((turn) => turn.messages.map((candidate) => candidate.id)),
+    [['t1'], ['u1'], ['t2', 'a1']],
+  );
+});
+
+test('a segment keeps its key as its text grows, a tool joins it, and the answer becomes its main', () => {
+  const before = groupMessagesIntoTurns([
+    message({ id: 't1', kind: 'assistant_thinking', content: 'a', sourceRunId: 'run-1' }),
+    message({ id: 'u1', role: 'user', kind: 'user_text' }),
+    message({ id: 't2', kind: 'assistant_thinking', content: 'b', sourceRunId: 'run-1' }),
+  ], new Set());
+  const after = groupMessagesIntoTurns([
+    message({ id: 't1', kind: 'assistant_thinking', content: 'a'.repeat(400), sourceRunId: 'run-1' }),
+    message({ id: 'c1', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+    message({ id: 'u1', role: 'user', kind: 'user_text' }),
+    message({ id: 't2', kind: 'assistant_thinking', content: 'b'.repeat(400), sourceRunId: 'run-1' }),
+    message({ id: 'a1', kind: 'assistant_answer', content: 'answer', sourceRunId: 'run-1' }),
+  ], new Set());
+
+  assert.deepEqual(before.map((turn) => turn.key), [
+    'assistant-segment:t1',
+    'user:u1',
+    'assistant-segment:t2',
+  ]);
+  assert.deepEqual(after.map((turn) => turn.key), before.map((turn) => turn.key));
+  assert.equal(after[2]?.main?.id, 'a1');
+});
+
+test('inserting or removing an earlier user group shifts no later segment key', () => {
+  const splitRun = [
+    message({ id: 't1', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'u1', role: 'user', kind: 'user_text' }),
+    message({ id: 't2', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+  ];
+
+  const withoutLeadingUser = groupMessagesIntoTurns(splitRun, new Set());
+  const withLeadingUser = groupMessagesIntoTurns(
+    [message({ id: 'u0', role: 'user', kind: 'user_text' }), ...splitRun],
+    new Set(),
+  );
+
+  assert.deepEqual(withoutLeadingUser.map((turn) => turn.key), [
+    'assistant-segment:t1',
+    'user:u1',
+    'assistant-segment:t2',
+  ]);
+  assert.deepEqual(withLeadingUser.map((turn) => turn.key), ['user:u0', ...withoutLeadingUser.map((turn) => turn.key)]);
+});
+
+test('a live answer joining its own segment keeps the key its thinking established', () => {
+  const thinkingOnly = groupMessagesIntoTurns(
+    [message({ id: 'live-thinking-1', kind: 'assistant_thinking' })],
+    new Set(['live-thinking-1']),
+  );
+  const withAnswer = groupMessagesIntoTurns([
+    message({ id: 'live-thinking-1', kind: 'assistant_thinking' }),
+    message({ id: 'live-answer', kind: 'assistant_answer' }),
+  ], new Set(['live-thinking-1', 'live-answer']));
+
+  assert.deepEqual(thinkingOnly.map((turn) => turn.key), ['assistant-segment:live-thinking-1']);
+  assert.deepEqual(withAnswer.map((turn) => turn.key), ['assistant-segment:live-thinking-1']);
+  assert.equal(withAnswer[0]?.main?.id, 'live-answer');
 });

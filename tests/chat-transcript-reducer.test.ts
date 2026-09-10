@@ -242,6 +242,41 @@ function usageFrameForTurn(turn: number, thinkingTokens: number, outputTokens: n
   };
 }
 
+for (const estimated of [false, true]) {
+  for (const count of [0, 200]) {
+    test(`text replacements preserve usage ${count}, estimated=${estimated}`, () => {
+      let messages: ChatTranscriptMessage[] = [];
+      for (const kind of ['thinking', 'narration', 'answer'] as const) {
+        messages = reduceChatTranscript(messages, { kind, delta: { turn: 1, offset: 0, text: 'original' } }, metadata);
+      }
+      const usage = usageFrameForTurn(1, count, count);
+      usage.record.thinkingTokensEstimated = estimated;
+      usage.totals.outputTokensEstimatedCount = estimated ? 1 : 0;
+      messages = reduceChatTranscript(messages, { kind: 'usage', usage }, metadata);
+      for (const delta of [
+        { turn: 1, offset: 8, text: ' tail' },
+        { turn: 1, offset: 0, text: 'original tail' },
+        { turn: 1, offset: 0, text: 'short' },
+        { turn: 2, offset: 0, text: 'unrelated' },
+      ]) {
+        messages = reduceChatTranscript(messages, { kind: 'thinking', delta }, { ...metadata, createdAtUtc: 'later' });
+        if (delta.turn === 1) messages = reduceChatTranscript(messages, { kind: 'answer', delta }, metadata);
+        const thinking = messages.find((message) => message.id === 'test-thinking-1');
+        const answer = messages.find((message) => message.kind === 'assistant_answer');
+        assert.equal(thinking?.thinkingTokens, count);
+        assert.equal(thinking?.thinkingTokensEstimated, estimated);
+        assert.equal(thinking?.createdAtUtc, metadata.createdAtUtc);
+        assert.equal(answer?.id, 'test-narration-1');
+        assert.equal(answer?.outputTokensEstimate, count);
+        assert.equal(answer?.outputTokensEstimated, estimated);
+      }
+      const stopped = finalizeStoppedChatTranscript(messages, '*Stopped*', metadata);
+      assert.equal(stopped.at(-2)?.outputTokensEstimate, count);
+      assert.equal(stopped.at(-2)?.outputTokensEstimated, estimated);
+    });
+  }
+}
+
 test('a live thinking row carries no self-derived token estimate', () => {
   const messages = reduceChatTranscript([], {
     kind: 'thinking',

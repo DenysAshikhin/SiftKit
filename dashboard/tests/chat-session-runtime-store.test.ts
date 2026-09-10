@@ -8,6 +8,26 @@ import { buildUsageFrame } from './usage-frame';
 
 const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
 
+test('operation token metadata survives queue and composer transitions and clears on every terminal boundary', () => {
+  const store = new ChatSessionRuntimeStore().ensureSession('s1', '').ensureSession('s2', '')
+    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
+    .apply({ kind: 'usage', sessionId: 's1', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) });
+  const tokenTurns = store.get('s1').tokenTurns;
+  const queued = store.apply({ kind: 'queued-submit', sessionId: 's1', content: 'queued', images: [] })
+    .apply({ kind: 'queued-user', sessionId: 's1', message: { id: OPERATION_ID, content: 'queued', images: [], turn: 2, boundary: 'post_tool_batch' } })
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'next' })
+    .apply({ kind: 'warning', sessionId: 's1', text: 'warning' });
+  assert.equal(queued.get('s1').tokenTurns, tokenTurns);
+  assert.equal(queued.get('s2').tokenTurns.size, 0);
+  for (const kind of ['begin', 'attach'] as const) {
+    assert.equal(queued.apply({ kind, sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }).get('s1').tokenTurns.size, 0);
+  }
+  assert.equal(queued.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').tokenTurns.size, 0);
+  assert.equal(queued.apply({ kind: 'failure', sessionId: 's1', message: 'failed' }).get('s1').tokenTurns.size, 0);
+  assert.equal(queued.apply({ kind: 'detach', sessionId: 's1' }).get('s1').tokenTurns.size, 0);
+  assert.equal(store.get('s1').tokenTurns, tokenTurns);
+});
+
 const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
 const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';

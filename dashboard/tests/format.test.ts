@@ -51,11 +51,11 @@ test('live bubble token labels surface the row token fields and image tokens wit
   });
 
   assert.deepEqual(getLiveMessageTokenDisplay(user), { tokenCount: 0, exact: true, imageTokens: 0 });
-  assert.equal(formatLiveMessageTokenLabel(user), '0 tokens');
-  assert.equal(formatLiveMessageTokenLabel(thinking), '~2 tokens');
-  assert.equal(formatLiveMessageTokenLabel(tool), '5 tokens');
-  assert.equal(formatLiveMessageTokenLabel(image), '1,024 image tokens');
-  assert.equal(formatLiveMessageTokenLabel(tokenMessage({})), '0 tokens');
+  assert.equal(formatLiveMessageTokenLabel(getLiveMessageTokenDisplay(user)), '0 tokens');
+  assert.equal(formatLiveMessageTokenLabel(getLiveMessageTokenDisplay(thinking)), '~2 tokens');
+  assert.equal(formatLiveMessageTokenLabel(getLiveMessageTokenDisplay(tool)), '5 tokens');
+  assert.equal(formatLiveMessageTokenLabel(getLiveMessageTokenDisplay(image)), '1,024 image tokens');
+  assert.equal(formatLiveMessageTokenLabel(getLiveMessageTokenDisplay(tokenMessage({}))), '0 tokens');
 });
 
 test('settled turn tokens sum every row token field once and ignore the removed answer-row aggregate', () => {
@@ -75,7 +75,7 @@ test('settled turn tokens sum every row token field once and ignore the removed 
     recentActivities: [], showRecentActivity: false, main: messages[3] ?? null,
   } satisfies ChatTurn;
 
-  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 184, exact: true });
+  assert.deepEqual(getTurnTokenDisplay(turn, new Map()), { tokenCount: 184, exact: true });
 });
 
 test('live outer turn tokens sum each provisional bubble once', () => {
@@ -88,7 +88,11 @@ test('live outer turn tokens sum each provisional bubble once', () => {
     recentActivities: [], showRecentActivity: false, main: messages[1] ?? null,
   } satisfies ChatTurn;
 
-  assert.deepEqual(getTurnTokenDisplay(turn), { tokenCount: 13, exact: false });
+  assert.throws(() => getTurnTokenDisplay(turn, new Map()), /Missing live token display.*thinking/u);
+  const displays = new Map(messages.map((message) => [message.id, getLiveMessageTokenDisplay(message)]));
+  assert.deepEqual(getTurnTokenDisplay(turn, displays), { tokenCount: 13, exact: false });
+  displays.set('thinking', { tokenCount: null, exact: false, imageTokens: 0 });
+  assert.deepEqual(getTurnTokenDisplay(turn, displays), { tokenCount: null, exact: false });
 });
 
 test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acceptance and throughput stats', () => {

@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   buildChatRunMessageIdPrefix,
   ChatStreamToolEventSchema,
+  ChatStreamUsageEventSchema,
   PersistedChatTranscriptMessageSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamQueuedUserMessageSchema,
@@ -15,6 +16,7 @@ import {
   finalizeStoppedChatTranscript,
   reduceChatTranscript,
   type ChatStreamToolEvent,
+  type ChatStreamUsageEvent,
   type ChatTranscriptMessage,
   type ChatTranscriptMetadata,
   type PersistedChatTranscriptMessage as WireChatMessage,
@@ -196,17 +198,23 @@ function forwardRepoSearchToolEvent(
   }
 }
 
-export function forwardRepoSearchUsageEvent(
-  writer: ChatFrameWriter,
+function toChatStreamUsageEvent(
   event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
-): void {
-  writer.writeEvent('usage', {
+): ChatStreamUsageEvent {
+  return ChatStreamUsageEventSchema.parse({
     turn: event.turn,
     maxTurns: event.maxTurns,
     record: event.record,
     totals: event.totals,
     charsPerToken: event.charsPerToken,
   });
+}
+
+export function forwardRepoSearchUsageEvent(
+  writer: ChatFrameWriter,
+  event: Extract<RepoSearchProgressEvent, { kind: 'usage' }>,
+): void {
+  writer.writeEvent('usage', toChatStreamUsageEvent(event));
 }
 
 export function forwardRepoSearchPromptEvent(
@@ -460,6 +468,10 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       return;
     }
     if (event.kind === 'usage') {
+      this.flushPending();
+      this.transcriptMessages = reduceChatTranscript(this.transcriptMessages, {
+        kind: 'usage', usage: toChatStreamUsageEvent(event),
+      }, this.transcriptMetadata);
       forwardRepoSearchUsageEvent(this.writer, event);
       return;
     }

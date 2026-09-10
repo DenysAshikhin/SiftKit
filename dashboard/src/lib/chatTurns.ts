@@ -91,15 +91,16 @@ function finalizeTurn(turn: ChatTurn): void {
 
 export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: Set<string>): ChatTurn[] {
   const turns: ChatTurn[] = [];
+  let lastGroupingKey: string | null = null;
   for (const message of messages) {
     const isLive = liveMessageIds.has(message.id);
     const key = resolveTurnKey(message, isLive);
     const lastTurn = turns[turns.length - 1];
-    if (lastTurn && lastTurn.key === key) {
+    if (lastTurn && lastGroupingKey === key) {
       lastTurn.messages.push(message);
     } else {
       turns.push({
-        key,
+        key: message.role === 'user' ? `user:${message.id}` : `assistant-segment:${message.id}`,
         isLive,
         messages: [message],
         steps: [],
@@ -109,6 +110,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
         main: null,
       });
     }
+    lastGroupingKey = key;
   }
   for (const turn of turns) {
     finalizeTurn(turn);

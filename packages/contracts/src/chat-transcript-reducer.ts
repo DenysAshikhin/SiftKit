@@ -90,10 +90,10 @@ function textMessage(
   });
 }
 
-function textMessageId(
+export function buildChatTextMessageId(
   kind: 'thinking' | 'narration' | 'answer',
   turn: number,
-  metadata: ChatTranscriptMetadata,
+  metadata: Pick<ChatTranscriptMetadata, 'messageIdPrefix'>,
 ): string {
   return `${metadata.messageIdPrefix}-${kind}-${turn}`;
 }
@@ -103,14 +103,14 @@ function reduceTextEvent(
   event: Extract<ChatTranscriptEvent, { kind: 'thinking' | 'narration' | 'answer' }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
-  const narrationId = textMessageId('narration', event.delta.turn, metadata);
+  const narrationId = buildChatTextMessageId('narration', event.delta.turn, metadata);
   const promotedNarration = event.kind === 'answer'
     ? messages.find((message) => (
       message.id === narrationId
-      && (message.kind === 'assistant_narration' || message.kind === 'assistant_progress')
+      && (message.kind === 'assistant_narration' || message.kind === 'assistant_progress' || message.kind === 'assistant_answer')
     ))
     : undefined;
-  const id = promotedNarration?.id ?? textMessageId(event.kind, event.delta.turn, metadata);
+  const id = promotedNarration?.id ?? buildChatTextMessageId(event.kind, event.delta.turn, metadata);
   const existing = messages.find((message) => message.id === id);
   const content = applyChatStreamTextDelta(existing?.content ?? '', event.delta);
   if (!content && !existing && event.kind !== 'answer') return [...messages];
@@ -120,7 +120,9 @@ function reduceTextEvent(
     : event.kind === 'narration'
       ? 'assistant_narration'
       : 'assistant_answer';
-  return upsertMessage(messages, textMessage(id, kind, content, metadata));
+  return upsertMessage(messages, existing
+    ? ChatTranscriptMessageSchema.parse({ ...existing, kind, content })
+    : textMessage(id, kind, content, metadata));
 }
 
 function reduceProgressEvent(
@@ -145,7 +147,7 @@ function reduceToolEvent(
   const tool = event.tool;
   const beforeTool = tool.kind === 'tool_start'
     ? messages.map((message) => (
-      message.id === textMessageId('narration', tool.turn, metadata)
+      message.id === buildChatTextMessageId('narration', tool.turn, metadata)
       && message.kind === 'assistant_narration'
         ? ChatTranscriptMessageSchema.parse({ ...message, kind: 'assistant_progress' })
         : message
@@ -205,19 +207,21 @@ function reduceUsageEvent(
   event: Extract<ChatTranscriptEvent, { kind: 'usage' }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
-  const thinkingId = textMessageId('thinking', event.usage.turn, metadata);
+  const thinkingId = buildChatTextMessageId('thinking', event.usage.turn, metadata);
   const answerIndex = findAnswerIndex(messages);
   return messages.map((message, index) => {
     if (message.id === thinkingId && message.kind === 'assistant_thinking') {
       return ChatTranscriptMessageSchema.parse({
         ...message,
         thinkingTokens: event.usage.record.thinkingTokens,
+        thinkingTokensEstimated: event.usage.record.thinkingTokensEstimated,
       });
     }
     if (index === answerIndex) {
       return ChatTranscriptMessageSchema.parse({
         ...message,
         outputTokensEstimate: event.usage.totals.outputTokens,
+        outputTokensEstimated: event.usage.totals.outputTokensEstimatedCount > 0,
       });
     }
     return message;
@@ -289,12 +293,10 @@ export function finalizeStoppedChatTranscript(
       ),
     ]
     : terminal.map((message, index) => index === answerIndex
-      ? textMessage(
-        message.id,
-        'assistant_answer',
-        message.content ? `${message.content}\n\n${parsedMarker}` : parsedMarker,
-        metadata,
-      )
+      ? ChatTranscriptMessageSchema.parse({
+        ...message,
+        content: message.content ? `${message.content}\n\n${parsedMarker}` : parsedMarker,
+      })
       : message);
 
   return finalized.map((message) => PersistedChatTranscriptMessageSchema.parse(message));

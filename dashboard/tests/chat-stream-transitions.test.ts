@@ -7,6 +7,62 @@ import { ChatSessionBusyError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import type { ChatSession, ChatSessionOperationKind, ChatSessionResponse } from '../src/types';
+import { parseChatStreamPacket } from '../src/lib/chat-stream-parser';
+import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display';
+import { buildUsageFrame } from './usage-frame';
+
+for (const thinking of [true, false]) {
+  test(`replayed token metadata stays session scoped, respects thinking=${thinking}, and clears on failure and successor`, async () => {
+    const drain = new StoreDrain();
+    const gate = new Gate();
+    const frames = [
+      ['attached', { operationKind: 'message', operationId: OPERATION_ID, startedAtUtc: '2026-09-10T00:00:00.000Z', replayTruncated: true }],
+      ['thinking', { turn: 1, offset: 0, text: 'x'.repeat(400) }],
+      ['usage', buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } })],
+      ['queued_user_message', { id: OPERATION_ID, turn: 1, boundary: 'post_tool_batch', content: 'queued', images: [] }],
+      ['prompt', { turn: 2, maxTurns: 20, promptTokens: 100, charsPerToken: 8 }],
+      ['thinking', { turn: 2, offset: 0, text: 'y'.repeat(400) }],
+    ] as const;
+    async function* replay(): AsyncGenerator<ChatStreamEvent> {
+      for (const [event, data] of frames) {
+        const parsed = parseChatStreamPacket(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        assert.ok(parsed);
+        yield parsed;
+      }
+      gate.markWaiting();
+      await gate.promise;
+      throw new Error('provider failure after text');
+    }
+    const completion = drain.drain(replay(), 'session-a', thinking);
+    await Promise.race([gate.waiting, completion.then(() => { throw new Error('Replay ended before its gate'); })]);
+    const runtime = drain.store.get('session-a');
+    const displays = buildLiveTokenDisplays(runtime);
+    assert.equal(displays.get('live-thinking-1')?.tokenCount, thinking ? 187 : undefined);
+    assert.equal(displays.get('live-thinking-2')?.tokenCount, thinking ? 50 : undefined);
+    assert.equal(runtime.liveMessages.filter((message) => message.kind === 'assistant_thinking').length, thinking ? 2 : 0);
+    assert.equal(runtime.tokenTurns.size, 2);
+    assert.equal(drain.store.get('session-b').tokenTurns.size, 0);
+    gate.open();
+    await completion;
+    assert.equal(drain.store.get('session-a').tokenTurns.size, 0);
+    assert.equal(drain.store.get('session-a').error, 'provider failure after text');
+    const successorGate = new Gate();
+    async function* successor(): AsyncGenerator<ChatStreamEvent> {
+      yield { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 } };
+      yield { kind: 'answer', delta: { turn: 1, offset: 0, text: 'z'.repeat(400) } };
+      successorGate.markWaiting();
+      await successorGate.promise;
+      yield { kind: 'done', payload: response('session-a') };
+    }
+    const successorDone = drain.drain(successor(), 'session-a', thinking);
+    await successorGate.waiting;
+    assert.equal(buildLiveTokenDisplays(drain.store.get('session-a')).get('live-answer-1')?.tokenCount, 50);
+    assert.equal(drain.store.get('session-a').tokenTurns.size, 1);
+    successorGate.open();
+    await successorDone;
+    assert.equal(drain.store.get('session-a').tokenTurns.size, 0);
+  });
+}
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 

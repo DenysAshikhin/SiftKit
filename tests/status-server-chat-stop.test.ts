@@ -14,6 +14,38 @@ import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
+import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
+
+test('HTTP stop retains completed thinking usage and partial answer usage after appending the marker', async (t) => {
+  const engineService = new StoppedChatEngineService({
+    prompt: 'stop measured transcript',
+    progressEvents: [
+      { kind: 'thinking', turn: 1, maxTurns: 2, thinkingText: 'completed reasoning' },
+      { kind: 'usage', elapsedMs: 1, ...buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) },
+      { kind: 'answer', turn: 2, maxTurns: 2, answerText: 'partial answer' },
+      { kind: 'usage', elapsedMs: 2, ...buildUsageFrame({ turn: 2, totals: { outputTokens: 60 } }) },
+    ],
+  });
+  const harness = await startHarness('chat-stop-measured-', t, { engineService });
+  const sessionId = await createSession(harness, 'measured stop');
+  const stream = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+    method: 'POST', body: JSON.stringify({ content: 'stop measured transcript', operationId: OPERATION_A }),
+  });
+  await engineService.waitUntilEntered();
+  const stop = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
+    method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }),
+  });
+  assert.equal(stop.statusCode, 200);
+  await stream;
+  const saved = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
+  const messages = asObjectArray(asObject(saved.body.session).messages);
+  const thinking = messages.find((message) => message.kind === 'assistant_thinking');
+  assert.equal(thinking?.thinkingTokens, 187);
+  assert.equal(thinking?.thinkingTokensEstimated, true);
+  assert.equal(messages.at(-1)?.outputTokensEstimate, 60);
+  assert.equal(messages.at(-1)?.outputTokensEstimated, false);
+  assert.equal(messages.at(-1)?.content, 'partial answer\n\n*Stopped by user.*');
+});
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';

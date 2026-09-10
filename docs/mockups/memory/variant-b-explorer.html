@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memory · Explorer mockup</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#0a1018;--panel:#0f1822;--panel2:#131f2b;--line:#1e2d3d;--fg:#dbe6f0;--dim:#7b91a6;
+  --accent:#2ec9a0;--warn:#e8b04b;--bad:#e4694a;--blue:#4aa3e0;--purple:#9b7fe0;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.top{display:flex;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid var(--line);
+  background:var(--panel);position:sticky;top:0;z-index:30}
+.logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#04140f;
+  display:grid;place-items:center;font-weight:800;font-size:14px}
+.crumb{color:var(--dim);font-size:13px}
+.crumb b{color:var(--fg)}
+.top .spacer{flex:1}
+.viewnav{display:flex;gap:3px;margin-left:8px;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:3px}
+.viewnav a{text-decoration:none;color:var(--dim);font-size:12px;padding:4px 12px;border-radius:6px}
+.viewnav a:hover{color:var(--fg)}
+.viewnav a.on{background:var(--panel2);color:var(--accent);font-weight:600}
+.stamp{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.badge{font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.ok{color:var(--accent);border-color:var(--accent)}
+.badge.warn{color:var(--warn);border-color:var(--warn)}
+.badge.bad{color:var(--bad);border-color:var(--bad)}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);margin:0 0 12px;font-weight:650}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.mono{font-family:var(--mono)}
+.bar{height:7px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)}
+.note{font-size:11.5px;color:var(--dim);line-height:1.6}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#22334a;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+
+.dock{position:fixed;right:20px;bottom:20px;z-index:60;font-size:13px}
+.dock-fab{display:flex;align-items:center;gap:9px;padding:11px 16px;border-radius:999px;
+  background:var(--accent);color:#04140f;border:0;cursor:pointer;font-weight:650;font-size:13px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5)}
+.dock-fab:hover{filter:brightness(1.08)}
+.dock-fab .dot{width:7px;height:7px;border-radius:50%;background:#04140f}
+.dock-panel{display:none;flex-direction:column;width:392px;height:552px;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.dock.open .dock-panel{display:flex}
+.dock.open .dock-fab{display:none}
+.dock-head{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line);
+  background:var(--panel2)}
+.dock-head b{font-size:13px;letter-spacing:.2px}
+.dock-head .scope{margin-left:auto;font-size:10px;color:var(--accent);border:1px solid var(--accent);
+  padding:2px 7px;border-radius:999px;opacity:.85;cursor:help}
+.dock-x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:0 2px}
+.dock-x:hover{color:var(--fg)}
+.dock-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:92%;padding:9px 12px;border-radius:11px;line-height:1.5}
+.msg.me{align-self:flex-end;background:var(--accent);color:#04140f;border-bottom-right-radius:3px}
+.msg.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:3px}
+.msg.ai code{background:rgba(255,255,255,.07);padding:1px 4px;border-radius:3px;font-size:11px}
+.trace{align-self:flex-start;font-size:10.5px;color:var(--dim);font-family:var(--mono);
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center;max-width:92%}
+.trace span{border:1px solid var(--line);padding:1px 6px;border-radius:4px;background:var(--panel2)}
+.card{align-self:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.card-h{padding:8px 11px;background:var(--panel2);border-bottom:1px solid var(--line);
+  font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);
+  display:flex;align-items:center;gap:7px}
+.card-h.warn{color:var(--warn)}
+.card-b{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+.diff{font-family:var(--mono);font-size:11px;line-height:1.6}
+.diff .del{color:var(--bad)}
+.diff .add{color:var(--accent)}
+.diff .ctx{color:var(--dim)}
+.card-f{display:flex;gap:7px;padding:9px 11px;border-top:1px solid var(--line);background:var(--panel2)}
+.card-f button{flex:1;padding:7px;border-radius:7px;font-size:12px;cursor:pointer;font-weight:600;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.card-f .go{background:var(--accent);color:#04140f;border-color:var(--accent)}
+.card-f .go:hover{filter:brightness(1.08)}
+.card-f button:disabled{opacity:.5;cursor:default;filter:none}
+.applied{padding:9px 11px;border-top:1px solid var(--line);color:var(--accent);font-size:11.5px;
+  background:var(--panel2);display:flex;align-items:center;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 10px}
+.chips button{font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--dim);cursor:pointer}
+.chips button:hover{color:var(--fg);border-color:var(--accent)}
+.dock-in{display:flex;gap:8px;padding:11px 12px;border-top:1px solid var(--line);background:var(--panel2)}
+.dock-in input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;
+  padding:9px 11px;color:var(--fg);font-size:12.5px;font-family:inherit}
+.dock-in input:focus{outline:none;border-color:var(--accent)}
+.dock-in button{background:var(--accent);color:#04140f;border:0;border-radius:8px;padding:0 15px;
+  cursor:pointer;font-weight:650}
+
+.shell{display:grid;grid-template-columns:216px 1fr 400px;height:calc(100vh - 53px)}
+.rail,.mid,.insp{overflow-y:auto}
+.rail{border-right:1px solid var(--line);padding:16px 14px;background:var(--panel)}
+.rail h2{margin-bottom:9px}
+.rail h2:not(:first-child){margin-top:22px}
+.facet{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12.5px}
+.facet:hover{background:var(--panel2)}
+.facet.on{background:var(--panel2);color:var(--accent)}
+.facet .fn{flex:1;text-transform:capitalize}
+.facet .fc{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.capsule{border:1px solid var(--line);border-radius:9px;padding:11px;margin-top:8px}
+.capsule .cl{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px}
+.capsule .cl b{font-family:var(--mono)}
+.capsule .cl .warn{color:var(--warn)}
+.mid{padding:16px 18px}
+.mfind{display:flex;gap:8px;margin-bottom:14px}
+.mfind input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:10px 13px;color:var(--fg);font-size:13px;font-family:inherit}
+.mfind input:focus{outline:none;border-color:var(--accent)}
+.mhead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.mhead h1{font-size:16px;margin:0;font-weight:650}
+.mhead span{font-size:12px;color:var(--dim)}
+.ent{display:grid;grid-template-columns:1fr auto;gap:3px 12px;padding:11px 13px;border:1px solid var(--line);
+  border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--panel)}
+.ent:hover{border-color:#2c4257}
+.ent.on{border-color:var(--accent);background:var(--panel2)}
+.ent .en{font-weight:600;font-size:13.5px}
+.ent .em{grid-column:1;color:var(--dim);font-size:11.5px;display:flex;gap:9px;align-items:center}
+.ent .deg{grid-row:1/3;align-self:center;text-align:right;font-family:var(--mono)}
+.ent .deg b{font-size:17px} .ent .deg small{display:block;color:var(--dim);font-size:10px}
+.dupflag{font-size:10px;color:var(--warn);border:1px solid var(--warn);border-radius:99px;padding:0 6px}
+.tag{font-size:10px;padding:1px 7px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+.insp{border-left:1px solid var(--line);background:var(--panel);padding:18px 16px}
+.ih{margin-bottom:14px}
+.ih h3{margin:0 0 5px;font-size:17px}
+.ih .sub{color:var(--dim);font-size:12px}
+.iacts{display:flex;gap:7px;margin:13px 0 18px;flex-wrap:wrap}
+.btn{padding:6px 11px;border-radius:7px;font-size:11.5px;cursor:pointer;border:1px solid var(--line);
+  background:var(--panel2);color:var(--fg)}
+.btn:hover{border-color:var(--accent)}
+.btn.warn:hover{border-color:var(--bad);color:var(--bad)}
+.asrt{padding:10px 0;border-top:1px solid var(--line)}
+.asrt .line{font-size:12.5px;line-height:1.5;margin-bottom:5px}
+.asrt .pred{font-family:var(--mono);font-size:11px;color:var(--blue);background:rgba(74,163,224,.1);
+  padding:1px 6px;border-radius:4px;margin:0 3px}
+.asrt .meta{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--dim)}
+.cbar{width:44px;height:4px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.cbar i{display:block;height:100%;border-radius:99px}
+.asrt .row2{display:flex;justify-content:space-between;align-items:center}
+.mini{display:none;gap:5px}
+.asrt:hover .mini{display:flex}
+.asrt:hover .meta .hidehov{display:none}
+.mini button{font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--dim);cursor:pointer}
+.mini button:hover{color:var(--fg);border-color:var(--accent)}
+.prov{margin-top:16px;padding:11px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.prov h4{margin:0 0 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim)}
+.prov .pl{display:flex;justify-content:space-between;font-size:11.5px;padding:3px 0}
+.prov .pl span{color:var(--dim)}
+.modes{display:flex;gap:3px;background:var(--bg);border:1px solid var(--line);border-radius:8px;
+  padding:3px;margin-bottom:14px;width:fit-content}
+.modes button{background:none;border:0;color:var(--dim);font-size:12px;padding:5px 14px;
+  border-radius:6px;cursor:pointer;font-family:inherit}
+.modes button:hover{color:var(--fg)}
+.modes button.on{background:var(--panel2);color:var(--accent);font-weight:600}
+.modes .badge2{font-family:var(--mono);font-size:10px;margin-left:6px;color:var(--warn)}
+.pane{display:none}
+.pane.on{display:block}
+.card2{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:12px 14px;
+  margin-bottom:9px}
+.card2 .c2h{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.card2 .c2h h4{margin:0;font-size:13.5px;font-weight:600;flex:1}
+.card2 p{margin:0 0 8px;font-size:12.5px;color:var(--dim);line-height:1.55}
+.card2 .c2acts{display:flex;gap:7px;margin-top:9px}
+.hold{border-color:var(--warn)}
+.hold .idbox{background:rgba(232,176,75,.08);border:1px solid var(--warn);border-radius:8px;
+  padding:10px 12px;margin:8px 0 0}
+.hold .idbox p{color:var(--fg);margin-bottom:9px}
+.notes{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:7px;color:var(--fg);
+  font-family:inherit;font-size:12px;padding:7px 9px;resize:vertical}
+.hist{display:grid;grid-template-columns:112px 1fr;gap:0 14px;padding:9px 0;
+  border-top:1px solid var(--line);font-size:12.5px}
+.hist .when{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.hist .what b{font-weight:600}
+.hist .proof{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:3px}
+.op{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);
+  color:var(--dim);margin-right:6px}
+.op.create_node,.op.create_assertion{color:var(--accent);border-color:rgba(46,201,160,.5)}
+.op.merge_node{color:var(--purple);border-color:rgba(155,127,224,.5)}
+.op.supersede_assertion{color:var(--warn);border-color:rgba(232,176,75,.5)}
+.actor{font-size:10px;color:var(--dim)}
+</style>
+</head><body>
+
+
+<header class="top">
+  <div class="logo">S</div>
+  <div class="crumb">SiftKit / <b>Memory</b></div>
+  <nav class="viewnav">
+    <a href="variant-a-dashboard.html" class="">Overview</a>
+    <a href="variant-b-explorer.html" class="on">Explorer</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="badge warn">Tier 3 87.8%</span>
+  <span class="stamp">master–detail &middot; graph v6,608 &middot; 2026-09-10</span>
+</header>
+<div class="shell">
+
+  <aside class="rail">
+    <h2>Capacity</h2>
+    
+      <div class="capsule">
+        <div class="cl"><span>Tier 1 · Profile</span>
+          <b class="warn">1/1</b></div>
+        <div class="bar"><i class="warn" style="width:100%"></i></div>
+        <div class="note" style="margin-top:6px">6,692 tok · 100.0%</div>
+      </div>
+      <div class="capsule">
+        <div class="cl"><span>Tier 2 · Dossier</span>
+          <b class="">2/25</b></div>
+        <div class="bar"><i class="" style="width:8%"></i></div>
+        <div class="note" style="margin-top:6px">198 tok · 8.0%</div>
+      </div>
+      <div class="capsule">
+        <div class="cl"><span>Tier 3 · Archive</span>
+          <b class="warn">439/500</b></div>
+        <div class="bar"><i class="warn" style="width:87.8%"></i></div>
+        <div class="note" style="margin-top:6px">58,079 tok · 87.8%</div>
+      </div>
+    <div class="note" style="margin-top:11px">442 docs · 64,969 tokens</div>
+
+    <h2>Entity type</h2>
+    <div class="facet on"><span class="fn">all</span><span class="fc">1,109</span></div>
+    
+      <div class="facet"><span class="fn">software</span><span class="fc">445</span></div>
+      <div class="facet"><span class="fn">project</span><span class="fc">279</span></div>
+      <div class="facet"><span class="fn">device</span><span class="fc">84</span></div>
+      <div class="facet"><span class="fn">person</span><span class="fc">64</span></div>
+      <div class="facet"><span class="fn">topic</span><span class="fc">61</span></div>
+      <div class="facet"><span class="fn">media work</span><span class="fc">31</span></div>
+      <div class="facet"><span class="fn">preference context</span><span class="fc">26</span></div>
+      <div class="facet"><span class="fn">goal</span><span class="fc">24</span></div>
+      <div class="facet"><span class="fn">configuration profile</span><span class="fc">17</span></div>
+      <div class="facet"><span class="fn">activity</span><span class="fc">15</span></div>
+
+    <h2>Confidence</h2>
+    <div class="facet"><span class="fn">high ≥0.8</span><span class="fc">24</span></div>
+    <div class="facet"><span class="fn">medium</span><span class="fc">136</span></div>
+    <div class="facet"><span class="fn">unscored</span><span class="fc">1248</span></div>
+
+    <h2>Needs attention</h2>
+    <div class="facet" onclick="mode('review')"><span class="fn">identity questions</span>
+      <span class="fc" style="color:var(--warn)">37</span></div>
+    <div class="facet"><span class="fn">duplicates</span><span class="fc">2</span></div>
+    <div class="facet" onclick="mode('review')"><span class="fn">pending review</span>
+      <span class="fc">1,333</span></div>
+    <div class="facet"><span class="fn">never retrieved</span><span class="fc">438</span></div>
+  </aside>
+
+  <main class="mid">
+    <div class="modes">
+      <button class="on" data-mode="entities" onclick="mode('entities')">Entities</button>
+      <button data-mode="review" onclick="mode('review')">Review<span class="badge2">1,333</span></button>
+      <button data-mode="history" onclick="mode('history')">History</button>
+    </div>
+
+    <div class="pane on" id="pane-entities">
+      <div class="mfind"><input placeholder="Search entities, beliefs and documents…" oninput="filterEnts(this.value)"></div>
+      <div class="mhead"><h1>Entities</h1><span id="cnt">14 shown · sorted by connectedness</span></div>
+      <div id="ents">
+        
+        <div class="ent on" data-i="0" data-name="the user" onclick="pick(0)">
+          <div class="en">the user
+            </div>
+          <div class="em"><span class="tag">person</span> first seen 2026-08-28</div>
+          <div class="deg"><b>712</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="1" data-name="the last spark" onclick="pick(1)">
+          <div class="en">The Last Spark
+            <span class="dupflag">duplicate?</span></div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-03</div>
+          <div class="deg"><b>67</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="2" data-name="unknown" onclick="pick(2)">
+          <div class="en">Unknown
+            </div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-03</div>
+          <div class="deg"><b>54</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="3" data-name="siftkit" onclick="pick(3)">
+          <div class="en">SiftKit
+            <span class="dupflag">duplicate?</span></div>
+          <div class="em"><span class="tag">project</span> first seen 2026-09-03</div>
+          <div class="deg"><b>42</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="4" data-name="thelastspark" onclick="pick(4)">
+          <div class="en">TheLastSpark
+            <span class="dupflag">duplicate?</span></div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-03</div>
+          <div class="deg"><b>38</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="5" data-name="visual studio code" onclick="pick(5)">
+          <div class="en">Visual Studio Code
+            </div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>37</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="6" data-name="git" onclick="pick(6)">
+          <div class="en">Git
+            </div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>26</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="7" data-name="user denys" onclick="pick(7)">
+          <div class="en">User denys
+            </div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-08</div>
+          <div class="deg"><b>21</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="8" data-name="reddit" onclick="pick(8)">
+          <div class="en">Reddit
+            </div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>20</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="9" data-name="node.js" onclick="pick(9)">
+          <div class="en">Node.js
+            </div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>19</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="10" data-name="unknown user" onclick="pick(10)">
+          <div class="en">Unknown User
+            </div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-03</div>
+          <div class="deg"><b>19</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="11" data-name="siftkit" onclick="pick(11)">
+          <div class="en">SiftKit
+            <span class="dupflag">duplicate?</span></div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>18</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="12" data-name="vs code" onclick="pick(12)">
+          <div class="en">VS Code
+            </div>
+          <div class="em"><span class="tag">software</span> first seen 2026-09-03</div>
+          <div class="deg"><b>17</b><small>beliefs</small></div>
+        </div>
+        <div class="ent " data-i="13" data-name="turboderp" onclick="pick(13)">
+          <div class="en">turboDerp
+            </div>
+          <div class="em"><span class="tag">person</span> first seen 2026-09-03</div>
+          <div class="deg"><b>17</b><small>beliefs</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-review">
+      <div class="mhead"><h1>Awaiting your review</h1>
+        <span>1,333 candidate beliefs · 37 held on an identity question</span></div>
+      
+        <div class="card2 hold">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              Is “deny” another name for you?</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The right-hand panel is explicitly labeled &quot;Claude Code&quot;.</p>
+          
+          <div class="idbox">
+            <p>“deny” is close to one of your own names. Nothing is written until you answer.</p>
+            <div class="c2acts">
+              <button class="btn" onclick="resolveCard(this,'Recorded as you.')">Yes, that is me</button>
+              <button class="btn" onclick="resolveCard(this,'Recorded as someone else.')">No, someone else</button>
+            </div>
+          </div>
+        </div>
+        <div class="card2 ">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              The screenshot displays the user interface of Visual Studi…</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The screenshot displays the user interface of Visual Studio Code, a code editor, including its layout with an activity bar, a source control sidebar, and a terminal.</p>
+          
+          <textarea class="notes" rows="2" placeholder="Your notes…"></textarea>
+          <div class="c2acts">
+            <button class="btn" onclick="resolveCard(this,'Notes saved.')">Save notes</button>
+            <button class="btn warn" onclick="resolveCard(this,'Removed from the queue.')">Remove</button>
+          </div>
+        </div>
+        <div class="card2 ">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              The Command Prompt header displays &#39;Microsoft Windows …</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The Command Prompt header displays &#39;Microsoft Windows [Version 10.0.26200.9168]&#39;, identifying the operating system.</p>
+          
+          <textarea class="notes" rows="2" placeholder="Your notes…"></textarea>
+          <div class="c2acts">
+            <button class="btn" onclick="resolveCard(this,'Notes saved.')">Save notes</button>
+            <button class="btn warn" onclick="resolveCard(this,'Removed from the queue.')">Remove</button>
+          </div>
+        </div>
+        <div class="card2 hold">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              Is “denvys” another name for you?</h4>
+            <span class="tag">99%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The interface shown, including the Activity Bar, the &#39;Terminal&#39; tab, and the overall layout, is characteristic of the Visual Studio Code code editor.</p>
+          
+          <div class="idbox">
+            <p>“denvys” is close to one of your own names. Nothing is written until you answer.</p>
+            <div class="c2acts">
+              <button class="btn" onclick="resolveCard(this,'Recorded as you.')">Yes, that is me</button>
+              <button class="btn" onclick="resolveCard(this,'Recorded as someone else.')">No, someone else</button>
+            </div>
+          </div>
+        </div>
+        <div class="card2 ">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              The user executes an &#39;npm install&#39; command in the …</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The user executes an &#39;npm install&#39; command in the terminal.</p>
+          
+          <textarea class="notes" rows="2" placeholder="Your notes…"></textarea>
+          <div class="c2acts">
+            <button class="btn" onclick="resolveCard(this,'Notes saved.')">Save notes</button>
+            <button class="btn warn" onclick="resolveCard(this,'Removed from the queue.')">Remove</button>
+          </div>
+        </div>
+        <div class="card2 ">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              The user installs the package &#39;@anthropic-ai/claude-co…</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The user installs the package &#39;@anthropic-ai/claude-code&#39;, indicating they are setting up this specific tool.</p>
+          
+          <textarea class="notes" rows="2" placeholder="Your notes…"></textarea>
+          <div class="c2acts">
+            <button class="btn" onclick="resolveCard(this,'Notes saved.')">Save notes</button>
+            <button class="btn warn" onclick="resolveCard(this,'Removed from the queue.')">Remove</button>
+          </div>
+        </div>
+        <div class="card2 hold">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              Is “denvys” another name for you?</h4>
+            <span class="tag">99%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The pane on the right is titled &#39;Claude Code&#39; and shows an interaction with the Claude model, indicating the user is using this AI coding assistant.</p>
+          
+          <div class="idbox">
+            <p>“denvys” is close to one of your own names. Nothing is written until you answer.</p>
+            <div class="c2acts">
+              <button class="btn" onclick="resolveCard(this,'Recorded as you.')">Yes, that is me</button>
+              <button class="btn" onclick="resolveCard(this,'Recorded as someone else.')">No, someone else</button>
+            </div>
+          </div>
+        </div>
+        <div class="card2 ">
+          <div class="c2h">
+            <h4><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+              The application title bar and header clearly identify the …</h4>
+            <span class="tag">100%</span>
+            <span class="tag">personal</span>
+          </div>
+          <p>The application title bar and header clearly identify the software being used as &#39;SiftKit&#39;.</p>
+          
+          <textarea class="notes" rows="2" placeholder="Your notes…"></textarea>
+          <div class="c2acts">
+            <button class="btn" onclick="resolveCard(this,'Notes saved.')">Save notes</button>
+            <button class="btn warn" onclick="resolveCard(this,'Removed from the queue.')">Remove</button>
+          </div>
+        </div>
+      <div class="note">Showing 8 of 1,333.</div>
+    </div>
+
+    <div class="pane" id="pane-history">
+      <div class="mhead"><h1>Memory history</h1>
+        <span>7,340 recorded changes</span></div>
+      <div class="note" style="margin-bottom:12px">
+        system 3,872 · assistant proposal 3,461 · user 7
+        — only 7 changes were made by you.
+      </div>
+      
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_77ec9c768bf84158aa</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_77ec9c768bf84158aa229c75e9a8b15f</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_c5040b6c4add405e85</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_c5040b6c4add405e855f6394e17452cd</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_7e0da238aa80407b96</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_7e0da238aa80407b96abe510149b13b9</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op create_assertion">create assertion</span>
+          <b>ast_fa4d088ea46b4693a4</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">new assertion accepted</div>
+          <div class="proof">graph_assertions · ast_fa4d088ea46b4693a4ea89d2fd443f55</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op create_node">create node</span>
+          <b>GPT-4 Astra Medium</b>
+          <span class="actor">· system</span>
+          <div class="note">entity resolution created a new node for an unmatched name</div>
+          <div class="proof">graph_nodes · node_a6621aa3dcb94159b060aaf3e83576da</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_03a2fab25a3a422688</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_03a2fab25a3a422688209fff6e4a8c94</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_2b7ef2e4e0044276b1</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_2b7ef2e4e0044276b1c6730a043d006b</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_c3ad2b9821c844e0be</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_c3ad2b9821c844e0bef76f3849090183</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_9a898268874b40db97</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_9a898268874b40db978d410a6035fa66</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_dc0f7337a14f40b689</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_dc0f7337a14f40b689acf16a20c209dd</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op update_assertion">update assertion</span>
+          <b>ast_ca0ee5cb87624e508e</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">reinforced by new supporting evidence</div>
+          <div class="proof">graph_assertions · ast_ca0ee5cb87624e508e17d6333dc30590</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op create_assertion">create assertion</span>
+          <b>ast_d8b0496eb1b84a8298</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">new assertion accepted</div>
+          <div class="proof">graph_assertions · ast_d8b0496eb1b84a82980c9db90d525ab8</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op create_assertion">create assertion</span>
+          <b>ast_6aaeebf02ef44533a4</b>
+          <span class="actor">· assistant proposal</span>
+          <div class="note">new assertion accepted</div>
+          <div class="proof">graph_assertions · ast_6aaeebf02ef44533a4f43b89b1e09d3d</div>
+        </div>
+      </div>
+      <div class="hist">
+        <div class="when">09-10 13:53</div>
+        <div class="what">
+          <span class="op create_node">create node</span>
+          <b>Fix duplicate commands</b>
+          <span class="actor">· system</span>
+          <div class="note">entity resolution created a new node for an unmatched name</div>
+          <div class="proof">graph_nodes · node_83fcd039bea949f9b3c6e2b4796672d2</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="insp" id="insp">
+  <div class="ih">
+    <h3>the user</h3>
+    <div class="sub"><span class="tag">person</span>
+      &nbsp;712 beliefs &middot; first seen 2026-08-28</div>
+  </div>
+  
+  <div class="iacts">
+    <button class="btn" onclick="dockOpen(true);ask('Why do you think that?')">Explain</button>
+    <button class="btn">Pin all</button>
+    <button class="btn">Rename</button>
+    <button class="btn warn" onclick="dockOpen(true);ask('Forget everything about this')">Forget</button>
+  </div>
+  <h2>Beliefs (12 of 712)</h2>
+  
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>SiFKit</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.99140978980998%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 41h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>npm</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.97827760716672%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 42h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>Node.js</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.97827758065456%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 42h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>PowerShell</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.93889038939425%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 40h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>Quokka</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.9387671991329%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 40h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>Visual Studio Code</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.93515978096605%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 40h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>SiftKit</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.51524697653771%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 36h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">WORKS_ON</span>gameplayplanner</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.51524695393682%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 36h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>exl3</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.5148025764191%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 36h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>td_flash-next_4.05bpw_h6_ng6</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.51480255381833%;background:var(--accent)"></i></div>
+        0.85
+        <span class="hidehov">&middot; observed &middot; 36h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>VS Code</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.4624285302302%;background:var(--accent)"></i></div>
+        0.84
+        <span class="hidehov">&middot; observed &middot; 40h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="asrt">
+    <div class="line"><b>the user</b><span class="pred">USES</span>Claude Code</div>
+    <div class="row2">
+      <div class="meta">
+        <div class="cbar"><i style="width:84.46242850764344%;background:var(--accent)"></i></div>
+        0.84
+        <span class="hidehov">&middot; observed &middot; 40h ago</span>
+      </div>
+      <div class="mini">
+        <button onclick="dockOpen(true);ask('Why do you think that?')">why?</button>
+        <button>pin</button><button>correct</button><button>drop</button>
+      </div>
+    </div>
+  </div>
+  <div class="prov">
+    <h4>Provenance</h4>
+    <div class="pl"><span>Basis</span><b>all passively observed</b></div>
+    <div class="pl"><span>First observed</span><b>2026-08-31</b></div>
+    <div class="pl"><span>Last observed</span><b>41h ago</b></div>
+    <div class="pl"><span>Sensitivity</span><b>personal</b></div>
+  </div></aside>
+</div>
+
+<script>
+const NODES = ["node_d91de57ee03d49bcb13db2f019fdc113","node_b208d5abc86844bbb65100ddf6b20e0c","node_26d878a56e7d4de7bcba306497022299","node_213042559a0e4f1387a4e6b27c78b1d4","node_06f8c0b9eaf244dbbdf3fa75d81c749a","node_27b46f189c154a568ac1421401d9542f","node_11f5343f791a4823af7cf8eb294bf08a","node_ddf6b9d3febe46f08c8d25fba6f58fb1","node_933b70f27d4947d2bfa99dac7fe4417a","node_3cb5aca7337b487e9e5dc7cebcbeaa30","node_dc7cbe27606c46a1998f0ddf1eaee8e2","node_ca90445140e7440fa953a02ab1f8eb39","node_13968ce1ba854e40a5d35e598f5d1a63","node_ccaee8e63e944df7ad02d23e0322bba7"];
+const PANES = {"node_d91de57ee03d49bcb13db2f019fdc113":"\n  <div class=\"ih\">\n    <h3>the user</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;712 beliefs &middot; first seen 2026-08-28</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 712)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>SiFKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.99140978980998%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>npm</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.97827760716672%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 42h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.97827758065456%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 42h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>PowerShell</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.93889038939425%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Quokka</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.9387671991329%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.93515978096605%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51524697653771%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">WORKS_ON</span>gameplayplanner</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51524695393682%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>exl3</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.5148025764191%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>td_flash-next_4.05bpw_h6_ng6</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51480255381833%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.4624285302302%;background:var(--accent)\"></i></div>\n        0.84\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Claude Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.46242850764344%;background:var(--accent)\"></i></div>\n        0.84\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>41h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_b208d5abc86844bbb65100ddf6b20e0c":"\n  <div class=\"ih\">\n    <h3>The Last Spark</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;67 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"capsule\" style=\"border-color:var(--warn);margin-bottom:14px\">\n    <div class=\"cl\"><span class=\"warn\">&#9888; Possible duplicate</span></div>\n    <div class=\"note\">Another entity shares this name. Merging keeps the higher-degree node.</div>\n    <button class=\"btn\" style=\"margin-top:9px;width:100%\" onclick=\"dockOpen(true);ask('Merge the duplicate SiftKit entries')\">Review merge</button>\n  </div>\n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 67)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>Discord</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>Discord Nitro</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>Discord Video Call</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">HAS_ROLE</span>member</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">HAS_ROLE</span>member</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">HAS_ROLE</span>member</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">HAS_CONSTRAINT</span>uses discord in a dark theme</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>PixelPeroxide</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">CONTRIBUTED_TO</span>unresolved</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>Jitsi</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">HAS_ROLE</span>owner</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>The Last Spark</b><span class=\"pred\">USES</span>RVPV</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>6d ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_26d878a56e7d4de7bcba306497022299":"\n  <div class=\"ih\">\n    <h3>Unknown</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;54 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 54)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024022135104%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>GO DOT</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024021400237%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>gameplayplanner</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024020910325%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>NeetCode</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.960240204204126%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Codex</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024019930501%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Chrome</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024019685546%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Windows</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.960240191956345%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Hugo-Dz/spritz</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024018705722%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Distortion Spe</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024017970854%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>PineI Explosian</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.960240172359875%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">DRIVES</span>denys</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Claude Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-08</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>40h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_213042559a0e4f1387a4e6b27c78b1d4":"\n  <div class=\"ih\">\n    <h3>SiftKit</h3>\n    <div class=\"sub\"><span class=\"tag\">project</span>\n      &nbsp;42 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"capsule\" style=\"border-color:var(--warn);margin-bottom:14px\">\n    <div class=\"cl\"><span class=\"warn\">&#9888; Possible duplicate</span></div>\n    <div class=\"note\">Another entity shares this name. Merging keeps the higher-degree node.</div>\n    <button class=\"btn\" style=\"margin-top:9px;width:100%\" onclick=\"dockOpen(true);ask('Merge the duplicate SiftKit entries')\">Review merge</button>\n  </div>\n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 42)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51720141857477%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.46242848505668%;background:var(--accent)\"></i></div>\n        0.84\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>user &#39;denys&#39;</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68714535377336%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">DEPENDS_ON</span>esbuild</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.686259139274775%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">DEPENDS_ON</span>Prettier</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.686259129525375%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User: denys</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.686099871042636%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>unknown_user</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">HAS_PLAN</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Dmitry A.</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>jensinnio</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>dinesh</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 8d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 8d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-08</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>36h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_06f8c0b9eaf244dbbdf3fa75d81c749a":"\n  <div class=\"ih\">\n    <h3>TheLastSpark</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;38 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"capsule\" style=\"border-color:var(--warn);margin-bottom:14px\">\n    <div class=\"cl\"><span class=\"warn\">&#9888; Possible duplicate</span></div>\n    <div class=\"note\">Another entity shares this name. Merging keeps the higher-degree node.</div>\n    <button class=\"btn\" style=\"margin-top:9px;width:100%\" onclick=\"dockOpen(true);ask('Merge the duplicate SiftKit entries')\">Review merge</button>\n  </div>\n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 38)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_PLAN</span>Use a Pi as a workhorse</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_PLAN</span>Use a 5B parameter quantized model</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_PLAN</span>Use Q4 quantization</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_PLAN</span>Pull tensor metadata from Hugging Face</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>GGUF file format</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>OpenD</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>AppImage</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>Mac</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>Reddit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_PLAN</span>Home Purchase</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">INTERESTED_IN</span>AI Coding Assistants</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">HAS_ROLE</span>op</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-04</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>6d ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_27b46f189c154a568ac1421401d9542f":"\n  <div class=\"ih\">\n    <h3>Visual Studio Code</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;37 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 37)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.93515978096605%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602641700237%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User (denys)</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68625912465068%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>unknown_user</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 8d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demy</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>dave</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Claude</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>40h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_11f5343f791a4823af7cf8eb294bf08a":"\n  <div class=\"ih\">\n    <h3>Git</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;26 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 26)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602640193498%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>current user</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.99616016373711%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.98594437326033%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 42h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User (denys)</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68625910027721%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>unknown_user</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Dmitry A.</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 8d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demy</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>dave</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demya</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-08</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>36h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_ddf6b9d3febe46f08c8d25fba6f58fb1":"\n  <div class=\"ih\">\n    <h3>User denys</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;21 beliefs &middot; first seen 2026-09-08</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 21)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Claude Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.5172014449431%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51720141857477%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>PowerShell</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51720140350716%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Visual Studio Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602641700237%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602640193498%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602639440127%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>NVIDIA driver (via nvidia-smi)</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.99686894069819%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Prettier</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.99686893089343%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Quokka</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.99686892599105%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>tabbyapi</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.99686889657676%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 41h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">HAS_CONSTRAINT</span>operating system username is &#39;denys&#39;</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.98455226805169%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68760093740058%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-08</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>36h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_933b70f27d4947d2bfa99dac7fe4417a":"\n  <div class=\"ih\">\n    <h3>Reddit</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;20 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 20)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Reddit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.810699355436945%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>TheLastSpark</b><span class=\"pred\">USES</span>Reddit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/codex</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/Wealthsimple</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/CanadianInvestor</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/PersonalFinanceCanada</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/canadahousing</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/explainlikeimfive</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">PART_OF</span>r/ClaudeCode</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Superstonk_QV</b><span class=\"pred\">USES</span>Reddit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Reddit</b><span class=\"pred\">HAS_SETTING</span>light theme</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>16gig_vram</b><span class=\"pred\">USES</span>Reddit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-01</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>40h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_3cb5aca7337b487e9e5dc7cebcbeaa30":"\n  <div class=\"ih\">\n    <h3>Node.js</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;19 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 19)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.97827758065456%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 42h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51602639440127%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Node.js</b><span class=\"pred\">DEPENDS_ON</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 8d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demy</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>dave</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demya</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demy3</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Node.js</b><span class=\"pred\">COMPARED_WITH</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demsy</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demys</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>42h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_dc7cbe27606c46a1998f0ddf1eaee8e2":"\n  <div class=\"ih\">\n    <h3>Unknown User</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;19 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 19)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">WORKS_ON</span>Unknown Project</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>Google Drive</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>OneDrive</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">HAS_PLAN</span>Stellar Fleet Idle</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">HAS_PLAN</span>Farmer Against Potatoes Idle</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">WORKS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>Claude Code for VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>Node.js</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">USES</span>PowerShell</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown User</b><span class=\"pred\">WATCHED</span>Shipping a button in 2026...</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-04</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>6d ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_ca90445140e7440fa953a02ab1f8eb39":"\n  <div class=\"ih\">\n    <h3>SiftKit</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;18 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"capsule\" style=\"border-color:var(--warn);margin-bottom:14px\">\n    <div class=\"cl\"><span class=\"warn\">&#9888; Possible duplicate</span></div>\n    <div class=\"note\">Another entity shares this name. Merging keeps the higher-degree node.</div>\n    <button class=\"btn\" style=\"margin-top:9px;width:100%\" onclick=\"dockOpen(true);ask('Merge the duplicate SiftKit entries')\">Review merge</button>\n  </div>\n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 18)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.51524697653771%;background:var(--accent)\"></i></div>\n        0.85\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">CREATED</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:55.00000000000001%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 42h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.96024022135104%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Browser User</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.647684174864864%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">DEPENDS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Visual Studio Code</b><span class=\"pred\">DEPENDS_ON</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>jensinnio</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">TESTED_WITH</span>activity summary t10/45</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">DEPENDS_ON</span>SQLite</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>demy</b><span class=\"pred\">CREATED</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>SiftKit</b><span class=\"pred\">HAS_SETTING</span>gpt-5.6-luna medium</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>dengyu</b><span class=\"pred\">USES</span>SiftKit</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>36h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_13968ce1ba854e40a5d35e598f5d1a63":"\n  <div class=\"ih\">\n    <h3>VS Code</h3>\n    <div class=\"sub\"><span class=\"tag\">software</span>\n      &nbsp;17 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 17)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:84.4624285302302%;background:var(--accent)\"></i></div>\n        0.84\n        <span class=\"hidehov\">&middot; observed &middot; 40h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>User denys</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68760093740058%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>user &#39;denys&#39;</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68714537570983%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">RUNS_ON</span>Windows</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68627401440781%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">RUNS_ON</span>Dark Theme</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:54.68627400465841%;background:var(--blue)\"></i></div>\n        0.55\n        <span class=\"hidehov\">&middot; observed &middot; 36h ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Unknown</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>Dmitry A.</b><span class=\"pred\">USES</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">DEPENDS_ON</span>Copilot</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">DEPENDS_ON</span>VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">DEPENDS_ON</span>Claude Code for VS Code</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">DEPENDS_ON</span>GitHub Copilot</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>VS Code</b><span class=\"pred\">DEPENDS_ON</span>Git</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 9d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-08-31</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>40h ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>","node_ccaee8e63e944df7ad02d23e0322bba7":"\n  <div class=\"ih\">\n    <h3>turboDerp</h3>\n    <div class=\"sub\"><span class=\"tag\">person</span>\n      &nbsp;17 beliefs &middot; first seen 2026-09-03</div>\n  </div>\n  \n  <div class=\"iacts\">\n    <button class=\"btn\" onclick=\"dockOpen(true);ask('Why do you think that?')\">Explain</button>\n    <button class=\"btn\">Pin all</button>\n    <button class=\"btn\">Rename</button>\n    <button class=\"btn warn\" onclick=\"dockOpen(true);ask('Forget everything about this')\">Forget</button>\n  </div>\n  <h2>Beliefs (12 of 17)</h2>\n  \n  <div class=\"asrt\">\n    <div class=\"line\"><b>the user</b><span class=\"pred\">RELATED_TO</span>turboDerp</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 6d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">HAS_PLAN</span>Maintain Qwen3.8-27B-ex13 on Hugging Face</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">HAS_PLAN</span>Share large language model weights on Hugging Face</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">HAS_PLAN</span>Use Hugging Face Hub as primary repository for AI model distribution</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Hugging Face platform</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Browser (Chrome or Chromium-based)</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Git via huggingface_hub</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Apache 2.0 license</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Qwen3.8-27B-ex13 model</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>SafeTensors format</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">USES</span>Xet storage backend</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 7d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"asrt\">\n    <div class=\"line\"><b>turboDerp</b><span class=\"pred\">HAS_ROLE</span>server owner</div>\n    <div class=\"row2\">\n      <div class=\"meta\">\n        <div class=\"cbar\"><i style=\"width:4%;background:var(--bad)\"></i></div>\n        <span style=\"color:var(--bad)\">unscored</span>\n        <span class=\"hidehov\">&middot; observed &middot; 10d ago</span>\n      </div>\n      <div class=\"mini\">\n        <button onclick=\"dockOpen(true);ask('Why do you think that?')\">why?</button>\n        <button>pin</button><button>correct</button><button>drop</button>\n      </div>\n    </div>\n  </div>\n  <div class=\"prov\">\n    <h4>Provenance</h4>\n    <div class=\"pl\"><span>Basis</span><b>all passively observed</b></div>\n    <div class=\"pl\"><span>First observed</span><b>2026-09-04</b></div>\n    <div class=\"pl\"><span>Last observed</span><b>6d ago</b></div>\n    <div class=\"pl\"><span>Sensitivity</span><b>personal</b></div>\n  </div>"};
+function pick(i){
+  document.querySelectorAll('.ent').forEach(e => e.classList.toggle('on', +e.dataset.i === i));
+  document.getElementById('insp').innerHTML = PANES[NODES[i]];
+  document.getElementById('insp').scrollTop = 0;
+}
+function filterEnts(q){
+  const s = q.trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll('.ent').forEach(e => {
+    const hit = !s || e.dataset.name.includes(s);
+    e.style.display = hit ? '' : 'none';
+    if(hit) shown++;
+  });
+  document.getElementById('cnt').textContent = shown + ' shown · sorted by connectedness';
+}
+function mode(name){
+  document.querySelectorAll('.modes button').forEach(b =>
+    b.classList.toggle('on', b.dataset.mode === name));
+  document.querySelectorAll('.pane').forEach(p =>
+    p.classList.toggle('on', p.id === 'pane-' + name));
+}
+function resolveCard(btn, message){
+  const card = btn.closest('.card2');
+  card.querySelectorAll('button, textarea').forEach(el => { el.disabled = true; });
+  const done = document.createElement('div');
+  done.className = 'note';
+  done.style.color = 'var(--accent)';
+  done.style.marginTop = '8px';
+  done.textContent = '✓ ' + message;
+  card.appendChild(done);
+}
+</script>
+
+<div class="dock" id="dock">
+  <button class="dock-fab" onclick="dockOpen(true)"><span class="dot"></span>Memory assistant</button>
+  <div class="dock-panel">
+    <div class="dock-head">
+      <b>Memory assistant</b>
+      <span class="scope" title="Tools: search · graph/nodes · graph/assertions · assertions/:id/explanation · assertions/:id/correct · assertions/:id/confirm · assertions/:id/pin · assertions/:id/demote · assertions/:id (DELETE) · topics/forget-preview · topics/forget · cleanup/preview · cleanup · projections/rebuild">memory tools only</span>
+      <button class="dock-x" onclick="dockOpen(false)">&times;</button>
+    </div>
+    <div class="dock-log" id="log"></div>
+    <div class="chips">
+      <button onclick="ask(this.textContent)">Merge the duplicate SiftKit entries</button>
+      <button onclick="ask(this.textContent)">I don't use llama.cpp any more</button>
+      <button onclick="ask(this.textContent)">Forget everything about League of Legends</button>
+      <button onclick="ask(this.textContent)">Free up Tier 3 space</button>
+      <button onclick="ask(this.textContent)">Why do you think I use CUDA?</button>
+    </div>
+    <form class="dock-in" onsubmit="event.preventDefault();ask(this.q.value);this.q.value=''">
+      <input name="q" placeholder="Correct or clean up a memory…" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
+<script>
+const dockEl = document.getElementById('dock');
+const logEl = document.getElementById('log');
+function dockOpen(v){ dockEl.classList.toggle('open', v); if(v) logEl.scrollTop = logEl.scrollHeight; }
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; }
+function push(node){ logEl.appendChild(node); logEl.scrollTop = logEl.scrollHeight; }
+function applyCard(btn, msg){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied">&#10003; ' + msg + '</div>'));
+}
+function discardCard(btn){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied" style="color:var(--dim)">Discarded — nothing changed.</div>'));
+}
+const TRACE = (...t) => '<div class="trace">called ' + t.map(x=>'<span>'+x+'</span>').join('') + '</div>';
+
+const SCRIPT = [
+  { re:/merge|duplicate|dupe|same thing|two .*entries/i, reply: () => [
+      TRACE('search','graph/nodes','cleanup/preview'),
+      '<div class="msg ai">Found <b>4 likely duplicate pairs</b> in 1,109 active entities. Merging keeps the higher-degree node and re-points every assertion — nothing is deleted.</div>',
+      `<div class="card"><div class="card-h">cleanup/preview &middot; 4 merges</div><div class="card-b diff">
+        <div><span class="del">- SiftKit</span> <span class="ctx">(18 links)</span> &rarr; <span class="add">SiftKit</span> <span class="ctx">(42 links)</span></div>
+        <div><span class="del">- TheLastSpark</span> <span class="ctx">(38)</span> &rarr; <span class="add">The Last Spark</span> <span class="ctx">(67)</span></div>
+        <div><span class="del">- VS Code</span> <span class="ctx">(17)</span> &rarr; <span class="add">Visual Studio Code</span> <span class="ctx">(37)</span></div>
+        <div><span class="del">- Unknown User</span> <span class="ctx">(19)</span> &rarr; <span class="add">Unknown</span> <span class="ctx">(54)</span></div>
+        <div class="ctx" style="margin-top:4px">148 assertions re-pointed &middot; 4 entities archived &middot; reversible for 30d</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Merged 4 pairs. 148 assertions re-pointed.')">Apply merges</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/don't use|dont use|no longer|stop using|not use|wrong|incorrect|isn't true|never/i, reply: (q) => [
+      TRACE('search','graph/assertions','assertions/:id/demote'),
+      '<div class="msg ai">I hold <b>3 assertions</b> matching that, all from passive observation rather than anything you told me. I&rsquo;ll retire them and suppress re-learning from the same evidence.</div>',
+      `<div class="card"><div class="card-h">3 assertions &middot; retire</div><div class="card-b diff">
+        <div><span class="del">- the user USES llama.cpp</span> <span class="ctx">conf 0.85 &middot; 12 observations</span></div>
+        <div><span class="del">- SiftKit DEPENDS_ON llama.cpp</span> <span class="ctx">conf 0.55</span></div>
+        <div><span class="del">- llama.cpp PART_OF inference backend</span> <span class="ctx">conf 0.00</span></div>
+        <div class="ctx" style="margin-top:4px">Evidence is kept; only the conclusions are retired.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Retired 3 assertions and suppressed the source evidence.')">Retire them</button>
+        <button onclick="discardCard(this)">Keep them</button>
+      </div></div>`] },
+  { re:/forget|delete|remove|purge|wipe/i, reply: () => [
+      TRACE('topics/forget-preview'),
+      '<div class="msg ai">Scoped forget. This is <b>irreversible</b>, so read the blast radius before applying:</div>',
+      `<div class="card"><div class="card-h warn">&#9888; topics/forget-preview</div><div class="card-b diff">
+        <div><span class="del">- 3 entities</span> <span class="ctx">League of Legends, League Arena, Nami</span></div>
+        <div><span class="del">- 31 assertions</span></div>
+        <div><span class="del">- 7 Tier 3 documents</span> <span class="ctx">-1,204 tokens</span></div>
+        <div><span class="del">- 46 evidence records</span> <span class="ctx">screenshots + transcripts</span></div>
+        <div class="ctx" style="margin-top:4px">Frees 7 Tier 3 slots &middot; cannot be undone</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Forgot 3 entities, 31 assertions, 46 evidence records.')">Forget permanently</button>
+        <button onclick="discardCard(this)">Cancel</button>
+      </div></div>`] },
+  { re:/free up|space|capacity|tier ?3|limit|full|archive/i, reply: () => [
+      TRACE('projections','cleanup/preview'),
+      '<div class="msg ai">Tier 3 is at <b>439/500</b> (87.8%). 61 slots left. The lowest-utility documents have never been retrieved once:</div>',
+      `<div class="card"><div class="card-h">archive 12 lowest-utility documents</div><div class="card-b diff">
+        <div><span class="del">- PC</span> <span class="ctx">108 tok &middot; 0 retrievals</span></div><div><span class="del">- React</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- GitHub</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- TurboRepo</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- zod</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div>
+        <div class="ctx">…and 7 more &middot; frees 12 slots, ~1,580 tokens</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Archived 12 documents. Tier 3 now 427/500 (85.4%).')">Archive them</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/why|how do you know|explain|source|where did/i, reply: () => [
+      TRACE('search','assertions/:id/explanation'),
+      `<div class="msg ai">Because of <b>4 passive observations</b>, not anything you stated:<br>
+        <code>the user USES CUDA</code> &middot; confidence 0.55<br>
+        First seen 2026-09-02, last 2026-09-09. Derived from terminal output and <code>nvidia-smi</code> in
+        3 screenshots plus 1 chat transcript. Basis is <code>passive_observation</code>, so it decays unless reinforced.</div>`,
+      `<div class="card"><div class="card-h">adjust this belief</div><div class="card-b diff">
+        <div class="ctx">Pin it to stop decay, or correct it if the inference is wrong.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Pinned. This assertion no longer decays.')">Pin as true</button>
+        <button onclick="discardCard(this)">That's wrong</button>
+      </div></div>`] },
+];
+const FALLBACK = [
+  TRACE('search'),
+  `<div class="msg ai">I can correct, pin, demote, merge, or forget anything in memory — and I only reach the
+   memory tools, nothing else. Try:<br>&ldquo;that's wrong, I use X not Y&rdquo; &middot; &ldquo;merge these duplicates&rdquo;
+   &middot; &ldquo;forget about &lt;topic&gt;&rdquo; &middot; &ldquo;why do you think that?&rdquo;</div>`,
+];
+
+function ask(q){
+  if(!q || !q.trim()) return;
+  push(el('<div class="msg me">' + q.replace(/</g,'&lt;') + '</div>'));
+  const hit = SCRIPT.find(s => s.re.test(q));
+  const out = hit ? hit.reply(q) : FALLBACK;
+  let i = 0;
+  const tick = () => {
+    if(i >= out.length) return;
+    push(el(out[i++]));
+    setTimeout(tick, 260);
+  };
+  setTimeout(tick, 340);
+}
+ask.seed = () => {
+  push(el(`<div class="msg ai">I watch what gets stored and can fix it on request. Right now Tier 3 is
+    <b>87.8% full</b> and I see <b>2 duplicate entity pairs</b>. Want me to clean those up?</div>`));
+};
+ask.seed();
+
+</script>
+</body></html>

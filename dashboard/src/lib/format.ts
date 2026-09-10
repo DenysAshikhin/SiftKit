@@ -124,8 +124,8 @@ export function formatMessageTokenLabel(message: ChatMessage): string {
   return imageTokens > 0 ? `${textLabel} (+${formatNumber(imageTokens)} img)` : textLabel;
 }
 
-type TokenDisplay = {
-  tokenCount: number;
+export type TokenDisplay = {
+  tokenCount: number | null;
   exact: boolean;
   imageTokens: number;
 };
@@ -140,16 +140,15 @@ export function getLiveMessageTokenDisplay(message: ChatMessage): TokenDisplay {
   };
 }
 
-export function sumLiveTokenDisplays(messages: readonly ChatMessage[]): { tokenCount: number; exact: boolean } {
-  const displays = messages.map(getLiveMessageTokenDisplay);
+export function sumLiveTokenDisplays(displays: readonly TokenDisplay[]): Pick<TokenDisplay, 'tokenCount' | 'exact'> {
   return {
-    tokenCount: displays.reduce((sum, display) => sum + display.tokenCount, 0),
+    tokenCount: displays.reduce<number | null>((sum, display) => sum === null || display.tokenCount === null ? null : sum + display.tokenCount, 0),
     exact: displays.every((display) => display.exact),
   };
 }
 
-export function formatLiveMessageTokenLabel(message: ChatMessage): string {
-  const display = getLiveMessageTokenDisplay(message);
+export function formatLiveMessageTokenLabel(display: TokenDisplay): string {
+  if (display.tokenCount === null) return 'tokens unavailable';
   const textTokens = display.tokenCount - display.imageTokens;
   if (textTokens === 0 && display.imageTokens > 0) {
     return `${formatNumber(display.imageTokens)} image tokens`;
@@ -160,8 +159,16 @@ export function formatLiveMessageTokenLabel(message: ChatMessage): string {
     : textLabel;
 }
 
-export function getTurnTokenDisplay(turn: ChatTurn): { tokenCount: number; exact: boolean } {
-  return sumLiveTokenDisplays(turn.messages);
+export function requireLiveTokenDisplay(displays: ReadonlyMap<string, TokenDisplay>, messageId: string): TokenDisplay {
+  const display = displays.get(messageId);
+  if (!display) throw new Error(`Missing live token display for message ${messageId}`);
+  return display;
+}
+
+export function getTurnTokenDisplay(turn: ChatTurn, displays: ReadonlyMap<string, TokenDisplay>): Pick<TokenDisplay, 'tokenCount' | 'exact'> {
+  return sumLiveTokenDisplays(turn.messages.map((message) => turn.isLive
+    ? requireLiveTokenDisplay(displays, message.id)
+    : getLiveMessageTokenDisplay(message)));
 }
 
 export function getSessionTelemetryStats(session: ChatSession | null): {

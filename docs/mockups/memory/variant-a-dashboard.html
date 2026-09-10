@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memory · Dashboard mockup</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#0a1018;--panel:#0f1822;--panel2:#131f2b;--line:#1e2d3d;--fg:#dbe6f0;--dim:#7b91a6;
+  --accent:#2ec9a0;--warn:#e8b04b;--bad:#e4694a;--blue:#4aa3e0;--purple:#9b7fe0;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.top{display:flex;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid var(--line);
+  background:var(--panel);position:sticky;top:0;z-index:30}
+.logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#04140f;
+  display:grid;place-items:center;font-weight:800;font-size:14px}
+.crumb{color:var(--dim);font-size:13px}
+.crumb b{color:var(--fg)}
+.top .spacer{flex:1}
+.viewnav{display:flex;gap:3px;margin-left:8px;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:3px}
+.viewnav a{text-decoration:none;color:var(--dim);font-size:12px;padding:4px 12px;border-radius:6px}
+.viewnav a:hover{color:var(--fg)}
+.viewnav a.on{background:var(--panel2);color:var(--accent);font-weight:600}
+.stamp{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.badge{font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.ok{color:var(--accent);border-color:var(--accent)}
+.badge.warn{color:var(--warn);border-color:var(--warn)}
+.badge.bad{color:var(--bad);border-color:var(--bad)}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);margin:0 0 12px;font-weight:650}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.mono{font-family:var(--mono)}
+.bar{height:7px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)}
+.note{font-size:11.5px;color:var(--dim);line-height:1.6}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#22334a;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+
+.dock{position:fixed;right:20px;bottom:20px;z-index:60;font-size:13px}
+.dock-fab{display:flex;align-items:center;gap:9px;padding:11px 16px;border-radius:999px;
+  background:var(--accent);color:#04140f;border:0;cursor:pointer;font-weight:650;font-size:13px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5)}
+.dock-fab:hover{filter:brightness(1.08)}
+.dock-fab .dot{width:7px;height:7px;border-radius:50%;background:#04140f}
+.dock-panel{display:none;flex-direction:column;width:392px;height:552px;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.dock.open .dock-panel{display:flex}
+.dock.open .dock-fab{display:none}
+.dock-head{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line);
+  background:var(--panel2)}
+.dock-head b{font-size:13px;letter-spacing:.2px}
+.dock-head .scope{margin-left:auto;font-size:10px;color:var(--accent);border:1px solid var(--accent);
+  padding:2px 7px;border-radius:999px;opacity:.85;cursor:help}
+.dock-x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:0 2px}
+.dock-x:hover{color:var(--fg)}
+.dock-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:92%;padding:9px 12px;border-radius:11px;line-height:1.5}
+.msg.me{align-self:flex-end;background:var(--accent);color:#04140f;border-bottom-right-radius:3px}
+.msg.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:3px}
+.msg.ai code{background:rgba(255,255,255,.07);padding:1px 4px;border-radius:3px;font-size:11px}
+.trace{align-self:flex-start;font-size:10.5px;color:var(--dim);font-family:var(--mono);
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center;max-width:92%}
+.trace span{border:1px solid var(--line);padding:1px 6px;border-radius:4px;background:var(--panel2)}
+.card{align-self:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.card-h{padding:8px 11px;background:var(--panel2);border-bottom:1px solid var(--line);
+  font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);
+  display:flex;align-items:center;gap:7px}
+.card-h.warn{color:var(--warn)}
+.card-b{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+.diff{font-family:var(--mono);font-size:11px;line-height:1.6}
+.diff .del{color:var(--bad)}
+.diff .add{color:var(--accent)}
+.diff .ctx{color:var(--dim)}
+.card-f{display:flex;gap:7px;padding:9px 11px;border-top:1px solid var(--line);background:var(--panel2)}
+.card-f button{flex:1;padding:7px;border-radius:7px;font-size:12px;cursor:pointer;font-weight:600;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.card-f .go{background:var(--accent);color:#04140f;border-color:var(--accent)}
+.card-f .go:hover{filter:brightness(1.08)}
+.card-f button:disabled{opacity:.5;cursor:default;filter:none}
+.applied{padding:9px 11px;border-top:1px solid var(--line);color:var(--accent);font-size:11.5px;
+  background:var(--panel2);display:flex;align-items:center;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 10px}
+.chips button{font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--dim);cursor:pointer}
+.chips button:hover{color:var(--fg);border-color:var(--accent)}
+.dock-in{display:flex;gap:8px;padding:11px 12px;border-top:1px solid var(--line);background:var(--panel2)}
+.dock-in input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;
+  padding:9px 11px;color:var(--fg);font-size:12.5px;font-family:inherit}
+.dock-in input:focus{outline:none;border-color:var(--accent)}
+.dock-in button{background:var(--accent);color:#04140f;border:0;border-radius:8px;padding:0 15px;
+  cursor:pointer;font-weight:650}
+
+.wrap{max-width:1280px;margin:0 auto;padding:22px}
+.hero{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:16px}
+.gauges{display:flex;flex-direction:column;gap:15px}
+.gauge{display:grid;grid-template-columns:74px 1fr auto;gap:13px;align-items:center}
+.gauge .tname{font-weight:650;font-size:13px}
+.gauge .tname small{display:block;color:var(--dim);font-weight:400;font-size:10.5px;letter-spacing:.4px}
+.gauge .track{height:11px;border-radius:99px;background:var(--panel2);overflow:hidden;position:relative}
+.gauge .track i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.gauge .track i.warn{background:var(--warn)}
+.gauge .cnt{font-family:var(--mono);font-size:12.5px;min-width:104px;text-align:right}
+.gauge .cnt b{font-size:15px}
+.gauge .cnt span{color:var(--dim)}
+.totals{display:flex;gap:22px;margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
+.totals div{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.totals b{display:block;font-size:19px;color:var(--fg);margin-bottom:1px}
+.alert{border:1px solid var(--warn);border-radius:10px;background:rgba(232,176,75,.07);padding:12px 14px;margin-top:15px}
+.alert h4{margin:0 0 5px;font-size:12.5px;color:var(--warn);display:flex;align-items:center;gap:7px}
+.alert p{margin:0 0 10px;font-size:12px;color:var(--dim);line-height:1.6}
+.alert .acts{display:flex;gap:8px}
+.btn{padding:6px 12px;border-radius:7px;font-size:12px;cursor:pointer;border:1px solid var(--line);
+  background:var(--panel2);color:var(--fg);font-weight:550}
+.btn:hover{border-color:var(--accent)}
+.btn.go{background:var(--warn);color:#1b1203;border-color:var(--warn);font-weight:650}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;align-content:start}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 14px}
+.stat b{display:block;font-size:23px;font-family:var(--mono);letter-spacing:-.5px}
+.stat span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+.stat em{display:block;font-style:normal;font-size:11px;color:var(--dim);margin-top:5px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+.rows{display:flex;flex-direction:column;gap:9px}
+.row{display:grid;grid-template-columns:1fr 46px;gap:9px;align-items:center;font-size:12.5px}
+.row .rb{grid-column:1/-1;height:5px;border-radius:99px;background:var(--panel2);overflow:hidden;margin-top:-4px}
+.row .rb i{display:block;height:100%;border-radius:99px}
+.row .n{font-family:var(--mono);color:var(--dim);text-align:right;font-size:11.5px}
+.pipe{display:flex;flex-direction:column;gap:10px}
+.lane{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.lane .lname{width:132px;color:var(--dim);font-size:11.5px}
+.lane .segs{flex:1;display:flex;height:19px;border-radius:5px;overflow:hidden;background:var(--panel2)}
+.lane .segs i{display:block}
+.lane .tot{font-family:var(--mono);font-size:11px;color:var(--dim);width:52px;text-align:right}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:11px;color:var(--dim)}
+.legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);
+  padding:0 10px 9px;font-weight:600}
+.tbl td{padding:8px 10px;border-top:1px solid var(--line)}
+.tbl tr:hover td{background:var(--panel2)}
+.tbl .r{text-align:right;font-family:var(--mono);font-size:11.5px}
+.tbl .nm{max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:10px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}
+.zero{color:var(--bad)}
+.search{display:flex;gap:9px;margin-bottom:16px}
+.search input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:11px 14px;color:var(--fg);font-size:13.5px;font-family:inherit}
+.search input:focus{outline:none;border-color:var(--accent)}
+.review h2{display:flex;align-items:center;gap:10px}
+.rcount{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--warn);
+  border:1px solid var(--warn);border-radius:999px;padding:1px 9px;text-transform:none;letter-spacing:0}
+.idq{border:1px solid var(--warn);border-radius:10px;background:rgba(232,176,75,.07);padding:13px 15px}
+.idq-head{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.idq-badge{font-size:11px;color:var(--warn);font-weight:650}
+.idq-q{margin:0 0 11px;font-size:13.5px;line-height:1.6}
+.idq-acts{display:flex;gap:8px}
+.idq-done{margin-top:10px;font-size:12px;color:var(--accent);display:none}
+.idq-done.on{display:block}
+.caps{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.caps-head{font-size:11.5px;color:var(--dim);display:flex;gap:8px;margin-bottom:8px}
+.caps-head b{color:var(--warn);font-family:var(--mono)}
+.caps-strip{display:flex;gap:5px;flex-wrap:wrap}
+.cap{width:36px;height:26px;border-radius:4px;border:1px solid var(--line);
+  background:linear-gradient(135deg,#16222f 0%,#1d2c3c 100%)}
+.cap.more{display:grid;place-items:center;font-size:10px;color:var(--dim);font-family:var(--mono);
+  background:none}
+
+.digest{background:linear-gradient(180deg,var(--panel) 0%,rgba(46,201,160,.05) 100%);
+  border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px;position:relative}
+.digest.fresh{border-color:rgba(46,201,160,.4)}
+.dg-top{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.dg-orb{width:30px;height:30px;border-radius:9px;background:var(--accent);flex:none;
+  display:grid;place-items:center;color:#04140f;font-weight:800;font-size:15px}
+.digest.busy .dg-orb{animation:pulse 1.15s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.93)}}
+.dg-hi{font-size:18px;font-weight:650;letter-spacing:-.2px}
+.dg-state{margin-left:auto;display:flex;align-items:center;gap:8px}
+.dg-src{font-size:10.5px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);
+  cursor:help;white-space:nowrap}
+.dg-src.live{color:var(--accent);border-color:var(--accent)}
+.dg-src.cache{color:var(--blue);border-color:var(--blue)}
+.dg-body{font-size:14px;line-height:1.72;color:var(--fg);min-height:112px;max-width:82ch}
+.dg-body p{margin:0 0 10px}
+.dg-body p:last-child{margin-bottom:0}
+.dg-body em{font-style:normal;color:var(--accent);font-weight:600}
+.dg-body .flag{color:var(--warn);font-weight:600}
+.dg-body a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent);cursor:pointer}
+.caret{display:inline-block;width:7px;height:15px;background:var(--accent);vertical-align:-2px;
+  animation:blink .95s step-end infinite;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+.dg-skel{height:13px;border-radius:4px;margin-bottom:9px;
+  background:linear-gradient(90deg,var(--panel2) 25%,#1b2a39 50%,var(--panel2) 75%);
+  background-size:200% 100%;animation:sheen 1.25s linear infinite}
+@keyframes sheen{to{background-position:-200% 0}}
+.dg-acts{display:flex;gap:8px;margin-top:15px;align-items:center;flex-wrap:wrap}
+.dg-acts .gap{flex:1}
+.dgb{padding:6px 12px;border-radius:7px;font-size:12px;cursor:pointer;border:1px solid var(--line);
+  background:var(--panel2);color:var(--fg);font-family:inherit}
+.dgb:hover{border-color:var(--accent)}
+.dgb.pri{background:var(--accent);color:#04140f;border-color:var(--accent);font-weight:650}
+.dgb.pri:hover{filter:brightness(1.08)}
+.dgb.ghost{background:none;color:var(--dim)}
+.dg-why{font-size:11px;color:var(--dim);border-top:1px solid var(--line);margin-top:14px;padding-top:11px;
+  display:none}
+.dg-why.show{display:block}
+.dg-why b{color:var(--fg);font-family:var(--mono)}
+</style>
+</head><body>
+
+
+<header class="top">
+  <div class="logo">S</div>
+  <div class="crumb">SiftKit / <b>Memory</b></div>
+  <nav class="viewnav">
+    <a href="variant-a-dashboard.html" class="on">Overview</a>
+    <a href="variant-b-explorer.html" class="">Explorer</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="badge warn">Tier 3 87.8%</span>
+  <span class="stamp">overview-first &middot; graph v6,608 &middot; 2026-09-10</span>
+</header>
+<div class="wrap">
+
+  
+<section class="digest busy" id="digest">
+  <div class="dg-top">
+    <div class="dg-orb">S</div>
+    <div class="dg-hi" id="dgHi">Good morning, Denys.</div>
+    <div class="dg-state">
+      <span class="dg-src" id="dgSrc" title="How this digest was produced">checking for new memories…</span>
+    </div>
+  </div>
+  <div class="dg-body" id="dgBody">
+    <div class="dg-skel" style="width:94%"></div>
+    <div class="dg-skel" style="width:88%"></div>
+    <div class="dg-skel" style="width:62%"></div>
+  </div>
+  <div class="dg-acts">
+    <button class="dgb pri" onclick="dockOpen(true);ask('Merge the duplicate SiftKit entries')">Merge my 4 identities</button>
+    <a class="dgb" href="variant-b-explorer.html">Explore what changed</a>
+    <div class="gap"></div>
+    <button class="dgb ghost" onclick="toggleWhy()">Why this?</button>
+    <button class="dgb ghost" onclick="runDigest(true)">Regenerate</button>
+    <button class="dgb ghost" onclick="runDigest(false,true)">Demo: cached</button>
+  </div>
+  <div class="dg-why" id="dgWhy">
+    Regenerated because <b>24 new entities</b> and <b>56 new beliefs</b> landed since the
+    last digest at <b>2026-09-09 18:04Z</b>. Below that threshold the cached digest is reused instead, so opening
+    this page does not cost a generation. Built from the Tier&nbsp;1 profile plus everything created since the
+    last run — never the full 1,408-belief graph.
+  </div>
+</section>
+
+  <div class="search"><input placeholder="Search everything SiftKit knows — entities, beliefs, documents…"></div>
+
+  <div class="hero">
+    <div class="panel">
+      <h2>Document capacity</h2>
+      <div class="gauges">
+        
+        <div class="gauge">
+          <div class="tname">Tier 1<small>PROFILE</small></div>
+          <div>
+            <div class="track"><i class="warn" style="width:100%"></i></div>
+            <div class="note" style="margin-top:6px">6,692 tokens &middot; 6692 avg &middot; 2 retrievals</div>
+          </div>
+          <div class="cnt"><b>1</b><span>/1</span><br><span>100.0%</span></div>
+        </div>
+        <div class="gauge">
+          <div class="tname">Tier 2<small>DOSSIER</small></div>
+          <div>
+            <div class="track"><i class="" style="width:8%"></i></div>
+            <div class="note" style="margin-top:6px">198 tokens &middot; 99 avg &middot; 0 retrievals</div>
+          </div>
+          <div class="cnt"><b>2</b><span>/25</span><br><span>8.0%</span></div>
+        </div>
+        <div class="gauge">
+          <div class="tname">Tier 3<small>ARCHIVE</small></div>
+          <div>
+            <div class="track"><i class="warn" style="width:87.8%"></i></div>
+            <div class="note" style="margin-top:6px">58,079 tokens &middot; 132 avg &middot; 8 retrievals</div>
+          </div>
+          <div class="cnt"><b>439</b><span>/500</span><br><span>87.8%</span></div>
+        </div>
+      </div>
+      <div class="totals">
+        <div><b>442</b>of 526 docs</div>
+        <div><b>64,969</b>tokens projected</div>
+        <div><b>3.30</b>chars / token</div>
+        <div><b>19h ago</b>last rebuild</div>
+      </div>
+      <div class="alert">
+        <h4>&#9888; Tier 3 near limit — 61 slots left</h4>
+        <p>At 87.8% the compiler starts archiving lowest-utility documents automatically.
+           10 of the next 10 candidates
+           have never been retrieved.</p>
+        <div class="acts">
+          <button class="btn go" onclick="dockOpen(true);ask('Free up Tier 3 space')">Review archive queue</button>
+          <button class="btn">Raise limit</button>
+          <button class="btn">Rebuild projections</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span>Entities</span><b>1,109</b><em>20 types &middot; newest 6m ago</em></div>
+      <div class="stat"><span>Beliefs</span><b>1,408</b><em>0 pinned &middot; 226 retired</em></div>
+      <div class="stat"><span>Evidence</span><b>4,329</b><em>since 2026-08-28</em></div>
+      <div class="stat"><span>Observations</span><b>6,478</b><em>raw capture events</em></div>
+      <div class="stat"><span>Awaiting review</span><b class="zero">1,244</b><em>candidate beliefs pending</em></div>
+      <div class="stat"><span>Duplicates</span><b>2</b><em>likely entity pairs
+        <a href="#" onclick="dockOpen(true);ask('Merge the duplicate SiftKit entries');return false" style="color:var(--accent)">resolve</a></em></div>
+    </div>
+  </div>
+
+  <div class="panel review" style="margin-bottom:16px">
+    <h2>Needs your review
+      <span class="rcount">1,333 waiting</span></h2>
+
+    <div class="idq">
+      <div class="idq-head">
+        <span class="idq-badge">37 identity questions</span>
+        <span class="note">Nothing is written until you answer.</span>
+      </div>
+      <p class="idq-q">Are these you? They look like misreadings of your name: “deny”, “demyz”, “denvys”, “deryn”, “demyxs”.</p>
+      <div class="idq-acts">
+        <button class="btn go" onclick="idAnswer(this,'yes')">Yes, all me</button>
+        <button class="btn" onclick="idAnswer(this,'each')">Decide one by one</button>
+        <button class="btn" onclick="idAnswer(this,'no')">None of them</button>
+      </div>
+      <div class="idq-done" id="idqDone"></div>
+    </div>
+
+    <table class="tbl" style="margin-top:14px">
+      <tr><th>Proposed belief</th><th>Why</th><th class="r">Conf</th><th class="r">Held</th></tr>
+      <tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            is “deny” you?</td>
+          <td class="nm note">The right-hand panel is explicitly labeled &quot;Claude Code…</td>
+          <td class="r">1.00</td>
+          <td class="r"><span class="pill" style="color:var(--warn);border-color:var(--warn)">possible owner alias</span></td></tr><tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            The screenshot displays the user interface of …</td>
+          <td class="nm note">The screenshot displays the user interface of Visual Studio …</td>
+          <td class="r">1.00</td>
+          <td class="r"><span class="pill">queued</span></td></tr><tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            The Command Prompt header displays &#39;Micros…</td>
+          <td class="nm note">The Command Prompt header displays &#39;Microsoft Windows [V…</td>
+          <td class="r">1.00</td>
+          <td class="r"><span class="pill">queued</span></td></tr><tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            is “denvys” you?</td>
+          <td class="nm note">The interface shown, including the Activity Bar, the &#39;Te…</td>
+          <td class="r">0.99</td>
+          <td class="r"><span class="pill" style="color:var(--warn);border-color:var(--warn)">possible owner alias</span></td></tr><tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            The user executes an &#39;npm install&#39; com…</td>
+          <td class="nm note">The user executes an &#39;npm install&#39; command in the te…</td>
+          <td class="r">1.00</td>
+          <td class="r"><span class="pill">queued</span></td></tr><tr><td class="nm"><span class="mono" style="color:var(--blue);font-size:11px">USES</span>
+            The user installs the package &#39;@anthropic-…</td>
+          <td class="nm note">The user installs the package &#39;@anthropic-ai/claude-code…</td>
+          <td class="r">1.00</td>
+          <td class="r"><span class="pill">queued</span></td></tr>
+    </table>
+    <div class="note" style="margin-top:11px">
+      1,293 queued · 37 identity holds · 3 topic holds.
+      <a href="variant-b-explorer.html" style="color:var(--accent)">Open the full review queue in Explorer →</a>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="panel">
+      <h2>What it knows about — by type</h2>
+      <div class="rows">
+        
+          <div class="row"><span>software</span><span class="n">445</span>
+            <div class="rb"><i style="width:100%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>project</span><span class="n">279</span>
+            <div class="rb"><i style="width:62.69662921348315%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>device</span><span class="n">84</span>
+            <div class="rb"><i style="width:18.876404494382022%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>person</span><span class="n">64</span>
+            <div class="rb"><i style="width:14.382022471910114%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>topic</span><span class="n">61</span>
+            <div class="rb"><i style="width:13.707865168539326%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>media work</span><span class="n">31</span>
+            <div class="rb"><i style="width:6.96629213483146%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>preference context</span><span class="n">26</span>
+            <div class="rb"><i style="width:5.842696629213483%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>goal</span><span class="n">24</span>
+            <div class="rb"><i style="width:5.393258426966292%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>configuration profile</span><span class="n">17</span>
+            <div class="rb"><i style="width:3.8202247191011236%;background:var(--accent)"></i></div></div>
+      </div>
+      <div class="note" style="margin-top:10px">+ 11 smaller types</div>
+    </div>
+
+    <div class="panel">
+      <h2>How they relate — top predicates</h2>
+      <div class="rows">
+        
+          <div class="row"><span class="mono" style="font-size:11.5px">USES</span><span class="n">597</span>
+            <div class="rb"><i style="width:100%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">WORKS_ON</span><span class="n">185</span>
+            <div class="rb"><i style="width:30.98827470686767%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">HAS_PLAN</span><span class="n">124</span>
+            <div class="rb"><i style="width:20.770519262981573%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">INTERESTED_IN</span><span class="n">99</span>
+            <div class="rb"><i style="width:16.582914572864322%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">PART_OF</span><span class="n">62</span>
+            <div class="rb"><i style="width:10.385259631490786%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">HAS_COMPONENT</span><span class="n">59</span>
+            <div class="rb"><i style="width:9.882747068676718%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">CONTRIBUTED_TO</span><span class="n">35</span>
+            <div class="rb"><i style="width:5.8626465661641545%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">HAS_SETTING</span><span class="n">34</span>
+            <div class="rb"><i style="width:5.6951423785594635%;background:var(--blue)"></i></div></div>
+          <div class="row"><span class="mono" style="font-size:11.5px">WATCHED</span><span class="n">32</span>
+            <div class="rb"><i style="width:5.360134003350084%;background:var(--blue)"></i></div></div>
+      </div>
+      <div class="note" style="margin-top:10px">+ 19 more predicates</div>
+    </div>
+
+    <div class="panel">
+      <h2>How sure it is</h2>
+      <div class="rows">
+        
+          <div class="row"><span>high <span class="note">≥ 0.8</span></span><span class="n">24</span>
+            <div class="rb"><i style="width:1.9230769230769231%;background:var(--accent)"></i></div></div>
+          <div class="row"><span>medium <span class="note">0.5 – 0.8</span></span><span class="n">136</span>
+            <div class="rb"><i style="width:10.897435897435898%;background:var(--blue)"></i></div></div>
+          <div class="row"><span>low <span class="note">< 0.5</span></span><span class="n">0</span>
+            <div class="rb"><i style="width:0%;background:var(--purple)"></i></div></div>
+          <div class="row"><span>unscored <span class="note">confidence 0</span></span><span class="n">1,248</span>
+            <div class="rb"><i style="width:100%;background:var(--bad)"></i></div></div>
+      </div>
+      <div class="note" style="margin-top:12px">
+        <b style="color:var(--bad)">88.6% carry no confidence score.</b>
+        Basis is 1,406 passively observed
+        vs 2 stated by you.
+      </div>
+    </div>
+  </div>
+
+  <div class="grid3" style="grid-template-columns:1fr 1.6fr">
+    <div class="panel">
+      <h2>Pipeline health</h2>
+      <div class="pipe">
+        <div class="lane"><div class="lname">image extraction</div><div class="segs">
+    <i style="width:92.86536248561565%;background:var(--accent)" title="completed: 807"></i><i style="width:3.6823935558112773%;background:var(--warn)" title="queued: 32"></i>
+    <i style="width:3.452243958573072%;background:var(--bad)" title="dead_letter: 30"></i>
+  </div><div class="tot">869</div></div>
+        <div class="lane"><div class="lname">projection maint.</div><div class="segs">
+    <i style="width:3.7914691943127963%;background:var(--accent)" title="completed: 16"></i><i style="width:0.23696682464454977%;background:var(--warn)" title="queued: 1"></i>
+    <i style="width:95.97156398104265%;background:#3b4d63" title="cancelled: 405"></i>
+  </div><div class="tot">422</div></div>
+        <div class="lane"><div class="lname">capture retention</div><div class="segs">
+    <i style="width:99.94913530010173%;background:var(--accent)" title="completed: 1965"></i><i style="width:0.050864699898270596%;background:var(--warn)" title="queued: 1"></i>
+    
+  </div><div class="tot">1,966</div></div>
+      </div>
+      <div class="legend">
+        <span><b style="background:var(--accent)"></b>completed</span>
+        <span><b style="background:var(--warn)"></b>queued</span>
+        <span><b style="background:#3b4d63"></b>cancelled</span>
+        <span><b style="background:var(--bad)"></b>dead letter</span>
+      </div>
+      <div class="caps">
+        <div class="caps-head">Awaiting image analysis <b>6</b></div>
+        <div class="caps-strip">
+          <div class="cap" title="capture 1 — queued"></div><div class="cap" title="capture 2 — queued"></div><div class="cap" title="capture 3 — queued"></div><div class="cap" title="capture 4 — queued"></div><div class="cap" title="capture 5 — queued"></div><div class="cap" title="capture 6 — queued"></div><div class="cap" title="capture 7 — queued"></div><div class="cap" title="capture 8 — queued"></div>
+          <div class="cap more">+-2</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:12px;border-top:1px solid var(--line);padding-top:11px">
+        <span class="badge bad">30 dead</span>
+        image extractions failed permanently on 2026-09-03 and are not retried.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Most-used documents</h2>
+      <table class="tbl">
+        <tr><th>Document</th><th>Tier</th><th class="r">Tokens</th><th class="r">Used</th><th class="r">Last</th></tr>
+        
+        <tr><td class="nm">one_more_jump</td>
+          <td><span class="pill">T3</span></td>
+          <td class="r">168</td>
+          <td class="r">4</td>
+          <td class="r">41h ago</td></tr>
+        <tr><td class="nm">Profile</td>
+          <td><span class="pill">T1</span></td>
+          <td class="r">6,692</td>
+          <td class="r">2</td>
+          <td class="r">41h ago</td></tr>
+        <tr><td class="nm">2500 AP Nami = Literal One Shots: 16k Damage on One W | League Arena Gameplay</td>
+          <td><span class="pill">T3</span></td>
+          <td class="r">182</td>
+          <td class="r">2</td>
+          <td class="r">41h ago</td></tr>
+        <tr><td class="nm">Google One</td>
+          <td><span class="pill">T3</span></td>
+          <td class="r">113</td>
+          <td class="r">2</td>
+          <td class="r">41h ago</td></tr>
+      </table>
+      <div class="note" style="margin-top:11px">
+        Only 4 of 442 documents have ever been retrieved.
+        The remaining 438 occupy
+        99.1% of capacity unused.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="dock" id="dock">
+  <button class="dock-fab" onclick="dockOpen(true)"><span class="dot"></span>Memory assistant</button>
+  <div class="dock-panel">
+    <div class="dock-head">
+      <b>Memory assistant</b>
+      <span class="scope" title="Tools: search · graph/nodes · graph/assertions · assertions/:id/explanation · assertions/:id/correct · assertions/:id/confirm · assertions/:id/pin · assertions/:id/demote · assertions/:id (DELETE) · topics/forget-preview · topics/forget · cleanup/preview · cleanup · projections/rebuild">memory tools only</span>
+      <button class="dock-x" onclick="dockOpen(false)">&times;</button>
+    </div>
+    <div class="dock-log" id="log"></div>
+    <div class="chips">
+      <button onclick="ask(this.textContent)">Merge the duplicate SiftKit entries</button>
+      <button onclick="ask(this.textContent)">I don't use llama.cpp any more</button>
+      <button onclick="ask(this.textContent)">Forget everything about League of Legends</button>
+      <button onclick="ask(this.textContent)">Free up Tier 3 space</button>
+      <button onclick="ask(this.textContent)">Why do you think I use CUDA?</button>
+    </div>
+    <form class="dock-in" onsubmit="event.preventDefault();ask(this.q.value);this.q.value=''">
+      <input name="q" placeholder="Correct or clean up a memory…" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
+<script>
+const dockEl = document.getElementById('dock');
+const logEl = document.getElementById('log');
+function dockOpen(v){ dockEl.classList.toggle('open', v); if(v) logEl.scrollTop = logEl.scrollHeight; }
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; }
+function push(node){ logEl.appendChild(node); logEl.scrollTop = logEl.scrollHeight; }
+function applyCard(btn, msg){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied">&#10003; ' + msg + '</div>'));
+}
+function discardCard(btn){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied" style="color:var(--dim)">Discarded — nothing changed.</div>'));
+}
+const TRACE = (...t) => '<div class="trace">called ' + t.map(x=>'<span>'+x+'</span>').join('') + '</div>';
+
+const SCRIPT = [
+  { re:/merge|duplicate|dupe|same thing|two .*entries/i, reply: () => [
+      TRACE('search','graph/nodes','cleanup/preview'),
+      '<div class="msg ai">Found <b>4 likely duplicate pairs</b> in 1,109 active entities. Merging keeps the higher-degree node and re-points every assertion — nothing is deleted.</div>',
+      `<div class="card"><div class="card-h">cleanup/preview &middot; 4 merges</div><div class="card-b diff">
+        <div><span class="del">- SiftKit</span> <span class="ctx">(18 links)</span> &rarr; <span class="add">SiftKit</span> <span class="ctx">(42 links)</span></div>
+        <div><span class="del">- TheLastSpark</span> <span class="ctx">(38)</span> &rarr; <span class="add">The Last Spark</span> <span class="ctx">(67)</span></div>
+        <div><span class="del">- VS Code</span> <span class="ctx">(17)</span> &rarr; <span class="add">Visual Studio Code</span> <span class="ctx">(37)</span></div>
+        <div><span class="del">- Unknown User</span> <span class="ctx">(19)</span> &rarr; <span class="add">Unknown</span> <span class="ctx">(54)</span></div>
+        <div class="ctx" style="margin-top:4px">148 assertions re-pointed &middot; 4 entities archived &middot; reversible for 30d</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Merged 4 pairs. 148 assertions re-pointed.')">Apply merges</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/don't use|dont use|no longer|stop using|not use|wrong|incorrect|isn't true|never/i, reply: (q) => [
+      TRACE('search','graph/assertions','assertions/:id/demote'),
+      '<div class="msg ai">I hold <b>3 assertions</b> matching that, all from passive observation rather than anything you told me. I&rsquo;ll retire them and suppress re-learning from the same evidence.</div>',
+      `<div class="card"><div class="card-h">3 assertions &middot; retire</div><div class="card-b diff">
+        <div><span class="del">- the user USES llama.cpp</span> <span class="ctx">conf 0.85 &middot; 12 observations</span></div>
+        <div><span class="del">- SiftKit DEPENDS_ON llama.cpp</span> <span class="ctx">conf 0.55</span></div>
+        <div><span class="del">- llama.cpp PART_OF inference backend</span> <span class="ctx">conf 0.00</span></div>
+        <div class="ctx" style="margin-top:4px">Evidence is kept; only the conclusions are retired.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Retired 3 assertions and suppressed the source evidence.')">Retire them</button>
+        <button onclick="discardCard(this)">Keep them</button>
+      </div></div>`] },
+  { re:/forget|delete|remove|purge|wipe/i, reply: () => [
+      TRACE('topics/forget-preview'),
+      '<div class="msg ai">Scoped forget. This is <b>irreversible</b>, so read the blast radius before applying:</div>',
+      `<div class="card"><div class="card-h warn">&#9888; topics/forget-preview</div><div class="card-b diff">
+        <div><span class="del">- 3 entities</span> <span class="ctx">League of Legends, League Arena, Nami</span></div>
+        <div><span class="del">- 31 assertions</span></div>
+        <div><span class="del">- 7 Tier 3 documents</span> <span class="ctx">-1,204 tokens</span></div>
+        <div><span class="del">- 46 evidence records</span> <span class="ctx">screenshots + transcripts</span></div>
+        <div class="ctx" style="margin-top:4px">Frees 7 Tier 3 slots &middot; cannot be undone</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Forgot 3 entities, 31 assertions, 46 evidence records.')">Forget permanently</button>
+        <button onclick="discardCard(this)">Cancel</button>
+      </div></div>`] },
+  { re:/free up|space|capacity|tier ?3|limit|full|archive/i, reply: () => [
+      TRACE('projections','cleanup/preview'),
+      '<div class="msg ai">Tier 3 is at <b>439/500</b> (87.8%). 61 slots left. The lowest-utility documents have never been retrieved once:</div>',
+      `<div class="card"><div class="card-h">archive 12 lowest-utility documents</div><div class="card-b diff">
+        <div><span class="del">- PC</span> <span class="ctx">108 tok &middot; 0 retrievals</span></div><div><span class="del">- React</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- GitHub</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- TurboRepo</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- zod</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div>
+        <div class="ctx">…and 7 more &middot; frees 12 slots, ~1,580 tokens</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Archived 12 documents. Tier 3 now 427/500 (85.4%).')">Archive them</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/why|how do you know|explain|source|where did/i, reply: () => [
+      TRACE('search','assertions/:id/explanation'),
+      `<div class="msg ai">Because of <b>4 passive observations</b>, not anything you stated:<br>
+        <code>the user USES CUDA</code> &middot; confidence 0.55<br>
+        First seen 2026-09-02, last 2026-09-09. Derived from terminal output and <code>nvidia-smi</code> in
+        3 screenshots plus 1 chat transcript. Basis is <code>passive_observation</code>, so it decays unless reinforced.</div>`,
+      `<div class="card"><div class="card-h">adjust this belief</div><div class="card-b diff">
+        <div class="ctx">Pin it to stop decay, or correct it if the inference is wrong.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Pinned. This assertion no longer decays.')">Pin as true</button>
+        <button onclick="discardCard(this)">That's wrong</button>
+      </div></div>`] },
+];
+const FALLBACK = [
+  TRACE('search'),
+  `<div class="msg ai">I can correct, pin, demote, merge, or forget anything in memory — and I only reach the
+   memory tools, nothing else. Try:<br>&ldquo;that's wrong, I use X not Y&rdquo; &middot; &ldquo;merge these duplicates&rdquo;
+   &middot; &ldquo;forget about &lt;topic&gt;&rdquo; &middot; &ldquo;why do you think that?&rdquo;</div>`,
+];
+
+function ask(q){
+  if(!q || !q.trim()) return;
+  push(el('<div class="msg me">' + q.replace(/</g,'&lt;') + '</div>'));
+  const hit = SCRIPT.find(s => s.re.test(q));
+  const out = hit ? hit.reply(q) : FALLBACK;
+  let i = 0;
+  const tick = () => {
+    if(i >= out.length) return;
+    push(el(out[i++]));
+    setTimeout(tick, 260);
+  };
+  setTimeout(tick, 340);
+}
+ask.seed = () => {
+  push(el(`<div class="msg ai">I watch what gets stored and can fix it on request. Right now Tier 3 is
+    <b>87.8% full</b> and I see <b>2 duplicate entity pairs</b>. Want me to clean those up?</div>`));
+};
+ask.seed();
+
+
+const FRESH = [
+  "Since yesterday I picked up <em>24 new entities</em> and <em>56 new beliefs</em> — almost all of it from watching your screen, not from anything you told me.",
+  "The dominant thread is game tooling: Godot sprite work across <em>Hugo-Dz/spritekit</em>, <em>Pixel Explosion</em> and <em>Distortion Specs</em>, plus a Brawlhalla AI experiment. Alongside that you moved to <em>Opus 5</em> in Claude Code and kept grinding on SiftKit itself — npm, esbuild, ESLint, Go Live.",
+  "One thing I want to flag: <span class='flag'>I'm now holding four separate people that are all you</span> — 'the user', 'User denys', \"user 'denys'\" and 'Browser User'. That splits your history four ways and I'd rather merge them than keep guessing.",
+];
+const CACHED = [
+  "Nothing new worth summarising since <em>18:04 yesterday</em> — 3 new beliefs arrived, all low-confidence repeats of things I already knew, so I've reused the last digest rather than spend a generation on it.",
+  "From last time: you were deep in Godot sprite tooling and had just switched to <em>Opus 5</em> in Claude Code, while continuing work on SiftKit.",
+  "<span class='flag'>Still unresolved:</span> four separate entities that all look like you.",
+];
+
+let dgTimers = [];
+function toggleWhy(){ document.getElementById('dgWhy').classList.toggle('show'); }
+
+function runDigest(force, forceCache){
+  dgTimers.forEach(clearTimeout); dgTimers = [];
+  const box = document.getElementById('digest');
+  const body = document.getElementById('dgBody');
+  const src = document.getElementById('dgSrc');
+  const hour = new Date().getHours();
+  document.getElementById('dgHi').textContent =
+    (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + ', Denys.';
+
+  // Cached path: no generation, paint immediately.
+  if(forceCache){
+    box.classList.remove('busy','fresh');
+    src.className = 'dg-src cache';
+    src.textContent = 'reused from cache · 18h old';
+    src.title = 'No interesting new memories since the last digest, so nothing was generated.';
+    body.innerHTML = CACHED.map(p => '<p>' + p + '</p>').join('');
+    return;
+  }
+
+  box.classList.add('busy');
+  box.classList.remove('fresh');
+  src.className = 'dg-src';
+  src.textContent = force ? 'regenerating…' : 'checking for new memories…';
+  body.innerHTML = '<div class="dg-skel" style="width:94%"></div><div class="dg-skel" style="width:88%"></div><div class="dg-skel" style="width:62%"></div>';
+
+  // Freshness check, then stream.
+  dgTimers.push(setTimeout(() => {
+    src.textContent = 'generating from 56 new beliefs…';
+    body.innerHTML = '';
+    streamParas(FRESH, 0, () => {
+      box.classList.remove('busy');
+      box.classList.add('fresh');
+      src.className = 'dg-src live';
+      src.textContent = 'generated just now · 1.4s';
+      src.title = 'Built from the Tier 1 profile plus 56 beliefs created since the last digest.';
+    });
+  }, force ? 420 : 900));
+}
+
+// Word-at-a-time streaming so the mockup shows real progressive rendering.
+function streamParas(paras, i, done){
+  if(i >= paras.length) return done();
+  const body = document.getElementById('dgBody');
+  const p = document.createElement('p');
+  body.appendChild(p);
+  const words = paras[i].split(' ');
+  let w = 0;
+  const tick = () => {
+    if(w >= words.length){ p.innerHTML = paras[i]; return streamParas(paras, i + 1, done); }
+    p.innerHTML = words.slice(0, ++w).join(' ') + '<span class="caret"></span>';
+    dgTimers.push(setTimeout(tick, 16 + Math.random() * 34));
+  };
+  tick();
+}
+runDigest(false);
+
+function idAnswer(btn, choice){
+  const done = document.getElementById('idqDone');
+  done.classList.add('on');
+  done.textContent = choice === 'yes'
+    ? '✓ Merged 37 aliases into your identity. 1,296 beliefs still queued.'
+    : choice === 'no'
+      ? '✓ Rejected 37 alias candidates. They will not be asked again.'
+      : 'Stepping through 37 questions one at a time…';
+  btn.closest('.idq-acts').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+}
+</script>
+</body></html>

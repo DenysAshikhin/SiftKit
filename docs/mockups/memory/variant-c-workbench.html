@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memory · Workbench mockup</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#0a1018;--panel:#0f1822;--panel2:#131f2b;--line:#1e2d3d;--fg:#dbe6f0;--dim:#7b91a6;
+  --accent:#2ec9a0;--warn:#e8b04b;--bad:#e4694a;--blue:#4aa3e0;--purple:#9b7fe0;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.top{display:flex;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid var(--line);
+  background:var(--panel);position:sticky;top:0;z-index:30}
+.logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#04140f;
+  display:grid;place-items:center;font-weight:800;font-size:14px}
+.crumb{color:var(--dim);font-size:13px}
+.crumb b{color:var(--fg)}
+.top .spacer{flex:1}
+.viewnav{display:flex;gap:3px;margin-left:8px;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:3px}
+.viewnav a{text-decoration:none;color:var(--dim);font-size:12px;padding:4px 12px;border-radius:6px}
+.viewnav a:hover{color:var(--fg)}
+.viewnav a.on{background:var(--panel2);color:var(--accent);font-weight:600}
+.stamp{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.badge{font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.ok{color:var(--accent);border-color:var(--accent)}
+.badge.warn{color:var(--warn);border-color:var(--warn)}
+.badge.bad{color:var(--bad);border-color:var(--bad)}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);margin:0 0 12px;font-weight:650}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.mono{font-family:var(--mono)}
+.bar{height:7px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)}
+.note{font-size:11.5px;color:var(--dim);line-height:1.6}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#22334a;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+
+.dock{position:fixed;right:20px;bottom:20px;z-index:60;font-size:13px}
+.dock-fab{display:flex;align-items:center;gap:9px;padding:11px 16px;border-radius:999px;
+  background:var(--accent);color:#04140f;border:0;cursor:pointer;font-weight:650;font-size:13px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5)}
+.dock-fab:hover{filter:brightness(1.08)}
+.dock-fab .dot{width:7px;height:7px;border-radius:50%;background:#04140f}
+.dock-panel{display:none;flex-direction:column;width:392px;height:552px;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.dock.open .dock-panel{display:flex}
+.dock.open .dock-fab{display:none}
+.dock-head{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line);
+  background:var(--panel2)}
+.dock-head b{font-size:13px;letter-spacing:.2px}
+.dock-head .scope{margin-left:auto;font-size:10px;color:var(--accent);border:1px solid var(--accent);
+  padding:2px 7px;border-radius:999px;opacity:.85;cursor:help}
+.dock-x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:0 2px}
+.dock-x:hover{color:var(--fg)}
+.dock-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:92%;padding:9px 12px;border-radius:11px;line-height:1.5}
+.msg.me{align-self:flex-end;background:var(--accent);color:#04140f;border-bottom-right-radius:3px}
+.msg.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:3px}
+.msg.ai code{background:rgba(255,255,255,.07);padding:1px 4px;border-radius:3px;font-size:11px}
+.trace{align-self:flex-start;font-size:10.5px;color:var(--dim);font-family:var(--mono);
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center;max-width:92%}
+.trace span{border:1px solid var(--line);padding:1px 6px;border-radius:4px;background:var(--panel2)}
+.card{align-self:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.card-h{padding:8px 11px;background:var(--panel2);border-bottom:1px solid var(--line);
+  font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);
+  display:flex;align-items:center;gap:7px}
+.card-h.warn{color:var(--warn)}
+.card-b{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+.diff{font-family:var(--mono);font-size:11px;line-height:1.6}
+.diff .del{color:var(--bad)}
+.diff .add{color:var(--accent)}
+.diff .ctx{color:var(--dim)}
+.card-f{display:flex;gap:7px;padding:9px 11px;border-top:1px solid var(--line);background:var(--panel2)}
+.card-f button{flex:1;padding:7px;border-radius:7px;font-size:12px;cursor:pointer;font-weight:600;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.card-f .go{background:var(--accent);color:#04140f;border-color:var(--accent)}
+.card-f .go:hover{filter:brightness(1.08)}
+.card-f button:disabled{opacity:.5;cursor:default;filter:none}
+.applied{padding:9px 11px;border-top:1px solid var(--line);color:var(--accent);font-size:11.5px;
+  background:var(--panel2);display:flex;align-items:center;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 10px}
+.chips button{font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--dim);cursor:pointer}
+.chips button:hover{color:var(--fg);border-color:var(--accent)}
+.dock-in{display:flex;gap:8px;padding:11px 12px;border-top:1px solid var(--line);background:var(--panel2)}
+.dock-in input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;
+  padding:9px 11px;color:var(--fg);font-size:12.5px;font-family:inherit}
+.dock-in input:focus{outline:none;border-color:var(--accent)}
+.dock-in button{background:var(--accent);color:#04140f;border:0;border-radius:8px;padding:0 15px;
+  cursor:pointer;font-weight:650}
+
+body{font-size:13px}
+.grid{display:grid;gap:1px;background:var(--line);height:calc(100vh - 53px);
+  grid-template-columns:290px 1fr 1fr 300px;grid-template-rows:auto 1fr auto}
+.cell{background:var(--bg);padding:13px 15px;overflow:auto;min-height:0}
+.cell.k{background:var(--panel)}
+.span2{grid-column:span 2}
+.cmd{grid-column:1/-1;display:flex;align-items:center;gap:11px;background:var(--panel);padding:9px 15px}
+.cmd input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:8px 12px;
+  color:var(--fg);font-family:var(--mono);font-size:12.5px}
+.cmd input:focus{outline:none;border-color:var(--accent)}
+.cmd .kbd{font-family:var(--mono);font-size:10px;color:var(--dim);border:1px solid var(--line);
+  padding:2px 6px;border-radius:4px}
+.mt{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;margin-bottom:9px;
+  font-family:var(--mono);font-size:11.5px}
+.mt .lbl{width:56px;color:var(--dim)}
+.mt .tr{height:14px;background:var(--panel2);border-radius:3px;overflow:hidden;position:relative}
+.mt .tr i{display:block;height:100%;background:var(--accent)}
+.mt .tr i.warn{background:var(--warn)}
+.mt .tr b{position:absolute;right:5px;top:0;line-height:14px;font-size:9.5px;color:var(--fg);
+  text-shadow:0 0 4px var(--bg)}
+.mt .vv{width:74px;text-align:right}
+.treemap{display:flex;flex-wrap:wrap;gap:2px;margin-top:10px;align-content:flex-start}
+.tm{border-radius:2px;background:var(--accent);opacity:.28;position:relative}
+.tm.hot{opacity:.95}
+.tm.mid{opacity:.55}
+.tm:hover{outline:1px solid var(--fg);opacity:1}
+.kv{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--line)}
+.kv:last-child{border:0}
+.kv span{color:var(--dim)}
+.kv b{font-family:var(--mono)}
+.kv b.bad{color:var(--bad)} .kv b.warn{color:var(--warn)} .kv b.ok{color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono)}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;text-transform:uppercase;
+  letter-spacing:.6px;padding-bottom:6px;position:sticky;top:-13px;background:var(--bg)}
+.cell.k th{background:var(--panel)}
+td{padding:4px 0;border-top:1px solid rgba(30,45,61,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.r{text-align:right;color:var(--dim)}
+tr:hover td{color:var(--fg);background:var(--panel2)}
+.nm{max-width:1px;width:99%}
+.spark{display:flex;align-items:flex-end;gap:2px;height:34px;margin:9px 0}
+.spark i{flex:1;background:var(--blue);border-radius:1px;min-height:2px;opacity:.8}
+.spark i.dead{background:var(--bad)}
+.hd{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);margin-bottom:10px;
+  display:flex;align-items:center;gap:8px}
+.hd .n{margin-left:auto;font-family:var(--mono);color:var(--fg);font-size:11px}
+.hd .warn{color:var(--warn)}
+.chip{font-size:9.5px;padding:1px 6px;border-radius:99px;border:1px solid var(--line);color:var(--dim);
+  font-family:var(--mono)}
+.chip.bad{color:var(--bad);border-color:var(--bad)}
+.chip.warn{color:var(--warn);border-color:var(--warn)}
+.chip.ok{color:var(--accent);border-color:var(--accent)}
+.foot{grid-column:1/-1;background:var(--panel);display:flex;gap:20px;align-items:center;
+  padding:7px 15px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.foot b{color:var(--fg)}
+.foot .sp{flex:1}
+.act{font-size:10.5px;padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--dim);cursor:pointer;font-family:inherit}
+.act:hover{color:var(--fg);border-color:var(--accent)}
+.act.warn{color:var(--warn);border-color:var(--warn)}
+</style>
+</head><body>
+
+
+<header class="top">
+  <div class="logo">S</div>
+  <div class="crumb">SiftKit / <b>Memory</b></div>
+  <nav class="viewnav">
+    <a href="variant-a-dashboard.html" class="">Overview</a>
+    <a href="variant-b-explorer.html" class="">Explorer</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="badge warn">Tier 3 87.8%</span>
+  <span class="stamp">dense console &middot; graph v6,608 &middot; 2026-09-10</span>
+</header>
+<div class="grid">
+
+  <div class="cmd">
+    <span class="chip ok">memory</span>
+    <input placeholder="&gt; search, correct, merge, forget…   try: forget league of legends"
+      onkeydown="if(event.key==='Enter'){dockOpen(true);ask(this.value);this.value=''}">
+    <span class="kbd">⌘K</span>
+    <span class="chip warn">T3 87.8%</span>
+    <span class="chip bad">30 dead</span>
+    <span class="chip warn">1,244 pending</span>
+  </div>
+
+  <div class="cell k">
+    <div class="hd">Capacity <span class="n">442/526</span></div>
+    
+      <div class="mt">
+        <span class="lbl">T1 prof</span>
+        <div class="tr"><i class="warn" style="width:100%"></i>
+          <b>100.0%</b></div>
+        <span class="vv">1/1</span>
+      </div>
+      <div class="mt">
+        <span class="lbl">T2 doss</span>
+        <div class="tr"><i class="" style="width:8%"></i>
+          <b>8.0%</b></div>
+        <span class="vv">2/25</span>
+      </div>
+      <div class="mt">
+        <span class="lbl">T3 arch</span>
+        <div class="tr"><i class="warn" style="width:87.8%"></i>
+          <b>87.8%</b></div>
+        <span class="vv">439/500</span>
+      </div>
+
+    <div class="hd" style="margin-top:18px">Token budget <span class="n">64,969</span></div>
+    
+      <div class="mt">
+        <span class="lbl">T1</span>
+        <div class="tr"><i style="width:10.30029706475396%"></i></div>
+        <span class="vv">6,692</span>
+      </div>
+      <div class="mt">
+        <span class="lbl">T2</span>
+        <div class="tr"><i style="width:0.30476073204143517%"></i></div>
+        <span class="vv">198</span>
+      </div>
+      <div class="mt">
+        <span class="lbl">T3</span>
+        <div class="tr"><i style="width:89.39494220320461%"></i></div>
+        <span class="vv">58,079</span>
+      </div>
+
+    <div class="hd" style="margin-top:18px">Graph <span class="n">v6,608</span></div>
+    <div class="kv"><span>entities</span><b>1,109</b></div>
+    <div class="kv"><span>beliefs</span><b>1,408</b></div>
+    <div class="kv"><span>pinned</span><b class="bad">0</b></div>
+    <div class="kv"><span>evidence</span><b>4,329</b></div>
+    <div class="kv"><span>observations</span><b>6,478</b></div>
+    <div class="kv"><span>duplicates</span><b class="warn">2</b></div>
+    <div class="kv"><span>chars/token</span><b>3.300</b></div>
+    <div class="kv"><span>last rebuild</span><b>19h ago</b></div>
+  </div>
+
+  <div class="cell">
+    <div class="hd">Token allocation · Tier 3 <span class="n">58,079 tok / 439 docs</span></div>
+    <div class="note">Area &prop; tokens. Bright = retrieved at least once.
+      <b style="color:var(--bad)">99.3% has never been read.</b></div>
+    <div class="treemap">
+      <div class="tm hot"
+          style="width:56px;height:56px"
+          title="Profile — 6692 tok, 2 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="gameplayplanner — 397 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="SiftKit — 384 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="brawlhalla — 346 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="Pixel Explosion — 331 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="Godot — 326 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="Windows — 274 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="Gameplay Planner — 271 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 9 — 90 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 10 — 127 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 11 — 164 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 12 — 201 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 13 — 238 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 14 — 275 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 15 — 312 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 16 — 109 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 17 — 146 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 18 — 183 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 19 — 220 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 20 — 257 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 21 — 294 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 22 — 91 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 23 — 128 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 24 — 165 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 25 — 202 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 26 — 239 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 27 — 276 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 28 — 313 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 29 — 110 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 30 — 147 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 31 — 184 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 32 — 221 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 33 — 258 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 34 — 295 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 35 — 92 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 36 — 129 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 37 — 166 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 38 — 203 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 39 — 240 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 40 — 277 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 41 — 314 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 42 — 111 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 43 — 148 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 44 — 185 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 45 — 222 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 46 — 259 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 47 — 296 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 48 — 93 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 49 — 130 tok, 0 retrievals"></div><div class="tm "
+          style="width:17px;height:17px"
+          title="tier3 doc 50 — 167 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 51 — 204 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:17px;height:17px"
+          title="tier3 doc 52 — 241 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 53 — 278 tok, 0 retrievals"></div><div class="tm mid"
+          style="width:18px;height:18px"
+          title="tier3 doc 54 — 315 tok, 0 retrievals"></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="hd">Archive queue <span class="n warn">61 slots left</span></div>
+    <div class="note" style="margin-bottom:9px">Evicted first when Tier 3 fills.</div>
+    <table>
+      <tr><th class="nm">Document</th><th class="r">Tok</th><th class="r">Used</th><th class="r">Built</th></tr>
+      
+      <tr><td class="nm">PC</td><td class="r">108</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">React</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">GitHub</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">TurboRepo</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">zod</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">Tabby</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">AMD</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">Qwen</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">dashboard</td><td class="r">109</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+      <tr><td class="nm">Hugo</td><td class="r">110</td>
+        <td class="r" style="color:var(--bad)">0</td>
+        <td class="r">09-09</td></tr>
+    </table>
+    <button class="act warn" style="margin-top:11px" onclick="dockOpen(true);ask('Free up Tier 3 space')">Archive lowest 12</button>
+    <button class="act" style="margin-top:11px">Raise limit</button>
+  </div>
+
+  <div class="cell k">
+    <div class="hd">Pipeline</div>
+    <div class="kv"><span>image extract</span><b class="ok">807 done</b></div>
+    <div class="kv"><span>&nbsp;&nbsp;queued</span><b class="warn">32</b></div>
+    <div class="kv"><span>&nbsp;&nbsp;dead letter</span><b class="bad">30</b></div>
+    <div class="spark">
+      <i class="" style="height:100%"
+        title="428 extractions"></i><i class="" style="height:75.70093457943925%"
+        title="324 extractions"></i><i class="dead" style="height:4%"
+        title="0 extractions"></i><i class="" style="height:4%"
+        title="0 extractions"></i><i class="" style="height:4%"
+        title="0 extractions"></i><i class="" style="height:11.448598130841122%"
+        title="49 extractions"></i><i class="" style="height:4%"
+        title="5 extractions"></i><i class="" style="height:4%"
+        title="10 extractions"></i>
+    </div>
+    <div class="note">8-day throughput. Red = the 2026-09-03 failure window.</div>
+
+    <div class="hd" style="margin-top:16px">Projection maint.</div>
+    <div class="kv"><span>completed</span><b>16</b></div>
+    <div class="kv"><span>cancelled</span><b class="warn">405</b></div>
+    <div class="kv"><span>queued</span><b>1</b></div>
+
+    <div class="hd" style="margin-top:16px">Review backlog</div>
+    <div class="kv"><span>accepted</span><b class="ok">2,922</b></div>
+    <div class="kv"><span>pending</span><b class="warn">1,244</b></div>
+    <div class="kv"><span>needs confirm</span><b>16</b></div>
+    <div class="kv"><span>rejected</span><b>74</b></div>
+    <button class="act" style="margin-top:11px" onclick="dockOpen(true);ask('Review pending beliefs')">Review queue</button>
+  </div>
+
+  <div class="cell span2">
+    <div class="hd">Entities by connectedness <span class="n">1,109 active</span></div>
+    <table>
+      <tr><th class="nm">Entity</th><th>Type</th><th class="r">Beliefs</th><th class="r">First seen</th><th class="r"></th></tr>
+      
+      <tr><td class="nm">the user</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">712</td>
+        <td class="r">2026-08-28</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">The Last Spark</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">67</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"><span class="chip warn">dup</span></td></tr>
+      <tr><td class="nm">Unknown</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">54</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">SiftKit</td>
+        <td style="color:var(--dim)">project</td>
+        <td class="r" style="color:var(--fg)">42</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"><span class="chip warn">dup</span></td></tr>
+      <tr><td class="nm">TheLastSpark</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">38</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"><span class="chip warn">dup</span></td></tr>
+      <tr><td class="nm">Visual Studio Code</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">37</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">Git</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">26</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">User denys</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">21</td>
+        <td class="r">2026-09-08</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">Reddit</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">20</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">Node.js</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">19</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">Unknown User</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">19</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">SiftKit</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">18</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"><span class="chip warn">dup</span></td></tr>
+      <tr><td class="nm">VS Code</td>
+        <td style="color:var(--dim)">software</td>
+        <td class="r" style="color:var(--fg)">17</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+      <tr><td class="nm">turboDerp</td>
+        <td style="color:var(--dim)">person</td>
+        <td class="r" style="color:var(--fg)">17</td>
+        <td class="r">2026-09-03</td>
+        <td class="r"></td></tr>
+    </table>
+  </div>
+
+  <div class="cell">
+    <div class="hd">Newest beliefs</div>
+    <table>
+      
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">Browser User <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+      <tr><td class="nm">user &#39;denys&#39; <span style="color:var(--blue)">USES</span> </td>
+        <td class="r" style="color:var(--accent)">0.55</td></tr>
+    </table>
+    <div class="note" style="margin-top:9px">
+      Promoted today, but observed <b style="color:var(--warn)">~1.5 d ago</b> — decay is measured from
+      observation, so these arrive pre-decayed.
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="hd">Composition</div>
+    
+      <div class="mt"><span class="lbl" style="width:78px">software</span>
+        <div class="tr" style="height:9px"><i style="width:100%"></i></div>
+        <span class="vv" style="width:40px">445</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">project</span>
+        <div class="tr" style="height:9px"><i style="width:62.69662921348315%"></i></div>
+        <span class="vv" style="width:40px">279</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">device</span>
+        <div class="tr" style="height:9px"><i style="width:18.876404494382022%"></i></div>
+        <span class="vv" style="width:40px">84</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">person</span>
+        <div class="tr" style="height:9px"><i style="width:14.382022471910114%"></i></div>
+        <span class="vv" style="width:40px">64</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">topic</span>
+        <div class="tr" style="height:9px"><i style="width:13.707865168539326%"></i></div>
+        <span class="vv" style="width:40px">61</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">media_wor</span>
+        <div class="tr" style="height:9px"><i style="width:6.96629213483146%"></i></div>
+        <span class="vv" style="width:40px">31</span></div>
+    <div class="hd" style="margin-top:14px">Confidence</div>
+    
+      <div class="mt"><span class="lbl" style="width:78px">high</span>
+        <div class="tr" style="height:9px"><i style="width:1.7045454545454544%;background:var(--accent)"></i></div>
+        <span class="vv" style="width:40px">24</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">medium</span>
+        <div class="tr" style="height:9px"><i style="width:9.659090909090908%;background:var(--blue)"></i></div>
+        <span class="vv" style="width:40px">136</span></div>
+      <div class="mt"><span class="lbl" style="width:78px">unscored</span>
+        <div class="tr" style="height:9px"><i style="width:88.63636363636364%;background:var(--bad)"></i></div>
+        <span class="vv" style="width:40px">1,248</span></div>
+    <div class="note" style="margin-top:9px">
+      88.6% unscored ·
+      2 stated by you
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>owner <b>own_local</b></span>
+    <span>graph <b>v6,608</b></span>
+    <span>docs <b>442/526</b></span>
+    <span>tokens <b>64,969</b></span>
+    <span>evidence <b>4,329</b></span>
+    <div class="sp"></div>
+    <button class="act" onclick="dockOpen(true)">Memory assistant</button>
+    <span>snapshot <b>2026-09-10 12:40Z</b></span>
+  </div>
+</div>
+
+<div class="dock" id="dock">
+  <button class="dock-fab" onclick="dockOpen(true)"><span class="dot"></span>Memory assistant</button>
+  <div class="dock-panel">
+    <div class="dock-head">
+      <b>Memory assistant</b>
+      <span class="scope" title="Tools: search · graph/nodes · graph/assertions · assertions/:id/explanation · assertions/:id/correct · assertions/:id/confirm · assertions/:id/pin · assertions/:id/demote · assertions/:id (DELETE) · topics/forget-preview · topics/forget · cleanup/preview · cleanup · projections/rebuild">memory tools only</span>
+      <button class="dock-x" onclick="dockOpen(false)">&times;</button>
+    </div>
+    <div class="dock-log" id="log"></div>
+    <div class="chips">
+      <button onclick="ask(this.textContent)">Merge the duplicate SiftKit entries</button>
+      <button onclick="ask(this.textContent)">I don't use llama.cpp any more</button>
+      <button onclick="ask(this.textContent)">Forget everything about League of Legends</button>
+      <button onclick="ask(this.textContent)">Free up Tier 3 space</button>
+      <button onclick="ask(this.textContent)">Why do you think I use CUDA?</button>
+    </div>
+    <form class="dock-in" onsubmit="event.preventDefault();ask(this.q.value);this.q.value=''">
+      <input name="q" placeholder="Correct or clean up a memory…" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
+<script>
+const dockEl = document.getElementById('dock');
+const logEl = document.getElementById('log');
+function dockOpen(v){ dockEl.classList.toggle('open', v); if(v) logEl.scrollTop = logEl.scrollHeight; }
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; }
+function push(node){ logEl.appendChild(node); logEl.scrollTop = logEl.scrollHeight; }
+function applyCard(btn, msg){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied">&#10003; ' + msg + '</div>'));
+}
+function discardCard(btn){
+  const card = btn.closest('.card');
+  card.querySelector('.card-f').remove();
+  card.appendChild(el('<div class="applied" style="color:var(--dim)">Discarded — nothing changed.</div>'));
+}
+const TRACE = (...t) => '<div class="trace">called ' + t.map(x=>'<span>'+x+'</span>').join('') + '</div>';
+
+const SCRIPT = [
+  { re:/merge|duplicate|dupe|same thing|two .*entries/i, reply: () => [
+      TRACE('search','graph/nodes','cleanup/preview'),
+      '<div class="msg ai">Found <b>4 likely duplicate pairs</b> in 1,109 active entities. Merging keeps the higher-degree node and re-points every assertion — nothing is deleted.</div>',
+      `<div class="card"><div class="card-h">cleanup/preview &middot; 4 merges</div><div class="card-b diff">
+        <div><span class="del">- SiftKit</span> <span class="ctx">(18 links)</span> &rarr; <span class="add">SiftKit</span> <span class="ctx">(42 links)</span></div>
+        <div><span class="del">- TheLastSpark</span> <span class="ctx">(38)</span> &rarr; <span class="add">The Last Spark</span> <span class="ctx">(67)</span></div>
+        <div><span class="del">- VS Code</span> <span class="ctx">(17)</span> &rarr; <span class="add">Visual Studio Code</span> <span class="ctx">(37)</span></div>
+        <div><span class="del">- Unknown User</span> <span class="ctx">(19)</span> &rarr; <span class="add">Unknown</span> <span class="ctx">(54)</span></div>
+        <div class="ctx" style="margin-top:4px">148 assertions re-pointed &middot; 4 entities archived &middot; reversible for 30d</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Merged 4 pairs. 148 assertions re-pointed.')">Apply merges</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/don't use|dont use|no longer|stop using|not use|wrong|incorrect|isn't true|never/i, reply: (q) => [
+      TRACE('search','graph/assertions','assertions/:id/demote'),
+      '<div class="msg ai">I hold <b>3 assertions</b> matching that, all from passive observation rather than anything you told me. I&rsquo;ll retire them and suppress re-learning from the same evidence.</div>',
+      `<div class="card"><div class="card-h">3 assertions &middot; retire</div><div class="card-b diff">
+        <div><span class="del">- the user USES llama.cpp</span> <span class="ctx">conf 0.85 &middot; 12 observations</span></div>
+        <div><span class="del">- SiftKit DEPENDS_ON llama.cpp</span> <span class="ctx">conf 0.55</span></div>
+        <div><span class="del">- llama.cpp PART_OF inference backend</span> <span class="ctx">conf 0.00</span></div>
+        <div class="ctx" style="margin-top:4px">Evidence is kept; only the conclusions are retired.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Retired 3 assertions and suppressed the source evidence.')">Retire them</button>
+        <button onclick="discardCard(this)">Keep them</button>
+      </div></div>`] },
+  { re:/forget|delete|remove|purge|wipe/i, reply: () => [
+      TRACE('topics/forget-preview'),
+      '<div class="msg ai">Scoped forget. This is <b>irreversible</b>, so read the blast radius before applying:</div>',
+      `<div class="card"><div class="card-h warn">&#9888; topics/forget-preview</div><div class="card-b diff">
+        <div><span class="del">- 3 entities</span> <span class="ctx">League of Legends, League Arena, Nami</span></div>
+        <div><span class="del">- 31 assertions</span></div>
+        <div><span class="del">- 7 Tier 3 documents</span> <span class="ctx">-1,204 tokens</span></div>
+        <div><span class="del">- 46 evidence records</span> <span class="ctx">screenshots + transcripts</span></div>
+        <div class="ctx" style="margin-top:4px">Frees 7 Tier 3 slots &middot; cannot be undone</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Forgot 3 entities, 31 assertions, 46 evidence records.')">Forget permanently</button>
+        <button onclick="discardCard(this)">Cancel</button>
+      </div></div>`] },
+  { re:/free up|space|capacity|tier ?3|limit|full|archive/i, reply: () => [
+      TRACE('projections','cleanup/preview'),
+      '<div class="msg ai">Tier 3 is at <b>439/500</b> (87.8%). 61 slots left. The lowest-utility documents have never been retrieved once:</div>',
+      `<div class="card"><div class="card-h">archive 12 lowest-utility documents</div><div class="card-b diff">
+        <div><span class="del">- PC</span> <span class="ctx">108 tok &middot; 0 retrievals</span></div><div><span class="del">- React</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- GitHub</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- TurboRepo</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div><div><span class="del">- zod</span> <span class="ctx">109 tok &middot; 0 retrievals</span></div>
+        <div class="ctx">…and 7 more &middot; frees 12 slots, ~1,580 tokens</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Archived 12 documents. Tier 3 now 427/500 (85.4%).')">Archive them</button>
+        <button onclick="discardCard(this)">Discard</button>
+      </div></div>`] },
+  { re:/why|how do you know|explain|source|where did/i, reply: () => [
+      TRACE('search','assertions/:id/explanation'),
+      `<div class="msg ai">Because of <b>4 passive observations</b>, not anything you stated:<br>
+        <code>the user USES CUDA</code> &middot; confidence 0.55<br>
+        First seen 2026-09-02, last 2026-09-09. Derived from terminal output and <code>nvidia-smi</code> in
+        3 screenshots plus 1 chat transcript. Basis is <code>passive_observation</code>, so it decays unless reinforced.</div>`,
+      `<div class="card"><div class="card-h">adjust this belief</div><div class="card-b diff">
+        <div class="ctx">Pin it to stop decay, or correct it if the inference is wrong.</div>
+      </div><div class="card-f">
+        <button class="go" onclick="applyCard(this,'Pinned. This assertion no longer decays.')">Pin as true</button>
+        <button onclick="discardCard(this)">That's wrong</button>
+      </div></div>`] },
+];
+const FALLBACK = [
+  TRACE('search'),
+  `<div class="msg ai">I can correct, pin, demote, merge, or forget anything in memory — and I only reach the
+   memory tools, nothing else. Try:<br>&ldquo;that's wrong, I use X not Y&rdquo; &middot; &ldquo;merge these duplicates&rdquo;
+   &middot; &ldquo;forget about &lt;topic&gt;&rdquo; &middot; &ldquo;why do you think that?&rdquo;</div>`,
+];
+
+function ask(q){
+  if(!q || !q.trim()) return;
+  push(el('<div class="msg me">' + q.replace(/</g,'&lt;') + '</div>'));
+  const hit = SCRIPT.find(s => s.re.test(q));
+  const out = hit ? hit.reply(q) : FALLBACK;
+  let i = 0;
+  const tick = () => {
+    if(i >= out.length) return;
+    push(el(out[i++]));
+    setTimeout(tick, 260);
+  };
+  setTimeout(tick, 340);
+}
+ask.seed = () => {
+  push(el(`<div class="msg ai">I watch what gets stored and can fix it on request. Right now Tier 3 is
+    <b>87.8% full</b> and I see <b>2 duplicate entity pairs</b>. Want me to clean those up?</div>`));
+};
+ask.seed();
+
+</script>
+</body></html>

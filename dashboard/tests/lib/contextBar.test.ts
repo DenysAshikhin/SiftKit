@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { formatLiveContextTokens, resolveLiveContextUsage } from '../../src/lib/contextBar';
-import { sumLiveTokenDisplays } from '../../src/lib/format';
+import { getLiveMessageTokenDisplay, sumLiveTokenDisplays } from '../../src/lib/format';
 import type { ChatStreamPromptEvent } from '@siftkit/contracts';
 import type { ChatMessage, ContextUsage } from '../../src/types';
 
@@ -135,11 +135,11 @@ test('sumLiveTokenDisplays totals live bubbles and is exact only when every bubb
   const provisional = sumLiveTokenDisplays([
     liveMessage({ id: 'u', role: 'user', kind: 'user_text', content: '12345678' }),
     liveMessage({ id: 'a', content: '1234' }),
-  ]);
+  ].map(getLiveMessageTokenDisplay));
   assert.deepEqual(provisional, { tokenCount: 0, exact: true });
   const exact = sumLiveTokenDisplays([
     liveMessage({ id: 'a', content: 'done', outputTokensEstimate: 3, outputTokensEstimated: false }),
-  ]);
+  ].map(getLiveMessageTokenDisplay));
   assert.deepEqual(exact, { tokenCount: 3, exact: true });
   assert.deepEqual(sumLiveTokenDisplays([]), { tokenCount: 0, exact: true });
 });

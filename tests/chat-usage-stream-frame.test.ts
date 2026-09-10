@@ -1,11 +1,41 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { forwardRepoSearchPromptEvent, forwardRepoSearchUsageEvent } from '../src/status-server/routes/chat.js';
+import { ChatStreamProgressWriter, forwardRepoSearchPromptEvent, forwardRepoSearchUsageEvent } from '../src/status-server/routes/chat.js';
 import { ChatStreamPromptEventSchema } from '@siftkit/contracts';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 
 type WrittenEvent = { eventName: string; payload: JsonSerializable };
+
+for (const kind of ['thinking', 'narration', 'answer'] as const) {
+  for (const prefix of ['', 'x'.repeat(1024)]) {
+    test(`usage flushes buffered ${kind}, prefix=${prefix.length}`, (t) => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+      const { written, writer } = createRecordingWriter();
+      const progress = new ChatStreamProgressWriter(writer, null, 'test', true);
+      t.after(() => progress.flushPending());
+      const text = prefix + 'short';
+      if (prefix) progress.write({ kind, turn: 1, maxTurns: 2, thinkingText: prefix, narrationText: prefix, answerText: prefix });
+      progress.write({ kind, turn: 1, maxTurns: 2, thinkingText: text, narrationText: text, answerText: text });
+      progress.write({
+        kind: 'usage', turn: 1, maxTurns: 2, elapsedMs: 1, charsPerToken: 4,
+        record: { turn: 1, promptTokens: 10, thinkingTokens: 200, outputTokens: 60, toolTokens: 0, generatedChars: 800, thinkingTokensEstimated: true, outputTokensEstimated: false },
+        totals: { promptTokens: 10, thinkingTokens: 200, outputTokens: 60, toolTokens: 0, thinkingTokensEstimatedCount: 1, outputTokensEstimatedCount: 0 },
+      });
+      progress.flushPending();
+      assert.deepEqual(written.map((event) => event.eventName), prefix ? [kind, kind, 'usage'] : [kind, 'usage']);
+      const stopped = progress.getStoppedMessages();
+      if (kind === 'thinking') {
+        assert.equal(stopped[0]?.thinkingTokens, 200);
+        assert.equal(stopped[0]?.thinkingTokensEstimated, true);
+      }
+      if (kind === 'answer') {
+        assert.equal(stopped[0]?.outputTokensEstimate, 60);
+        assert.match(stopped[0]?.content ?? '', /Stopped by user/u);
+      }
+    });
+  }
+}
 
 function createRecordingWriter() {
   const written: WrittenEvent[] = [];

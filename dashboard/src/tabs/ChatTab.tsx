@@ -1,3 +1,5 @@
+import { buildLiveTokenDisplays } from '../lib/chat-live-token-display';
+import { requireLiveTokenDisplay, type TokenDisplay } from '../lib/format';
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -214,6 +216,7 @@ export function ChatTab({
   const liveTokenBase = selectedRuntime?.liveTokenBase ?? null;
   const streamedCharsSinceBase = selectedRuntime?.streamedCharsSinceBase ?? 0;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
+  const liveTokenDisplays = React.useMemo(() => selectedRuntime ? buildLiveTokenDisplays(selectedRuntime) : new Map<string, TokenDisplay>(), [selectedRuntime]);
   const chatError = selectedRuntime?.error ?? null;
   const warnings = selectedRuntime?.warnings ?? [];
   const draft = selectedRuntime?.draft ?? '';
@@ -436,6 +439,7 @@ export function ChatTab({
                     <MessageBubble
                       key={message.id}
                       message={message}
+                      tokenDisplay={turn.isLive ? requireLiveTokenDisplay(liveTokenDisplays, message.id) : null}
                       sessionId={selectedSessionId}
                       isLive={turn.isLive}
                       isPending={message.id === pendingUserMessageId}
@@ -450,6 +454,7 @@ export function ChatTab({
                   <ChatTurnBubble
                     key={turn.key}
                     turn={turn}
+                    tokenDisplays={turn.isLive ? liveTokenDisplays : new Map()}
                     sessionId={selectedSessionId}
                     isDirectChatMode={isDirectChatMode}
                     chatBusy={selectedSessionBusy}
@@ -657,6 +662,7 @@ function CompactedHistoryPanel(props: {
             <MessageBubble
               key={message.id}
               message={message}
+              tokenDisplay={null}
               sessionId={sessionId}
               isLive={false}
               isPending={false}
@@ -734,8 +740,9 @@ function SettingsPopover(props: {
   );
 }
 
-function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }: {
+function MessageHeader({ message, tokenDisplay, isLive, isPending, chatBusy, onDeleteMessage }: {
   message: ChatMessage;
+  tokenDisplay: TokenDisplay | null;
   isLive: boolean;
   isPending: boolean;
   chatBusy: boolean;
@@ -753,7 +760,7 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
       <span className="msg-meta">
         {isPending ? <span className="sp" /> : null}
         <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">
-          {isLive ? formatLiveMessageTokenLabel(message) : formatMessageTokenLabel(message)}
+          {tokenDisplay ? formatLiveMessageTokenLabel(tokenDisplay) : formatMessageTokenLabel(message)}
         </span>
         {!isLive ? (
           <button
@@ -842,8 +849,9 @@ function renderMessageBody(
   );
 }
 
-function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, extraClass }: {
+function MessageBubble({ message, tokenDisplay, sessionId, isLive, isPending, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, extraClass }: {
   message: ChatMessage;
+  tokenDisplay: TokenDisplay | null;
   sessionId: string;
   isLive: boolean;
   isPending: boolean;
@@ -857,14 +865,15 @@ function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode
   const tone = message.role === 'user' ? 'user' : 'ai';
   return (
     <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}${isPending ? ' pending' : ''}`}>
-      <MessageHeader message={message} isLive={isLive} isPending={isPending} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
+      <MessageHeader message={message} tokenDisplay={tokenDisplay} isLive={isLive} isPending={isPending} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
       {renderMessageBody(message, sessionId, isDirectChatMode, isLive, chatBusy, onDeleteMessageImage)}
     </article>
   );
 }
 
-function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn }: {
+function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn }: {
   turn: ChatTurn;
+  tokenDisplays: ReadonlyMap<string, TokenDisplay>;
   sessionId: string;
   isDirectChatMode: boolean;
   chatBusy: boolean;
@@ -872,10 +881,10 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const aggregateTokens = getTurnTokenDisplay(turn);
+  const aggregateTokens = getTurnTokenDisplay(turn, tokenDisplays);
   const [expandedLogic, setExpandedLogic] = React.useState(false);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
-  const tokenLabel = aggregateTokens.exact
+  const tokenLabel = aggregateTokens.tokenCount === null || aggregateTokens.exact
     ? formatTokenLabel(aggregateTokens.tokenCount, 'run tokens')
     : `~${formatNumber(aggregateTokens.tokenCount)} run tokens`;
   const tokenTitle = turn.isLive
@@ -888,6 +897,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
     <MessageBubble
       key={message.id}
       message={message}
+      tokenDisplay={turn.isLive ? requireLiveTokenDisplay(tokenDisplays, message.id) : null}
       sessionId={sessionId}
       isLive={turn.isLive}
       isPending={false}

@@ -1,0 +1,2852 @@
+{
+  "capturedAtUtc": "2026-09-10T12:40:33.155Z",
+  "limits": {
+    "1": 1,
+    "2": 25,
+    "3": 500
+  },
+  "nodes": {
+    "total": 1127,
+    "active": 1109,
+    "newest": "2026-09-10T12:34:30.218Z",
+    "byType": [
+      {
+        "type": "software",
+        "n": 445
+      },
+      {
+        "type": "project",
+        "n": 279
+      },
+      {
+        "type": "device",
+        "n": 84
+      },
+      {
+        "type": "person",
+        "n": 64
+      },
+      {
+        "type": "topic",
+        "n": 61
+      },
+      {
+        "type": "media_work",
+        "n": 31
+      },
+      {
+        "type": "preference_context",
+        "n": 26
+      },
+      {
+        "type": "goal",
+        "n": 24
+      },
+      {
+        "type": "configuration_profile",
+        "n": 17
+      },
+      {
+        "type": "activity",
+        "n": 15
+      },
+      {
+        "type": "place",
+        "n": 12
+      },
+      {
+        "type": "model",
+        "n": 10
+      },
+      {
+        "type": "vehicle",
+        "n": 9
+      },
+      {
+        "type": "document",
+        "n": 9
+      },
+      {
+        "type": "home_asset",
+        "n": 7
+      },
+      {
+        "type": "dataset",
+        "n": 6
+      },
+      {
+        "type": "event",
+        "n": 5
+      },
+      {
+        "type": "question_topic",
+        "n": 3
+      },
+      {
+        "type": "organization",
+        "n": 1
+      },
+      {
+        "type": "account",
+        "n": 1
+      }
+    ]
+  },
+  "assertions": {
+    "total": 1634,
+    "active": 1408,
+    "pinned": 0,
+    "newestObserved": "2026-09-09T01:01:28.787Z",
+    "newestCreated": "2026-09-10T12:34:30.219Z",
+    "byPredicate": [
+      {
+        "predicate": "USES",
+        "n": 597
+      },
+      {
+        "predicate": "WORKS_ON",
+        "n": 185
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "n": 124
+      },
+      {
+        "predicate": "INTERESTED_IN",
+        "n": 99
+      },
+      {
+        "predicate": "PART_OF",
+        "n": 62
+      },
+      {
+        "predicate": "HAS_COMPONENT",
+        "n": 59
+      },
+      {
+        "predicate": "CONTRIBUTED_TO",
+        "n": 35
+      },
+      {
+        "predicate": "HAS_SETTING",
+        "n": 34
+      },
+      {
+        "predicate": "WATCHED",
+        "n": 32
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "n": 27
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "n": 24
+      },
+      {
+        "predicate": "RELATED_TO",
+        "n": 17
+      },
+      {
+        "predicate": "PLAYED",
+        "n": 17
+      },
+      {
+        "predicate": "HAS_GOAL",
+        "n": 14
+      },
+      {
+        "predicate": "TESTED_WITH",
+        "n": 12
+      },
+      {
+        "predicate": "PREFERS",
+        "n": 10
+      },
+      {
+        "predicate": "CREATED",
+        "n": 10
+      },
+      {
+        "predicate": "MENTIONED_IN",
+        "n": 9
+      },
+      {
+        "predicate": "DRIVES",
+        "n": 8
+      },
+      {
+        "predicate": "COMPARED_WITH",
+        "n": 8
+      },
+      {
+        "predicate": "LOCATED_IN",
+        "n": 6
+      },
+      {
+        "predicate": "HAS_CONSTRAINT",
+        "n": 4
+      },
+      {
+        "predicate": "AVOIDS",
+        "n": 4
+      },
+      {
+        "predicate": "OWNS",
+        "n": 3
+      },
+      {
+        "predicate": "RUNS_ON",
+        "n": 2
+      },
+      {
+        "predicate": "RESULTED_IN",
+        "n": 2
+      },
+      {
+        "predicate": "LIVES_IN",
+        "n": 2
+      },
+      {
+        "predicate": "ASKED_ABOUT",
+        "n": 2
+      }
+    ],
+    "byBasis": [
+      {
+        "basis": "explicit_user_statement",
+        "n": 2
+      },
+      {
+        "basis": "passive_observation",
+        "n": 1406
+      }
+    ],
+    "bySensitivity": [
+      {
+        "sensitivity": "personal",
+        "n": 1408
+      }
+    ],
+    "byConfidence": [
+      {
+        "b": "high",
+        "n": 24
+      },
+      {
+        "b": "medium",
+        "n": 136
+      },
+      {
+        "b": "unscored",
+        "n": 1248
+      }
+    ]
+  },
+  "projections": {
+    "byTier": [
+      {
+        "tier": 1,
+        "n": 1,
+        "tokens": 6692,
+        "maxTok": 6692,
+        "retr": 2,
+        "newest": "2026-09-09T18:03:25.318Z"
+      },
+      {
+        "tier": 2,
+        "n": 2,
+        "tokens": 198,
+        "maxTok": 99,
+        "retr": 0,
+        "newest": "2026-09-09T18:04:06.369Z"
+      },
+      {
+        "tier": 3,
+        "n": 439,
+        "tokens": 58079,
+        "maxTok": 397,
+        "retr": 8,
+        "newest": "2026-09-09T18:04:08.421Z"
+      }
+    ],
+    "graphVersion": 6608,
+    "topRetrieved": [
+      {
+        "title": "one_more_jump",
+        "tier": 3,
+        "topic_key": "one-more-jump",
+        "token_count": 168,
+        "retrieval_count": 4,
+        "utility_score": 0,
+        "last_retrieved_at_utc": "2026-09-08T20:01:20.037Z",
+        "generated_at_utc": "2026-09-09T18:04:08.362Z"
+      },
+      {
+        "title": "Profile",
+        "tier": 1,
+        "topic_key": "profile",
+        "token_count": 6692,
+        "retrieval_count": 2,
+        "utility_score": 0,
+        "last_retrieved_at_utc": "2026-09-08T20:01:20.038Z",
+        "generated_at_utc": "2026-09-09T18:03:25.318Z"
+      },
+      {
+        "title": "2500 AP Nami = Literal One Shots: 16k Damage on One W | League Arena Gameplay",
+        "tier": 3,
+        "topic_key": "2500-ap-nami-literal-one-shots-16k-damage-on-one-w-league-arena-gameplay",
+        "token_count": 182,
+        "retrieval_count": 2,
+        "utility_score": 0,
+        "last_retrieved_at_utc": "2026-09-08T19:55:31.648Z",
+        "generated_at_utc": "2026-09-09T18:04:07.054Z"
+      },
+      {
+        "title": "Google One",
+        "tier": 3,
+        "topic_key": "google-one",
+        "token_count": 113,
+        "retrieval_count": 2,
+        "utility_score": 0,
+        "last_retrieved_at_utc": "2026-09-08T19:55:31.648Z",
+        "generated_at_utc": "2026-09-09T18:04:07.383Z"
+      }
+    ],
+    "archiveCandidates": [
+      {
+        "title": "PC",
+        "tier": 3,
+        "topic_key": "pc",
+        "token_count": 108,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.876Z"
+      },
+      {
+        "title": "React",
+        "tier": 3,
+        "topic_key": "react",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.685Z"
+      },
+      {
+        "title": "GitHub",
+        "tier": 3,
+        "topic_key": "github",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:06.435Z"
+      },
+      {
+        "title": "TurboRepo",
+        "tier": 3,
+        "topic_key": "turborepo",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.976Z"
+      },
+      {
+        "title": "zod",
+        "tier": 3,
+        "topic_key": "zod",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.417Z"
+      },
+      {
+        "title": "Tabby",
+        "tier": 3,
+        "topic_key": "tabby",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.323Z"
+      },
+      {
+        "title": "AMD",
+        "tier": 3,
+        "topic_key": "amd",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.650Z"
+      },
+      {
+        "title": "Qwen",
+        "tier": 3,
+        "topic_key": "qwen",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:06.825Z"
+      },
+      {
+        "title": "dashboard",
+        "tier": 3,
+        "topic_key": "dashboard",
+        "token_count": 109,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:07.890Z"
+      },
+      {
+        "title": "Hugo",
+        "tier": 3,
+        "topic_key": "hugo",
+        "token_count": 110,
+        "retrieval_count": 0,
+        "utility_score": 0,
+        "generated_at_utc": "2026-09-09T18:04:06.903Z"
+      }
+    ],
+    "largest": [
+      {
+        "title": "Profile",
+        "tier": 1,
+        "topic_key": "profile",
+        "token_count": 6692,
+        "retrieval_count": 2
+      },
+      {
+        "title": "gameplayplanner",
+        "tier": 3,
+        "topic_key": "gameplayplanner",
+        "token_count": 397,
+        "retrieval_count": 0
+      },
+      {
+        "title": "SiftKit",
+        "tier": 3,
+        "topic_key": "siftkit",
+        "token_count": 384,
+        "retrieval_count": 0
+      },
+      {
+        "title": "brawlhalla",
+        "tier": 3,
+        "topic_key": "brawlhalla",
+        "token_count": 346,
+        "retrieval_count": 0
+      },
+      {
+        "title": "Pixel Explosion",
+        "tier": 3,
+        "topic_key": "pixel-explosion",
+        "token_count": 331,
+        "retrieval_count": 0
+      },
+      {
+        "title": "Godot",
+        "tier": 3,
+        "topic_key": "godot",
+        "token_count": 326,
+        "retrieval_count": 0
+      },
+      {
+        "title": "Windows",
+        "tier": 3,
+        "topic_key": "windows",
+        "token_count": 274,
+        "retrieval_count": 0
+      },
+      {
+        "title": "Gameplay Planner",
+        "tier": 3,
+        "topic_key": "gameplay-planner",
+        "token_count": 271,
+        "retrieval_count": 0
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "status": "accepted",
+      "n": 2922
+    },
+    {
+      "status": "needs_confirmation",
+      "n": 16
+    },
+    {
+      "status": "pending",
+      "n": 1244
+    },
+    {
+      "status": "rejected",
+      "n": 74
+    }
+  ],
+  "jobs": [
+    {
+      "job_type": "candidate_consolidation",
+      "status": "completed",
+      "n": 1
+    },
+    {
+      "job_type": "capture_retention",
+      "status": "completed",
+      "n": 1965
+    },
+    {
+      "job_type": "capture_retention",
+      "status": "queued",
+      "n": 1
+    },
+    {
+      "job_type": "conversation_ingestion",
+      "status": "completed",
+      "n": 16
+    },
+    {
+      "job_type": "image_extraction",
+      "status": "completed",
+      "n": 807
+    },
+    {
+      "job_type": "image_extraction",
+      "status": "dead_letter",
+      "n": 30
+    },
+    {
+      "job_type": "image_extraction",
+      "status": "queued",
+      "n": 32
+    },
+    {
+      "job_type": "projection_maintenance",
+      "status": "cancelled",
+      "n": 405
+    },
+    {
+      "job_type": "projection_maintenance",
+      "status": "completed",
+      "n": 16
+    },
+    {
+      "job_type": "projection_maintenance",
+      "status": "queued",
+      "n": 1
+    }
+  ],
+  "evidence": {
+    "n": 4329,
+    "oldest": "2026-08-28T13:28:51.928Z",
+    "newest": "2026-09-10T12:39:51.943Z"
+  },
+  "observations": 6478,
+  "budget": {
+    "id": 1,
+    "observed_telemetry_seen": 1,
+    "last_known_chars_per_token": 3.2999099141492185,
+    "observed_chars_total": 450143975,
+    "observed_tokens_total": 136410989,
+    "updated_at_utc": "2026-09-10T12:39:52.378Z"
+  },
+  "topNodes": [
+    {
+      "id": "node_d91de57ee03d49bcb13db2f019fdc113",
+      "display_name": "the user",
+      "type": "person",
+      "created_at_utc": "2026-08-28T13:28:47.317Z",
+      "deg": 712
+    },
+    {
+      "id": "node_b208d5abc86844bbb65100ddf6b20e0c",
+      "display_name": "The Last Spark",
+      "type": "person",
+      "created_at_utc": "2026-09-03T14:45:39.405Z",
+      "deg": 67
+    },
+    {
+      "id": "node_26d878a56e7d4de7bcba306497022299",
+      "display_name": "Unknown",
+      "type": "person",
+      "created_at_utc": "2026-09-03T16:13:22.011Z",
+      "deg": 54
+    },
+    {
+      "id": "node_213042559a0e4f1387a4e6b27c78b1d4",
+      "display_name": "SiftKit",
+      "type": "project",
+      "created_at_utc": "2026-09-03T14:46:06.776Z",
+      "deg": 42
+    },
+    {
+      "id": "node_06f8c0b9eaf244dbbdf3fa75d81c749a",
+      "display_name": "TheLastSpark",
+      "type": "person",
+      "created_at_utc": "2026-09-03T16:16:14.967Z",
+      "deg": 38
+    },
+    {
+      "id": "node_27b46f189c154a568ac1421401d9542f",
+      "display_name": "Visual Studio Code",
+      "type": "software",
+      "created_at_utc": "2026-09-03T14:56:25.036Z",
+      "deg": 37
+    },
+    {
+      "id": "node_11f5343f791a4823af7cf8eb294bf08a",
+      "display_name": "Git",
+      "type": "software",
+      "created_at_utc": "2026-09-03T14:46:17.488Z",
+      "deg": 26
+    },
+    {
+      "id": "node_ddf6b9d3febe46f08c8d25fba6f58fb1",
+      "display_name": "User denys",
+      "type": "person",
+      "created_at_utc": "2026-09-08T20:28:02.519Z",
+      "deg": 21
+    },
+    {
+      "id": "node_933b70f27d4947d2bfa99dac7fe4417a",
+      "display_name": "Reddit",
+      "type": "software",
+      "created_at_utc": "2026-09-03T16:12:12.415Z",
+      "deg": 20
+    },
+    {
+      "id": "node_3cb5aca7337b487e9e5dc7cebcbeaa30",
+      "display_name": "Node.js",
+      "type": "software",
+      "created_at_utc": "2026-09-03T14:56:25.044Z",
+      "deg": 19
+    },
+    {
+      "id": "node_dc7cbe27606c46a1998f0ddf1eaee8e2",
+      "display_name": "Unknown User",
+      "type": "person",
+      "created_at_utc": "2026-09-03T16:12:06.299Z",
+      "deg": 19
+    },
+    {
+      "id": "node_ca90445140e7440fa953a02ab1f8eb39",
+      "display_name": "SiftKit",
+      "type": "software",
+      "created_at_utc": "2026-09-03T14:46:17.483Z",
+      "deg": 18
+    },
+    {
+      "id": "node_13968ce1ba854e40a5d35e598f5d1a63",
+      "display_name": "VS Code",
+      "type": "software",
+      "created_at_utc": "2026-09-03T14:56:38.258Z",
+      "deg": 17
+    },
+    {
+      "id": "node_ccaee8e63e944df7ad02d23e0322bba7",
+      "display_name": "turboDerp",
+      "type": "person",
+      "created_at_utc": "2026-09-03T15:11:35.149Z",
+      "deg": 17
+    }
+  ],
+  "recentNodes": [
+    {
+      "display_name": "MoE CPU office",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:34:30.218Z"
+    },
+    {
+      "display_name": "Hugo-Dz/sprite",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:34:30.214Z"
+    },
+    {
+      "display_name": "jenissimo/unfai",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:34:30.211Z"
+    },
+    {
+      "display_name": "Distortion Specs",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:34:30.206Z"
+    },
+    {
+      "display_name": "Browser User",
+      "type": "person",
+      "created_at_utc": "2026-09-10T12:34:30.193Z"
+    },
+    {
+      "display_name": "user 'denys'",
+      "type": "person",
+      "created_at_utc": "2026-09-10T12:33:08.900Z"
+    },
+    {
+      "display_name": "Claude Code",
+      "type": "preference_context",
+      "created_at_utc": "2026-09-10T12:31:32.701Z"
+    },
+    {
+      "display_name": "Anthropic Claude",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:30:44.596Z"
+    },
+    {
+      "display_name": "CUDA",
+      "type": "software",
+      "created_at_utc": "2026-09-10T12:30:44.593Z"
+    },
+    {
+      "display_name": "esbuild",
+      "type": "project",
+      "created_at_utc": "2026-09-10T12:28:43.014Z"
+    }
+  ],
+  "recentAssertions": [
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768411397416,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.219Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768412371667,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.215Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768413102356,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.212Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768413833044,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.209Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768414320169,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.207Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768415050858,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.204Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768415781547,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.202Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768416512236,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.199Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.546476841699936,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.197Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5464768417486486,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+      "created_at_utc": "2026-09-10T12:34:30.194Z",
+      "obj": "",
+      "subj": "Browser User"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.5468714533914903,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-09T00:59:58.089Z",
+      "created_at_utc": "2026-09-10T12:33:08.918Z",
+      "obj": "",
+      "subj": "user 'denys'"
+    },
+    {
+      "predicate": "USES",
+      "confidence": 0.546871453464612,
+      "basis": "passive_observation",
+      "last_observed_at_utc": "2026-09-09T00:59:58.089Z",
+      "created_at_utc": "2026-09-10T12:33:08.916Z",
+      "obj": "",
+      "subj": "user 'denys'"
+    }
+  ],
+  "nodeDetails": {
+    "node_d91de57ee03d49bcb13db2f019fdc113": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8499140978980998,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T23:53:15.181Z",
+        "last_observed_at_utc": "2026-09-08T19:48:09.932Z",
+        "obj": "SiFKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8497827760716672,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T01:37:32.665Z",
+        "last_observed_at_utc": "2026-09-08T18:49:31.862Z",
+        "obj": "npm",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8497827758065456,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T18:49:31.862Z",
+        "obj": "Node.js",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8493889038939425,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T23:45:05.645Z",
+        "last_observed_at_utc": "2026-09-08T20:30:33.107Z",
+        "obj": "PowerShell",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8493876719913289,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T20:30:33.107Z",
+        "obj": "Quokka",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8493515978096604,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:06:57.040Z",
+        "last_observed_at_utc": "2026-09-08T20:14:40.140Z",
+        "obj": "Visual Studio Code",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451524697653771,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:06:57.040Z",
+        "last_observed_at_utc": "2026-09-09T00:48:23.136Z",
+        "obj": "SiftKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.8451524695393682,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T23:53:05.111Z",
+        "last_observed_at_utc": "2026-09-09T00:48:23.136Z",
+        "obj": "gameplayplanner",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.845148025764191,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T15:35:03.800Z",
+        "last_observed_at_utc": "2026-09-09T00:44:58.095Z",
+        "obj": "exl3",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451480255381832,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T18:48:16.319Z",
+        "last_observed_at_utc": "2026-09-09T00:44:58.095Z",
+        "obj": "td_flash-next_4.05bpw_h6_ng6",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.844624285302302,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T20:52:48.504Z",
+        "obj": "VS Code",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8446242850764344,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T21:03:10.238Z",
+        "last_observed_at_utc": "2026-09-08T20:52:48.504Z",
+        "obj": "Claude Code",
+        "subj": "the user"
+      }
+    ],
+    "node_b208d5abc86844bbb65100ddf6b20e0c": [
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T22:57:12.700Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "Discord",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:42:38.815Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "Discord Nitro",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "Discord Video Call",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "member",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "member",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "last_observed_at_utc": "2026-09-04T02:24:33.192Z",
+        "obj": "member",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "HAS_CONSTRAINT",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:10:48.842Z",
+        "last_observed_at_utc": "2026-09-04T02:10:48.842Z",
+        "obj": "uses discord in a dark theme",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:10:48.842Z",
+        "last_observed_at_utc": "2026-09-04T02:10:48.842Z",
+        "obj": "PixelPeroxide",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "CONTRIBUTED_TO",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:42:38.815Z",
+        "last_observed_at_utc": "2026-09-04T00:42:38.815Z",
+        "obj": "unresolved",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "last_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "obj": "Jitsi",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "last_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "obj": "owner",
+        "subj": "The Last Spark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "last_observed_at_utc": "2026-09-04T00:41:38.515Z",
+        "obj": "RVPV",
+        "subj": "The Last Spark"
+      }
+    ],
+    "node_26d878a56e7d4de7bcba306497022299": [
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024022135104,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "SiftKit",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024021400236,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "GO DOT",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024020910325,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "gameplayplanner",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024020420412,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "NeetCode",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024019930501,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-02T12:42:31.475Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "Codex",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024019685546,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:48:30.331Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "Chrome",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024019195634,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T18:59:15.978Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "Windows",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024018705722,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "Hugo-Dz/spritz",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024017970854,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "Distortion Spe",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024017235988,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "PineI Explosian",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "DRIVES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T12:07:37.263Z",
+        "last_observed_at_utc": "2026-09-04T12:07:37.263Z",
+        "obj": "denys",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T12:07:37.263Z",
+        "last_observed_at_utc": "2026-09-04T12:07:37.263Z",
+        "obj": "Claude Code",
+        "subj": "Unknown"
+      }
+    ],
+    "node_213042559a0e4f1387a4e6b27c78b1d4": [
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.8451720141857477,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "SiftKit",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.8446242848505667,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T20:52:48.504Z",
+        "obj": "SiftKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.5468714535377336,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:59:58.089Z",
+        "last_observed_at_utc": "2026-09-09T00:59:58.089Z",
+        "obj": "SiftKit",
+        "subj": "user 'denys'"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0.5468625913927477,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "last_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "obj": "esbuild",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0.5468625912952537,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "last_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "obj": "Prettier",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.5468609987104264,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:45:58.639Z",
+        "last_observed_at_utc": "2026-09-09T00:45:58.639Z",
+        "obj": "SiftKit",
+        "subj": "User: denys"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "last_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "obj": "SiftKit",
+        "subj": "unknown_user"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:21:27.564Z",
+        "last_observed_at_utc": "2026-09-03T20:50:43.477Z",
+        "obj": "SiftKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "last_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "obj": "SiftKit",
+        "subj": "Dmitry A."
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T12:27:02.149Z",
+        "last_observed_at_utc": "2026-09-03T12:27:02.149Z",
+        "obj": "SiftKit",
+        "subj": "jensinnio"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-02T13:56:51.113Z",
+        "last_observed_at_utc": "2026-09-02T13:56:51.113Z",
+        "obj": "SiftKit",
+        "subj": "dinesh"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:28:49.417Z",
+        "last_observed_at_utc": "2026-09-02T13:52:39.313Z",
+        "obj": "SiftKit",
+        "subj": "Unknown"
+      }
+    ],
+    "node_06f8c0b9eaf244dbbdf3fa75d81c749a": [
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "Use a Pi as a workhorse",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "Use a 5B parameter quantized model",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "Use Q4 quantization",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "Pull tensor metadata from Hugging Face",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "GGUF file format",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "OpenD",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "AppImage",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "last_observed_at_utc": "2026-09-04T11:18:34.742Z",
+        "obj": "Mac",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:13:15.861Z",
+        "last_observed_at_utc": "2026-09-04T11:17:56.593Z",
+        "obj": "Reddit",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:17:56.593Z",
+        "last_observed_at_utc": "2026-09-04T11:17:56.593Z",
+        "obj": "Home Purchase",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "INTERESTED_IN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:14:54.697Z",
+        "last_observed_at_utc": "2026-09-04T11:14:54.697Z",
+        "obj": "AI Coding Assistants",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:14:36.576Z",
+        "last_observed_at_utc": "2026-09-04T11:14:36.576Z",
+        "obj": "op",
+        "subj": "TheLastSpark"
+      }
+    ],
+    "node_27b46f189c154a568ac1421401d9542f": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8493515978096604,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:06:57.040Z",
+        "last_observed_at_utc": "2026-09-08T20:14:40.140Z",
+        "obj": "Visual Studio Code",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602641700237,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Visual Studio Code",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5468625912465068,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T12:52:57.743Z",
+        "last_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "obj": "Visual Studio Code",
+        "subj": "User (denys)"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "last_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "obj": "Visual Studio Code",
+        "subj": "unknown_user"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-04T00:46:08.799Z",
+        "obj": "SiftKit",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:28:49.417Z",
+        "last_observed_at_utc": "2026-09-02T12:42:31.475Z",
+        "obj": "Visual Studio Code",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T12:29:57.651Z",
+        "last_observed_at_utc": "2026-09-01T23:06:30.203Z",
+        "obj": "Visual Studio Code",
+        "subj": "demy"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "last_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "obj": "Visual Studio Code",
+        "subj": "dave"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Visual Studio Code",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Git",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Claude",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Node.js",
+        "subj": "Visual Studio Code"
+      }
+    ],
+    "node_11f5343f791a4823af7cf8eb294bf08a": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602640193497,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Git",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5499616016373711,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:01:09.977Z",
+        "last_observed_at_utc": "2026-09-08T20:01:09.977Z",
+        "obj": "Git",
+        "subj": "current user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5498594437326033,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:06:57.040Z",
+        "last_observed_at_utc": "2026-09-08T18:49:31.862Z",
+        "obj": "Git",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5468625910027721,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T12:52:57.743Z",
+        "last_observed_at_utc": "2026-09-09T00:49:28.598Z",
+        "obj": "Git",
+        "subj": "User (denys)"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:14:36.576Z",
+        "last_observed_at_utc": "2026-09-04T11:14:36.576Z",
+        "obj": "Git",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "last_observed_at_utc": "2026-09-04T00:50:08.326Z",
+        "obj": "Git",
+        "subj": "unknown_user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "last_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "obj": "Git",
+        "subj": "Dmitry A."
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:28:49.417Z",
+        "last_observed_at_utc": "2026-09-02T13:52:39.313Z",
+        "obj": "Git",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T12:29:57.651Z",
+        "last_observed_at_utc": "2026-09-01T23:06:30.203Z",
+        "obj": "Git",
+        "subj": "demy"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "last_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "obj": "Git",
+        "subj": "dave"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Git",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T18:07:20.583Z",
+        "last_observed_at_utc": "2026-09-01T18:07:20.583Z",
+        "obj": "Git",
+        "subj": "demya"
+      }
+    ],
+    "node_ddf6b9d3febe46f08c8d25fba6f58fb1": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8451720144494309,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "Claude Code",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0.8451720141857477,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "SiftKit",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451720140350716,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "PowerShell",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602641700237,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Visual Studio Code",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602640193497,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Git",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602639440127,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Node.js",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.549968689406982,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "obj": "NVIDIA driver (via nvidia-smi)",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5499686893089343,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "obj": "Prettier",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5499686892599105,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "obj": "Quokka",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5499686889657676,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "obj": "tabbyapi",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "HAS_CONSTRAINT",
+        "confidence": 0.5498455226805169,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "operating system username is 'denys'",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5468760093740058,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "VS Code",
+        "subj": "User denys"
+      }
+    ],
+    "node_933b70f27d4947d2bfa99dac7fe4417a": [
+      {
+        "predicate": "USES",
+        "confidence": 0.5481069935543694,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:13:33.946Z",
+        "last_observed_at_utc": "2026-09-08T20:32:23.949Z",
+        "obj": "Reddit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:13:15.861Z",
+        "last_observed_at_utc": "2026-09-04T11:17:56.593Z",
+        "obj": "Reddit",
+        "subj": "TheLastSpark"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:17:37.499Z",
+        "obj": "r/codex",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:17:37.499Z",
+        "obj": "r/Wealthsimple",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:17:37.499Z",
+        "obj": "r/CanadianInvestor",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:17:37.499Z",
+        "obj": "r/PersonalFinanceCanada",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:17:37.499Z",
+        "obj": "r/canadahousing",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "last_observed_at_utc": "2026-09-04T11:15:07.770Z",
+        "obj": "r/explainlikeimfive",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "PART_OF",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:14:54.697Z",
+        "last_observed_at_utc": "2026-09-04T11:14:54.697Z",
+        "obj": "r/ClaudeCode",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T11:14:00.319Z",
+        "last_observed_at_utc": "2026-09-04T11:14:00.319Z",
+        "obj": "Reddit",
+        "subj": "Superstonk_QV"
+      },
+      {
+        "predicate": "HAS_SETTING",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:53:38.937Z",
+        "last_observed_at_utc": "2026-09-04T00:53:38.937Z",
+        "obj": "light theme",
+        "subj": "Reddit"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:53:08.834Z",
+        "last_observed_at_utc": "2026-09-04T00:53:08.834Z",
+        "obj": "Reddit",
+        "subj": "16gig_vram"
+      }
+    ],
+    "node_3cb5aca7337b487e9e5dc7cebcbeaa30": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8497827758065456,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T18:49:31.862Z",
+        "obj": "Node.js",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.8451602639440127,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:06:45.207Z",
+        "last_observed_at_utc": "2026-09-09T00:55:28.734Z",
+        "obj": "Node.js",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T12:35:18.547Z",
+        "last_observed_at_utc": "2026-09-03T12:35:18.547Z",
+        "obj": "Node.js",
+        "subj": "Node.js"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-02T12:42:31.475Z",
+        "last_observed_at_utc": "2026-09-02T12:42:31.475Z",
+        "obj": "Node.js",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:14:19.672Z",
+        "last_observed_at_utc": "2026-09-01T23:06:30.203Z",
+        "obj": "Node.js",
+        "subj": "demy"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "last_observed_at_utc": "2026-09-01T20:28:28.075Z",
+        "obj": "Node.js",
+        "subj": "dave"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "obj": "Node.js",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T18:07:20.583Z",
+        "last_observed_at_utc": "2026-09-01T18:07:20.583Z",
+        "obj": "Node.js",
+        "subj": "demya"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T18:00:50.793Z",
+        "last_observed_at_utc": "2026-09-01T18:00:50.793Z",
+        "obj": "Node.js",
+        "subj": "demy3"
+      },
+      {
+        "predicate": "COMPARED_WITH",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:35:19.048Z",
+        "last_observed_at_utc": "2026-09-01T17:35:19.048Z",
+        "obj": "Node.js",
+        "subj": "Node.js"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:34:49.928Z",
+        "last_observed_at_utc": "2026-09-01T17:34:49.928Z",
+        "obj": "Node.js",
+        "subj": "demsy"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:32:49.432Z",
+        "last_observed_at_utc": "2026-09-01T17:34:19.810Z",
+        "obj": "Node.js",
+        "subj": "demys"
+      }
+    ],
+    "node_dc7cbe27606c46a1998f0ddf1eaee8e2": [
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "last_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "obj": "Unknown Project",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "last_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "obj": "Google Drive",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "last_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "obj": "OneDrive",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "last_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "obj": "Stellar Fleet Idle",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "last_observed_at_utc": "2026-09-04T02:16:03.590Z",
+        "obj": "Farmer Against Potatoes Idle",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "WORKS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "SiftKit",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "VS Code",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "Claude Code for VS Code",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "Git",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "Node.js",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "last_observed_at_utc": "2026-09-01T11:22:57.946Z",
+        "obj": "PowerShell",
+        "subj": "Unknown User"
+      },
+      {
+        "predicate": "WATCHED",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T11:05:33.254Z",
+        "last_observed_at_utc": "2026-09-01T11:05:33.254Z",
+        "obj": "Shipping a button in 2026...",
+        "subj": "Unknown User"
+      }
+    ],
+    "node_ca90445140e7440fa953a02ab1f8eb39": [
+      {
+        "predicate": "USES",
+        "confidence": 0.8451524697653771,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:06:57.040Z",
+        "last_observed_at_utc": "2026-09-09T00:48:23.136Z",
+        "obj": "SiftKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "CREATED",
+        "confidence": 0.55,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:06:21.951Z",
+        "last_observed_at_utc": "2026-09-08T18:35:01.212Z",
+        "obj": "SiftKit",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5496024022135104,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "last_observed_at_utc": "2026-09-08T20:30:53.323Z",
+        "obj": "SiftKit",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5464768417486486,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-08T20:31:23.574Z",
+        "last_observed_at_utc": "2026-09-08T20:31:23.574Z",
+        "obj": "SiftKit",
+        "subj": "Browser User"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:00:12.633Z",
+        "last_observed_at_utc": "2026-09-04T02:00:12.633Z",
+        "obj": "SiftKit",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:11:51.478Z",
+        "last_observed_at_utc": "2026-09-04T00:46:08.799Z",
+        "obj": "SiftKit",
+        "subj": "Visual Studio Code"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T12:27:02.149Z",
+        "last_observed_at_utc": "2026-09-03T12:27:02.149Z",
+        "obj": "SiftKit",
+        "subj": "jensinnio"
+      },
+      {
+        "predicate": "TESTED_WITH",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:06:21.951Z",
+        "last_observed_at_utc": "2026-09-01T19:06:21.951Z",
+        "obj": "activity summary t10/45",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T19:06:21.951Z",
+        "last_observed_at_utc": "2026-09-01T19:06:21.951Z",
+        "obj": "SQLite",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "CREATED",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:35:19.048Z",
+        "last_observed_at_utc": "2026-09-01T17:35:19.048Z",
+        "obj": "SiftKit",
+        "subj": "demy"
+      },
+      {
+        "predicate": "HAS_SETTING",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:27:19.962Z",
+        "last_observed_at_utc": "2026-09-01T17:27:19.962Z",
+        "obj": "gpt-5.6-luna medium",
+        "subj": "SiftKit"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T17:27:19.962Z",
+        "last_observed_at_utc": "2026-09-01T17:27:19.962Z",
+        "obj": "SiftKit",
+        "subj": "dengyu"
+      }
+    ],
+    "node_13968ce1ba854e40a5d35e598f5d1a63": [
+      {
+        "predicate": "USES",
+        "confidence": 0.844624285302302,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T19:00:57.627Z",
+        "last_observed_at_utc": "2026-09-08T20:52:48.504Z",
+        "obj": "VS Code",
+        "subj": "the user"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5468760093740058,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "last_observed_at_utc": "2026-09-09T01:01:28.787Z",
+        "obj": "VS Code",
+        "subj": "User denys"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0.5468714537570983,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:59:58.089Z",
+        "last_observed_at_utc": "2026-09-09T00:59:58.089Z",
+        "obj": "VS Code",
+        "subj": "user 'denys'"
+      },
+      {
+        "predicate": "RUNS_ON",
+        "confidence": 0.5468627401440781,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:48:46.340Z",
+        "last_observed_at_utc": "2026-09-09T00:48:46.340Z",
+        "obj": "Windows",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "RUNS_ON",
+        "confidence": 0.5468627400465841,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-09T00:48:46.340Z",
+        "last_observed_at_utc": "2026-09-09T00:48:46.340Z",
+        "obj": "Dark Theme",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T00:48:30.331Z",
+        "last_observed_at_utc": "2026-09-04T00:48:30.331Z",
+        "obj": "VS Code",
+        "subj": "Unknown"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "last_observed_at_utc": "2026-09-03T18:30:05.971Z",
+        "obj": "VS Code",
+        "subj": "Dmitry A."
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T15:37:33.392Z",
+        "last_observed_at_utc": "2026-09-01T15:37:33.392Z",
+        "obj": "Copilot",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "last_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "obj": "VS Code",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "last_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "obj": "Claude Code for VS Code",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "last_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "obj": "GitHub Copilot",
+        "subj": "VS Code"
+      },
+      {
+        "predicate": "DEPENDS_ON",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "last_observed_at_utc": "2026-09-01T14:08:27.436Z",
+        "obj": "Git",
+        "subj": "VS Code"
+      }
+    ],
+    "node_ccaee8e63e944df7ad02d23e0322bba7": [
+      {
+        "predicate": "RELATED_TO",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-04T02:22:33.601Z",
+        "last_observed_at_utc": "2026-09-04T02:22:33.601Z",
+        "obj": "turboDerp",
+        "subj": "the user"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Maintain Qwen3.8-27B-ex13 on Hugging Face",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Share large language model weights on Hugging Face",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "HAS_PLAN",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Use Hugging Face Hub as primary repository for AI model distribution",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Hugging Face platform",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Browser (Chrome or Chromium-based)",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Git via huggingface_hub",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Apache 2.0 license",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Qwen3.8-27B-ex13 model",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "SafeTensors format",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "USES",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "last_observed_at_utc": "2026-09-03T21:06:28.217Z",
+        "obj": "Xet storage backend",
+        "subj": "turboDerp"
+      },
+      {
+        "predicate": "HAS_ROLE",
+        "confidence": 0,
+        "basis": "passive_observation",
+        "sensitivity": "personal",
+        "first_observed_at_utc": "2026-08-31T23:36:23.414Z",
+        "last_observed_at_utc": "2026-08-31T23:36:23.414Z",
+        "obj": "server owner",
+        "subj": "turboDerp"
+      }
+    ]
+  },
+  "review": {
+    "total": 1333,
+    "byHold": [
+      {
+        "k": "none",
+        "n": 1293
+      },
+      {
+        "k": "possible_owner_alias",
+        "n": 37
+      },
+      {
+        "k": "topic",
+        "n": 3
+      }
+    ],
+    "aliasNames": [
+      {
+        "name": "deny",
+        "n": 13
+      },
+      {
+        "name": "demyz",
+        "n": 8
+      },
+      {
+        "name": "denvys",
+        "n": 6
+      },
+      {
+        "name": "deryn",
+        "n": 5
+      },
+      {
+        "name": "demyxs",
+        "n": 5
+      }
+    ],
+    "items": [
+      {
+        "id": "cand_55d7632a4301461fbd17f40392cb4b40",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The right-hand panel is explicitly labeled \"Claude Code\".",
+        "status": "needs_confirmation",
+        "sensitivity": "personal",
+        "hold_json": "{\"kind\":\"possible_owner_alias\",\"name\":\"deny\"}",
+        "created_at_utc": "2026-09-10T13:53:19.877Z"
+      },
+      {
+        "id": "cand_e42c33f3fc5d40cb8a6e7d6c255e4ddf",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The screenshot displays the user interface of Visual Studio Code, a code editor, including its layout with an activity bar, a source control sidebar, and a terminal.",
+        "status": "pending",
+        "sensitivity": "personal",
+        "hold_json": null,
+        "created_at_utc": "2026-09-10T13:49:22.637Z"
+      },
+      {
+        "id": "cand_7fcb35ddf690417596b48a4698f96a6d",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The Command Prompt header displays 'Microsoft Windows [Version 10.0.26200.9168]', identifying the operating system.",
+        "status": "pending",
+        "sensitivity": "personal",
+        "hold_json": null,
+        "created_at_utc": "2026-09-04T20:52:00.270Z"
+      },
+      {
+        "id": "cand_bca5afcfb8a44b6eb1517f173bbcdaa1",
+        "predicate": "USES",
+        "confidence": 0.99,
+        "rationale": "The interface shown, including the Activity Bar, the 'Terminal' tab, and the overall layout, is characteristic of the Visual Studio Code code editor.",
+        "status": "needs_confirmation",
+        "sensitivity": "personal",
+        "hold_json": "{\"kind\":\"possible_owner_alias\",\"name\":\"denvys\"}",
+        "created_at_utc": "2026-09-10T13:47:23.767Z"
+      },
+      {
+        "id": "cand_ecfdc8c0ff934d9e94008f37235519f8",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The user executes an 'npm install' command in the terminal.",
+        "status": "pending",
+        "sensitivity": "personal",
+        "hold_json": null,
+        "created_at_utc": "2026-09-04T20:52:00.270Z"
+      },
+      {
+        "id": "cand_cd9f491fb25248b1978805a6817bb90b",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The user installs the package '@anthropic-ai/claude-code', indicating they are setting up this specific tool.",
+        "status": "pending",
+        "sensitivity": "personal",
+        "hold_json": null,
+        "created_at_utc": "2026-09-04T20:52:00.270Z"
+      },
+      {
+        "id": "cand_b1241eca363a404fb29e14e2f61faebe",
+        "predicate": "USES",
+        "confidence": 0.99,
+        "rationale": "The pane on the right is titled 'Claude Code' and shows an interaction with the Claude model, indicating the user is using this AI coding assistant.",
+        "status": "needs_confirmation",
+        "sensitivity": "personal",
+        "hold_json": "{\"kind\":\"possible_owner_alias\",\"name\":\"denvys\"}",
+        "created_at_utc": "2026-09-10T13:47:23.767Z"
+      },
+      {
+        "id": "cand_d80adc205bd74ebdb9397b4bc48a2b7a",
+        "predicate": "USES",
+        "confidence": 1,
+        "rationale": "The application title bar and header clearly identify the software being used as 'SiftKit'.",
+        "status": "pending",
+        "sensitivity": "personal",
+        "hold_json": null,
+        "created_at_utc": "2026-09-04T20:51:39.106Z"
+      }
+    ],
+    "bySensitivity": [
+      {
+        "sensitivity": "personal",
+        "n": 1248
+      },
+      {
+        "sensitivity": "sensitive",
+        "n": 85
+      }
+    ]
+  },
+  "history": {
+    "byOperation": [
+      {
+        "operation": "update_assertion",
+        "n": 4188
+      },
+      {
+        "operation": "create_assertion",
+        "n": 1745
+      },
+      {
+        "operation": "create_node",
+        "n": 1207
+      },
+      {
+        "operation": "supersede_assertion",
+        "n": 193
+      },
+      {
+        "operation": "merge_node",
+        "n": 7
+      }
+    ],
+    "byActor": [
+      {
+        "actor_type": "system",
+        "n": 3872
+      },
+      {
+        "actor_type": "assistant_proposal",
+        "n": 3461
+      },
+      {
+        "actor_type": "user",
+        "n": 7
+      }
+    ],
+    "items": [
+      {
+        "id": "mut_fd06937087df49b8a65bb25819d85638",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_77ec9c768bf84158aa229c75e9a8b15f",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.181Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_225483f4736b4aff83e0ac774fa18c26",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_c5040b6c4add405e855f6394e17452cd",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.172Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_772a05b5dc83414d8c80312f22f90193",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_7e0da238aa80407b96abe510149b13b9",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.158Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_210a3e8a543f4ecd89679cf3ccdfa038",
+        "operation": "create_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_fa4d088ea46b4693a4ea89d2fd443f55",
+        "reason": "new assertion accepted",
+        "created_at_utc": "2026-09-10T13:53:33.150Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_171ec10ac404443691cd9cb378767e37",
+        "operation": "create_node",
+        "actor_type": "system",
+        "target_type": "graph_nodes",
+        "target_id": "node_a6621aa3dcb94159b060aaf3e83576da",
+        "reason": "entity resolution created a new node for an unmatched name",
+        "created_at_utc": "2026-09-10T13:53:33.143Z",
+        "name": "GPT-4 Astra Medium",
+        "pred": null
+      },
+      {
+        "id": "mut_700e17581d70423f8d9f45c74819bfb8",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_03a2fab25a3a422688209fff6e4a8c94",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.141Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_d3b3ed67398e425fb54243cd13b169cf",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_2b7ef2e4e0044276b1c6730a043d006b",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.133Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_348cf688a62b499e8f1486c803eefc31",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_c3ad2b9821c844e0bef76f3849090183",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.126Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_d84fce539ad44701a31d6586b331790a",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_9a898268874b40db978d410a6035fa66",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.120Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_bfa2581e5fe84b619803a7fa3243ac07",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_dc0f7337a14f40b689acf16a20c209dd",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.113Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_5da0178ad0f74e0eaabaaa54161556d8",
+        "operation": "update_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_ca0ee5cb87624e508e17d6333dc30590",
+        "reason": "reinforced by new supporting evidence",
+        "created_at_utc": "2026-09-10T13:53:33.103Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_adf7957d9aed48b58f0906276371552e",
+        "operation": "create_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_d8b0496eb1b84a82980c9db90d525ab8",
+        "reason": "new assertion accepted",
+        "created_at_utc": "2026-09-10T13:53:19.880Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_613d68b8e17943f49ba97341a7db113f",
+        "operation": "create_assertion",
+        "actor_type": "assistant_proposal",
+        "target_type": "graph_assertions",
+        "target_id": "ast_6aaeebf02ef44533a4f43b89b1e09d3d",
+        "reason": "new assertion accepted",
+        "created_at_utc": "2026-09-10T13:53:10.382Z",
+        "name": null,
+        "pred": null
+      },
+      {
+        "id": "mut_ad8675d420a242fba23a8b61abc40e79",
+        "operation": "create_node",
+        "actor_type": "system",
+        "target_type": "graph_nodes",
+        "target_id": "node_83fcd039bea949f9b3c6e2b4796672d2",
+        "reason": "entity resolution created a new node for an unmatched name",
+        "created_at_utc": "2026-09-10T13:53:10.377Z",
+        "name": "Fix duplicate commands",
+        "pred": null
+      }
+    ],
+    "merges": 7
+  },
+  "captures": {
+    "queued": 6
+  }
+}

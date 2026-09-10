@@ -11,6 +11,8 @@ import {
 import { buildUsageFrame } from '../usage-frame';
 
 import { getTurnTokenDisplay } from '../../src/lib/format';
+import { buildLiveTokenDisplays } from '../../src/lib/chat-live-token-display';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
 import type { ChatMessage } from '../../src/types';
 import type { ChatTurn } from '../../src/lib/chatTurns';
 
@@ -100,8 +102,13 @@ test('the badge is identical across the live to settled transition', () => {
     liveThinking: [], steps: [], recentActivities: [], showRecentActivity: false,
   };
 
-  assert.equal(getTurnTokenDisplay(live).tokenCount, getTurnTokenDisplay(settled).tokenCount);
-  assert.equal(getTurnTokenDisplay(settled).tokenCount, 120 + 340 + 95 + 210 + 60);
+  const runtime = {
+    ...new ChatSessionRuntimeStore().ensureSession('s', '').get('s'), liveMessages,
+    tokenTurns: new Map(events.flatMap((event) => event.kind === 'usage'
+      ? [[event.usage.turn, { prompt: null, usage: event.usage }] as const] : [])),
+  };
+  assert.deepEqual(getTurnTokenDisplay(live, buildLiveTokenDisplays(runtime)), getTurnTokenDisplay(settled, new Map()));
+  assert.equal(getTurnTokenDisplay(settled, new Map()).tokenCount, 120 + 340 + 95 + 210 + 60);
 });
 
 test('a settled turn counts every per-step thinking row, not just the answer row', () => {
@@ -110,7 +117,7 @@ test('a settled turn counts every per-step thinking row, not just the answer row
     key: 'run:run-1', isLive: false, messages, main: messages[2] ?? null, liveThinking: [],
     steps: [], recentActivities: [], showRecentActivity: false,
   };
-  assert.equal(getTurnTokenDisplay(settled).tokenCount, 275);
+  assert.equal(getTurnTokenDisplay(settled, new Map()).tokenCount, 275);
 });
 
 test('the display is inexact when any contributing row is estimated', () => {
@@ -119,5 +126,5 @@ test('the display is inexact when any contributing row is estimated', () => {
     key: 'run:run-1', isLive: false, messages: [estimated], main: null, liveThinking: [],
     steps: [], recentActivities: [], showRecentActivity: false,
   };
-  assert.equal(getTurnTokenDisplay(settled).exact, false);
+  assert.equal(getTurnTokenDisplay(settled, new Map()).exact, false);
 });

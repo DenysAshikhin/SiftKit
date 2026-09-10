@@ -33,6 +33,7 @@ export type ResolvedRepoAgentApproval = {
 };
 
 export type ChatSessionRuntime = {
+  tokenTurns: ReadonlyMap<number, LiveTokenTurn>;
   queue: ChatMessageQueueState | null;
   sessionId: string;
   activity: ChatSessionActivity;
@@ -54,6 +55,11 @@ export type ChatSessionRuntime = {
   pendingApproval: ChatStreamApproval | null;
   resolvedApproval: ResolvedRepoAgentApproval | null;
   repoAgentApprovalMode: ApprovalMode;
+};
+
+type LiveTokenTurn = {
+  prompt: ChatStreamPromptEvent | null;
+  usage: ChatStreamUsageEvent | null;
 };
 
 export type ChatSessionRuntimeTransition =
@@ -94,6 +100,7 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
     queue: null,
     activity: { kind: 'idle' },
     liveMessages: [],
+    tokenTurns: new Map(),
     error: null,
     warnings: [],
     contextUsage: null,
@@ -114,10 +121,11 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
 /** The live view of a turn, which stops being true the moment a stream stops feeding this session. */
 function clearedLiveTurn(): Pick<
   ChatSessionRuntime,
-  'liveMessages' | 'submittedInput' | 'awaitingResponse' | 'pendingApproval' | 'resolvedApproval'
+  'liveMessages' | 'tokenTurns' | 'submittedInput' | 'awaitingResponse' | 'pendingApproval' | 'resolvedApproval'
 > {
   return {
     liveMessages: [],
+    tokenTurns: new Map(),
     submittedInput: null,
     awaitingResponse: false,
     pendingApproval: null,
@@ -173,6 +181,7 @@ function applyTransition(
           operationId: transition.operationId,
         },
         liveTokenBase: null,
+        tokenTurns: new Map(),
         streamedCharsSinceBase: 0,
       };
     case 'attach':
@@ -268,12 +277,24 @@ function applyTransition(
       return { ...runtime, error: transition.message };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
-    case 'usage':
-      return applyTranscriptEvent(runtime, { kind: 'usage', usage: transition.usage });
+    case 'usage': {
+      const tokenTurns = new Map(runtime.tokenTurns);
+      tokenTurns.set(transition.usage.turn, {
+        prompt: tokenTurns.get(transition.usage.turn)?.prompt ?? null,
+        usage: transition.usage,
+      });
+      return applyTranscriptEvent({ ...runtime, tokenTurns }, { kind: 'usage', usage: transition.usage });
+    }
     // The turn about to generate measured its own prompt, so the base moves and the tail that
     // sized the previous base is now counted inside it.
-    case 'prompt':
-      return { ...runtime, liveTokenBase: transition.prompt, streamedCharsSinceBase: 0 };
+    case 'prompt': {
+      const tokenTurns = new Map(runtime.tokenTurns);
+      tokenTurns.set(transition.prompt.turn, {
+        prompt: transition.prompt,
+        usage: tokenTurns.get(transition.prompt.turn)?.usage ?? null,
+      });
+      return { ...runtime, tokenTurns, liveTokenBase: transition.prompt, streamedCharsSinceBase: 0 };
+    }
     case 'draft':
       return { ...runtime, draft: transition.draft };
     case 'images':
