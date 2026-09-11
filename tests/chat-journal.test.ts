@@ -376,14 +376,17 @@ test('a projection failure cannot roll back the source event', () => {
 
     // The projector's own write is what fails here; the committed evidence must not move with it.
     assert.throws(() => database.transaction(() => {
-      store.advanceProjection({ operationId: start.operationId, projectedSequence: 1 });
+      store.advanceProjection({ operationId: start.operationId, projectedSequence: 1, projectedDigest: 'digest-1', projectedHistoryRevision: 0 });
       throw new Error('projection failed');
     })());
     assert.equal(store.readRun(start.operationId)?.projectedSequence, 0);
     assert.equal(store.readAfter(start.operationId, 0, 100).length, 1);
 
-    store.advanceProjection({ operationId: start.operationId, projectedSequence: 1 });
-    assert.equal(store.readRun(start.operationId)?.projectedSequence, 1);
+    store.advanceProjection({ operationId: start.operationId, projectedSequence: 1, projectedDigest: 'digest-1', projectedHistoryRevision: 2 });
+    const advanced = store.readRun(start.operationId);
+    assert.equal(advanced?.projectedSequence, 1);
+    assert.equal(advanced?.projectedDigest, 'digest-1');
+    assert.equal(advanced?.projectedHistoryRevision, 2);
   } finally {
     closeRuntimeDatabase();
   }

@@ -162,8 +162,9 @@ export const CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY = ['tool_call_executio
 
 /**
  * The durable chat journal. `chat_run_events` is the authority for Web conversation and execution
- * history; `chat_messages` and the context snapshot are projections of it that can be thrown away
- * and rebuilt. Shared by the fresh bootstrap and the 67 -> 68 upgrade so the two cannot drift.
+ * history; `chat_messages` is a projection of it that can be thrown away and rebuilt. Shared by the
+ * fresh bootstrap and the 67 -> 68 upgrade so the two cannot drift; the 69 -> 70 step brings an
+ * older journal up to this projection checkpoint shape.
  */
 export const CHAT_JOURNAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS chat_runs (
@@ -183,6 +184,10 @@ export const CHAT_JOURNAL_SCHEMA_SQL = `
     )),
     latest_sequence INTEGER NOT NULL DEFAULT 0 CHECK (latest_sequence >= 0),
     projected_sequence INTEGER NOT NULL DEFAULT 0 CHECK (projected_sequence >= 0),
+    -- The projection checkpoint: what the run's display rows hashed to when last written, and how
+    -- many of the session's history revisions those rows already have applied.
+    projected_digest TEXT,
+    projected_history_revision INTEGER NOT NULL DEFAULT 0 CHECK (projected_history_revision >= 0),
     context_revision INTEGER NOT NULL DEFAULT 0 CHECK (context_revision >= 0),
     effective_settings_json TEXT,
     provenance_json TEXT,
@@ -215,17 +220,6 @@ export const CHAT_JOURNAL_SCHEMA_SQL = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_run_events_event_id
     ON chat_run_events(operation_id, event_id);
-
-  -- A rebuildable cache of replayed planner history. Never an independent authority: it is only
-  -- ever what replaying events up to applied_sequence produces.
-  CREATE TABLE IF NOT EXISTS chat_context_snapshots (
-    operation_id TEXT PRIMARY KEY REFERENCES chat_runs(operation_id) ON DELETE CASCADE,
-    applied_sequence INTEGER NOT NULL CHECK (applied_sequence >= 0),
-    context_revision INTEGER NOT NULL CHECK (context_revision >= 0),
-    messages_json TEXT NOT NULL,
-    recovery_batch_json TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL
-  );
 
   CREATE TABLE IF NOT EXISTS chat_session_recovery (
     session_id TEXT PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,

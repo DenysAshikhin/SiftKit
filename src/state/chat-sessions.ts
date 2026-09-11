@@ -24,7 +24,7 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
-import { CHAT_PROJECTION_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.js';
+import { chatMetadataKey } from './chat-metadata-keys.js';
 import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
 import { recordChatHistoryRevision, removeChatImageEvidence, resolveOriginalChatImageIndex } from './chat-history-revisions.js';
 import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
@@ -273,17 +273,12 @@ function mapMessageRow(row: MessageRow): ChatMessage {
   });
 }
 
-/**
- * A row written before the journal has no recorded execution state, so it is derived from the
- * display status it does have. A stopped row reads as uncertain: the run never proved otherwise.
- */
+/** Every tool row carries its execution state: the 69 -> 70 upgrade backfilled pre-journal rows. */
 function readToolExecutionState(row: MessageRow): ChatToolExecutionState {
-  if (row.tool_call_execution_state !== null) {
-    return ChatToolExecutionStateSchema.parse(row.tool_call_execution_state);
+  if (row.tool_call_execution_state === null) {
+    throw new Error(`Chat tool row ${row.id} has no recorded execution state.`);
   }
-  const status = ToolCallStatusSchema.parse(row.tool_call_status);
-  if (status === 'done') return 'completed';
-  return status === 'stopped' ? 'uncertain' : 'executing';
+  return ChatToolExecutionStateSchema.parse(row.tool_call_execution_state);
 }
 
 function toNullableInteger(value: number | null | undefined): number | null {
@@ -453,7 +448,6 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   }
   const database = getSessionDatabase(runtimeRoot);
   return database.transaction(() => {
-    database.prepare('DELETE FROM runtime_metadata WHERE key IN (SELECT ? || operation_id FROM chat_runs WHERE session_id=?)').run(CHAT_PROJECTION_METADATA_PREFIX, normalizedId);
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
     database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(chatMetadataKey.queue(normalizedId));
     const receiptPrefix = chatMetadataKey.receiptPrefix(normalizedId);
@@ -485,12 +479,13 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
     removeChatImageEvidence(database, normalizedSessionId, normalizedMessageId, imageIndex, payload);
   }
   recordChatHistoryRevision(database, normalizedSessionId, { action: 'message_deleted', messageIds: [normalizedMessageId] });
+  database.prepare('DELETE FROM chat_messages WHERE session_id = ? AND id = ?').run(normalizedSessionId, normalizedMessageId);
+  touchChatSession(runtimeRoot, normalizedSessionId);
   const updatedSession: ChatSession = {
     ...current,
     updatedAtUtc: new Date().toISOString(),
     messages: current.messages.filter((message) => String(message.id || '') !== normalizedMessageId),
   };
-  saveChatSession(runtimeRoot, updatedSession);
   return { session: updatedSession, deletedMessage };
   })();
 }
@@ -619,6 +614,11 @@ export function deleteChatMessageImage(
   })();
 }
 
+/**
+ * Writes a whole session including its transcript. Only a pre-journal transcript is ever authored
+ * this way (fixtures, legacy seeds); runtime writers persist preferences with
+ * {@link saveChatSessionMetadata} and leave message rows to the projector.
+ */
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
   const messages = z.array(PersistedChatTranscriptMessageSchema).parse(session.messages ?? []);
   const database = getSessionDatabase(runtimeRoot);

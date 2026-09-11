@@ -96,3 +96,37 @@ export function upgradeChatRecoverySchema(database: RuntimeDatabase): void {
 export function retireRepoAgentHistoryRepairMarkers(database: RuntimeDatabase): void {
   database.prepare("DELETE FROM runtime_metadata WHERE key LIKE 'repo-agent-history-v1:%'").run();
 }
+
+const LEGACY_PROJECTION_METADATA_PREFIX = 'chat_projection:';
+
+/**
+ * 69 -> 70. The projection checkpoint moves onto its run row: the digest that lived under an
+ * opaque metadata key becomes `projected_digest`, and the revision count the rows have applied is
+ * recorded so an edit no longer forces every later reconciliation to replay from event one. Tool
+ * rows written before the journal get the execution state the reader used to infer at runtime;
+ * the never-populated context snapshot cache is dropped.
+ */
+export function upgradeChatProjectionCheckpoints(database: RuntimeDatabase): void {
+  const columns = readColumns(database, 'chat_runs');
+  if (!columns.includes('projected_digest')) {
+    database.exec('ALTER TABLE chat_runs ADD COLUMN projected_digest TEXT;');
+  }
+  if (!columns.includes('projected_history_revision')) {
+    database.exec(`ALTER TABLE chat_runs ADD COLUMN projected_history_revision INTEGER NOT NULL DEFAULT 0
+      CHECK (projected_history_revision >= 0);`);
+  }
+  database.prepare(`
+    UPDATE chat_runs SET projected_digest = (SELECT value FROM runtime_metadata WHERE key = ? || chat_runs.operation_id)
+    WHERE projected_digest IS NULL
+  `).run(LEGACY_PROJECTION_METADATA_PREFIX);
+  database.prepare('DELETE FROM runtime_metadata WHERE substr(key, 1, ?) = ?')
+    .run(LEGACY_PROJECTION_METADATA_PREFIX.length, LEGACY_PROJECTION_METADATA_PREFIX);
+  // A stopped legacy tool never proved whether it ran, so it is uncertain; a running one was
+  // interrupted mid-execution by whatever ended the pre-journal run.
+  database.exec(`
+    UPDATE chat_messages SET tool_call_execution_state = CASE tool_call_status
+      WHEN 'done' THEN 'completed' WHEN 'stopped' THEN 'uncertain' WHEN 'running' THEN 'executing' END
+    WHERE kind = 'assistant_tool_call' AND tool_call_execution_state IS NULL AND tool_call_status IS NOT NULL;
+    DROP TABLE IF EXISTS chat_context_snapshots;
+  `);
+}

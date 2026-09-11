@@ -217,6 +217,7 @@ export async function executeChatRepoAgentOperation(options: {
   const started = startRepoAgentRun(options.ctx, {
     evidenceRecorder: options.recorder,
     requestId: engineRequestId,
+    presetId: settings.presetId,
     prompt: options.content,
     repoRoot: options.repoRoot,
     approvalMode: options.approval,

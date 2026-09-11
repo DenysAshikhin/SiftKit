@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 
 import { z } from '../src/lib/zod.js';
+import { getAbortError } from '../src/lib/abort.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { RuntimeDatabase } from '../src/state/database-handle.js';
@@ -60,7 +61,7 @@ function assertPrefixIntact(database: RuntimeDatabase, operationId: string, expe
   assert.equal(run.terminalCause, null);
 }
 
-test('SQLITE_BUSY on a tool start commits nothing, keeps the published prefix, and resumes at the same head once the lock clears', () => {
+test('SQLITE_BUSY on a tool start commits nothing, keeps the published prefix, and closes the run as a storage failure', () => {
   const { database, databasePath } = openSessionDatabase('chat-storage-busy-');
   const recorder = beginProposedRun(databasePath);
   const prefix = committedKinds(database, recorder.operationId);
@@ -81,18 +82,30 @@ test('SQLITE_BUSY on a tool start commits nothing, keeps the published prefix, a
 
   // Nothing was authorized while blocked: the proposal is still not started after rebuild.
   rebuildChatRun(database, recorder.operationId);
-  const beforeRetry = readChatRunMessages(database, SESSION_ID, recorder.operationId);
-  assert.equal(beforeRetry.find(message => message.kind === 'assistant_tool_call')?.toolCallExecutionState, 'proposed');
-  assert.equal(beforeRetry.find(message => message.kind === 'assistant_progress')?.content, 'Published before the fault. ');
+  const rows = readChatRunMessages(database, SESSION_ID, recorder.operationId);
+  assert.equal(rows.find(message => message.kind === 'assistant_tool_call')?.toolCallExecutionState, 'proposed');
+  assert.equal(rows.find(message => message.kind === 'assistant_progress')?.content, 'Published before the fault. ');
 
-  // The recorder's head did not drift: the retried start lands at exactly prefix+1 with no gap.
-  recorder.recordToolStarted({ call: CALL, startedAtUtc: AT });
-  assertPrefixIntact(database, recorder.operationId, [...prefix, 'tool_started']);
-  recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
-  assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'completed');
+  assertStorageFailureIsFatal(database, recorder, prefix, 'SQLITE_BUSY');
 });
 
-test('SQLITE_FULL on a tool result commits nothing and the recorder continues at the same head once space returns', () => {
+/**
+ * A failed commit is the run's storage failure wherever it surfaced: execution is fenced, a
+ * further write is refused at the same head, and the terminal write names the storage cause.
+ */
+function assertStorageFailureIsFatal(database: RuntimeDatabase, recorder: ChatRunRecorder, prefix: readonly string[], code: string): void {
+  assert.equal(recorder.abortSignal.aborted, true);
+  assert.equal(z.object({ code: z.string() }).parse(getAbortError(recorder.abortSignal)).code, code);
+  assert.throws(() => recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 28, text: 'after the fault' } }), { code });
+  assertPrefixIntact(database, recorder.operationId, prefix);
+  recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+  const run = new ChatJournalStore(database).readRun(recorder.operationId);
+  assert.equal(run?.terminalCause, 'storage_failure');
+  const finished = [...new ChatJournalStore(database).readAll(recorder.operationId)].at(-1)?.event;
+  assert.equal(finished?.kind === 'run_finished' && finished.terminalCause, 'storage_failure');
+}
+
+test('SQLITE_FULL on a tool result commits nothing and closes the run as a storage failure', () => {
   const { database, databasePath } = openSessionDatabase('chat-storage-full-');
   const recorder = beginProposedRun(databasePath);
   recorder.recordToolStarted({ call: CALL, startedAtUtc: AT });
@@ -111,11 +124,9 @@ test('SQLITE_FULL on a tool result commits nothing and the recorder continues at
     database.pragma('max_page_count = 1073741823');
   }
 
-  recorder.recordToolResult(result);
-  assertPrefixIntact(database, recorder.operationId, [...prefix, 'tool_result']);
-  recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+  assertStorageFailureIsFatal(database, recorder, prefix, 'SQLITE_FULL');
   rebuildChatRun(database, recorder.operationId);
   const tool = readChatRunMessages(database, SESSION_ID, recorder.operationId).find(message => message.kind === 'assistant_tool_call');
-  assert.equal(tool?.toolCallExecutionState, 'completed');
-  assert.equal(tool?.toolCallOutput, output);
+  assert.equal(tool?.toolCallExecutionState, 'uncertain');
+  assert.equal(tool?.toolCallOutput, null);
 });

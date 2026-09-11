@@ -36,7 +36,7 @@ import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/
 import {
 ChatMessageImageNotFoundError,deleteChatMessage,
 deleteChatMessageImage,deleteChatSession,estimateTokenCount,getChatSessionPath,readChatSessionFromPath,
-readChatSessions,saveChatSession,saveChatSessionMetadata,type ChatSession
+readChatSessions,saveChatSessionMetadata,type ChatSession
 } from '../../state/chat-sessions.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import { ChatMemorySeam } from '../chat-memory-seam.js';
@@ -476,7 +476,7 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
     if (updateRequest.planRepoRoot) {
       updated.planRepoRoot = resolve(updateRequest.planRepoRoot);
     }
-    saveChatSession(runtimeRoot, updated);
+    saveChatSessionMetadata(runtimeRoot, updated);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
     return;
   }
@@ -619,7 +619,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       updatedAtUtc: now,
       messages: [],
     };
-    saveChatSession(runtimeRoot, session);
+    saveChatSessionMetadata(runtimeRoot, session);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, session));
     return;
   }

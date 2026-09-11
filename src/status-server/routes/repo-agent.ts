@@ -62,6 +62,7 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
     }
     const input = parsedRequest.data;
     const { session } = startRepoAgentRun(ctx, {
+      presetId: 'repo-agent',
       prompt: input.prompt, repoRoot: input.repoRoot,
       approvalMode: input.approval,
       approvalDelivery: input.approval === 'interactive' ? 'progress' : 'boundary',
@@ -79,6 +80,8 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
 
 export type StartRepoAgentRunInput = {
   requestId?: string;
+  /** The operation preset the engine resolves its prompt from; chat runs pass their admitted one. */
+  presetId: string;
   prompt: string;
   repoRoot: string | undefined;
   approvalMode: ApprovalMode;
@@ -140,7 +143,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     locks: new ServerModelLockAdapter(ctx),
     approvalGates: ctx.approvalGates,
     engineRequest: {
-      presetId: 'repo-agent',
+      presetId: input.presetId,
       taskKind: 'repo-agent',
       prompt: repoSearchRequest.prompt,
       requestId: admission.requestId,

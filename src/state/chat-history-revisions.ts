@@ -113,7 +113,6 @@ export function removeChatImageEvidence(database: RuntimeDatabase, sessionId: st
           }
       }
     }
-    database.prepare('DELETE FROM chat_context_snapshots WHERE operation_id IN (SELECT operation_id FROM chat_runs WHERE session_id=?)').run(sessionId);
     recordChatHistoryRevision(database, sessionId, { action: 'image_removed', messageId, imageIndex, originalImageIndex, imagePathKey: null,
       payloadDigest: createHash('sha256').update(payload).digest('hex') });
   })();

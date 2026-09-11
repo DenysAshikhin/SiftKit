@@ -986,3 +986,22 @@ test('admission rejects an invalid turn limit or web override instead of silentl
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }
 });
+
+test('saving session preferences never rewrites the journal-derived message rows', async () => {
+  const context = await withCaptionServer();
+  try {
+    const database = getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'));
+    database.exec(`CREATE TRIGGER keep_projection BEFORE DELETE ON chat_messages
+      BEGIN SELECT RAISE(ABORT, 'preference update rewrote the transcript'); END;`);
+    const sessionUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}`;
+    const response = await requestJson(sessionUrl, { method: 'PUT', body: JSON.stringify({ title: 'renamed', webSearchEnabled: true }) });
+    assert.equal(response.statusCode, 200);
+    assert.equal(asObject(response.body.session).title, 'renamed');
+    const stored = readChatSessionFromPath(getChatSessionPath(context.fixture.runtimeRoot, context.fixture.session.id));
+    assert.equal(stored?.title, 'renamed');
+    assert.equal(stored?.webSearchEnabled, true);
+    assert.deepEqual(stored?.messages.map((message) => message.id), [context.fixture.message.id]);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});

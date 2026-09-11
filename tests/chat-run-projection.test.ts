@@ -12,6 +12,7 @@ import type { RuntimeDatabase } from '../src/state/database-handle.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { ChatRecoveryInvariantError } from '../src/state/chat-journal.js';
+import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
 
 const SESSION_ID = 'projection-session';
 const OWNER_EPOCH = 'owner-a:1';
@@ -329,4 +330,58 @@ test('final answer metadata updates the streamed answer without duplicating it',
   assert.equal(answers[0]?.content, 'Final answer.');
   assert.equal(answers[0]?.outputTokensEstimate, 123);
   assert.equal(answers[0]?.requestDurationMs, 250);
+});
+
+test('reconciling an already projected interrupted run keeps reporting recovery_needed', () => {
+  const { database } = openSession('chat-run-projection-status-cached-');
+  const operationId = writeRun(database, [...runEvents().slice(0, 4), interrupted()]);
+  assert.equal(reconcileChatRun(database, operationId).status, 'recovery_needed');
+
+  const second = reconcileChatRun(database, operationId);
+
+  assert.equal(second.changed, false);
+  assert.equal(second.status, 'recovery_needed');
+});
+
+test('the projection checkpoint lives on the run row, never under a metadata key', () => {
+  const { database } = openSession('chat-run-projection-checkpoint-');
+  const operationId = writeRun(database, runEvents());
+  reconcileChatRun(database, operationId);
+
+  const run = new ChatJournalStore(database).readRun(operationId);
+  assert.equal(typeof run?.projectedDigest, 'string');
+  assert.equal(run?.projectedHistoryRevision, 0);
+  assert.deepEqual(database.prepare("SELECT key FROM runtime_metadata WHERE key LIKE 'chat_projection:%'").all(), []);
+});
+
+test('a retained history revision is checkpointed so later reconciliations stay incremental', () => {
+  const { database, runtimeRoot } = openSession('chat-run-projection-revision-incremental-');
+  const operationId = writeRun(database, runEvents());
+  reconcileChatRun(database, operationId);
+  const narration = projectedMessages(runtimeRoot).find(message => message.kind === 'assistant_progress');
+  assert.ok(narration);
+  recordChatHistoryRevision(database, SESSION_ID, { action: 'message_deleted', messageIds: [narration.id] });
+  reconcileChatRun(database, operationId);
+  assert.equal(new ChatJournalStore(database).readRun(operationId)?.projectedHistoryRevision, 1);
+
+  const cursors: number[] = [];
+  const readAll = ChatJournalStore.prototype.readAll;
+  ChatJournalStore.prototype.readAll = function (this: ChatJournalStore, id: string, afterSequence = 0) {
+    cursors.push(afterSequence);
+    return readAll.call(this, id, afterSequence);
+  };
+  try {
+    new ChatJournalStore(database).append({
+      operationId, ownerEpoch: OWNER_EPOCH, expectedSequence: 6, eventId: 'later-answer', occurredAtUtc: AT,
+      event: { kind: 'display', event: { kind: 'answer', delta: { turn: 2, offset: 32, text: ' More.' } } },
+    });
+    assert.equal(reconcileChatRun(database, operationId).status, 'ok');
+  } finally {
+    ChatJournalStore.prototype.readAll = readAll;
+  }
+
+  assert.deepEqual(cursors, [6]);
+  const messages = projectedMessages(runtimeRoot);
+  assert.equal(messages.some(message => message.id === narration.id), false);
+  assert.equal(messages.find(message => message.kind === 'assistant_answer')?.content, 'It lives in research/physics.py. More.');
 });

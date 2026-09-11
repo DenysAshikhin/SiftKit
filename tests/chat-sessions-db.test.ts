@@ -796,7 +796,9 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
   const reopened = new Database(databasePath, { readonly: true });
   try {
     const legacyRows = readChatMessageRows(reopened).filter((row) => row.session_id === LEGACY_FIXTURE_SESSION_ID);
-    assert.deepEqual(legacyRows, rowsBeforeUpgrade);
+    // The upgrade records the execution state the legacy tool row never had; everything else is untouched.
+    assert.deepEqual(legacyRows, rowsBeforeUpgrade.map((row) => row.kind === 'assistant_tool_call' && row.tool_call_status === 'done'
+      ? { ...row, tool_call_execution_state: 'completed' } : row));
   } finally {
     reopened.close();
   }
@@ -809,4 +811,24 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
   } finally {
     closeRuntimeDatabase();
   }
+});
+
+test('a tool row with no recorded execution state is refused instead of inferred from its display status', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-tool-state-required-');
+  const at = '2026-09-10T12:19:37.005Z';
+  saveChatSession(runtimeRoot, {
+    id: 'state-required', title: 'State required', modelPresetId: 'preset-a',
+    modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }), presetId: 'chat', mode: 'chat',
+    planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at,
+    messages: [{
+      id: 'tool', role: 'assistant', kind: 'assistant_tool_call', content: 'rg physics',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+      toolCallCommand: 'rg physics', toolCallActivityKind: 'command', toolCallActivitySubject: { kind: 'none' },
+      toolCallTurn: 1, toolCallMaxTurns: 10, toolCallExitCode: 0, toolCallExecutionState: 'completed', toolCallStatus: 'done',
+      createdAtUtc: at, sourceRunId: null,
+    }],
+  });
+  getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))
+    .prepare("UPDATE chat_messages SET tool_call_execution_state = NULL WHERE id = 'tool'").run();
+  assert.throws(() => readChatSessionFromPath(getChatSessionPath(runtimeRoot, 'state-required')), /no recorded execution state/u);
 });

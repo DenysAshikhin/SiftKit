@@ -6,19 +6,25 @@ import type {
   ChatToolStartedEvidence,
   ChatApprovalRequestedEvidence,
   ChatApprovalResolvedEvidence,
+  ChatApprovalReviewedEvidence,
 } from '../repo-search/engine/chat-run-evidence.js';
 import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.js';
 import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
+import { toError } from '../lib/errors.js';
 import { getChatSessionPath, readChatSessionFromPath, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import { resolveChatSessionContextWindow } from './chat.js';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import {
+  ChatEngineBindingSchema,
   ChatRunStartedEventSchema,
+  type ChatJournalAppend,
+  type ChatJournalEnvelope,
   type ChatJournalEvent,
 } from '../state/chat-journal-schema.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { isStorageFailure } from '../state/database-handle.js';
 import { ChatMessageQueueStore, type ChatQueueClaimInput } from '../state/chat-message-queue.js';
 import { dirname } from 'node:path';
 import { reconcileChatRun } from './chat-run-projection.js';
@@ -42,10 +48,8 @@ export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
   });
 export type ChatRunRecorderStart = z.infer<typeof ChatRunRecorderStartSchema>;
 
-export const ChatRunEngineBindingSchema = z.strictObject({
-  requestId: z.string().min(1),
-  repoAgentSessionId: z.string().min(1).nullable(),
-});
+/** The store's binding minus the identity the recorder already owns. */
+export const ChatRunEngineBindingSchema = ChatEngineBindingSchema.omit({ operationId: true, ownerEpoch: true });
 export type ChatRunEngineBinding = z.infer<typeof ChatRunEngineBindingSchema>;
 
 /**
@@ -78,13 +82,8 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   get stopRequested(): boolean { return this.userStop.signal.aborted; }
   requestUserStop(): void {
     if (this.stopRequested || this.terminalCause !== null) return;
-    try {
-      this.commit({ kind: 'stop_requested', requestedAtUtc: new Date().toISOString() });
-      this.userStop.abort(new Error('Stopped by user.'));
-    } catch (error) {
-      this.abortForStorageFailure(error instanceof Error ? error : new Error('Stop could not be recorded.'));
-      throw error;
-    }
+    this.commit({ kind: 'stop_requested', requestedAtUtc: new Date().toISOString() });
+    this.userStop.abort(new Error('Stopped by user.'));
   }
   abortForStorageFailure(error: Error): void { this.storageAbort.abort(error); }
 
@@ -286,6 +285,10 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     this.commit({ kind: 'tool_proposed', ...evidence });
   }
 
+  recordApprovalReviewed(evidence: ChatApprovalReviewedEvidence): void {
+    this.commit({ kind: 'approval_reviewed', ...evidence }, evidence.reviewedAtUtc);
+  }
+
   recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void {
     this.commit({ kind: 'approval_requested', ...evidence }, evidence.requestedAtUtc, `approval_requested:${evidence.approvalId}`);
   }
@@ -360,10 +363,14 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     if (event.kind === 'stop_requested') this.userStop.abort(new Error('Stopped by user.'));
   }
 
+  /**
+   * Evidence the database could not commit ends the run as a storage failure: the engine that gets
+   * the throw must not act, and the terminal write must say why it stopped.
+   */
   private commit(event: ChatJournalEvent, occurredAtUtc = new Date().toISOString(), eventId = `${this.operationId}:${String(this.latestSequence + 1)}`): void {
     if (this.deleted) throw new Error('Chat session was deleted; its execution cannot write further evidence.');
     if (event.kind !== 'run_finished') throwIfAborted(this.storageAbort.signal);
-    const envelope = this.store.append({
+    const envelope = this.append({
       operationId: this.operationId,
       ownerEpoch: this.ownerEpoch,
       expectedSequence: this.latestSequence,
@@ -373,6 +380,17 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     });
     this.latestSequence = Math.max(this.latestSequence, envelope.sequence);
     this.observeCommitted(envelope.event);
+  }
+
+  /** A write the database could not take fences the run; a write the journal refused is reported as it is. */
+  private append(input: ChatJournalAppend): ChatJournalEnvelope {
+    try {
+      return this.store.append(input);
+    } catch (error) {
+      const failure = toError(error);
+      if (isStorageFailure(failure)) this.abortForStorageFailure(failure);
+      throw error;
+    }
   }
 }
 

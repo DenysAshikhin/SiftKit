@@ -1,5 +1,5 @@
 import { toError } from '../lib/errors.js';
-import { finalizeChatRunTranscript, buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, ChatRecoveryIssueSchema, ChatRecoveryReportSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, PersistedChatTranscriptMessageSchema, reduceChatTranscript, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryReport, type ChatRecoveryStatus, type ChatRunTerminalCause, type ChatToolExecutionState, type ChatTranscriptMessage, type ChatTranscriptMetadata, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
+import { finalizeChatRunTranscript, buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, ChatRecoveryIssueSchema, ChatRecoveryReportSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, PersistedChatTranscriptMessageSchema, reduceChatTranscript, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryReport, type ChatRecoveryStatus, type ChatRunTerminalCause, type ChatToolOutcome, type ChatTranscriptMessage, type ChatTranscriptMetadata, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { stableStringify } from '../lib/json.js';
 import { z } from '../lib/zod.js';
 import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
@@ -14,8 +14,6 @@ import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-comp
 import { buildCompactionSummaryRow } from './chat.js';
 import { applyChatDisplayRevisions, readChatCompactionRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 import { createHash } from 'node:crypto';
-import { setRuntimeMetadataValue } from '../state/runtime-db.js';
-import { chatMetadataKey } from '../state/chat-metadata-keys.js';
 
 function projectionDigest(messages: readonly PersistedChatTranscriptMessage[]): string {
   return createHash('sha256').update(stableStringify([...messages])).digest('hex');
@@ -73,18 +71,23 @@ export function projectChatRunEvents(
 
   const settled = terminalCause === null || events.some(envelope => envelope.event.kind === 'submission_cancelled')
     ? messages : finalizeChatRunTranscript(messages, terminalCause, metadata, terminalDetail);
-  const interrupted = settled.some((message) => (
-    message.kind === 'assistant_tool_call'
-    && (message.toolCallExecutionState === 'not_started' || message.toolCallExecutionState === 'uncertain')
-  ));
   const retained = new Set(initialMessages);
 
   return {
     messages: settled.map((message) => retained.has(message) ? message : PersistedChatTranscriptMessageSchema.parse(message)),
     toolCount: toolCallIds.size,
-    status: interrupted ? 'recovery_needed' : 'ok',
+    status: recoveryStatus(settled),
     terminalCause,
   };
+}
+
+/** A tool the run never proved finished (or started) is what makes projected rows need recovery. */
+function recoveryStatus(messages: readonly ChatTranscriptMessage[]): ChatRecoveryStatus {
+  const interrupted = messages.some((message) => (
+    message.kind === 'assistant_tool_call'
+    && (message.toolCallExecutionState === 'not_started' || message.toolCallExecutionState === 'uncertain')
+  ));
+  return interrupted ? 'recovery_needed' : 'ok';
 }
 
 
@@ -207,14 +210,7 @@ function applyEvent(
 function applyOutcome(
   messages: readonly ChatTranscriptMessage[],
   metadata: ChatTranscriptMetadata,
-  outcome: {
-    toolCallId: string;
-    executionState: ChatToolExecutionState;
-    exitCode: number | null;
-    output: string | null;
-    outputTokens: number;
-    outputTokensEstimated: boolean;
-  },
+  outcome: ChatToolOutcome,
 ): ChatTranscriptMessage[] {
   return reduceChatTranscript(messages, { kind: 'tool_outcome', outcome }, metadata);
 }
@@ -256,12 +252,12 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
   const earlierRun = compactions.some(compaction => compaction.runOrder > run.runOrder);
   const compressedIds = new Set(compactions.filter(compaction => compaction.operationId === operationId).flatMap(compaction => compaction.compressedMessageIds));
   if (before.some(message => !message.compressedIntoSummary && (earlierRun || compressedIds.has(message.id)))) force = true;
-  const digestRow = z.object({ value: z.string() }).optional().parse(database.prepare('SELECT value FROM runtime_metadata WHERE key=?').get(chatMetadataKey.projection(operationId)));
-  if (digestRow?.value !== projectionDigest(before)) force = true;
+  if (run.projectedDigest !== projectionDigest(before)) force = true;
+  // Rows checkpointed at this revision count already carry every revision; a newer edit rebuilds.
   const revisions = readChatHistoryRevisions(database, run.sessionId);
-  if (revisions.length > 0) force = true;
+  if (revisions.length !== run.projectedHistoryRevision) force = true;
   if (!force && run.projectedSequence === run.latestSequence) {
-    return report(run, { messages: before, toolCount: before.filter(message => message.kind === 'assistant_tool_call').length, status: 'ok', terminalCause: run.terminalCause }, false, []);
+    return report(run, { messages: before, toolCount: before.filter(message => message.kind === 'assistant_tool_call').length, status: recoveryStatus(before), terminalCause: run.terminalCause }, false, []);
   }
 
   const events = [...store.readAll(operationId, force ? 0 : run.projectedSequence)];
@@ -270,7 +266,9 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
     sourceRunId: operationId,
     createdAtUtc: run.createdAtUtc,
   }, force ? [] : before, store.readApprovalRequests(operationId));
-  projected.messages = applyChatDisplayRevisions(projected.messages, revisions).map(message => PersistedChatTranscriptMessageSchema.parse(message));
+  // A revision names rows that existed when it was committed, so an incremental pass has nothing
+  // new for it to touch and must not re-apply it to rows that already reflect it.
+  if (force) projected.messages = applyChatDisplayRevisions(projected.messages, revisions).map(message => PersistedChatTranscriptMessageSchema.parse(message));
   projected.messages = projected.messages.map(message => earlierRun || compressedIds.has(message.id) ? { ...message, compressedIntoSummary: true } : message);
 
   // Compared as stored on both sides, so "the rows already say this" is an exact answer rather
@@ -307,8 +305,8 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
         if (old && stableStringify(old) === stableStringify({ ...old, ...message }) && before[index]?.id === message.id) continue;
         insertChatMessages(database, run.sessionId, [message], start + index, run.createdAtUtc);
       }
-      store.advanceProjection({ operationId, projectedSequence: run.latestSequence });
-      setRuntimeMetadataValue(database, chatMetadataKey.projection(operationId), projectionDigest(readChatRunMessages(database, run.sessionId, operationId)));
+      store.advanceProjection({ operationId, projectedSequence: run.latestSequence, projectedHistoryRevision: revisions.length,
+        projectedDigest: projectionDigest(readChatRunMessages(database, run.sessionId, operationId)) });
     })();
   } catch (error) {
     const detail = toError(error).message;

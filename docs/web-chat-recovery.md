@@ -6,8 +6,8 @@ How a Web chat run is recorded, what a refresh or restart restores, and how a da
 
 Every Web operation (message, plan, repo-search, repo-agent, condense, queued successor) is one **run** in `chat_runs`, owned by the server process that admitted it (`owner_epoch`) and written as an append-only sequence of events in `chat_run_events`. The connection runs `journal_mode = WAL`, `synchronous = FULL`.
 
-- **Commit before act.** A tool proposal, its start, its full result, and every planner-history splice are committed before the engine proceeds. A write that fails (`SQLITE_BUSY`, `SQLITE_FULL`, a lost owner lease) throws to the engine; nothing after it runs and nothing already committed is lost.
-- **Admission settings are captured once.** `run_started` carries the preset, model preset, turn limit, approval mode, web-search decision and context window the run executes under. Execution reads `recorder.settings`; it never re-reads the request body. Invalid `maxTurns` / `webSearchOverride` values are rejected with 400 at admission.
+- **Commit before act.** A tool proposal, its automatic-reviewer verdict (`approval_reviewed`), its start, its full result, and every planner-history splice are committed before the engine proceeds. A write the database cannot take (`SQLITE_BUSY`, `SQLITE_FULL`, I/O or corruption errors) fences the run: the throw reaches the engine, nothing after it runs, nothing already committed is lost, and the run closes as `storage_failure`. A write the journal refuses by design (a conflicting duplicate event, a fenced epoch) throws without that classification.
+- **Admission settings are captured once.** `run_started` carries the preset, model preset, turn limit, approval mode, web-search decision and context window the run executes under. Execution reads `recorder.settings` (the engine is dispatched with the admitted `presetId`); it never re-reads the request body. Invalid `maxTurns` / `webSearchOverride` values are rejected with 400 at admission.
 - **Text is journaled as deltas.** Narration, thinking and answer text are `display` events carrying one delta each; the transcript is never rewritten per token. A 103-turn / 116-result run writes ~1k rows and ~28 MB (`tests/chat-recovery-performance.test.ts`).
 - **Reads are paged** (`CHAT_JOURNAL_READ_PAGE_SIZE = 500`) and indexed by `(operation_id, sequence)`; `readAll` refuses gaps, altered bodies (payload digest) and unknown event versions.
 - **Queue deliveries** are journaled as `queue_delivered` inside the claim transaction; queued images are admitted against the run's model preset there, so a refused image leaves the message pending rather than half-delivered.
@@ -16,7 +16,7 @@ Every Web operation (message, plan, repo-search, repo-agent, condense, queued su
 
 Two readers derive everything shown or sent from the journal:
 
-- `rebuildChatRun` / `reconcileChatRun` → display rows in `chat_messages` via the shared `reduceChatTranscript` reducer (the same reducer the dashboard uses for live frames). Narration that precedes a tool start in its turn is shown as progress; tool rows carry full outputs from `tool_result`, never previews.
+- `rebuildChatRun` / `reconcileChatRun` → display rows in `chat_messages` via the shared `reduceChatTranscript` reducer (the same reducer the dashboard uses for live frames). Narration that precedes a tool start in its turn is shown as progress; tool rows carry full outputs from `tool_result`, never previews. The checkpoint (`projected_sequence`, `projected_digest`, `projected_history_revision`) lives on the `chat_runs` row; a run is replayed from event one only when its rows were altered, compacted, or a history revision landed since the checkpoint.
 - `buildRecoveredChatHistory` → the planner context a continuation starts from: replayed `context_initialized` + `context_spliced` events, with interrupted tool batches closed by explicit interruption results and any partial narration folded back once with a notice.
 
 Projection failures never roll back the source event. A run whose projection is inconsistent reports `recovery_failed` and blocks new admissions on that session until repaired.
@@ -64,7 +64,7 @@ Recommended rollout: stop new admissions, let active runs settle, take a SQLite-
 
 ## Limitations
 
-- **Auto-approval provenance.** `approval_auto` verdicts are progress-only; they are not journaled as approval events. Diagnostics can show that a run was on auto mode, not which call was auto-approved.
 - **Legacy archives** carry no image admission metadata (`imageMeta: []`) and record completed model responses, not every streamed fragment.
 - **Replay memory.** Rebuild and context replay materialise a run's events in memory; the incident-scale test shows ~0.5 GiB RSS growth for a 28 MB journal. Acceptable for current sizes, not streaming.
+- **Live transport.** Catch-up frames resend each changed display row whole rather than as text patches, and snapshot pages are bounded by row count, not bytes.
 - **Concurrency.** A second process holding the write lock surfaces as `SQLITE_BUSY` after the 5 s busy timeout; the run stops with `storage_failure` rather than waiting indefinitely.

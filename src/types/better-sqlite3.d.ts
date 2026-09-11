@@ -17,9 +17,16 @@ declare module 'better-sqlite3' {
     backup(destinationFile: string): Promise<{ totalPages: number; remainingPages: number }>;
   }
 
+  /** Every native failure; `code` is the SQLite result code name such as `SQLITE_BUSY`. */
+  export class SqliteError extends Error {
+    readonly code: string;
+    constructor(message: string, code: string);
+  }
+
   export interface DatabaseConstructor {
     new(filename: string, options?: Record<string, unknown>): Database;
     (filename: string, options?: Record<string, unknown>): Database;
+    readonly SqliteError: typeof SqliteError;
   }
 
   const Database: DatabaseConstructor;

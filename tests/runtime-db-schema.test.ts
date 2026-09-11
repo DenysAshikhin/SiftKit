@@ -59,7 +59,6 @@ const BOOTSTRAP_TABLES = [
   'benchmark_runs',
   'benchmark_sessions',
   'candidate_assertions',
-  'chat_context_snapshots',
   'chat_messages',
   'chat_pending_messages',
   'chat_run_events',
@@ -121,6 +120,12 @@ function readSentinel(dbPath: string): string {
   } finally {
     database.close();
   }
+}
+
+/** The 69 -> 70 step derives the execution state a pre-journal tool row never recorded; nothing else moves. */
+function withBackfilledExecutionState(rows: ChatMessageRow[]): ChatMessageRow[] {
+  return rows.map((row) => row.kind === 'assistant_tool_call' && row.tool_call_status === 'done'
+    ? { ...row, tool_call_execution_state: 'completed' } : row);
 }
 
 function columnNames(database: DatabaseInstance, table: string): string[] {
@@ -454,7 +459,7 @@ test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column
     assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
     const tableDefinition = readTableDefinition(upgraded, 'chat_messages');
     assert.match(tableDefinition, /'stopped'/u);
-    assert.deepEqual(readChatMessageRows(upgraded), rowsBeforeUpgrade);
+    assert.deepEqual(readChatMessageRows(upgraded), withBackfilledExecutionState(rowsBeforeUpgrade));
     const columnsAfterUpgrade = readTableColumns(upgraded, 'chat_messages');
     assert.deepEqual(columnsAfterUpgrade, [...CHAT_MESSAGES_COLUMNS]);
     assert.deepEqual(columnsBeforeUpgrade.filter((column) => !columnsAfterUpgrade.some((after) => after === column)), []);
@@ -496,7 +501,7 @@ test('a marker-67 database that already accepts stopped converges without rewrit
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
     assert.match(readTableDefinition(upgraded, 'chat_messages'), /'stopped'/u);
-    assert.deepEqual(readChatMessageRows(upgraded), rowsBeforeUpgrade);
+    assert.deepEqual(readChatMessageRows(upgraded), withBackfilledExecutionState(rowsBeforeUpgrade));
     assert.deepEqual(upgraded.prepare('PRAGMA foreign_key_check').all(), []);
   } finally {
     closeRuntimeDatabase();
@@ -639,6 +644,54 @@ test('the marker-68 upgrade retires repo-agent history repair markers and keeps 
     assert.equal(keys.some(key => key.startsWith('repo-agent-history-v1:')), false);
     assert.equal(keys.includes('schema-test.sentinel'), true);
     assert.equal(z.object({ version: z.number() }).parse(upgraded.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, CURRENT_SCHEMA_VERSION);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('the marker-69 upgrade moves projection checkpoints onto run rows, backfills tool states, and drops the unused context cache', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-69-checkpoints-');
+  const fresh = getRuntimeDatabase(dbPath);
+  fresh.exec(`
+    INSERT INTO chat_sessions (id, title, model_preset_id, model_preset_json, thinking_enabled, web_search_enabled, preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc)
+      VALUES ('s1', 'Session', 'preset-a', '{}', 1, 0, 'chat', 'chat', 'C:/repo', '2026-09-10T11:00:00.000Z', '2026-09-10T11:00:00.000Z');
+    INSERT INTO chat_runs (operation_id, session_id, record_kind, operation_kind, run_order, owner_epoch, created_at_utc, updated_at_utc, terminal_cause)
+      VALUES ('op-1', 's1', 'execution', 'message', 1, 'owner:1', '2026-09-10T11:00:00.000Z', '2026-09-10T11:00:00.000Z', 'completed'),
+             ('op-2', 's1', 'execution', 'message', 2, 'owner:1', '2026-09-10T11:00:00.000Z', '2026-09-10T11:00:00.000Z', 'completed');
+    INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES
+      ('chat_projection:op-1', 'digest-one', '2026-09-10T11:00:00.000Z'),
+      ('schema-test.sentinel', 'keep', '2026-09-10T11:00:00.000Z');
+    INSERT INTO chat_messages (session_id, id, role, kind, content, input_tokens_estimate, output_tokens_estimate, thinking_tokens,
+      input_tokens_estimated, output_tokens_estimated, thinking_tokens_estimated, tool_call_status, created_at_utc, compressed_into_summary, position)
+      VALUES ('s1', 'tool-done', 'assistant', 'assistant_tool_call', 'x', 0, 0, 0, 0, 0, 0, 'done', '2026-09-10T11:00:00.000Z', 0, 0),
+             ('s1', 'tool-stopped', 'assistant', 'assistant_tool_call', 'x', 0, 0, 0, 0, 0, 0, 'stopped', '2026-09-10T11:00:00.000Z', 0, 1),
+             ('s1', 'tool-running', 'assistant', 'assistant_tool_call', 'x', 0, 0, 0, 0, 0, 0, 'running', '2026-09-10T11:00:00.000Z', 0, 2),
+             ('s1', 'answer', 'assistant', 'assistant_answer', 'x', 0, 0, 0, 0, 0, 0, NULL, '2026-09-10T11:00:00.000Z', 0, 3);
+    CREATE TABLE chat_context_snapshots (operation_id TEXT PRIMARY KEY);
+    UPDATE runtime_schema SET version = 69 WHERE id = 1;
+  `);
+  closeRuntimeDatabase();
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
+    const runs = z.array(z.object({ operation_id: z.string(), projected_digest: z.string().nullable(), projected_history_revision: z.number() }))
+      .parse(upgraded.prepare('SELECT operation_id, projected_digest, projected_history_revision FROM chat_runs ORDER BY run_order').all());
+    assert.deepEqual(runs, [
+      { operation_id: 'op-1', projected_digest: 'digest-one', projected_history_revision: 0 },
+      { operation_id: 'op-2', projected_digest: null, projected_history_revision: 0 },
+    ]);
+    const keys = z.array(z.object({ key: z.string() })).parse(upgraded.prepare('SELECT key FROM runtime_metadata ORDER BY key').all()).map(row => row.key);
+    assert.equal(keys.some(key => key.startsWith('chat_projection:')), false);
+    assert.equal(keys.includes('schema-test.sentinel'), true);
+    const states = z.array(z.object({ id: z.string(), tool_call_execution_state: z.string().nullable() }))
+      .parse(upgraded.prepare('SELECT id, tool_call_execution_state FROM chat_messages ORDER BY position').all());
+    assert.deepEqual(states, [
+      { id: 'tool-done', tool_call_execution_state: 'completed' },
+      { id: 'tool-stopped', tool_call_execution_state: 'uncertain' },
+      { id: 'tool-running', tool_call_execution_state: 'executing' },
+      { id: 'answer', tool_call_execution_state: null },
+    ]);
+    assert.equal(columnNames(upgraded, 'chat_context_snapshots').length, 0);
   } finally {
     closeRuntimeDatabase();
   }

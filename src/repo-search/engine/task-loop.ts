@@ -372,6 +372,7 @@ export class TaskLoop {
         verdictRequester: this,
         progressWriter: options.progressWriter ?? new SilentProgressWriter(),
         logger: options.logger ?? null,
+        evidenceRecorder: options.evidenceRecorder,
       }),
     );
   }

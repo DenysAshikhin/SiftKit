@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import type { ChatJournalEnvelope } from '../src/state/chat-journal-schema.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { reconcileChatRun } from '../src/status-server/chat-run-projection.js';
 import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
@@ -334,6 +335,7 @@ class OrderSpy implements ChatRunEvidenceRecorder {
   resolveAssistantMessageId(turn: number): string { return `spy-narration-${turn}`; }
   resolveToolMessageId(toolCallId: string): string | null { return this.toolIds.get(toolCallId) ?? null; }
   readHistoryRevisions() { return []; }
+  recordApprovalReviewed(): void { this.note('approval_reviewed'); }
   recordApprovalRequested(): void { this.note('approval_requested'); }
   recordApprovalResolved(): void { this.note('approval_resolved'); }
   readonly steps: string[] = [];
@@ -501,4 +503,18 @@ test('a queued delivery whose images the run preset refuses stays pending and re
   assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }, modelPreset), /image/iu);
   assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
   assert.equal(readAll(database, recorder.operationId).some(envelope => envelope.event.kind === 'queue_delivered'), false);
+});
+
+test('an automatic reviewer verdict is committed as evidence and projects no display row of its own', () => {
+  const { database, databasePath } = openSessionDatabase('chat-approval-reviewed-');
+  const recorder = beginRecorder(databasePath);
+  recorder.recordToolProposed({ call: call(0, 'call_a'), toolName: 'write', arguments: { path: 'out.txt' }, command: 'write path="out.txt"',
+    activityKind: 'command', activitySubject: { kind: 'none' }, maxTurns: 120, promptTokenCount: 10, executionState: 'proposed' });
+  recorder.recordApprovalReviewed({ call: call(0, 'call_a'), toolName: 'write', command: 'write path="out.txt"',
+    verdict: 'approve', reason: 'task-scoped write', reviewedAtUtc: AT });
+  const reviewed = readAll(database, recorder.operationId).map(envelope => envelope.event).find(event => event.kind === 'approval_reviewed');
+  assert.equal(reviewed?.kind === 'approval_reviewed' && reviewed.verdict, 'approve');
+  const report = reconcileChatRun(database, recorder.operationId);
+  assert.equal(report.status, 'ok');
+  assert.deepEqual(readChatRunMessages(database, SESSION_ID, recorder.operationId).map(message => message.kind), ['user_text', 'assistant_tool_call']);
 });

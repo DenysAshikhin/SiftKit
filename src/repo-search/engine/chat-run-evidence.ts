@@ -8,6 +8,7 @@ export type ChatToolProposedEvidence = EvidenceBody<'tool_proposed'>;
 export type ChatToolStartedEvidence = EvidenceBody<'tool_started'>;
 export type ChatToolResultEvidence = EvidenceBody<'tool_result'>;
 export type ChatToolResultFinalizedEvidence = EvidenceBody<'tool_result_finalized'>;
+export type ChatApprovalReviewedEvidence = EvidenceBody<'approval_reviewed'>;
 export type ChatApprovalRequestedEvidence = EvidenceBody<'approval_requested'>;
 export type ChatApprovalResolvedEvidence = EvidenceBody<'approval_resolved'>;
 
@@ -32,6 +33,7 @@ export interface ChatContextRecorder {
  */
 export interface ChatRunEvidenceRecorder extends ChatContextRecorder {
   readonly abortSignal: AbortSignal;
+  recordApprovalReviewed(evidence: ChatApprovalReviewedEvidence): void;
   recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void;
   recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void;
   recordToolProposed(evidence: ChatToolProposedEvidence): void;

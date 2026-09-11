@@ -397,7 +397,10 @@ test('chat repo-agent omission uses a custom repo-agent preset maxTurns', async 
   if (toolMessage?.kind === 'assistant_tool_call') {
     assert.equal(toolMessage.toolCallMaxTurns, 23);
   }
-  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 23);
+  const captured = getCapturedRepoAgentRequest(engineService, 'read a file');
+  assert.equal(captured.maxTurns, 23);
+  // The engine resolves its prompt from this id, so it must be the admitted preset, not the built-in one.
+  assert.equal(captured.presetId, presetId);
 });
 
 test('chat repo-agent omission uses the built-in 100-turn default', async (t) => {

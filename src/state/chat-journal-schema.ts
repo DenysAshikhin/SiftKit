@@ -25,6 +25,7 @@ import {
   ChatContextSpliceSchema,
   PlannerChatMessageSchema,
 } from '../repo-search/planner-chat-message.js';
+import { ApprovalVerdictSchema } from '../repo-search/approval-verdict.js';
 
 /**
  * The only event format this build writes and the only one it accepts. A row stamped with a version
@@ -167,6 +168,16 @@ export const ChatJournalEventSchema = z.discriminatedUnion('kind', [
     modelVisibleText: z.string(),
     contextRevision: z.number().int().nonnegative(),
   }),
+  /** The automatic reviewer's verdict, committed before the tool it authorizes (or refuses) proceeds. */
+  z.strictObject({
+    kind: z.literal('approval_reviewed'),
+    call: ChatToolCallIdentitySchema,
+    toolName: z.string().trim().min(1),
+    command: z.string().min(1),
+    verdict: ApprovalVerdictSchema.shape.verdict,
+    reason: z.string(),
+    reviewedAtUtc: z.string().datetime(),
+  }),
   z.strictObject({
     kind: z.literal('approval_requested'),
     call: ChatToolCallIdentitySchema,
@@ -276,6 +287,8 @@ export const ChatRunSchema = z.strictObject({
   terminalCause: ChatRunTerminalCauseSchema.nullable(),
   latestSequence: z.number().int().nonnegative(),
   projectedSequence: z.number().int().nonnegative(),
+  projectedDigest: z.string().nullable(),
+  projectedHistoryRevision: z.number().int().nonnegative(),
   contextRevision: z.number().int().nonnegative(),
   settings: ChatRunEffectiveSettingsSchema.nullable(),
   provenance: ChatImportProvenanceSchema.nullable(),

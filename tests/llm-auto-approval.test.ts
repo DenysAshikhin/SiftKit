@@ -17,6 +17,7 @@ import {
   type ApprovalGate,
 } from '../src/repo-search/engine/approval-gate.js';
 import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
+import type { ChatApprovalReviewedEvidence } from '../src/repo-search/engine/chat-run-evidence.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
@@ -527,4 +528,47 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
     fs.rmSync(tempRoot, { recursive: true, force: true });
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+test('auto mode journals the reviewer verdict before it authorizes the tool', async () => {
+  const writer = new UnansweringWriter();
+  const harness = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS });
+  const reviewed: ChatApprovalReviewedEvidence[] = [];
+  const call = { toolCallId: 'call_w', displayToolCallId: 'tc_0', batchId: 'batch-1', turn: 1, indexInBatch: 0 };
+  const gate = new LlmApprovalGate({
+    requestId: 'run-1',
+    humanGate: harness.gate,
+    verdictRequester: {
+      requestApprovalVerdict: () => Promise.resolve({
+        text: '{"verdict":"approve","reason":"task-scoped write"}',
+        rawText: '', narrationText: '', classification: 'narration', thinkingText: '',
+        toolCalls: [], mockExhausted: false, stop: CLEAN_STREAM_STOP,
+      }),
+    },
+    progressWriter: writer,
+    logger: null,
+    evidenceRecorder: { recordApprovalReviewed: (evidence) => { reviewed.push(evidence); } },
+  });
+
+  const decision = await gate.request({ call, turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null, pendingMessages: [] });
+
+  assert.deepEqual(decision, { kind: 'approve' });
+  assert.equal(reviewed.length, 1);
+  assert.deepEqual({ ...reviewed[0], reviewedAtUtc: 'at' }, { call, toolName: 'write', command: 'write path="out.txt"', verdict: 'approve', reason: 'task-scoped write', reviewedAtUtc: 'at' });
+  assert.ok(Number.isFinite(Date.parse(reviewed[0]?.reviewedAtUtc ?? '')));
+  assert.deepEqual(writer.events.map((event) => event.kind), ['approval_auto']);
+});
+
+test('auto mode refuses to review a chat tool that has no proposed identity to journal against', async () => {
+  const writer = new UnansweringWriter();
+  const harness = new ApprovalGateHarness(writer, { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS });
+  const gate = new LlmApprovalGate({
+    requestId: 'run-1', humanGate: harness.gate, progressWriter: writer, logger: null,
+    verdictRequester: { requestApprovalVerdict: () => Promise.reject(new Error('never asked')) },
+    evidenceRecorder: { recordApprovalReviewed: () => { throw new Error('never journaled'); } },
+  });
+  await assert.rejects(
+    gate.request({ turn: 1, toolName: 'write', command: 'write path="out.txt"', reviewPayload: null, pendingMessages: [] }),
+    /exact proposed tool identity/u,
+  );
 });

@@ -17,6 +17,7 @@ import {
 } from './approval-gate.js';
 import type { JsonLogger } from '../types.js';
 import { ApprovalVerdictSchema, type ApprovalVerdict } from '../approval-verdict.js';
+import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
 
 const FORBIDDEN_TOOL_CALL_REASON = 'approval reviewer attempted a forbidden tool call';
 
@@ -48,7 +49,8 @@ export function buildApprovalVerdictQuestion(
  * Decorator over the human ApprovalGate: asks the model itself for an
  * approve/deny/unsure verdict via an ephemeral request (the transcript is never
  * mutated, preserving the inference prompt-cache prefix). `unsure` and verdict
- * failures fall through to the wrapped human gate.
+ * failures fall through to the wrapped human gate. A chat run journals every
+ * verdict before acting on it, so the authorization is recoverable evidence.
  */
 export class LlmApprovalGate {
   constructor(private readonly deps: {
@@ -57,6 +59,7 @@ export class LlmApprovalGate {
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     logger: JsonLogger | null;
+    evidenceRecorder?: Pick<ChatRunEvidenceRecorder, 'recordApprovalReviewed'>;
   }) {}
 
   async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
@@ -66,6 +69,7 @@ export class LlmApprovalGate {
     if (isApprovalExemptReadOnlyTool(input.toolName)) {
       return { kind: 'approve' };
     }
+    if (this.deps.evidenceRecorder && !input.call) throw new Error('Chat approval requires its exact proposed tool identity.');
     const verdict = await this.requestVerdictWithRetry(
       buildApprovalVerdictQuestion(input),
       input.pendingMessages,
@@ -117,7 +121,11 @@ export class LlmApprovalGate {
     };
   }
 
-  private emitVerdict(input: ApprovalRequestInput, verdict: string, reason: string): void {
+  private emitVerdict(input: ApprovalRequestInput, verdict: ApprovalVerdict['verdict'], reason: string): void {
+    if (this.deps.evidenceRecorder && input.call) {
+      this.deps.evidenceRecorder.recordApprovalReviewed({ call: input.call, toolName: input.toolName, command: input.command,
+        verdict, reason, reviewedAtUtc: new Date().toISOString() });
+    }
     this.deps.logger?.write({
       kind: 'approval_verdict',
       turn: input.turn,

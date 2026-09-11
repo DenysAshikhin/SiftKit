@@ -36,6 +36,8 @@ const RunRowSchema = z.object({
   terminal_cause: z.string().nullable(),
   latest_sequence: z.number().int(),
   projected_sequence: z.number().int(),
+  projected_digest: z.string().nullable(),
+  projected_history_revision: z.number().int(),
   context_revision: z.number().int(),
   effective_settings_json: z.string().nullable(),
   provenance_json: z.string().nullable(),
@@ -80,9 +82,8 @@ export const ChatRunFinishSchema = z.strictObject({
 });
 export type ChatRunFinish = z.infer<typeof ChatRunFinishSchema>;
 
-export const ChatProjectionCheckpointSchema = z.strictObject({
-  operationId: z.string().uuid(),
-  projectedSequence: z.number().int().nonnegative(),
+export const ChatProjectionCheckpointSchema = ChatRunSchema.pick({
+  operationId: true, projectedSequence: true, projectedDigest: true, projectedHistoryRevision: true,
 });
 export type ChatProjectionCheckpoint = z.infer<typeof ChatProjectionCheckpointSchema>;
 
@@ -122,6 +123,8 @@ function toChatRun(row: z.infer<typeof RunRowSchema>): ChatRun {
     terminalCause: row.terminal_cause,
     latestSequence: row.latest_sequence,
     projectedSequence: row.projected_sequence,
+    projectedDigest: row.projected_digest,
+    projectedHistoryRevision: row.projected_history_revision,
     contextRevision: row.context_revision,
     settings: parseJsonColumn(ChatRunSchema.shape.settings, row.effective_settings_json),
     provenance: parseJsonColumn(ChatRunSchema.shape.provenance, row.provenance_json),
@@ -298,8 +301,8 @@ export class ChatJournalStore {
         + ` beyond its committed ${String(run.latestSequence)}.`,
       );
     }
-    this.database.prepare('UPDATE chat_runs SET projected_sequence = ? WHERE operation_id = ?')
-      .run(checkpoint.projectedSequence, checkpoint.operationId);
+    this.database.prepare('UPDATE chat_runs SET projected_sequence = ?, projected_digest = ?, projected_history_revision = ? WHERE operation_id = ?')
+      .run(checkpoint.projectedSequence, checkpoint.projectedDigest, checkpoint.projectedHistoryRevision, checkpoint.operationId);
   }
 
   advanceContextRevision(input: ChatContextCheckpoint): void {
