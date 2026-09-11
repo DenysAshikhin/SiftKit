@@ -134,13 +134,20 @@ test('a same-cursor transfer and a same-sequence history revision both apply', (
   assert.deepEqual(projection.snapshot?.messages, []);
 });
 
-test('a terminal after a commit is delivered and one before any commit is rejected', () => {
+test('a terminal after a commit must match the committed terminal cause', () => {
   const projection = new ChatOperationProjection('s1');
   const source = capture(4);
   assert.throws(() => feed(projection, singleRecordFrames(terminalRecord(source.cursor))), /terminal before any committed view/u);
+
+  const incomplete = new ChatOperationProjection('s1');
+  feed(incomplete, chatSnapshotFrames(source));
+  assert.throws(() => feed(incomplete, singleRecordFrames(terminalRecord(source.cursor))), /terminal cause mismatch/u);
+
   const fresh = new ChatOperationProjection('s1');
-  feed(fresh, chatSnapshotFrames(source));
-  const delivery = feed(fresh, singleRecordFrames(terminalRecord(source.cursor, 'user_stop')));
+  const terminalSource = capture(4, [message('answer', 'partial')], 0);
+  terminalSource.snapshot.terminalCause = 'user_stop';
+  feed(fresh, chatSnapshotFrames(terminalSource));
+  const delivery = feed(fresh, singleRecordFrames(terminalRecord(terminalSource.cursor, 'user_stop')));
   assert.equal(delivery?.kind === 'terminal' && delivery.terminal.terminalCause, 'user_stop');
 });
 

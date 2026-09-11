@@ -5,12 +5,18 @@ import type { JsonObject } from '../../src/lib/json-types.js';
 import { InferenceChatMessageSchema } from '../../src/llm-protocol/types.js';
 
 const RequestSchema = z.object({ messages: z.array(InferenceChatMessageSchema) }).loose();
+const TokenRequestSchema = z.object({ text: z.string() });
+type GatedChatBackendOptions = { readonly overflowTokenText?: string };
 
 /** The test releases each provider chunk only after observing the previous chunk in the client. */
 export class GatedChatBackend {
+  private readonly overflowTokenText: string | null;
   private readonly pending: http.ServerResponse[] = [];
   private waiting: { resolve(response: http.ServerResponse): void; reject(error: Error): void } | null = null;
   private closed = false;
+  constructor(options: GatedChatBackendOptions = {}) {
+    this.overflowTokenText = options.overflowTokenText ?? null;
+  }
   readonly requests: z.infer<typeof RequestSchema>[] = [];
   private readonly server = http.createServer((request, response) => {
     const expectedMethod = request.url === '/v1/chat/completions' || request.url === '/v1/token/encode'
@@ -20,16 +26,19 @@ export class GatedChatBackend {
       response.end('Unexpected gated backend request');
       return;
     }
-    if (request.url !== '/v1/chat/completions') {
-      response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify(request.url === '/v1/token/encode'
-        ? { count: 10 } : request.url === '/v1/models' ? { object: 'list', data: [{ id: 'mock' }] } : { ok: true }));
-      return;
-    }
     let body = '';
     request.setEncoding('utf8');
     request.on('data', (chunk: string) => { body += chunk; });
     request.on('end', () => {
+      if (request.url !== '/v1/chat/completions') {
+        response.setHeader('content-type', 'application/json');
+        if (request.url === '/v1/token/encode') {
+          const text = TokenRequestSchema.parse(JSON.parse(body)).text;
+          const overflow = this.overflowTokenText !== null && text.includes(this.overflowTokenText) && text.length > 1000;
+          response.end(JSON.stringify({ count: overflow ? 6000 : 10 }));
+        } else response.end(JSON.stringify(request.url === '/v1/models' ? { object: 'list', data: [{ id: 'mock' }] } : { ok: true }));
+        return;
+      }
       this.requests.push(RequestSchema.parse(JSON.parse(body)));
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.flushHeaders();

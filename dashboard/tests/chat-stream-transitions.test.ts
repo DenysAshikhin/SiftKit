@@ -1,5 +1,6 @@
 import test from 'node:test';
 import { buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import type { ChatRunTerminalCause } from '@siftkit/contracts';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 import assert from 'node:assert/strict';
 
@@ -51,7 +52,7 @@ for (const thinking of [true, false]) {
     const successorId = '4f9c1f9a-0000-4000-8000-000000000003';
     const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(successorId), { kind: 'answer', turn: 1 });
     const successorCapture = chatProjectionCapture({ sessionId: 'session-a', operationId: successorId, runOrder: 2,
-      controlOperationId: OPERATION_ID, messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', 'z'.repeat(400))],
+      controlOperationId: OPERATION_ID, terminalCause: 'completed', messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', 'z'.repeat(400))],
       tokenTurns: [{ turn: 1, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 }, usage: null }] });
     async function* successor(): AsyncGenerator<ChatStreamEvent> {
       yield* projectionEvents(chatSnapshotFrames(successorCapture));
@@ -125,18 +126,20 @@ class StoreDrain {
   }
 }
 
-function answerCapture(sessionId: string) {
+function answerCapture(sessionId: string, terminalCause: ChatRunTerminalCause | null = null) {
   const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'answer', turn: 1 });
-  return chatProjectionCapture({ sessionId, operationKind: 'message', operationId: OPERATION_ID,
+  return chatProjectionCapture({ sessionId, operationKind: 'message', operationId: OPERATION_ID, terminalCause,
     messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', `answer-${sessionId}`)] });
 }
 
 async function* controlledStream(sessionId: string, gate: Gate): AsyncGenerator<ChatStreamEvent> {
   const capture = answerCapture(sessionId);
+  const terminalCapture = answerCapture(sessionId, 'completed');
   yield* projectionEvents(chatSnapshotFrames(capture));
   gate.markWaiting();
   await gate.promise;
-  yield* projectionEvents(singleRecordFrames(terminalRecord(capture.cursor)));
+  yield* projectionEvents(chatSnapshotFrames(terminalCapture));
+  yield* projectionEvents(singleRecordFrames(terminalRecord(terminalCapture.cursor)));
 }
 
 async function* prematureStream(): AsyncGenerator<ChatStreamEvent> {
@@ -161,7 +164,7 @@ async function collectKinds(
 
 test('the first transition begins the operation for the requested session and the terminal settles it', async () => {
   async function* settled(): AsyncGenerator<ChatStreamEvent> {
-    const capture = answerCapture('session-a');
+    const capture = answerCapture('session-a', 'completed');
     yield* projectionEvents(chatSnapshotFrames(capture));
     yield* projectionEvents(singleRecordFrames(terminalRecord(capture.cursor)));
   }

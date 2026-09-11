@@ -99,6 +99,7 @@ function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact)
     requestId: artifact.artifactRequestId,
     title: getStatusArtifactUri(artifact.artifactType, artifact.artifactRequestId),
     payload: artifact.artifactPayload,
+    databasePath: ctx.runtimeDatabasePath,
   });
   upsertRunArtifactPayload({
     database: getIdleSummaryDatabase(ctx),

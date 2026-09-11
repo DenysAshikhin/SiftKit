@@ -45,7 +45,7 @@ test('queue transport failures are visible before reconnect and a later queue sn
   } finally { controller.abort(); globalThis.fetch = originalFetch; }
 });
 
-const CAPTURE = chatProjectionCapture({ operationId: OPERATION_ID });
+const CAPTURE = chatProjectionCapture({ operationId: OPERATION_ID, terminalCause: 'completed' });
 /** A complete operation stream body: one snapshot transfer followed by its terminal record. */
 const SETTLED_BODY = projectionPackets(chatSnapshotFrames(CAPTURE)) + projectionPackets(singleRecordFrames(terminalRecord(CAPTURE.cursor)));
 

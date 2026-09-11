@@ -160,7 +160,8 @@ function textSuffix(before: ChatTranscriptMessage, after: ChatTranscriptMessage)
   if (after.content.length < before.content.length || !after.content.startsWith(before.content)) return null;
   const metadata = ChatTextRowMetadataSchema.strip().parse(after);
   if (!same({ ...before, ...metadata, content: '' }, { ...after, content: '' })) return null;
-  if (same(before, after)) return null;
+  if (after.content.length === before.content.length
+    && same(ChatTextRowMetadataSchema.strip().parse(before), metadata)) return null;
   return { text: after.content.slice(before.content.length), metadata };
 }
 

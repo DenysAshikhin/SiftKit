@@ -113,6 +113,28 @@ test('a usage-only text-row update carries metadata without resending its body',
   assert.equal(append.metadata.outputTokensEstimate, afterAnswer.outputTokensEstimate);
 });
 
+test('growing text comparisons do not serialize the accumulated message body', (t) => {
+  const { recorder, capture } = fixture();
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'a'.repeat(1024 * 1024) } });
+  const before = capture();
+  recorder.recordDisplay({ kind: 'usage', usage: usage(1, 256) });
+  const after = capture();
+  const originalStringify = JSON.stringify;
+  let largeMessageStringifyCalls = 0;
+  t.mock.method(JSON, 'stringify', (...args: Parameters<typeof originalStringify>) => {
+    const value = args[0];
+    if (typeof value === 'object' && value !== null && 'kind' in value && 'content' in value
+      && typeof value.content === 'string' && value.content.length > 1024) {
+      largeMessageStringifyCalls += 1;
+    }
+    return originalStringify(...args);
+  });
+
+  [...createChatUpdateRecords(before, after)];
+
+  assert.equal(largeMessageStringifyCalls, 0);
+});
+
 test('a rewrite and kind conversion use replacements while usage changes use metadata updates', () => {
   const { recorder, capture } = fixture();
   recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'first draft' } });

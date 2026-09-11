@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
@@ -6,6 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { SystemClock } from '../src/assistant/clock.js';
+import { stableStringify } from '../src/lib/json.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
 import {
   closeAllRuntimeDatabases,
   CURRENT_SCHEMA_VERSION,
@@ -30,6 +33,7 @@ import {
   seedLegacyChatDatabase,
 } from './helpers/legacy-chat-schema-fixture.js';
 import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
+import { ImageMetadataSchema } from '@siftkit/contracts';
 
 const TableNameRowsSchema = z.array(z.object({ name: z.string() }));
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
@@ -132,6 +136,10 @@ function columnNames(database: DatabaseInstance, table: string): string[] {
   return ColumnNameRowsSchema.parse(database.prepare(
     `SELECT name FROM pragma_table_info('${table}')`,
   ).all()).map((row) => row.name);
+}
+
+function digestEvent(body: z.infer<typeof JsonObjectSchema>): string {
+  return createHash('sha256').update(stableStringify(body)).digest('hex');
 }
 
 test('fresh creation bootstraps the current schema and marker', () => {
@@ -692,6 +700,57 @@ test('the marker-69 upgrade moves projection checkpoints onto run rows, backfill
       { id: 'answer', tool_call_execution_state: null },
     ]);
     assert.equal(columnNames(upgraded, 'chat_context_snapshots').length, 0);
+  } finally {
+    closeAllRuntimeDatabases();
+  }
+});
+
+test('the marker-70 upgrade accepts approval reviews and both historical queue layouts', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-70-journal-layouts-');
+  const database = getRuntimeDatabase(dbPath);
+  const sessionId = 'schema-70-session';
+  const operationId = '11111111-1111-4111-8111-111111111111';
+  const at = '2026-09-10T11:00:00.000Z';
+  database.exec(`
+    INSERT INTO chat_sessions (id, title, model_preset_id, model_preset_json, thinking_enabled, web_search_enabled, preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc)
+      VALUES ('${sessionId}', 'Session', 'preset-a', '{}', 1, 0, 'chat', 'chat', 'C:/repo', '${at}', '${at}');
+    INSERT INTO chat_runs (operation_id, session_id, record_kind, operation_kind, run_order, owner_epoch, created_at_utc, updated_at_utc)
+      VALUES ('${operationId}', '${sessionId}', 'execution', 'message', 1, 'owner:1', '${at}', '${at}');
+    UPDATE runtime_schema SET version = 70 WHERE id = 1;
+  `);
+  const imageMeta = ImageMetadataSchema.parse({ width: 1, height: 1, originalWidth: 1, originalHeight: 1,
+    mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null });
+  const call = { toolCallId: 'native-call', displayToolCallId: 'display-call', batchId: 'batch', turn: 1, indexInBatch: 0 };
+  const events = [
+    JsonObjectSchema.parse({ kind: 'approval_reviewed', call, toolName: 'read', command: 'read', verdict: 'approve', reason: 'safe', reviewedAtUtc: at }),
+    JsonObjectSchema.parse({ kind: 'queue_delivered', message: { id: '22222222-2222-4222-8222-222222222222', turn: 1, boundary: 'successor_start', content: 'queued', images: [], imageMeta: [imageMeta] }, requestId: null, deliveredAtUtc: at }),
+    JsonObjectSchema.parse({ kind: 'queue_delivered', message: { id: '33333333-3333-4333-8333-333333333333', turn: 2, boundary: 'post_tool_batch', content: 'legacy queued', images: [] }, imageMeta: [imageMeta], requestId: null, deliveredAtUtc: at }),
+  ];
+  const insert = database.prepare(`
+    INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
+    VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+  `);
+  for (const [index, event] of events.entries()) {
+    const body = stableStringify(event);
+    insert.run(operationId, index + 1, `event-${String(index + 1)}`, at, event.kind, body, digestEvent(event));
+  }
+  closeAllRuntimeDatabases();
+
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
+    const rows = z.array(z.object({ version: z.number(), kind: z.string(), body_json: z.string(), payload_digest: z.string() }))
+      .parse(upgraded.prepare('SELECT version, kind, body_json, payload_digest FROM chat_run_events ORDER BY sequence').all());
+    assert.deepEqual(rows.map(row => ({ version: row.version, kind: row.kind })), [
+      { version: 2, kind: 'approval_reviewed' }, { version: 2, kind: 'queue_delivered' }, { version: 2, kind: 'queue_delivered' },
+    ]);
+    const queue = z.object({ message: z.object({ imageMeta: z.array(ImageMetadataSchema) }) })
+      .parse(JsonObjectSchema.parse(JSON.parse(rows[1]?.body_json ?? '{}')));
+    assert.deepEqual(queue.message.imageMeta, [imageMeta]);
+    const legacyQueue = z.object({ message: z.object({ imageMeta: z.array(ImageMetadataSchema) }) })
+      .parse(JsonObjectSchema.parse(JSON.parse(rows[2]?.body_json ?? '{}')));
+    assert.deepEqual(legacyQueue.message.imageMeta, [imageMeta]);
+    assert.equal(rows.every(row => row.payload_digest === digestEvent(JsonObjectSchema.parse(JSON.parse(row.body_json)))), true);
   } finally {
     closeAllRuntimeDatabases();
   }

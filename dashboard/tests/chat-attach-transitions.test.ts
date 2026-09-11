@@ -9,7 +9,7 @@ import {
   FIXTURE_OPERATION_ID, chatProjectionCapture, chatQueueState, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord,
 } from './chat-snapshot-fixture.js';
 
-const CAPTURE = chatProjectionCapture({ operationId: FIXTURE_OPERATION_ID }, 0, chatQueueState({ revision: 2 }));
+const CAPTURE = chatProjectionCapture({ operationId: FIXTURE_OPERATION_ID, terminalCause: 'completed' }, 0, chatQueueState({ revision: 2 }));
 const ATTACHED: ChatStreamEvent[] = projectionEvents(chatSnapshotFrames(CAPTURE));
 
 async function* streamOf(events: ChatStreamEvent[]): AsyncGenerator<ChatStreamEvent> {

@@ -30,18 +30,24 @@ import {
   ChatRunStartedEventSchema,
   ChatToolCallIdentitySchema,
 } from '../chat-journal-schema.js';
+import { ApprovalVerdictSchema } from '../../repo-search/approval-verdict.js';
 import type { RuntimeDatabase } from '../database-handle.js';
 
 const LEGACY_EVENT_VERSION = 1;
 const UPGRADED_EVENT_VERSION = 2;
 
-/** The v1 queue payload kept metadata beside the message; this shape is migration-only. */
+/** The v1 queue payload before schema 70 kept metadata beside the message; this shape is migration-only. */
 const LegacyQueuedUserMessageSchema = z.strictObject({
   id: ChatQueuedMessageIdSchema,
   turn: z.number().int().nonnegative(),
   boundary: z.enum(['post_tool_batch', 'successor_start']),
   content: z.string(),
   images: z.array(ImageDataUrlSchema),
+});
+
+/** Schema 70 wrote the same v1 event with metadata already nested in the message. */
+const LegacyQueuedUserMessageWithImageMetaSchema = LegacyQueuedUserMessageSchema.extend({
+  imageMeta: z.array(ImageMetadataSchema),
 });
 
 /** Frozen v1 splice: the exact top-level keys that shipped. Migration-only. */
@@ -58,7 +64,7 @@ const LegacyContextSplicedEventSchema = z.strictObject({
   reason: ChatContextSpliceReasonSchema,
 });
 
-const LegacyQueueDeliveredEventSchema = z.strictObject({
+const LegacyQueueDeliveredTopLevelEventSchema = z.strictObject({
   kind: z.literal('queue_delivered'),
   message: LegacyQueuedUserMessageSchema,
   imageMeta: z.array(ImageMetadataSchema),
@@ -66,8 +72,20 @@ const LegacyQueueDeliveredEventSchema = z.strictObject({
   deliveredAtUtc: z.string().datetime(),
 });
 
+const LegacyQueueDeliveredNestedEventSchema = z.strictObject({
+  kind: z.literal('queue_delivered'),
+  message: LegacyQueuedUserMessageWithImageMetaSchema,
+  requestId: z.string().min(1).nullable(),
+  deliveredAtUtc: z.string().datetime(),
+});
+
+const LegacyQueueDeliveredEventSchema = z.union([
+  LegacyQueueDeliveredTopLevelEventSchema,
+  LegacyQueueDeliveredNestedEventSchema,
+]);
+
 /** Complete v1 event validation stays here; runtime readers never use this schema. */
-const LegacyChatJournalEventSchema = z.discriminatedUnion('kind', [
+const LegacyChatJournalEventSchema = z.union([
   z.strictObject({ kind: z.literal('stop_requested'), requestedAtUtc: z.string().datetime() }),
   z.strictObject({ kind: z.literal('presentation'), event: ChatRunPresentationEventSchema }),
   z.strictObject({ kind: z.literal('submission_cancelled'), userMessageId: z.string().min(1), reason: z.literal('client_disconnected_before_dispatch') }),
@@ -89,6 +107,10 @@ const LegacyChatJournalEventSchema = z.discriminatedUnion('kind', [
     finishedAtUtc: z.string().datetime(),
   }),
   z.strictObject({ kind: z.literal('tool_result_finalized'), call: ChatToolCallIdentitySchema, modelVisibleText: z.string(), contextRevision: z.number().int().nonnegative() }),
+  z.strictObject({
+    kind: z.literal('approval_reviewed'), call: ChatToolCallIdentitySchema, toolName: z.string().trim().min(1),
+    command: z.string().min(1), verdict: ApprovalVerdictSchema.shape.verdict, reason: z.string(), reviewedAtUtc: z.string().datetime(),
+  }),
   z.strictObject({
     kind: z.literal('approval_requested'), call: ChatToolCallIdentitySchema, approvalId: z.string().uuid(), toolName: z.string().trim().min(1),
     command: z.string().min(1), reviewPayload: z.string().nullable(), mode: ApprovalModeSchema,
@@ -141,9 +163,13 @@ export function upgradeChatJournalEventsToVersion2(database: RuntimeDatabase): v
       const upgraded = JsonObjectSchema.parse({ ...event, coalescedToolCallIds: [] });
       update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestBody(upgraded), row.operation_id, row.sequence);
     } else if (event.kind === 'queue_delivered') {
-      const { imageMeta, ...eventWithoutImageMeta } = event;
-      const upgraded = JsonObjectSchema.parse({ ...eventWithoutImageMeta, message: { ...event.message, imageMeta } });
-      update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestBody(upgraded), row.operation_id, row.sequence);
+      if ('imageMeta' in event) {
+        const { imageMeta, ...eventWithoutImageMeta } = event;
+        const upgraded = JsonObjectSchema.parse({ ...eventWithoutImageMeta, message: { ...event.message, imageMeta } });
+        update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestBody(upgraded), row.operation_id, row.sequence);
+      } else {
+        update.run(UPGRADED_EVENT_VERSION, row.body_json, row.payload_digest, row.operation_id, row.sequence);
+      }
     } else {
       update.run(UPGRADED_EVENT_VERSION, row.body_json, row.payload_digest, row.operation_id, row.sequence);
     }

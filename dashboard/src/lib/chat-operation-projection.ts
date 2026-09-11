@@ -100,7 +100,7 @@ export class ChatOperationProjection {
       const committed = this.committed;
       if (!committed) fail('terminal before any committed view');
       if (!sameCursor(committed.cursor, record.cursor)) fail('terminal cursor mismatch');
-      if (committed.snapshot.terminalCause !== null && committed.snapshot.terminalCause !== record.terminalCause) {
+      if (committed.snapshot.terminalCause !== record.terminalCause) {
         fail('terminal cause mismatch');
       }
       this.finishedTransferIds.add(transferId);

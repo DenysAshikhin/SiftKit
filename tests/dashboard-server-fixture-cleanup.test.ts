@@ -14,7 +14,7 @@ import { waitForTerminalMetadataIdle } from '../src/status-server/terminal-metad
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 test('terminal metadata idle wait observes scheduled work completing', async () => {
   const tempRoot = createManagedTempDir('siftkit-terminal-metadata-idle-');
@@ -211,8 +211,31 @@ test('closing a second status server leaves the first server and its database us
   const secondDatabase = getRuntimeDatabase(getRuntimeDatabasePath(second.tempRoot));
   try {
     assert.notEqual(firstDatabase, secondDatabase);
+    const deferredArtifact = {
+      artifactType: 'planner_debug',
+      artifactRequestId: 'two-server-shutdown-artifact',
+      artifactPayload: { owner: 'second' },
+      identity: {
+        operationType: null,
+        operationPresetId: null,
+        modelPresetId: null,
+        operationPresetJson: null,
+        modelPresetJson: null,
+      },
+    };
+    const post = await requestJson(`${second.baseUrl}/status/terminal-metadata`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: false,
+        requestId: 'two-server-shutdown-request',
+        terminalState: 'completed',
+        deferredArtifacts: [deferredArtifact],
+      }),
+    });
+    assert.equal(post.statusCode, 200);
     await second.close();
     await second.waitForShutdown();
+    assert.equal(await removeDirectoryWithRetries(second.tempRoot), true);
     assert.equal(secondDatabase.open, false);
     assert.equal(firstDatabase.open, true);
     assert.equal(process.cwd(), first.tempRoot);

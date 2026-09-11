@@ -219,7 +219,7 @@ test('a broken attach refetches and reconnects without resubmitting the user tur
 });
 
 test('a terminal refresh failure retains the committed live view for retry', async () => {
-  const committedBody = snapshotBody({ messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'committed answer')] })
+  const committedBody = snapshotBody({ terminalCause: 'completed', messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'committed answer')] })
     + terminalBody();
   const fixture = new ChatFetchFixture({
     session: SESSION,
@@ -239,12 +239,38 @@ test('a terminal refresh failure retains the committed live view for retry', asy
   } finally { fixture.restore(); }
 });
 
+test('an owned terminal refresh failure reattaches after ownership is released', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    holdStream: true,
+    detailFailureRequestNumbers: [3],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.id, 's1'));
+    act(() => hook.result.current.setSessionDraft('s1', 'owned turn'));
+    let run: Promise<void> = Promise.resolve();
+    act(() => { run = hook.result.current.sendMessage(); });
+    await waitFor(() => assert.equal(fixture.streamRequestCount, 1));
+    act(() => { fixture.deliverHeldStream(); });
+    await waitFor(() => assert.equal(fixture.detailFailureCount, 1));
+    assert.equal(fixture.attachRequestCount, 1);
+    act(() => { fixture.closeHeldStream(); });
+    await act(async () => { await run; });
+    await waitFor(() => assert.ok(fixture.attachRequestCount >= 2), { timeout: 3000 });
+  } finally { fixture.restore(); }
+});
+
 class ChatFetchFixture {
   readonly queuedBodies: ChatQueueEnqueueRequest[] = [];
   readonly forcedBodies: string[] = [];
   readonly requestedUrls: string[] = [];
   readonly sentBodies: string[] = [];
   detailRequestCount = 0;
+  detailFailureCount = 0;
   streamRequestCount = 0;
   attachRequestCount = 0;
   conflictCount = 0;
@@ -320,6 +346,7 @@ class ChatFetchFixture {
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
         if (this.options.detailFailureRequestNumbers?.includes(this.detailRequestCount)) {
+          this.detailFailureCount += 1;
           return new Response(JSON.stringify({ error: 'Session refresh failed.' }), { status: 503 });
         }
         const detail = this.settled ? this.options.streamResponse : this.options.detailResponse;
@@ -422,15 +449,27 @@ class ChatFetchFixture {
     const owned = this.ownedOperation;
     if (!owned) throw new Error('No owned operation was submitted.');
     this.settled = true;
-    return snapshotBody({ sessionId, ...owned, controlOperationId: owned.operationId }) + terminalBody(owned.operationId);
+    return snapshotBody({ sessionId, ...owned, controlOperationId: owned.operationId, terminalCause: 'completed' }) + terminalBody(owned.operationId);
   }
 
   finishHeldStream(): void {
+    this.deliverHeldStream();
+    this.closeHeldStream();
+  }
+
+  deliverHeldStream(): void {
     const controller = this.streamController;
     if (!controller) {
       throw new Error('No held stream is active.');
     }
     controller.enqueue(new TextEncoder().encode(this.settledOwnedBody(this.options.session.id)));
+  }
+
+  closeHeldStream(): void {
+    const controller = this.streamController;
+    if (!controller) {
+      throw new Error('No held stream is active.');
+    }
     controller.close();
     this.streamController = null;
   }
@@ -775,7 +814,7 @@ test('an attached stream that ends without a payload refreshes the session and i
     session: SESSION,
     detailResponse: response,
     streamResponse: response,
-    operationStream: snapshotBody({ operationKind: 'condense' }) + terminalBody(),
+    operationStream: snapshotBody({ operationKind: 'condense', terminalCause: 'completed' }) + terminalBody(),
   });
   try {
     const hook = renderHook(() => useChatSessions({

@@ -5,7 +5,7 @@ import { mock } from 'node:test';
 import { z } from '../../src/lib/zod.js';
 import { toError } from '../../src/lib/errors.js';
 import { terminateProcessTree } from '../../src/lib/process-tree.js';
-import { ChatSessionOperationKindSchema, type ChatTranscriptEvent } from '@siftkit/contracts';
+import { ChatSessionOperationKindSchema, ImageMetadataSchema, type ChatTranscriptEvent } from '@siftkit/contracts';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { ChatJournalStore } from '../../src/state/chat-journal.js';
 import { readChatSessionFromDatabase, saveChatSession } from '../../src/state/chat-sessions.js';
@@ -18,10 +18,11 @@ import { getAddressInfo } from './dashboard-http.js';
 import { getDefaultServerConfig, mockModelPreset } from './mock-config.js';
 import { createTestChatSession } from './chat-sessions.js';
 import { ToolActionProcessor } from '../../src/repo-search/engine/tool-action-processor.js';
+import { rasterBuffer, toDataUrl } from './image-fixtures.js';
 
 export const RECOVERY_CHILD_ENV = 'SIFTKIT_TEST_CHAT_RECOVERY_CHILD';
 const CONTROL_PREFIX = 'CHAT_RECOVERY_CONTROL ';
-export const ChatRecoveryBarrierSchema = z.enum(['none', 'submission', 'text', 'proposal', 'approval', 'start', 'effect', 'result', 'finalization', 'invalid_rejection', 'projection', 'terminal', 'queue']);
+export const ChatRecoveryBarrierSchema = z.enum(['none', 'submission', 'text', 'proposal', 'approval', 'start', 'effect', 'result', 'finalization', 'finalization_mixed', 'coalescing_before', 'coalescing_after', 'deletion', 'replacement', 'invalid_rejection', 'projection', 'terminal', 'queue']);
 export const ChatRecoveryProcessConfigSchema = z.strictObject({
   root: z.string().min(1), providerUrl: z.string().url(), barrier: ChatRecoveryBarrierSchema,
   operationKind: ChatSessionOperationKindSchema, clockAdvanceMs: z.number().int().nonnegative(),
@@ -49,14 +50,18 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
   process.env.SIFTKIT_STATUS_PATH = join(config.root, '.siftkit', 'status', 'inference.txt');
   process.env.sift_kit_status = process.env.SIFTKIT_STATUS_PATH;
   const serverConfig = getDefaultServerConfig();
+  const retainedImageReplacement = config.operationKind === 'repo-agent' && config.barrier === 'replacement';
   const model = mockModelPreset({ id: 'crash-model', Model: 'mock', ExternalServerEnabled: true,
-    BaseUrl: config.providerUrl, NumCtx: 8192, VisionEnabled: true, VisionImageRetention: 4,
+    BaseUrl: config.providerUrl, NumCtx: retainedImageReplacement ? 10000 : 8192, VisionEnabled: true, VisionImageRetention: 4,
     Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true });
   serverConfig.Server.ModelPresets.Presets = [model];
   serverConfig.Server.ModelPresets.ActivePresetId = model.id;
   writeConfig(getConfigPath(), serverConfig);
   const database = getRuntimeDatabase(getRuntimeDatabasePath());
   if (!readChatSessionFromDatabase(database, 'crash-session')) {
+    const image = toDataUrl('image/png', rasterBuffer('png', 1, 1));
+    const imageMeta = ImageMetadataSchema.parse({ width: 1, height: 1, originalWidth: 1, originalHeight: 1,
+      mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null });
     const session = createTestChatSession(getRuntimeRoot());
     session.id = 'crash-session';
     session.modelPresetId = model.id;
@@ -66,7 +71,8 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
     session.mode = config.operationKind === 'plan' ? 'plan' : config.operationKind === 'repo-search' || config.operationKind === 'repo-agent' ? 'repo-search' : 'chat';
     session.messages = [
       { id: 'prior-user', role: 'user', kind: 'user_text', content: 'CRASH_PRIOR_17', createdAtUtc: session.createdAtUtc,
-        inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0 },
+        inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0,
+        ...(config.operationKind === 'condense' ? { images: [image], imageMeta: [imageMeta] } : {}) },
       { id: 'prior-answer', role: 'assistant', kind: 'assistant_answer', content: 'Prior answer', createdAtUtc: session.createdAtUtc,
         inputTokensEstimate: 0, outputTokensEstimate: 1, thinkingTokens: 0 },
     ];
@@ -114,6 +120,18 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
   mock.method(ChatRunRecorder.prototype, 'recordToolResultFinalized', function(this: ChatRunRecorder, evidence: Parameters<typeof finalized>[0]) {
     finalized.call(this, evidence);
     freeze('finalization', this);
+    if (evidence.call.indexInBatch > 0) freeze('finalization_mixed', this);
+  });
+  const spliced = ChatRunRecorder.prototype.recordContextSpliced;
+  mock.method(ChatRunRecorder.prototype, 'recordContextSpliced', function(this: ChatRunRecorder, splice: Parameters<typeof spliced>[0]) {
+    const imageDeletionCommitted = this.readHistoryRevisions().some(revision => revision.action === 'image_removed');
+    if (imageDeletionCommitted && splice.reason === 'compacted') freeze('deletion', this);
+    const coalescing = splice.coalescedToolCallIds.length > 0;
+    if (coalescing) freeze('coalescing_before', this);
+    const committed = spliced.call(this, splice);
+    if (coalescing) freeze('coalescing_after', this);
+    if (splice.reason === 'compacted') freeze('replacement', this);
+    return committed;
   });
   const invalidResponse = ToolActionProcessor.prototype.recordInvalidResponse;
   mock.method(ToolActionProcessor.prototype, 'recordInvalidResponse', function(this: ToolActionProcessor, turn: Parameters<typeof invalidResponse>[0], input: Parameters<typeof invalidResponse>[1]) {

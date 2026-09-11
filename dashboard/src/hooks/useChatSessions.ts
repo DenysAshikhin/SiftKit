@@ -550,6 +550,7 @@ export function useChatSessions(deps: {
     // Held for the whole turn, so the attach effect leaves this session to the frames rendered here.
     ownedStreamSessionIds.current.add(sessionId);
     let ownedElsewhere = false;
+    let retryTerminalRefresh = false;
     let accepted = false;
     try {
       for await (const transition of toRuntimeTransitions(
@@ -566,7 +567,7 @@ export function useChatSessions(deps: {
           } catch (error) {
             pendingTerminalTransitions.current.set(sessionId, transition);
             setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
-            setRemoteRunGeneration((generation) => generation + 1);
+            retryTerminalRefresh = true;
           }
           continue;
         }
@@ -580,7 +581,9 @@ export function useChatSessions(deps: {
       // looks owned and skip the very run it was woken for.
       ownedStreamSessionIds.current.delete(sessionId);
       const queuedOperationId = queueOperationIds.current.get(sessionId);
-      if (ownedElsewhere || (queuedOperationId && queuedOperationId !== operationId)) setRemoteRunGeneration((generation) => generation + 1);
+      if (retryTerminalRefresh || ownedElsewhere || (queuedOperationId && queuedOperationId !== operationId)) {
+        setRemoteRunGeneration((generation) => generation + 1);
+      }
     }
   }
 

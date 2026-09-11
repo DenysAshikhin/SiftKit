@@ -1,16 +1,27 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 import { requestJson, asObject } from './helpers/dashboard-http.js';
 import { readChatStream } from './helpers/chat-stream-views.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { ChatOperationProjection } from '../dashboard/src/lib/chat-operation-projection.js';
+import { ChatStreamReader } from '../dashboard/src/lib/chat-stream-parser.js';
+import { ImageMetadataSchema, type ImageMetadata } from '@siftkit/contracts';
+import { closeAllRuntimeDatabases, getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
-import { getChatSessionPath, readChatSessionFromPath } from '../src/state/chat-sessions.js';
+import { deleteChatMessageImage, getChatSessionPath, readChatSessionFromPath, saveChatSession } from '../src/state/chat-sessions.js';
 import { getRuntimeRoot, getConfigPath } from '../src/status-server/paths.js';
-import { readConfig } from '../src/status-server/config-store.js';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
 import { ChatRunRecorder, buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
+import { ChatOperationSseSubscriber } from '../src/status-server/chat-operation-sse-subscriber.js';
+import { SseResponseWriter } from '../src/status-server/sse-response-writer.js';
 import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { createTestChatSession } from './helpers/chat-sessions.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { mockModelPreset } from './helpers/mock-config.js';
 
 /** One attach read to EOF, assembled the way the browser assembles it. */
 async function attach(harness: StreamedOperationHarness, sessionId: string) {
@@ -21,18 +32,98 @@ async function attach(harness: StreamedOperationHarness, sessionId: string) {
   return { body, ...readChatStream({ statusCode: response.status, events }, sessionId) };
 }
 
-function begin(sessionId: string) {
+function begin(sessionId: string, userMessageId = randomUUID(), images: string[] = [], imageMeta: ImageMetadata[] = []) {
   const session = readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId));
   assert.ok(session);
   const databasePath = getRuntimeDatabasePath();
   const owner = ChatRuntimeOwnerSchema.parse(getRuntimeDatabase(databasePath).prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get());
   return ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId, ownerEpoch: `${owner.owner_id}:${owner.epoch}`, operationKind: 'repo-agent',
-    userMessageId: randomUUID(), content: 'accepted prompt', images: [], imageMeta: [], retainedHistoryRevision: 0,
+    userMessageId, content: 'accepted prompt', images, imageMeta, retainedHistoryRevision: 0,
     startedAtUtc: new Date().toISOString(), settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()),
       operationKind: 'repo-agent', presetId: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'interactive', maxTurns: 20, webSearchEnabled: false }),
   });
 }
+
+test('the real subscriber and dashboard assembler reject an image-bearing transfer revised mid-drain', async t => {
+  const root = createManagedTempDir('chat-attach-slow-image-delete-real-');
+  const context = createTestServerContext(`${root}/config.json`, root);
+  const session = createTestChatSession(root);
+  session.id = 'slow-delete-session';
+  session.modelPreset = mockModelPreset();
+  session.modelPresetId = session.modelPreset.id;
+  const image = toDataUrl('image/png', rasterBuffer('png', 1, 1));
+  const imageMeta = ImageMetadataSchema.parse({ width: 1, height: 1, originalWidth: 1, originalHeight: 1,
+    mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null });
+  const userMessageId = randomUUID();
+  session.messages = [{ id: userMessageId, role: 'user', kind: 'user_text', content: 'image prompt',
+    inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: session.createdAtUtc,
+    images: [image], imageMeta: [imageMeta] }];
+  saveChatSession(root, session);
+  const operationId = randomUUID();
+  const acquired = context.chatSessionOperations.acquire(session.id, 'repo-agent', operationId, Date.now());
+  assert.equal(acquired.kind, 'acquired');
+  const lease = acquired.lease;
+  const recorder = ChatRunRecorder.begin(context.runtimeDatabase, {
+    operationId, sessionId: session.id, ownerEpoch: context.chatRunOwnerEpoch, operationKind: 'repo-agent',
+    userMessageId, content: 'image prompt', images: [image], imageMeta: [imageMeta], retainedHistoryRevision: 0,
+    startedAtUtc: session.createdAtUtc, settings: buildChatRunSettings({ session, config: getDefaultConfig(),
+      operationKind: 'repo-agent', presetId: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'off', maxTurns: 20, webSearchEnabled: false }),
+  });
+  lease.recorder = recorder;
+  for (let turn = 1; turn <= 140; turn += 1) {
+    recorder.recordDisplay({ kind: 'narration', delta: { turn, offset: 0, text: 'x'.repeat(64 * 1024) } });
+  }
+  const broadcast = context.chatSessionOperations.getBroadcast(session.id);
+  assert.ok(broadcast);
+  const server = http.createServer((req, res) => {
+    const writer = new SseResponseWriter(req, res);
+    writer.open();
+    const subscriber = new ChatOperationSseSubscriber(writer, { ctx: context, sessionId: session.id, operationId, database: context.runtimeDatabase });
+    broadcast.attach(subscriber);
+    subscriber.start();
+    res.on('close', () => broadcast.detach(subscriber));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    closeAllRuntimeDatabases();
+    assert.equal(await removeDirectoryWithRetries(root), true);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const response = await fetch(`http://127.0.0.1:${address.port}/operation/stream`);
+  assert.equal(response.status, 200);
+  const body = response.body;
+  assert.ok(body);
+  const stream = new ChatStreamReader(body.getReader());
+  const projection = new ChatOperationProjection(session.id);
+  let imageBearingViewPublished = false;
+  let firstFrame = true;
+  for await (const event of stream.events()) {
+    if (event.kind !== 'projection') continue;
+    if (firstFrame) {
+      firstFrame = false;
+      deleteChatMessageImage(root, session.id, userMessageId, 0);
+      broadcast.notifyHistoryRevised();
+      recorder.finish({ terminalCause: 'user_stop', detail: null, usage: null, recoveryStatus: 'recovery_needed' });
+      assert.equal(context.chatSessionOperations.finish(lease, { kind: 'completed' }), true);
+    }
+    const delivery = projection.acceptFrame(event.frame);
+    if (delivery?.kind === 'view' && delivery.snapshot.messages.some(message => message.images?.includes(image) === true)) {
+      imageBearingViewPublished = true;
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 2));
+  }
+
+  const snapshot = projection.snapshot;
+  assert.ok(snapshot);
+  assert.equal(imageBearingViewPublished, false, 'a stale transfer must not publish the deleted image');
+  assert.equal(snapshot.messages.some(message => message.images?.includes(image) === true), false);
+  assert.equal(snapshot.terminalCause, 'user_stop');
+});
 
 test('attach reports the exact corrupt journal identity without echoing source payloads', async t => {
   const harness = await startHarness('chat-attach-corruption-', t);

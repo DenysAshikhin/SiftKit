@@ -502,16 +502,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       clearInterval(ctx.runtimeHistoryPruneTimer);
       ctx.runtimeHistoryPruneTimer = null;
     }
-    if (ctx.idleSummary.database) {
-      ctx.idleSummary.database.close();
-      ctx.idleSummary.database = null;
-    }
     // Drain this server's writers, release its lease while the handle is open, then close only its path.
     void (async () => {
       await server.waitForRequestsIdle();
       await server.waitForTerminalMetadataIdle();
       clearIdleSummaryTimer(ctx);
       await ctx.inferenceRunFlushQueue.close();
+      if (ctx.idleSummary.database) {
+        ctx.idleSummary.database.close();
+        ctx.idleSummary.database = null;
+      }
       chatRuntimeOwner.release();
       closeRuntimeDatabase(runtimeDatabasePath);
     })().then(resolveShutdownPromise, (error) => rejectShutdownPromise(toError(error)));

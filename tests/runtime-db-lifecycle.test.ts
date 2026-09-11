@@ -8,8 +8,12 @@ import {
   closeAllRuntimeDatabases,
   closeRuntimeDatabase,
   getRuntimeDatabase,
+  getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { enqueueDeferredArtifacts, flushDeferredArtifacts } from '../src/status-server/server-ops.js';
+import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 const ValueRowsSchema = z.array(z.object({ value: z.string() }));
 const JournalModeRowSchema = z.object({ journal_mode: z.string() });
@@ -146,4 +150,45 @@ test('close-all closes every registered handle and leaves the registry empty', (
   const reopened = getRuntimeDatabase(firstPath);
   assert.notEqual(reopened, first);
   closeAllRuntimeDatabases();
+});
+
+test('deferred writers stay pinned to each server database while both queues drain', async t => {
+  const root = createManagedTempDir('runtime-db-lifecycle-deferred-');
+  const previousGuard = process.env.SIFTKIT_GUARD_RUNTIME_DATABASE;
+  const previousExitCode = process.exitCode;
+  t.after(async () => {
+    if (previousGuard === undefined) delete process.env.SIFTKIT_GUARD_RUNTIME_DATABASE;
+    else process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = previousGuard;
+    process.exitCode = previousExitCode;
+    closeAllRuntimeDatabases();
+    assert.equal(await removeDirectoryWithRetries(root), true);
+  });
+  const firstRoot = path.join(root, 'first');
+  const secondRoot = path.join(root, 'second');
+  const first = createTestServerContext(path.join(firstRoot, 'config.json'), firstRoot);
+  const second = createTestServerContext(path.join(secondRoot, 'config.json'), secondRoot);
+  first.idleSummary.database = first.runtimeDatabase;
+  second.idleSummary.database = second.runtimeDatabase;
+  process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = getRuntimeDatabasePath();
+  try {
+    enqueueDeferredArtifacts(first, [{ artifactType: 'planner_debug', artifactRequestId: 'first-artifact', artifactPayload: { owner: 'first' }, identity: UNRECORDED_RUN_IDENTITY }]);
+    enqueueDeferredArtifacts(second, [{ artifactType: 'planner_debug', artifactRequestId: 'second-artifact', artifactPayload: { owner: 'second' }, identity: UNRECORDED_RUN_IDENTITY }]);
+    await Promise.all([flushDeferredArtifacts(first), flushDeferredArtifacts(second)]);
+
+    const firstCount = z.object({ count: z.number() }).parse(first.runtimeDatabase.prepare(
+      "SELECT count(*) AS count FROM runtime_artifacts WHERE request_id = 'first-artifact'",
+    ).get()).count;
+    const secondCount = z.object({ count: z.number() }).parse(second.runtimeDatabase.prepare(
+      "SELECT count(*) AS count FROM runtime_artifacts WHERE request_id = 'second-artifact'",
+    ).get()).count;
+    assert.equal(firstCount, 1);
+    assert.equal(secondCount, 1);
+    assert.equal(first.runtimeDatabase.open, true);
+    assert.equal(second.runtimeDatabase.open, true);
+  } finally {
+    if (previousGuard === undefined) delete process.env.SIFTKIT_GUARD_RUNTIME_DATABASE;
+    else process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = previousGuard;
+    process.exitCode = previousExitCode;
+    closeAllRuntimeDatabases();
+  }
 });
