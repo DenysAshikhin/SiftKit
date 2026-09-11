@@ -12,9 +12,14 @@ import {
 class RecordingSubscriber implements ChatOperationSubscriber {
   readonly frames: ChatOperationFrame[] = [];
   closedCount = 0;
+  revisions = 0;
 
   onFrame(frame: ChatOperationFrame): void {
     this.frames.push(frame);
+  }
+
+  onHistoryRevised(): void {
+    this.revisions += 1;
   }
 
   onClosed(): void {
@@ -104,4 +109,16 @@ test('oversized publications reach current readers and are never retained for la
   const late = new RecordingSubscriber();
   broadcast.attach(late);
   assert.equal(late.frames.length, 0);
+});
+
+test('a history revision wakes attached subscribers without a frame and is ignored after close', () => {
+  const broadcast = new ChatOperationBroadcast();
+  const subscriber = new RecordingSubscriber();
+  broadcast.attach(subscriber);
+  broadcast.notifyHistoryRevised();
+  assert.equal(subscriber.revisions, 1);
+  assert.deepEqual(subscriber.frames, []);
+  broadcast.close();
+  broadcast.notifyHistoryRevised();
+  assert.equal(subscriber.revisions, 1);
 });

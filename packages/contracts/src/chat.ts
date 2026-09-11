@@ -358,12 +358,16 @@ export type ChatQueuedMessageState = z.infer<typeof ChatQueuedMessageStateSchema
  * Everything about a send except its text and images, captured at enqueue time so a queued
  * message later starts exactly the operation the user would have started by pressing Send.
  */
+/** A per-send web override; absent means the session's own setting applies. */
+export const ChatWebSearchOverrideSchema = z.enum(['on', 'off']);
+export type ChatWebSearchOverride = z.infer<typeof ChatWebSearchOverrideSchema>;
+
 export const ChatQueueSendOptionsSchema = z.strictObject({
   operationKind: ChatQueueOperationKindSchema,
   approval: ApprovalModeSchema.optional(),
   repoRoot: z.string().trim().min(1).optional(),
   maxTurns: z.number().int().positive().optional(),
-  webSearchOverride: z.enum(['on', 'off']).optional(),
+  webSearchOverride: ChatWebSearchOverrideSchema.optional(),
   availableModels: z.array(z.string()).optional(),
   mockResponses: z.array(z.json()).optional(),
   mockCommandResults: z.record(z.string(), z.json()).optional(),

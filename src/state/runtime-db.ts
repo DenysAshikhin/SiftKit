@@ -7,7 +7,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import { SystemClock } from '../assistant/clock.js';
 import { seedAssistantRegistries } from '../assistant/storage/schema.js';
 import { CHAT_PENDING_MESSAGES_SCHEMA_SQL, initializeRuntimeSchema } from './runtime-schema.js';
-import { upgradeChatRecoverySchema } from './schema-upgrades/chat-recovery.js';
+import { retireRepoAgentHistoryRepairMarkers, upgradeChatRecoverySchema } from './schema-upgrades/chat-recovery.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
@@ -18,7 +18,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 68;
+export const CURRENT_SCHEMA_VERSION = 69;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -30,6 +30,7 @@ type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void 
 const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 66, apply: (database) => database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL) },
   { from: 67, apply: upgradeChatRecoverySchema },
+  { from: 68, apply: retireRepoAgentHistoryRepairMarkers },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

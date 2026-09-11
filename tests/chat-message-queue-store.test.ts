@@ -33,7 +33,7 @@ function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueC
   const recorder = ChatRunRecorder.begin(databasePath, {
     operationId: randomUUID(), sessionId, ownerEpoch: 'old-process', operationKind: 'message', userMessageId: initial.id,
     content: initial.content, images: initial.images, imageMeta: [], retainedHistoryRevision: 0, startedAtUtc: new Date().toISOString(),
-    settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null }),
+    settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', presetId: 'chat', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
   });
   recorder.bindEngine({ requestId: input.requestId, repoAgentSessionId: null });
   return recorder.claimQueuedMessages(sessionId, input);
@@ -322,11 +322,11 @@ test('queue owner broadcasts current state to idle clients and active operation 
   const owner = new ChatMessageQueue(store, registry);
   const idle: string[] = [];
   const active: string[] = [];
-  const subscriber = { onFrame(frame: ChatOperationFrame) { idle.push(frame.data); }, onClosed() {} };
+  const subscriber = { onFrame(frame: ChatOperationFrame) { idle.push(frame.data); }, onHistoryRevised() {}, onClosed() {} };
   owner.attach('s1', subscriber);
   assert.equal(ChatMessageQueueResponseSchema.parse({ queue: JSON.parse(idle[0] ?? '{}') }).queue.revision, 0);
   registry.acquire('s1', 'message', uuid(8), Date.now());
-  registry.getBroadcast('s1')?.attach({ onFrame(frame: ChatOperationFrame) { active.push(frame.data); }, onClosed() {} });
+  registry.getBroadcast('s1')?.attach({ onFrame(frame: ChatOperationFrame) { active.push(frame.data); }, onHistoryRevised() {}, onClosed() {} });
   enqueued(store, 's1', entry(1));
   owner.publish('s1');
   assert.equal(idle.length, 2);

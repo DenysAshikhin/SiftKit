@@ -88,3 +88,11 @@ export function upgradeChatRecoverySchema(database: RuntimeDatabase): void {
   rebuildChatMessagesTable(database);
   database.exec(CHAT_JOURNAL_SCHEMA_SQL);
 }
+
+/**
+ * 68 -> 69. The automatic repo-agent output repair is gone; its per-session completion markers
+ * would otherwise linger as unexplained metadata. Explicit archive import owns history now.
+ */
+export function retireRepoAgentHistoryRepairMarkers(database: RuntimeDatabase): void {
+  database.prepare("DELETE FROM runtime_metadata WHERE key LIKE 'repo-agent-history-v1:%'").run();
+}

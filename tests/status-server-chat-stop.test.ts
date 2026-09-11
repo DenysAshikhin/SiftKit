@@ -17,6 +17,8 @@ import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-se
 import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { ChatOperationSnapshotSchema, ChatOperationUpdateSchema } from '@siftkit/contracts';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
 
 test('HTTP stop retains completed thinking usage and partial answer usage with a separate terminal outcome', async (t) => {
   const engineService = new StoppedChatEngineService({
@@ -668,5 +670,60 @@ test('a stopped turn whose completed tool has no canonical evidence fails persis
     assert.ok(asObjectArray(session.body.recovery).some(report => report.status === 'recovery_failed'));
   } finally {
     await harness.close();
+  }
+});
+
+/** Reads SSE frames from a live response until `until` accepts one, then aborts the connection. */
+async function readLiveFrames(url: string, until: (frames: { event: string; data: string }[]) => boolean, timeoutMs: number) {
+  const controller = new AbortController();
+  const response = await fetch(url, { signal: controller.signal });
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Expected a streaming body.');
+  const parser = new SseFrameParser();
+  const frames: { event: string; data: string }[] = [];
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const chunk = await Promise.race([reader.read(), delay(Math.max(1, deadline - Date.now())).then(() => null)]);
+      if (chunk === null || chunk.done) break;
+      frames.push(...parser.push(Buffer.from(chunk.value).toString('utf8')));
+      if (until(frames)) break;
+    }
+  } finally { controller.abort(); }
+  return frames;
+}
+
+test('deleting a projected message wakes attached readers without waiting for another engine frame', { timeout: 15000 }, async t => {
+  const engineService = new StoppedChatEngineService({ prompt: 'delete while live', progressEvents: [
+    { kind: 'answer', turn: 1, maxTurns: 2, answerText: 'partial before delete' },
+  ] });
+  const harness = await startHarness('chat-delete-live-', t, { engineService });
+  const sessionId = await createSession(harness, 'delete live');
+  const sessionUrl = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
+  const stream = requestSse(`${sessionUrl}/messages/stream`, {
+    method: 'POST', body: JSON.stringify({ content: 'delete while live', operationId: OPERATION_A }),
+  });
+  await engineService.waitUntilEntered();
+  try {
+    // The coalesced answer text may land in the snapshot or in the projection update that follows it.
+    const projectedMessages = (frame: { event: string; data: string }) => frame.event === 'snapshot'
+      ? ChatOperationSnapshotSchema.parse(JSON.parse(frame.data)).messages
+      : frame.event === 'projection' ? ChatOperationUpdateSchema.parse(JSON.parse(frame.data)).messages : [];
+    const initial = await readLiveFrames(`${sessionUrl}/operation/stream`,
+      frames => frames.some(frame => projectedMessages(frame).some(message => message.content === 'partial before delete')), 5000);
+    assert.ok(initial.some(frame => frame.event === 'snapshot'), 'attached reader must receive the live snapshot');
+    const partial = initial.flatMap(projectedMessages).find(message => message.content === 'partial before delete');
+    assert.ok(partial);
+    const attached = readLiveFrames(`${sessionUrl}/operation/stream`, frames => frames.some(frame => frame.event === 'projection'), 3000);
+    await delay(50);
+    const deleted = await requestJson(`${sessionUrl}/messages/${partial.id}`, { method: 'DELETE' });
+    assert.equal(deleted.statusCode, 200, JSON.stringify(deleted.body));
+    const frames = await attached;
+    const projection = frames.find(frame => frame.event === 'projection');
+    assert.ok(projection, 'a history edit must publish a projection update to attached readers');
+    assert.equal(ChatOperationUpdateSchema.parse(JSON.parse(projection.data)).messageOrder.includes(partial.id), false);
+  } finally {
+    await requestJson(`${sessionUrl}/stop`, { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) });
+    await stream;
   }
 });

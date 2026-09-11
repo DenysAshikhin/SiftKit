@@ -94,6 +94,7 @@ export class ChatMessageQueueStreamEndpoint implements RouteEndpoint {
     writer.open();
     const subscriber: ChatOperationSubscriber = {
       onFrame(frame) { writer.writeSerializedEvent(frame.event, frame.data); },
+      onHistoryRevised() {},
       onClosed() { writer.end(); },
     };
     ctx.chatMessageQueue.attach(sessionId, subscriber);

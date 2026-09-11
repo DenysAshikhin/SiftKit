@@ -195,7 +195,6 @@ export function applyChatHistoryRepair(database: RuntimeDatabase, prepared: Retu
       if (reconcileChatRun(database, laterId).status === 'recovery_failed') throw new Error('Saved tail projection failed; repair rolled back.');
     }
     queue.deleteIncorporated(report.sessionId, report.requestId);
-    database.prepare("DELETE FROM runtime_metadata WHERE key=?").run(`repo-agent-history-v1:${report.sessionId}`);
     owner.assertOwned();
     return { changed: true, report };
   })();

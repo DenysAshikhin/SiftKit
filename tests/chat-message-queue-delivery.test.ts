@@ -11,7 +11,6 @@ import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { getAddressInfo, asObjectArray } from './helpers/dashboard-http.js';
-import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
 import { ChatMessageQueue } from '../src/status-server/chat-message-queue.js';
 import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.js';
@@ -29,57 +28,7 @@ import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { buildChatUserMessage, buildChatSessionWithStoppedTurn, appendChatMessagesWithUsage } from '../src/status-server/chat.js';
-import { PersistedChatTranscriptMessageSchema } from '@siftkit/contracts';
-import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
-
-test('stopped deliveries retain their safe boundary before later reasoning and tools', () => {
-  const base = buildChatUserMessage('', [], [], '2026-09-09T00:00:00.000Z');
-  const tool = (turn: number) => PersistedChatTranscriptMessageSchema.parse({
-    ...base, id: `tool-${turn}`, role: 'assistant', kind: 'assistant_tool_call',
-    toolCallTurn: turn, toolCallExecutionState: 'completed', toolCallStatus: 'done', toolCallOutput: `full-${turn}`,
-    toolCallCommand: `read ${turn}`, toolCallActivityKind: 'read', toolCallActivitySubject: { kind: 'none' }, toolCallMaxTurns: 3, toolCallExitCode: 0,
-  });
-  const later = PersistedChatTranscriptMessageSchema.parse({ ...base, id: 'later', role: 'assistant', kind: 'assistant_thinking', content: 'later reasoning' });
-  const queued = { id: '4f9c1f9a-0000-4000-8000-000000000001', content: 'steering', images: [], deliveredTurn: 1 };
-  const saved = buildChatSessionWithStoppedTurn(session(), {
-    content: 'original', images: [], imageMeta: [], approvalMessages: [],
-    transcriptMessages: [tool(1), later, tool(2)], queuedMessages: [queued],
-  });
-  assert.deepEqual(saved.messages.slice(1).map((row) => row.id), ['tool-1', queued.id, 'later', 'tool-2']);
-});
-
-test('canonical queued users retain admitted image dimensions and token metadata', () => {
-  const original = session();
-  original.modelPreset.VisionEnabled = true;
-  const image = toDataUrl('image/png', rasterBuffer('png', 32, 24));
-  const updated = buildChatSessionWithStoppedTurn(original, {
-    content: 'queued image', images: [], imageMeta: [], transcriptMessages: [], approvalMessages: [],
-    queuedMessages: [{ id: '4f9c1f9a-0000-4000-8000-000000000005', content: 'queued image', images: [image], deliveredTurn: 0 }],
-  });
-  assert.deepEqual(updated.messages[0]?.images, [image]);
-  assert.equal(updated.messages[0]?.imageMeta?.[0]?.width, 32);
-  assert.equal(updated.messages[0]?.imageMeta?.[0]?.height, 24);
-  assert.ok((updated.messages[0]?.imageMeta?.[0]?.tokenEstimate ?? 0) > 0);
-});
-
-test('canonical incorporation and delivered ledger cleanup roll back together', () => {
-  const root = createManagedTempDir('siftkit-queue-atomic-');
-  try {
-    const database = getRuntimeDatabase(path.join(root, 'runtime.sqlite'));
-    const original = session();
-    saveChatSession(root, original);
-    const store = new ChatMessageQueueStore(database);
-    const id = '4f9c1f9a-0000-4000-8000-000000000002';
-    store.enqueue(original.id, message(id, 'queued'));
-    store.claim(original.id, { requestId: 'request-atomic', turn: 0, ids: [id] });
-    database.exec("CREATE TRIGGER reject_queue_cleanup BEFORE DELETE ON chat_pending_messages BEGIN SELECT RAISE(ABORT, 'cleanup failed'); END");
-    assert.throws(() => appendChatMessagesWithUsage(root, original, 'queued', 'answer', {}, { turns: [], turnRecords: [], sourceRunId: 'request-atomic' }), /cleanup failed/u);
-    assert.equal(readChatSessionFromPath(getChatSessionPath(root, original.id))?.messages?.length, 0);
-    assert.equal(store.listDelivered(original.id, 'request-atomic').length, 1);
-  } finally { closeRuntimeDatabase(); }
-});
 
 function message(id: string, content: string): ChatQueueEnqueueInput {
   return { id, content, images: [], options: { operationKind: 'message' } };

@@ -143,7 +143,8 @@ function applyEvent(
     return reduceChatTranscript(messages, event.event, metadata);
   }
   if (event.kind === 'queue_delivered') {
-    return reduceChatTranscript(messages, { kind: 'user_message', message: event.message }, metadata);
+    return reduceChatTranscript(messages, { kind: 'user_message', message: event.message }, metadata)
+      .map(message => message.id === event.message.id ? { ...message, imageMeta: event.imageMeta } : message);
   }
   if (event.kind === 'tool_proposed') {
     toolCallIds.add(event.call.displayToolCallId);

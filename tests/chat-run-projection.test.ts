@@ -65,6 +65,7 @@ function runEvents(userMessageId = 'user-1'): ChatJournalEvent[] {
       settings: {
         operationKind: 'repo-agent',
         mode: 'repo-search',
+        presetId: 'repo-agent',
         modelPresetId: 'preset-a',
         model: 'model-a',
         repoRoot: 'C:/repo',

@@ -1272,9 +1272,8 @@ test('the first continuation uses repaired historical evidence rather than the p
   assert.ok(tool);
   const originalOutput = tool.toolCallOutput;
   const database = getRuntimeDatabase();
-  // Reproduce a chat saved by the old preview-only writer, before migration existed.
+  // Reproduce a display projection damaged to its preview; the journal remains the authority.
   database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ?').run(sessionId);
-  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
   const continued = await runReadTurn(harness, sessionId, 'first repaired continuation', OPERATION_B);
   assert.equal(continued.statusCode, 200);
   const replay = getCapturedRepoAgentRequest(engineService, 'first repaired continuation').history ?? [];

@@ -124,7 +124,7 @@ test('a failed lease emits a terminal error frame when the run never sent one', 
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
   const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onClosed: () => {} });
+  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
   assert.equal(frames.length, 0);
   registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
   assert.deepEqual(frames.map((frame) => frame.event), ['error']);
@@ -137,7 +137,7 @@ test('a completed lease without a stream payload emits an ended frame', () => {
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
   const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onClosed: () => {} });
+  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
   registry.finish(lease, { kind: 'completed' });
   assert.deepEqual(frames.map((frame) => frame.event), ['ended']);
   assert.equal(frames[0]?.data, '{}');
@@ -149,7 +149,7 @@ test('finishing does not duplicate a terminal frame the run already sent', () =>
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
   const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onClosed: () => {} });
+  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
   broadcast.writeEvent('error', { error: 'already reported' });
   registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
   assert.equal(frames.length, 1);

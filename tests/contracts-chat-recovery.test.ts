@@ -112,6 +112,7 @@ test('effective settings record what a run executed under, including a null appr
   const settings = ChatRunEffectiveSettingsSchema.parse({
     operationKind: 'condense',
     mode: 'chat',
+    presetId: 'chat',
     modelPresetId: 'preset-a',
     model: null,
     repoRoot: 'C:/repo',

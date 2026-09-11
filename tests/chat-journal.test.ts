@@ -50,6 +50,7 @@ function runStart(overrides: Partial<ChatRunStart> = {}): ChatRunStart {
     settings: {
       operationKind: 'repo-agent',
       mode: 'chat',
+      presetId: 'repo-agent',
       modelPresetId: 'preset-a',
       model: 'model-a',
       repoRoot: 'C:/repo',

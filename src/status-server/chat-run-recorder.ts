@@ -29,6 +29,7 @@ import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.js'
 import { buildRecoveredChatHistory } from './chat-context-replay.js';
 import { getGenerationTokensPerSecond, getPromptTokensPerSecond } from '../lib/telemetry-metrics.js';
 import { getAbortError, throwIfAborted } from '../lib/abort.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
@@ -116,6 +117,13 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   get messageIdPrefix(): string { return buildChatRunMessageIdPrefix(this.operationId); }
+
+  /** The admitted settings; execution reads them here instead of re-deriving them from the request. */
+  get settings(): ChatRunEffectiveSettings {
+    const settings = this.store.readRun(this.operationId)?.settings;
+    if (!settings) throw new Error(`Chat run ${this.operationId} has no admitted execution settings.`);
+    return settings;
+  }
 
   resolveAssistantMessageId(turn: number): string {
     this.progressWriter?.flushPending();
@@ -247,11 +255,18 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
         const force = forceId ? queue.state(sessionId).force : null;
         if (forceId && (!force || force.id !== forceId || force.phase === 'failed')) throw new Error('Queued continuation was cancelled.');
         const now = new Date().toISOString();
-        const messages = queue.claim(sessionId, input, now);
+        const session = readChatSessionFromPath(getChatSessionPath(dirname(this.databasePath), sessionId));
+        if (!session) throw new Error(`Chat session ${sessionId} is missing.`);
+        // Admission runs inside the claim: a refused image leaves the message pending, not half-delivered.
+        const messages = queue.claim(sessionId, input, now).map(message => {
+          const admitted = admitImagesForPreset(session.modelPreset, message.images);
+          return { ...message, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata) };
+        });
         for (const message of messages) {
           this.commit({ kind: 'queue_delivered', requestId: input.requestId, deliveredAtUtc: now,
             message: { id: message.id, content: message.content, images: message.images, turn: input.turn,
               boundary: input.turn === 0 ? 'successor_start' : 'post_tool_batch' },
+            imageMeta: message.imageMeta,
           }, now);
         }
         if (forceId) {
@@ -370,25 +385,31 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 }
 
-/** What a run executed under, captured once at admission for audit rather than re-derived later. */
+/**
+ * What a run executes under, captured once at admission. `session` is the preset-selected session,
+ * so the recorded mode and preset are the ones the engine is handed, not the ones the client sent.
+ */
 export function buildChatRunSettings(input: {
   session: ChatSession;
   config: SiftConfig;
   operationKind: ChatSessionOperationKind;
+  presetId: string;
   repoRoot: string;
   approval: ApprovalMode | null;
   maxTurns: number | null;
+  webSearchEnabled: boolean;
 }): ChatRunEffectiveSettings {
   return ChatRunEffectiveSettingsSchema.parse({
     operationKind: input.operationKind,
     mode: input.session.mode ?? 'chat',
+    presetId: input.presetId,
     modelPresetId: input.session.modelPresetId,
     model: input.session.modelPreset.Model ?? null,
     repoRoot: input.repoRoot,
     approval: input.approval,
     maxTurns: input.maxTurns,
     thinkingEnabled: input.session.thinkingEnabled !== false,
-    webSearchEnabled: input.session.webSearchEnabled === true,
+    webSearchEnabled: input.webSearchEnabled,
     contextWindowTokens: resolveChatSessionContextWindow(input.config, input.session),
   });
 }

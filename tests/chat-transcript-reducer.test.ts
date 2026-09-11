@@ -320,3 +320,21 @@ test('a usage frame for another turn leaves that turn thinking row alone', () =>
   assert.equal(settled.find((message) => message.id === 'test-thinking-1')?.thinkingTokens, 0);
   assert.equal(settled.find((message) => message.id === 'test-thinking-2')?.thinkingTokens, 95);
 });
+
+test('measured input usage lands on the submitted user row and never on a message that is not there', () => {
+  const submitted = reduceChatTranscript([], {
+    kind: 'submission',
+    message: { id: 'user-1', content: 'tiny', images: [] },
+  }, metadata);
+  const estimated = reduceChatTranscript(submitted, { kind: 'user_usage', messageId: 'user-1', inputTokens: 2, estimated: true }, metadata);
+  assert.equal(estimated[0]?.inputTokensEstimate, 2);
+  assert.equal(estimated[0]?.inputTokensEstimated, true);
+  const exact = reduceChatTranscript(estimated, { kind: 'user_usage', messageId: 'user-1', inputTokens: 3, estimated: false }, metadata);
+  assert.equal(exact[0]?.inputTokensEstimate, 3);
+  assert.equal(exact[0]?.inputTokensEstimated, false);
+  assert.equal(exact.length, 1);
+  assert.throws(
+    () => reduceChatTranscript(submitted, { kind: 'user_usage', messageId: 'absent', inputTokens: 1, estimated: true }, metadata),
+    /no submitted user message/u,
+  );
+});

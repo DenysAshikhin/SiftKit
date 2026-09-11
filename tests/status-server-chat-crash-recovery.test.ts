@@ -18,6 +18,9 @@ import { requestJson, requestSse } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
+// Captured native messages may carry null content (tool-call-only assistant turns); treat it as empty text.
+const messageText = (content: Parameters<typeof extractContentText>[0] | null): string => content === null ? '' : extractContentText(content);
+
 const childConfig = process.env[RECOVERY_CHILD_ENV];
 if (childConfig !== undefined) {
   await runChatRecoveryProcess(ChatRecoveryProcessConfigSchema.parse(JSON.parse(childConfig)));
@@ -154,11 +157,11 @@ if (childConfig !== undefined) {
     });
     assert.equal(response.statusCode, 200);
     assert.ok(response.events.some(event => event.event === 'done'));
-    const captured = backend.requests.slice(requestCount).find(request => request.messages.some(message => extractContentText(message.content).includes('CRASH_CONTINUE_99')));
+    const captured = backend.requests.slice(requestCount).find(request => request.messages.some(message => messageText(message.content).includes('CRASH_CONTINUE_99')));
     assert.ok(captured, 'expected a captured continuation provider request');
     const history = PlannerChatMessagesSchema.parse(captured.messages);
     assert.equal(findPlannerContextViolation(history), null);
-    const texts = captured.messages.map(message => extractContentText(message.content));
+    const texts = captured.messages.map(message => messageText(message.content));
     assert.equal(texts.filter(text => text.includes('CRASH_CONTINUE_99')).length, 1);
     assert.equal(texts.filter(text => text.includes('CRASH_PRIOR_17')).length, 1);
     if (scenario.operationKind !== 'condense') assert.equal(texts.filter(text => text.includes('CRASH_ORIGINAL_42')).length, 1);

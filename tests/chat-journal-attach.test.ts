@@ -27,7 +27,7 @@ function fixture() {
     operationId: randomUUID(), sessionId: 'session', ownerEpoch: 'test-owner', operationKind: 'repo-agent',
     userMessageId: 'accepted-user', content: 'Find the answer', images: [], imageMeta: [], retainedHistoryRevision: 0,
     startedAtUtc: at, settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
+      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
       approval: 'interactive', maxTurns: 200, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
     },
   });

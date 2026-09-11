@@ -30,6 +30,7 @@ import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-ut
 import { ChatRunRecorder } from '../chat-run-recorder.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import { importChatSessionBaseline } from '../chat-history-import.js';
+import { readChatHistoryRevisions } from '../../state/chat-history-revisions.js';
 import { readConfig } from '../config-store.js';
 import type { SiftConfig } from '../../config/types.js';
 import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
@@ -60,6 +61,7 @@ export type ResolvedChatRepoRequest = {
   content: string;
   images: string[];
   repoRoot: string;
+  maxTurns: number | undefined;
 };
 
 /**
@@ -153,7 +155,7 @@ export function parseChatRepoOperationRequest(
     sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
     return null;
   }
-  return { content: repoRequest.content, images: repoRequest.images, repoRoot };
+  return { content: repoRequest.content, images: repoRequest.images, repoRoot, maxTurns: repoRequest.maxTurns };
 }
 
 /**
@@ -314,7 +316,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       images: admittedImages.map(image => image.dataUrl),
       imageMeta: admittedImages.map(image => image.metadata),
       settings: submission.settings,
-      retainedHistoryRevision: 0,
+      retainedHistoryRevision: readChatHistoryRevisions(getRuntimeDatabase(getRuntimeDatabasePath()), sessionId).length,
       startedAtUtc: new Date().toISOString(),
     });
   }

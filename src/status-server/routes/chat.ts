@@ -161,10 +161,6 @@ function readRouteMockResponses(reader: JsonRecordReader, key: string): MockPlan
   return Array.isArray(value) ? MockPlannerResponsesSchema.parse(value) : undefined;
 }
 
-function readRouteNumber(reader: JsonRecordReader, key: string): number | undefined {
-  return reader.number(key) ?? undefined;
-}
-
 function buildChatRepoOperationRequest(options: {
   recorder: ChatRunRecorder;
   ctx: ServerContext;
@@ -193,7 +189,6 @@ function buildChatRepoOperationRequest(options: {
     engineService: options.ctx.engineService,
     progressWriter: options.progressWriter,
     requestId: options.requestId,
-    maxTurns: readRouteNumber(options.reader, 'maxTurns'),
     logFile: options.reader.optionalString('logFile'),
     availableModels: readRouteStringArray(options.reader, 'availableModels'),
     mockResponses: readRouteMockResponses(options.reader, 'mockResponses'),
@@ -321,12 +316,9 @@ async function runChatEngineTurn(options: {
   const memoryContext = await memory.buildMemoryContext(selected.preset, options.content);
   throwIfAborted(abortSignal);
   const reader = new JsonRecordReader(options.parsedBody);
-  const webOverrideRaw = reader.optionalString('webSearchOverride');
-  const webEnabled = options.webToolsAllowed && (webOverrideRaw === 'on'
-    ? true
-    : webOverrideRaw === 'off'
-      ? false
-      : selected.session.webSearchEnabled === true);
+  // Web access and the turn limit were settled at admission; execution does not re-read the body.
+  const settings = options.recorder.settings;
+  const webEnabled = settings.webSearchEnabled;
   const mockResponses = readRouteMockResponses(reader, 'mockResponses');
   const effectiveConfig = selectedImages.effectiveConfig;
   options.recorder.bindEngine({ requestId: options.requestId, repoAgentSessionId: null });
@@ -351,7 +343,7 @@ async function runChatEngineTurn(options: {
     allowedTools: options.webToolsAllowed ? ['web_search', 'web_fetch'] : [],
     webToolsEnabled: webEnabled,
     retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selected.session) : [],
-    maxTurns: readRouteNumber(reader, 'maxTurns'),
+    maxTurns: settings.maxTurns ?? undefined,
     availableModels: readRouteStringArray(reader, 'availableModels'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
     initialUserImages: selectedImages.images,
@@ -542,6 +534,7 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
       removeDashboardRunCommandFromLogs(getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite')), runId, commandText);
     }
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
+    ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
     return;
   }
@@ -575,6 +568,7 @@ class DeleteChatMessageImageEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
+    ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
   }
 }
@@ -750,6 +744,38 @@ class ChatMessageTurn {
   }
 }
 
+/**
+ * Admission-time settings for a message run: the selected chat preset, the request's turn limit
+ * (falling back to the preset's), and the web override applied to the session default.
+ */
+function describeChatMessageRun(
+  session: ChatSession,
+  value: ChatMessageRequest,
+  config: SiftConfig,
+  webToolsAllowed: boolean,
+): ChatRunSubmission {
+  const selected = new ChatOperationPresetSelector(config.Presets).select(session, 'chat');
+  const webSearchEnabled = webToolsAllowed && (value.webSearchOverride === 'on'
+    ? true
+    : value.webSearchOverride === 'off'
+      ? false
+      : selected.session.webSearchEnabled === true);
+  return {
+    settings: buildChatRunSettings({
+      session: selected.session,
+      config,
+      operationKind: 'message',
+      presetId: selected.preset.id,
+      repoRoot: session.planRepoRoot,
+      approval: null,
+      maxTurns: value.maxTurns ?? selected.preset.maxTurns,
+      webSearchEnabled,
+    }),
+    content: value.content,
+    images: value.images,
+  };
+}
+
 class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
 
@@ -758,18 +784,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     value: ChatMessageRequest,
     config: SiftConfig,
   ): ChatRunSubmission {
-    return {
-      settings: buildChatRunSettings({
-        session,
-        config,
-        operationKind: 'message',
-        repoRoot: session.planRepoRoot,
-        approval: null,
-        maxTurns: null,
-      }),
-      content: value.content,
-      images: value.images,
-    };
+    return describeChatMessageRun(session, value, config, false);
   }
 
   protected parseRequest(
@@ -850,18 +865,7 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
     value: ChatMessageRequest,
     config: SiftConfig,
   ): ChatRunSubmission {
-    return {
-      settings: buildChatRunSettings({
-        session,
-        config,
-        operationKind: 'message',
-        repoRoot: session.planRepoRoot,
-        approval: null,
-        maxTurns: null,
-      }),
-      content: value.content,
-      images: value.images,
-    };
+    return describeChatMessageRun(session, value, config, true);
   }
   protected readonly clientOwnedOperation = true;
 
@@ -952,20 +956,23 @@ const CHAT_REPO_OPERATION_SETTINGS = {
 abstract class ChatRepoOperationEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
   constructor(protected readonly operationKind: 'plan' | 'repo-search') { super(); }
 
-  /** A repository operation records the root it ran against; approval and turns are fixed here. */
+  /** A repository operation records the root it ran against and the turn limit the engine gets. */
   protected describeRun(
     session: ChatSession,
     value: ResolvedChatRepoRequest,
     config: SiftConfig,
   ): ChatRunSubmission {
+    const selected = new ChatOperationPresetSelector(config.Presets).select(session, this.operationKind);
     return {
       settings: buildChatRunSettings({
-        session,
+        session: selected.session,
         config,
         operationKind: this.operationKind,
+        presetId: selected.preset.id,
         repoRoot: value.repoRoot,
         approval: null,
-        maxTurns: null,
+        maxTurns: value.maxTurns ?? selected.preset.maxTurns,
+        webSearchEnabled: selected.session.webSearchEnabled === true,
       }),
       content: value.content,
       images: value.images,
@@ -1131,14 +1138,18 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
 
   /** Condense is a model run over the existing history; it carries no new user text of its own. */
   protected describeRun(session: ChatSession, _value: 'condense', config: SiftConfig): ChatRunSubmission {
+    // Condense summarizes under the session's own preset; it selects no task preset of its own.
+    if (!session.presetId) throw new Error('Chat session presetId is required.');
     return {
       settings: buildChatRunSettings({
         session,
         config,
         operationKind: 'condense',
+        presetId: session.presetId,
         repoRoot: session.planRepoRoot,
         approval: null,
         maxTurns: null,
+        webSearchEnabled: false,
       }),
       content: '',
       images: [],

@@ -164,6 +164,7 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
           request.value.imageIndex,
           caption,
         );
+        ctx.chatSessionOperations.getBroadcast(request.sessionId)?.notifyHistoryRevised();
         sendJson(res, 200, { caption });
         return { failure: null };
       } catch (error) {

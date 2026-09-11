@@ -12,18 +12,11 @@ import {
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
 import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
-import {
-  appendChatMessagesWithUsage,
-  appendChatStoppedTurn,
-  buildChatHistoryMessages,
-  buildChatSessionWithStoppedTurn,
-  buildCompactionSummaryRow,
-  condenseChatSession,
-} from '../src/status-server/chat.js';
+import { condenseChatSession } from '../src/status-server/chat.js';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.js';
 import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
@@ -40,40 +33,6 @@ import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
 const COMPACTION_FIXTURE_TIMESTAMP = '2026-08-20T00:00:00.000Z';
-
-test('appendChatStoppedTurn persists exactly one ordered final turn', () => {
-  const runtimeRoot = createManagedTempDir('siftkit-stopped-turn-writer-');
-  const createdAtUtc = '2026-09-03T12:00:00.000Z';
-  const session: ChatSession = {
-    id: 'stopped-writer',
-    title: 'Stopped writer',
-    modelPresetId: 'default',
-    modelPreset: mockModelPreset({ id: 'default', Model: 'managed.exl3', NumCtx: 8192 }),
-    planRepoRoot: 'C:/repo',
-    presetId: 'chat',
-    mode: 'chat',
-    createdAtUtc,
-    updatedAtUtc: createdAtUtc,
-    messages: [],
-  };
-  saveChatSession(runtimeRoot, session);
-
-  appendChatStoppedTurn(runtimeRoot, session, {
-    content: 'inspect it',
-    images: [],
-    imageMeta: [],
-    approvalMessages: [],
-    requestId: 'run-1',
-    transcriptMessages: [PersistedChatTranscriptMessageSchema.parse({
-      id: 'stopped-answer', role: 'assistant', kind: 'assistant_answer', content: '*Stopped by user.*',
-      inputTokensEstimate: 0, outputTokensEstimate: 5, thinkingTokens: 0,
-      createdAtUtc, sourceRunId: 'run-1',
-    })],
-  });
-
-  const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
-  assert.deepEqual(loaded?.messages?.map((message) => message.kind), ['user_text', 'assistant_answer']);
-});
 
 type NonToolChatMessage = Exclude<ChatMessage, { kind: 'assistant_tool_call' }>;
 
@@ -586,90 +545,6 @@ test('chat messages round-trip their image data URIs', () => {
   });
 });
 
-test('a compacted turn persists a summary row and flags everything before it', () => {
-  withTempRepo((repoRoot) => {
-    const runtimeRoot = path.join(repoRoot, '.siftkit');
-    const session = saveCompactionSession(runtimeRoot, [
-      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
-      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
-    ]);
-
-    const updated = appendChatMessagesWithUsage(
-      runtimeRoot,
-      session,
-      'second question',
-      'second answer',
-      {},
-      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
-    );
-
-    const kinds = updated.messages.map((message) => message.kind);
-    assert.deepEqual(kinds, ['user_text', 'assistant_answer', 'compaction_summary', 'user_text', 'assistant_answer']);
-    const flags = updated.messages.map((message) => message.compressedIntoSummary === true);
-    assert.deepEqual(flags, [true, true, false, false, false]);
-    const summaryRow = updated.messages[2];
-    assert.equal(summaryRow.role, 'assistant');
-    assert.equal(summaryRow.content, 'SUMMARY OF THE FIRST EXCHANGE');
-
-    const reread = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
-    assert.deepEqual((reread?.messages ?? []).map((message) => message.kind), kinds);
-    assert.deepEqual((reread?.messages ?? []).map((message) => message.compressedIntoSummary === true), flags);
-  });
-});
-
-test('a turn without compaction leaves the earlier messages in context', () => {
-  withTempRepo((repoRoot) => {
-    const runtimeRoot = path.join(repoRoot, '.siftkit');
-    const session = saveCompactionSession(runtimeRoot, [
-      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
-      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
-    ]);
-
-    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [], turnRecords: [] });
-
-    assert.equal(updated.messages.some((message) => message.kind === 'compaction_summary'), false);
-    assert.equal(updated.messages.every((message) => message.compressedIntoSummary !== true), true);
-  });
-});
-
-test('a second compaction supersedes the first summary row', () => {
-  withTempRepo((repoRoot) => {
-    const runtimeRoot = path.join(repoRoot, '.siftkit');
-    const session = saveCompactionSession(runtimeRoot, [
-      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
-      compactionMessage({ id: 's0', kind: 'compaction_summary', content: 'FIRST SUMMARY' }),
-      compactionMessage({ id: 'u1', role: 'user', kind: 'user_text', content: 'second question' }),
-    ]);
-
-    const updated = appendChatMessagesWithUsage(
-      runtimeRoot,
-      session,
-      'third question',
-      'third answer',
-      {},
-      { turns: [], turnRecords: [], compactionSummary: 'SECOND SUMMARY' },
-    );
-
-    const summaryRows = updated.messages.filter((message) => message.kind === 'compaction_summary');
-    assert.deepEqual(summaryRows.map((message) => message.content), ['FIRST SUMMARY', 'SECOND SUMMARY']);
-    assert.equal(summaryRows[0].compressedIntoSummary, true);
-    assert.equal(summaryRows[1].compressedIntoSummary, false);
-    const activeSummaries = updated.messages.filter(
-      (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
-    );
-    assert.equal(activeSummaries.length, 1);
-    assert.equal(activeSummaries[0]?.content, 'SECOND SUMMARY');
-    const latestSummaryIndex = updated.messages.findLastIndex(
-      (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
-    );
-    assert.ok(latestSummaryIndex >= 0);
-    assert.equal(
-      updated.messages.slice(0, latestSummaryIndex).every((message) => message.compressedIntoSummary === true),
-      true,
-    );
-  });
-});
-
 test('buildChatHistoryMessages replays the compacted shape without the dropped turns', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');
@@ -701,7 +576,7 @@ test('chat replay reuses the engine compaction message, so both paths frame the 
 
     const history = buildChatHistoryMessages(mockOfflineSiftConfig(), session);
 
-    assert.deepEqual(history[0], buildCompactionSummaryMessage('SUMMARY TEXT'));
+    assert.deepEqual(history[0], { ...buildCompactionSummaryMessage('SUMMARY TEXT'), chatMessageId: 's0' });
   });
 });
 
@@ -738,29 +613,6 @@ test('manual condense reports the summarizer retry through the logger it is give
         droppedMessageCount: 2,
       }],
     );
-  });
-});
-
-test('both persistence paths write the same compaction summary row shape', () => {
-  withTempRepo((repoRoot) => {
-    const runtimeRoot = path.join(repoRoot, '.siftkit');
-    const session = saveCompactionSession(runtimeRoot, [
-      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'a question' }),
-    ]);
-
-    const updated = appendChatMessagesWithUsage(
-      runtimeRoot,
-      session,
-      'next question',
-      'next answer',
-      {},
-      { turns: [], turnRecords: [], compactionSummary: 'SUMMARY TEXT' },
-    );
-
-    const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');
-    assert.ok(summaryRow);
-    const canonical = buildCompactionSummaryRow('SUMMARY TEXT', summaryRow.createdAtUtc);
-    assert.deepEqual({ ...summaryRow, id: '' }, { ...canonical, id: '' });
   });
 });
 
@@ -867,55 +719,6 @@ function stoppedTurnSession(id: string, createdAtUtc: string): ChatSession {
     planRepoRoot: 'C:/repo', presetId: 'chat', mode: 'chat', createdAtUtc, updatedAtUtc: createdAtUtc, messages: [],
   };
 }
-
-test('appendChatStoppedTurn hydrates a completed tool from the run transcript and refuses to save a preview without one', () => {
-  const runtimeRoot = createManagedTempDir('siftkit-stopped-turn-hydration-');
-  const createdAtUtc = '2026-09-03T12:00:00.000Z';
-  const fullOutput = `${'x'.repeat(240)}\nsentinel-after-character-200`;
-  const previewRow = completedToolRow('run-hydrate', 'tc_0', { snippet: `${fullOutput.slice(0, 200)}...`, createdAtUtc });
-  const session = stoppedTurnSession('stopped-hydration', createdAtUtc);
-  saveChatSession(runtimeRoot, session);
-  const turn = { content: 'read it', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [previewRow] };
-
-  assert.throws(
-    () => appendChatStoppedTurn(runtimeRoot, session, { ...turn, requestId: 'run-hydrate' }),
-    (error: Error) => error instanceof ChatToolResultsError && error.reason === 'unavailable',
-  );
-  assert.deepEqual(readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id))?.messages, []);
-
-  upsertRuntimeTextArtifact({
-    artifactKind: 'repo_search_transcript', requestId: 'run-hydrate', title: 'transcript',
-    databasePath: path.join(runtimeRoot, 'runtime.sqlite'),
-    content: [
-      { kind: 'run_start', operationType: 'chat', toolResultFormat: 'identified-v1' },
-      { kind: 'turn_command_start', turn: 1, toolCallId: 'tc_0', toolName: 'read', commandToRun: 'read path="doc.txt"' },
-      {
-        kind: 'turn_command_result', turn: 1, toolCallId: 'tc_0', command: 'read path="doc.txt"',
-        requestedCommand: 'read path="doc.txt"', executedCommand: 'read path="doc.txt"',
-        exitCode: 0, output: fullOutput, insertedResultText: fullOutput,
-      },
-    ].map((event) => `${JSON.stringify({ at: createdAtUtc, ...event })}\n`).join(''),
-  });
-  const updated = appendChatStoppedTurn(runtimeRoot, session, { ...turn, requestId: 'run-hydrate' });
-  const savedCompletedTool = updated.messages.find((message) => message.kind === 'assistant_tool_call');
-  assert.equal(savedCompletedTool?.toolCallOutput, fullOutput);
-  assert.equal(savedCompletedTool?.toolCallOutputSnippet, previewRow.toolCallOutputSnippet);
-  const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
-  assert.equal(loaded?.messages?.find((message) => message.kind === 'assistant_tool_call')?.toolCallOutput, fullOutput);
-});
-
-test('the pure stopped-turn builder refuses a completed row without its full result', () => {
-  const createdAtUtc = '2026-09-03T12:00:00.000Z';
-  const session = stoppedTurnSession('stopped-builder', createdAtUtc);
-  const previewOnly = completedToolRow('run-builder', 'tc_0', { snippet: 'short', createdAtUtc });
-  assert.throws(
-    () => buildChatSessionWithStoppedTurn(session, { content: 'x', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [previewOnly] }),
-    (error: Error) => error instanceof ChatToolResultsError && error.reason === 'missing_result',
-  );
-  const empty = completedToolRow('run-builder', 'tc_1', { snippet: '', output: '', createdAtUtc });
-  const built = buildChatSessionWithStoppedTurn(session, { content: 'x', images: [], imageMeta: [], approvalMessages: [], transcriptMessages: [empty] });
-  assert.equal(built.messages.find((message) => message.kind === 'assistant_tool_call')?.toolCallOutput, '');
-});
 
 test('replay refuses a preview-only completed row and replays an empty full result verbatim', () => {
   const createdAtUtc = '2026-09-03T12:00:00.000Z';

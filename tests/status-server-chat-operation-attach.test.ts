@@ -21,7 +21,7 @@ function begin(sessionId: string) {
     operationId: randomUUID(), sessionId, ownerEpoch: `${owner.owner_id}:${owner.epoch}`, operationKind: 'repo-agent',
     userMessageId: randomUUID(), content: 'accepted prompt', images: [], imageMeta: [], retainedHistoryRevision: 0,
     startedAtUtc: new Date().toISOString(), settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()),
-      operationKind: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'interactive', maxTurns: 20 }),
+      operationKind: 'repo-agent', presetId: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'interactive', maxTurns: 20, webSearchEnabled: false }),
   });
 }
 

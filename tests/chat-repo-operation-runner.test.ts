@@ -25,7 +25,8 @@ import { buildMockScorecard } from './_test-helpers.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
-import { buildChatHistoryMessages, resolveChatSessionConfig } from '../src/status-server/chat.js';
+import { resolveChatSessionConfig } from '../src/status-server/chat.js';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
@@ -198,11 +199,13 @@ function chatFixtureMessage(overrides: ChatFixtureMessageOverrides): ChatMessage
   };
 }
 
+type RunnerTestRequest = Omit<ChatRepoOperationRequest, 'recorder'> & { maxTurns?: number };
+
 function createRequest(
   runtimeRoot: string,
   engineService: StatusEngineService,
   progressWriter: ProgressWriter<RepoSearchProgressEvent>,
-): Omit<ChatRepoOperationRequest, 'recorder'> {
+): RunnerTestRequest {
   const config = getDefaultConfigObject();
   const activeModelPreset = config.Server.ModelPresets.Presets.find(
     (preset) => preset.id === config.Server.ModelPresets.ActivePresetId,
@@ -232,13 +235,15 @@ function createRequest(
   };
 }
 
-function admitRequest(request: Omit<ChatRepoOperationRequest, 'recorder'>, operation: 'plan' | 'repo-search'): ChatRepoOperationRequest {
+/** Mirrors route admission: the selected preset and turn limit are recorded before the runner sees them. */
+function admitRequest(request: RunnerTestRequest, operation: 'plan' | 'repo-search'): ChatRepoOperationRequest {
   const selected = new ChatOperationPresetSelector(request.config.Presets).select(request.session, operation);
   const admitted = admitImagesForPreset(getActiveModelPreset(resolveChatSessionConfig(request.config, selected.session)), request.images);
+  const { maxTurns, ...runnerRequest } = request;
   const recorder = createTestChatRunRecorder(request.runtimeRoot, request.session, request.config, {
     operationKind: operation, content: request.content, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata),
-  });
-  return { ...request, recorder, progressWriter: new CompositeRepoSearchProgressWriter(
+  }, { presetId: selected.preset.id, maxTurns: maxTurns ?? selected.preset.maxTurns, webSearchEnabled: selected.session.webSearchEnabled === true });
+  return { ...runnerRequest, recorder, progressWriter: new CompositeRepoSearchProgressWriter(
     new ChatStreamProgressWriter(new ChatOperationBroadcast(), null, true, recorder), request.progressWriter) };
 }
 

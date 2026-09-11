@@ -51,7 +51,7 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
   process.env.sift_kit_status = process.env.SIFTKIT_STATUS_PATH;
   const serverConfig = getDefaultServerConfig();
   const model = mockModelPreset({ id: 'crash-model', Model: 'mock', ExternalServerEnabled: true,
-    BaseUrl: `${config.providerUrl}/v1`, NumCtx: 8192, VisionEnabled: true, VisionImageRetention: 4,
+    BaseUrl: config.providerUrl, NumCtx: 8192, VisionEnabled: true, VisionImageRetention: 4,
     Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, MaintainPerStepThinking: true });
   serverConfig.Server.ModelPresets.Presets = [model];
   serverConfig.Server.ModelPresets.ActivePresetId = model.id;

@@ -61,7 +61,9 @@ for (const kind of ['thinking', 'narration', 'answer'] as const) {
       }
       if (kind === 'answer') {
         assert.equal(stopped[0]?.outputTokensEstimate, 60);
-        assert.match(stopped[0]?.content ?? '', /Stopped by user/u);
+        // The stop notice is terminal metadata; it never rewrites the generated answer text.
+        assert.equal(stopped[0]?.content, text);
+        assert.match(stopped[0]?.runTerminalDetail ?? '', /Stopped by user/u);
       }
     });
   }

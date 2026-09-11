@@ -24,7 +24,7 @@ class OutcomeProbeEndpoint extends ChatSessionOperationEndpoint<'probe'> {
   constructor(private readonly failure: string | null) { super(); }
   protected describeRun(session: ChatSession, _value: 'probe', config: SiftConfig) {
     return { content: 'probe', images: [], settings: buildChatRunSettings({ session, config,
-      operationKind: 'message', repoRoot: session.planRepoRoot, approval: null, maxTurns: null }) };
+      operationKind: 'message', presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }) };
   }
   protected parseRequest(): 'probe' { return 'probe'; }
   protected async run(ctx: ServerContext, _req: IncomingMessage | null, _res: ServerResponse | null,

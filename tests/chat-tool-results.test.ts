@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 
 import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
-import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import {
   ChatToolResultsError,
-  hydrateChatToolMessages,
   readChatToolResults,
   requireDurableToolResult,
   type ChatToolResultsFailure,
@@ -350,69 +348,8 @@ test('a transcript that omits identity everywhere is a historical-unidentified t
   assert.deepEqual(results.startedWithoutResult, []);
 });
 
-test('a historical transcript never hydrates a live turn, whatever the row ids are', () => {
-  const database = openDatabase();
-  seedArtifact(database, 'req-legacy-hydrate', toJsonl([{
-    kind: 'turn_command_result',
-    turn: 1,
-    command: 'read path="a.ts"',
-    requestedCommand: 'read path="a.ts"',
-    executedCommand: 'read path="a.ts"',
-    exitCode: 0,
-    output: LONG_OUTPUT,
-    insertedResultText: LONG_OUTPUT,
-  }]));
-  const canonical = readChatToolResults(database, 'req-legacy-hydrate');
-  const messages = [PersistedChatTranscriptMessageSchema.parse({
-    id: buildChatMessageId(buildChatRunMessageIdPrefix('req-legacy-hydrate'), { kind: 'tool', toolCallId: 'tc_0' }),
-    role: 'assistant',
-    kind: 'assistant_tool_call',
-    content: 'read path="a.ts"',
-    inputTokensEstimate: 0,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
-    createdAtUtc: '2026-09-09T00:00:00.000Z',
-    sourceRunId: 'req-legacy-hydrate',
-    toolCallCommand: 'read path="a.ts"',
-    toolCallActivityKind: 'read',
-    toolCallActivitySubject: { kind: 'none' },
-    toolCallTurn: 1,
-    toolCallMaxTurns: 8,
-    toolCallExitCode: 0,
-    toolCallExecutionState: 'completed',
-    toolCallStatus: 'done',
-  })];
-  assert.throws(
-    () => hydrateChatToolMessages(messages, canonical),
-    isReaderFailure('historical_format'),
-  );
-});
-
 function runStartEvent(fields: TranscriptEvent = {}): TranscriptEvent {
   return { kind: 'run_start', repoRoot: 'C:/repo', configuredModel: 'model-a', baseUrl: 'http://127.0.0.1:5000', ...fields };
-}
-
-function doneToolRow(requestId: string, toolCallId: string, command: string, turn: number, snippet: string) {
-  return PersistedChatTranscriptMessageSchema.parse({
-    id: buildChatMessageId(buildChatRunMessageIdPrefix(requestId), { kind: 'tool', toolCallId: toolCallId }),
-    role: 'assistant',
-    kind: 'assistant_tool_call',
-    content: command,
-    inputTokensEstimate: 0,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
-    createdAtUtc: '2026-09-09T00:00:00.000Z',
-    sourceRunId: requestId,
-    toolCallCommand: command,
-    toolCallActivityKind: 'read',
-    toolCallActivitySubject: { kind: 'none' },
-    toolCallTurn: turn,
-    toolCallMaxTurns: 8,
-    toolCallExitCode: 0,
-    toolCallOutputSnippet: snippet,
-    toolCallExecutionState: 'completed',
-    toolCallStatus: 'done',
-  });
 }
 
 test('an explicit identified-v1 header classifies the transcript and carries its operation', () => {
@@ -516,21 +453,6 @@ test('a transcript with no tool events reads as identified with no outcomes', ()
   assert.deepEqual(results.outcomes, []);
 });
 
-test('a modern outcome whose identity differs stays unmatched even when everything else agrees', () => {
-  const database = openDatabase();
-  const command = 'read path="a.ts"';
-  seedArtifact(database, 'req-wrong-id', toJsonl([
-    runStartEvent({ operationType: 'repo-agent', toolResultFormat: 'identified-v1' }),
-    startEvent('tc_1', 1, command),
-    executedEvent({ toolCallId: 'tc_1', turn: 1, requestedCommand: command, output: LONG_OUTPUT }),
-  ]));
-  const results = readChatToolResults(database, 'req-wrong-id');
-  const wrongIdentityRows = [doneToolRow('req-wrong-id', 'tc_0', command, 1, `${LONG_OUTPUT.slice(0, 200)}...`)];
-  assert.throws(() => hydrateChatToolMessages(wrongIdentityRows, results), isReaderFailure('unmatched_call'));
-  const matchingRows = [doneToolRow('req-wrong-id', 'tc_1', command, 1, `${LONG_OUTPUT.slice(0, 200)}...`)];
-  assert.equal(hydrateChatToolMessages(matchingRows, results)[0]?.toolCallOutput, LONG_OUTPUT);
-});
-
 test('requireDurableToolResult accepts the empty string and refuses a missing result by identifier only', () => {
   assert.equal(requireDurableToolResult({ id: 'row-1', sourceRunId: 'req-1', toolCallOutput: '' }), '');
   assert.throws(
@@ -540,22 +462,3 @@ test('requireDurableToolResult accepts the empty string and refuses a missing re
       && error.message.includes('row-2'),
   );
 });
-
-for (const inconsistentFields of [
-  { sourceRunId: 'another-request' },
-  { toolCallTurn: 2 },
-  { toolCallCommand: 'read path="another.ts"' },
-  { toolCallExitCode: 1 },
-]) {
-  test(`hydration rejects an exact identity with inconsistent ${Object.keys(inconsistentFields)[0]}`, () => {
-    const database = openDatabase();
-    const command = 'read path="a.ts"';
-    seedArtifact(database, 'req-consistency', toJsonl([
-      executedEvent({ toolCallId: 'tc_0', turn: 1, requestedCommand: command, output: LONG_OUTPUT }),
-    ]));
-    const row = doneToolRow('req-consistency', 'tc_0', command, 1, `${LONG_OUTPUT.slice(0, 200)}...`);
-    const inconsistentRow = PersistedChatTranscriptMessageSchema.parse({ ...row, ...inconsistentFields });
-    const results = readChatToolResults(database, 'req-consistency');
-    assert.throws(() => hydrateChatToolMessages([inconsistentRow], results), isReaderFailure('unmatched_call'));
-  });
-}

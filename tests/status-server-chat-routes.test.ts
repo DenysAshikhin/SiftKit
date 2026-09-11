@@ -28,6 +28,7 @@ import { StatusEngineService } from '../src/status-server/engine-service.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { ScorecardSchema } from '../src/repo-search/engine.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
 
 function imageMetadata(width = 1, height = 1, caption: string | null = null) {
   return ImageMetadataSchema.parse({
@@ -914,6 +915,54 @@ test('an engine failure survives a terminal write that lost its database handle'
     const runs = ChatRunRowSchema.array().parse(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite'))
       .prepare("SELECT operation_id, run_order, terminal_cause FROM chat_runs WHERE session_id = ? AND record_kind = 'execution'").all(context.fixture.session.id));
     assert.deepEqual(runs.map(run => run.terminal_cause), ['execution_failure']);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+class SettingsCapturingEngineService extends StatusEngineService {
+  readonly requests: RepoSearchExecutionRequest[] = [];
+
+  override executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    this.requests.push(request);
+    const messages = [...(request.history ?? []), { role: 'user' as const, content: request.prompt }];
+    request.evidenceRecorder?.recordContextInitialized({ messages, contextRevision: 0, turnBoundary: messages.length - 1 });
+    return Promise.resolve(mockedCaptionExecution('captured answer'));
+  }
+}
+
+test('admission records the preset, turn limit, web override and history revision the engine executes under', async () => {
+  const engine = new SettingsCapturingEngineService();
+  const context = await withCaptionServer({}, engine);
+  try {
+    const sessionUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}`;
+    const first = await requestSse(`${sessionUrl}/messages/stream`, { method: 'POST', body: JSON.stringify({
+      content: 'explicit limits', operationId: '4f9c1f9a-0000-4000-8000-000000000000', maxTurns: 3, webSearchOverride: 'on',
+    }) });
+    assert.equal(first.events.some(event => event.event === 'error'), false, JSON.stringify(first.events));
+    const deleted = await requestJson(`${sessionUrl}/messages/${context.fixture.message.id}`, { method: 'DELETE' });
+    assert.equal(deleted.statusCode, 200, JSON.stringify(deleted.body));
+    const second = await requestJson(`${sessionUrl}/messages`, { method: 'POST', body: JSON.stringify({ content: 'preset defaults' }) });
+    assert.equal(second.statusCode, 200, JSON.stringify(second.body));
+
+    const store = new ChatJournalStore(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite')));
+    const runs = store.listSessionRuns(context.fixture.session.id).filter(run => run.recordKind === 'execution');
+    assert.equal(runs.length, 2);
+    assert.equal(engine.requests.length, 2);
+    runs.forEach((run, index) => {
+      const request = engine.requests[index];
+      assert.ok(request);
+      assert.equal(run.settings?.presetId, request.presetId);
+      assert.equal(run.settings?.maxTurns, request.maxTurns ?? null);
+      assert.equal(run.settings?.webSearchEnabled, request.webToolsEnabled);
+      assert.equal(run.settings?.modelPresetId, request.modelPresetId);
+    });
+    assert.equal(runs[0]?.settings?.maxTurns, 3);
+    assert.equal(runs[0]?.settings?.webSearchEnabled, true);
+    assert.equal(runs[1]?.settings?.webSearchEnabled, false);
+    const started = runs.map(run => store.readAfter(run.operationId, 0, 1)[0]?.event).map(event => event?.kind === 'run_started' ? event : null);
+    // Deleting the fixture's image-bearing message records an image purge and the deletion itself.
+    assert.deepEqual(started.map(event => event?.retainedHistoryRevision), [0, 2]);
   } finally {
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }

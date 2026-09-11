@@ -38,11 +38,11 @@ import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } f
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
 import {
-buildChatHistoryMessages,
 buildRepoAgentResultMarkdown,
 resolveChatSessionConfig
 } from '../chat.js';
 import { readConfig } from '../config-store.js';
+import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
 import {
 parseJsonBody,
 readBody,
@@ -76,15 +76,13 @@ const ChatRepoAgentRequestExtrasSchema = z.strictObject({
 
 type ChatRepoAgentRequest = ResolvedChatRepoRequest & z.infer<typeof ChatRepoAgentRequestExtrasSchema>;
 
-function resolveRepoAgentPresetMaxTurns(
-  config: SiftConfig,
-  presetId: string | undefined,
-): number | undefined {
-  if (!presetId) {
-    return undefined;
-  }
-  const preset = PresetCatalog.fromPresets(config.Presets).requireById(presetId);
-  return preset.presetKind === 'repo-agent' ? preset.maxTurns ?? undefined : undefined;
+/**
+ * The session's own repo-agent preset supplies the default turn limit; a session on any other
+ * preset kind runs under the built-in repo-agent preset and the engine's default.
+ */
+function selectRepoAgentPreset(config: SiftConfig, presetId: string | undefined): { presetId: string; maxTurns: number | null } {
+  const preset = presetId ? PresetCatalog.fromPresets(config.Presets).requireById(presetId) : null;
+  return preset?.presetKind === 'repo-agent' ? { presetId: preset.id, maxTurns: preset.maxTurns } : { presetId: 'repo-agent', maxTurns: null };
 }
 
 export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
@@ -96,14 +94,17 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     value: ChatRepoAgentRequest,
     config: SiftConfig,
   ): ChatRunSubmission {
+    const preset = selectRepoAgentPreset(config, session.presetId);
     return {
       settings: buildChatRunSettings({
         session,
         config,
         operationKind: 'repo-agent',
+        presetId: preset.presetId,
         repoRoot: value.repoRoot,
         approval: value.approval,
-        maxTurns: value.maxTurns ?? null,
+        maxTurns: value.maxTurns ?? preset.maxTurns,
+        webSearchEnabled: session.webSearchEnabled === true,
       }),
       content: value.content,
       images: value.images,
@@ -174,9 +175,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       sendJson(res, 409, { error: `${toError(error).message} Repair the history before continuing.` });
       return { failure: toError(error).message };
     }
-    const presetMaxTurns = request.value.maxTurns === undefined
-      ? resolveRepoAgentPresetMaxTurns(effectiveConfig, activeSession.presetId)
-      : undefined;
     const stream = requireChatOperationBroadcast(ctx, request);
     const sse = req && res ? new SseResponseWriter(req, res) : null;
     try {
@@ -189,7 +187,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         images: request.value.images,
         repoRoot: request.value.repoRoot,
         approval: request.value.approval,
-        maxTurns: request.value.maxTurns ?? presetMaxTurns,
         mockResponses: request.value.mockResponses,
         mockCommandResults: request.value.mockCommandResults,
         history,
@@ -220,10 +217,9 @@ export async function executeChatRepoAgentOperation(options: {
   images: string[];
   repoRoot: string;
   approval: ChatRepoAgentRequest['approval'];
-  maxTurns?: number;
   mockResponses?: ChatRepoAgentRequest['mockResponses'];
   mockCommandResults?: ChatRepoAgentRequest['mockCommandResults'];
-  history: ReturnType<typeof buildChatHistoryMessages>;
+  history: PlannerChatMessage[];
   effectiveConfig: SiftConfig;
   queueOwner?: ServerContext['chatMessageQueue'];
   queueSessionId?: string;
@@ -233,6 +229,7 @@ export async function executeChatRepoAgentOperation(options: {
   lease?: ChatSessionOperation;
 }): Promise<{ updatedSession: ChatSession } & ChatOperationOutcome> {
   const engineRequestId = options.lease?.operationId ?? randomUUID();
+  const settings = options.recorder.settings;
   const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
   const started = startRepoAgentRun(options.ctx, {
     evidenceRecorder: options.recorder,
@@ -242,9 +239,9 @@ export async function executeChatRepoAgentOperation(options: {
     approvalMode: options.approval,
     approvalDelivery: 'progress',
     images: options.images,
-    maxTurns: options.maxTurns,
+    maxTurns: settings.maxTurns ?? undefined,
     history: options.history,
-    webToolsEnabled: options.session.webSearchEnabled === true,
+    webToolsEnabled: settings.webSearchEnabled,
     config: options.effectiveConfig,
     modelPresetId: options.session.modelPresetId,
     modelPreset: options.session.modelPreset,

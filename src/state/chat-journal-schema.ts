@@ -188,7 +188,9 @@ export const ChatJournalEventSchema = z.discriminatedUnion('kind', [
   }),
   z.strictObject({
     kind: z.literal('queue_delivered'),
+    /** Images are the admitted payloads for the session's preset, not the raw enqueued bytes. */
     message: ChatStreamQueuedUserMessageSchema,
+    imageMeta: z.array(ImageMetadataSchema),
     requestId: z.string().min(1).nullable(),
     deliveredAtUtc: z.string().datetime(),
   }),

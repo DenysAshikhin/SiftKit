@@ -10,8 +10,7 @@ import { countContentImages, extractContentText } from '../src/llm-protocol/imag
 import type { ChatMessage as PlannerChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { buildReadPathKey } from '../src/repo-search/engine/read-overlap.js';
-import { appendChatMessagesWithUsage, buildChatHistoryMessages } from '../src/status-server/chat.js';
-import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
+import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import { rasterBuffer } from './helpers/image-fixtures.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { createTestChatSession } from './helpers/chat-sessions.js';
@@ -178,69 +177,6 @@ test('compaction retains structured image identity regardless of display wording
 
   transcript.replaceWith([{ role: 'system', content: 'system' }, { role: 'user', content: 'compacted' }], 1);
   assert.equal(liveImagePathKeys.has(imagePathKey), false);
-});
-
-test('a tool image is persisted as a tool_image row right after its tool call', () => {
-  const runtimeRoot = createManagedTempDir('image-persist');
-  const session = createTestChatSession(runtimeRoot);
-
-  const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'question', 'answer', {}, {
-    turnRecords: [],
-    turns: [{
-      thinkingText: '',
-      toolMessages: [{
-        id: 'tool-call-1',
-        content: 'read path="docs/arch.png"',
-        toolCallCommand: 'read path="docs/arch.png"',
-        toolCallActivityKind: 'read',
-        toolCallActivitySubject: { kind: 'file', value: 'arch.png' },
-        toolCallTurn: 1,
-        toolCallMaxTurns: 1,
-        toolCallExitCode: 0,
-        toolCallOutputSnippet: 'Image docs/arch.png (1440×900) attached below.',
-        toolCallOutput: 'Image docs/arch.png (1440×900) attached below.',
-        outputTokens: null,
-        images: [PNG],
-        imageMeta: [IMAGE_META],
-      }],
-    }],
-  });
-
-  const kinds = (updated.messages ?? []).map((message) => message.kind);
-  assert.deepEqual(kinds, ['user_text', 'assistant_tool_call', 'tool_image', 'assistant_answer']);
-});
-
-test('a persisted tool_image row survives a session reload with its data URL and metadata', () => {
-  const runtimeRoot = createManagedTempDir('image-persist-reload');
-  const session = createTestChatSession(runtimeRoot);
-  appendChatMessagesWithUsage(runtimeRoot, session, 'question', 'answer', {}, {
-    turnRecords: [],
-    turns: [{
-      thinkingText: '',
-      toolMessages: [{
-        id: 'tool-call-1',
-        content: 'read path="docs/arch.png"',
-        toolCallCommand: 'read path="docs/arch.png"',
-        toolCallActivityKind: 'read',
-        toolCallActivitySubject: { kind: 'file', value: 'arch.png' },
-        toolCallTurn: 1,
-        toolCallMaxTurns: 1,
-        toolCallExitCode: 0,
-        toolCallOutputSnippet: 'Image docs/arch.png (1440×900) attached below.',
-        toolCallOutput: 'Image docs/arch.png (1440×900) attached below.',
-        outputTokens: null,
-        images: [PNG],
-        imageMeta: [IMAGE_META],
-      }],
-    }],
-  });
-
-  const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
-
-  const imageMessage = (reloaded?.messages ?? []).find((message) => message.kind === 'tool_image');
-  assert.ok(imageMessage);
-  assert.deepEqual(imageMessage.images, [PNG]);
-  assert.deepEqual(imageMessage.imageMeta, [IMAGE_META]);
 });
 
 test('a persisted tool_image replays immediately after its tool result', () => {

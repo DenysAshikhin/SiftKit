@@ -7,7 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import type { ChatJournalEnvelope } from '../src/state/chat-journal-schema.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
+import { getChatSessionPath, readChatRunMessages, readChatSessionFromPath, saveChatSession } from '../src/state/chat-sessions.js';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
 import type { RuntimeDatabase } from '../src/state/database-handle.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
@@ -31,6 +32,7 @@ const AT = '2026-09-10T11:04:54.755Z';
 const SETTINGS = {
   operationKind: 'repo-agent',
   mode: 'repo-search',
+  presetId: 'repo-agent',
   modelPresetId: 'preset-a',
   model: 'model-a',
   repoRoot: 'C:/repo',
@@ -464,4 +466,45 @@ test('a run keeps recording after another runtime root evicts its cached databas
   const run = new ChatJournalStore(reopened).readRun(recorder.operationId);
   assert.equal(run?.terminalCause, 'completed');
   assert.equal(run?.requestId, 'request-1');
+});
+
+test('a mid-run queued delivery admits its images for the session preset and projects their metadata', () => {
+  const { database, databasePath } = openSessionDatabase('chat-queue-image-admission-');
+  const runtimeRoot = path.dirname(databasePath);
+  const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, SESSION_ID));
+  assert.ok(session);
+  saveChatSession(runtimeRoot, { ...session, modelPreset: { ...session.modelPreset, VisionEnabled: true, VisionImageRetention: 4 } });
+  const recorder = beginRecorder(databasePath);
+  const queue = new ChatMessageQueueStore(database);
+  const image = toDataUrl('image/png', rasterBuffer('png', 32, 24));
+  const id = randomUUID();
+  queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [image], options: { operationKind: 'repo-agent' } });
+  const claimed = recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] });
+  assert.equal(claimed.length, 1);
+  assert.deepEqual(claimed[0]?.images, [image]);
+  const delivered = readAll(database, recorder.operationId).find(envelope => envelope.event.kind === 'queue_delivered');
+  assert.ok(delivered && delivered.event.kind === 'queue_delivered');
+  assert.equal(delivered.event.imageMeta[0]?.width, 32);
+  assert.equal(delivered.event.imageMeta[0]?.height, 24);
+  recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+  recorder.readSession();
+  const row = readChatRunMessages(database, SESSION_ID, recorder.operationId).find(message => message.id === id);
+  assert.deepEqual(row?.images, [image]);
+  assert.equal(row?.imageMeta?.[0]?.width, 32);
+  assert.ok((row?.imageMeta?.[0]?.tokenEstimate ?? 0) > 0);
+});
+
+test('a queued delivery whose images the session preset refuses stays pending and records nothing', () => {
+  const { database, databasePath } = openSessionDatabase('chat-queue-image-refusal-');
+  const runtimeRoot = path.dirname(databasePath);
+  const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, SESSION_ID));
+  assert.ok(session);
+  saveChatSession(runtimeRoot, { ...session, modelPreset: { ...session.modelPreset, VisionEnabled: false } });
+  const recorder = beginRecorder(databasePath);
+  const queue = new ChatMessageQueueStore(database);
+  const id = randomUUID();
+  queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [toDataUrl('image/png', rasterBuffer('png', 1, 1))], options: { operationKind: 'repo-agent' } });
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }), /image/iu);
+  assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
+  assert.equal(readAll(database, recorder.operationId).some(envelope => envelope.event.kind === 'queue_delivered'), false);
 });

@@ -13,6 +13,8 @@ export type ChatOperationFrame = {
 
 export interface ChatOperationSubscriber {
   onFrame(frame: ChatOperationFrame): void;
+  /** The session's history changed outside the run (edit, deletion, purge); re-read the journal. */
+  onHistoryRevised(): void;
   onClosed(): void;
 }
 
@@ -33,6 +35,12 @@ export class ChatOperationBroadcast {
     for (const subscriber of this.subscribers) {
       subscriber.onFrame(frame);
     }
+  }
+
+  /** Wakes readers after a committed history revision; there is no frame because nothing streamed. */
+  notifyHistoryRevised(): void {
+    if (this.closed) return;
+    for (const subscriber of this.subscribers) subscriber.onHistoryRevised();
   }
 
   /** Subscribe before capturing a journal snapshot, so concurrent publications trigger catch-up. */

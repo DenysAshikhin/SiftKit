@@ -40,6 +40,8 @@ export type ChatRunRecordKind = z.infer<typeof ChatRunRecordKindSchema>;
 export const ChatRunEffectiveSettingsSchema = z.strictObject({
   operationKind: ChatSessionOperationKindSchema,
   mode: ChatSessionModeSchema,
+  /** The task preset actually selected for the run, after any mode-compatibility substitution. */
+  presetId: z.string().trim().min(1),
   modelPresetId: z.string().trim().min(1),
   model: z.string().nullable(),
   repoRoot: z.string().trim().min(1),

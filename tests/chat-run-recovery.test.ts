@@ -127,7 +127,7 @@ test('server startup recovers an admitted orphan before serving its conversation
   const recorder = ChatRunRecorder.begin(databasePath, {
     operationId: randomUUID(), sessionId, ownerEpoch: `${owner.owner_id}:${owner.epoch}`, operationKind: 'message',
     userMessageId: randomUUID(), content: 'accepted before the server stopped', images: [], imageMeta: [], retainedHistoryRevision: 0,
-    settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()), operationKind: 'message', repoRoot: session.planRepoRoot, approval: null, maxTurns: null }),
+    settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()), operationKind: 'message', presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
     startedAtUtc: new Date().toISOString(),
   });
   recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,

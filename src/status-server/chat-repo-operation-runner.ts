@@ -52,7 +52,6 @@ export type ChatRepoOperationRequest = {
   engineService: StatusEngineService;
   progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   requestId: string;
-  maxTurns?: number;
   logFile?: string;
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
@@ -122,6 +121,7 @@ export class ChatRepoOperationRunner {
       planRepoRoot: request.repoRoot,
     };
     saveChatSessionMetadata(request.runtimeRoot, session);
+    const settings = request.recorder.settings;
     request.recorder.bindEngine({ requestId: request.requestId, repoAgentSessionId: null });
     const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
         evidenceRecorder: request.recorder,
@@ -136,8 +136,8 @@ export class ChatRepoOperationRunner {
         statusBackendUrl: request.statusBackendUrl,
         config: effectiveConfig,
         allowedTools: buildChatOperationAllowedTools(request.config, selected.preset),
-        webToolsEnabled: session.webSearchEnabled === true,
-        maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
+        webToolsEnabled: settings.webSearchEnabled,
+        maxTurns: settings.maxTurns ?? undefined,
         logFile: request.logFile,
         availableModels: request.availableModels,
         mockResponses: request.mockResponses,

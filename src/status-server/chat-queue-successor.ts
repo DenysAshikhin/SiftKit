@@ -70,15 +70,15 @@ export class ChatQueueSuccessorRunner {
     const parsedBody = { ...options, content: first.content, images: first.images };
     const request = { sessionId, sessionPath, session, lease, parsedBody, queuedMessages, queueIntentId: force.id };
     if (operationKind === 'message') {
-      await new StreamChatMessageEndpoint().executeDetached(this.ctx, { ...request, value: { content: first.content, images: first.images, assistantContent: '' } });
+      await new StreamChatMessageEndpoint().executeDetached(this.ctx, { ...request, value: { content: first.content, images: first.images, assistantContent: '', maxTurns: options.maxTurns, webSearchOverride: options.webSearchOverride } });
     } else {
       const repoRoot = resolve(options.repoRoot ?? session.planRepoRoot);
       if (!existsSync(repoRoot) || !statSync(repoRoot).isDirectory()) throw new Error('Expected existing repoRoot directory.');
-      const value = { content: first.content, images: first.images, repoRoot };
+      const value = { content: first.content, images: first.images, repoRoot, maxTurns: options.maxTurns };
       if (operationKind === 'repo-agent') {
         await new StreamChatRepoAgentEndpoint().executeDetached(this.ctx, {
           ...request, value: {
-            ...value, approval: options.approval ?? DEFAULT_APPROVAL_MODE, maxTurns: options.maxTurns,
+            ...value, approval: options.approval ?? DEFAULT_APPROVAL_MODE,
             mockResponses: options.mockResponses ? MockPlannerResponsesSchema.parse(options.mockResponses) : undefined,
             mockCommandResults: options.mockCommandResults ? z.record(z.string(), RepoSearchMockCommandResultSchema).parse(options.mockCommandResults) : undefined,
           },

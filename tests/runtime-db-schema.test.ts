@@ -621,3 +621,25 @@ test('the marker-67 upgrade adds the chat journal with its identity and active-r
     closeRuntimeDatabase();
   }
 });
+
+test('the marker-68 upgrade retires repo-agent history repair markers and keeps every other metadata row', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-68-markers-');
+  const fresh = getRuntimeDatabase(dbPath);
+  fresh.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)')
+    .run('repo-agent-history-v1:session-a', '{"done":true}', '2026-09-10T11:00:00.000Z');
+  fresh.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)')
+    .run('repo-agent-history-v1:session-b', '{"done":true}', '2026-09-10T11:00:00.000Z');
+  fresh.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)')
+    .run('schema-test.sentinel', 'keep', '2026-09-10T11:00:00.000Z');
+  fresh.prepare('UPDATE runtime_schema SET version = 68 WHERE id = 1').run();
+  closeRuntimeDatabase();
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    const keys = z.array(z.object({ key: z.string() })).parse(upgraded.prepare('SELECT key FROM runtime_metadata ORDER BY key').all()).map(row => row.key);
+    assert.equal(keys.some(key => key.startsWith('repo-agent-history-v1:')), false);
+    assert.equal(keys.includes('schema-test.sentinel'), true);
+    assert.equal(z.object({ version: z.number() }).parse(upgraded.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, CURRENT_SCHEMA_VERSION);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});

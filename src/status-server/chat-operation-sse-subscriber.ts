@@ -43,6 +43,11 @@ export class ChatOperationSseSubscriber implements ChatOperationSubscriber {
     if (this.started) void this.pump();
   }
 
+  onHistoryRevised(): void {
+    this.dirty = true;
+    if (this.started) void this.pump();
+  }
+
   onClosed(): void {
     this.closed = true;
     this.dirty = true;

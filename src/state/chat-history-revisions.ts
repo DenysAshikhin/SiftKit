@@ -138,7 +138,8 @@ function removeImageFromEvent(event: ChatJournalEvent, operationId: string, mess
   if (event.kind === 'run_started' && event.userMessageId === messageId) return { ...event,
     images: event.images.filter((_, index) => index !== imageIndex), imageMeta: event.imageMeta.filter((_, index) => index !== imageIndex) };
   if (event.kind === 'queue_delivered' && event.message.id === messageId) return { ...event,
-    message: { ...event.message, images: event.message.images.filter((_, index) => index !== imageIndex) } };
+    message: { ...event.message, images: event.message.images.filter((_, index) => index !== imageIndex) },
+    imageMeta: event.imageMeta.filter((_, index) => index !== imageIndex) };
   if (event.kind === 'context_initialized') return { ...event,
     messages: event.messages.map(message => removeImageFromNative(message, messageId, imageIndex, payload)) };
   if (event.kind === 'context_spliced') return { ...event,
