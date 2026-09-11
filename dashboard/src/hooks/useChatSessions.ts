@@ -43,7 +43,7 @@ import {
   resolveRepoRoot,
   type ParsedMaxTurnsOverride,
 } from '../lib/chat-composer-inputs';
-import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';
 import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
@@ -98,6 +98,7 @@ export function useChatSessions(deps: {
   const forceSubmissions = useRef(new Map<string, ChatQueueForceRequest>());
   const queueMutations = useRef(new Set<string>());
   const queueOperationIds = useRef(new Map<string, string | null>());
+  const pendingTerminalTransitions = useRef(new Map<string, Extract<ChatSessionRuntimeTransition, { kind: 'terminal' }>>());
   // Bumped when a submitted turn is rejected because the session is already running elsewhere.
   // Nothing else tells the attach effect that a run it should follow now exists.
   const [remoteRunGeneration, setRemoteRunGeneration] = useState(0);
@@ -282,8 +283,14 @@ export function useChatSessions(deps: {
           }
           if (transition.kind === 'terminal') {
             // The stored session replaces the live view; refresh it first so the transcript never blanks.
-            try { await refreshSession(); }
-            finally { if (!cancelled) setRuntimeStore((previous) => previous.apply(transition)); }
+            try {
+              await refreshSession();
+              pendingTerminalTransitions.current.delete(sessionId);
+              if (!cancelled) setRuntimeStore((previous) => previous.apply(transition));
+            } catch (error) {
+              pendingTerminalTransitions.current.set(sessionId, transition);
+              reconnectAfterError(toError(error));
+            }
             continue;
           }
           setRuntimeStore((previous) => previous.apply(transition));
@@ -301,7 +308,14 @@ export function useChatSessions(deps: {
         if (!(error instanceof ChatOperationIdleError)) { reconnectAfterError(toError(error)); return; }
         // Nothing is running: the run may have finished while this client was away, so take the
         // stored transcript rather than leaving the session pinned as busy.
-        try { await refreshSession(); }
+        try {
+          await refreshSession();
+          const pendingTerminal = pendingTerminalTransitions.current.get(sessionId);
+          if (pendingTerminal) {
+            pendingTerminalTransitions.current.delete(sessionId);
+            setRuntimeStore((previous) => previous.apply(pendingTerminal));
+          }
+        }
         catch (error) { reconnectAfterError(toError(error)); return; }
         if (cancelled) {
           return;
@@ -545,8 +559,15 @@ export function useChatSessions(deps: {
         thinkingEnabled,
       )) {
         if (transition.kind === 'terminal') {
-          try { applySessionResponse(await getChatSession(sessionId)); }
-          finally { setRuntimeStore((previous) => previous.apply(transition)); }
+          try {
+            applySessionResponse(await getChatSession(sessionId));
+            pendingTerminalTransitions.current.delete(sessionId);
+            setRuntimeStore((previous) => previous.apply(transition));
+          } catch (error) {
+            pendingTerminalTransitions.current.set(sessionId, transition);
+            setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+            setRemoteRunGeneration((generation) => generation + 1);
+          }
           continue;
         }
         setRuntimeStore((previous) => previous.apply(transition));

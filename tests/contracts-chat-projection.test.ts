@@ -40,6 +40,7 @@ const VALID_RECORDS: ChatProjectionRecord[] = [
   { kind: 'message', message: { ...textMessage, role: 'assistant', kind: 'assistant_narration' }, afterMessageId: null },
   { kind: 'message', message: { ...textMessage, role: 'assistant', kind: 'assistant_narration' }, afterMessageId: 'run-user' },
   { kind: 'append_text', messageId: 'run-narration-1', offset: 5, text: ' world', metadata },
+  { kind: 'append_text', messageId: 'run-narration-1', offset: 11, text: '', metadata },
   { kind: 'remove_message', messageId: 'run-narration-1' },
   { kind: 'move_message', messageId: 'run-narration-1', afterMessageId: null },
   { kind: 'tool', tool: { ...tool, executionState: 'completed', toolCallStatus: 'done' } },
@@ -73,7 +74,6 @@ const INVALID_RECORDS: [string, object][] = [
   ['a malformed message', { kind: 'message', message: { ...textMessage, kind: 'assistant_tool_call' }, afterMessageId: null }],
   ['an append with a negative offset', { kind: 'append_text', messageId: 'm', offset: -1, text: 'x', metadata }],
   ['an append with a fractional offset', { kind: 'append_text', messageId: 'm', offset: 1.5, text: 'x', metadata }],
-  ['an append with empty text', { kind: 'append_text', messageId: 'm', offset: 1, text: '', metadata }],
   ['an append carrying a content body', { kind: 'append_text', messageId: 'm', offset: 1, text: 'x', metadata: { ...metadata, content: 'body' } }],
   ['an append on a non-text kind', { kind: 'append_text', messageId: 'm', offset: 1, text: 'x', metadata: { ...metadata, kind: 'user_text' } }],
   ['a move anchored on itself', { kind: 'move_message', messageId: 'm', afterMessageId: 'm' }],
@@ -138,7 +138,7 @@ test('deliveries are exactly a view, a terminal or a failure', () => {
     tokenTurns: [], streamedCharsSinceBase: 0, warnings: [], issues: [] });
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'view', snapshot, queue: null }).success, true);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'view', snapshot, queue }).success, true);
-  assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'terminal', terminal: VALID_RECORDS[14] }).success, true);
+  assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'terminal', terminal: VALID_RECORDS[15] }).success, true);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'failure', failure: { error: 'x' } }).success, true);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'view', snapshot }).success, false);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'page', snapshot }).success, false);

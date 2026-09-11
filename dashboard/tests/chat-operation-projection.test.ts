@@ -49,6 +49,19 @@ test('a snapshot transfer becomes readable only at its commit, with its queue', 
   assert.equal(projection.snapshot, delivery.snapshot);
 });
 
+test('a snapshot rejects conflicting duplicate message identities', () => {
+  const source = chatProjectionCapture({ operationId, messages: [message('duplicate', 'first'), message('duplicate', 'second')] });
+  const records = [...createChatSnapshotRecords(source)].map(record => record.kind === 'commit'
+    ? { ...record, counts: { ...record.counts, messages: 1 } }
+    : record.kind === 'message' ? { ...record, afterMessageId: null } : record);
+  const projection = new ChatOperationProjection('s1');
+
+  assert.throws(() => {
+    for (const frame of encodeChatProjectionRecords(records, nextTransferId())) projection.acceptFrame(frame);
+  }, /duplicate message id in snapshot/u);
+  assert.equal(projection.snapshot, null);
+});
+
 test('an update stages suffixes, inserts, removals, moves and auxiliary changes over the committed view and keeps unchanged rows', () => {
   const projection = new ChatOperationProjection('s1');
   const before = capture(4, [message('a', 'alpha'), message('b', 'beta'), message('c', 'gamma', 'assistant_narration')]);
@@ -129,6 +142,14 @@ test('a terminal after a commit is delivered and one before any commit is reject
   feed(fresh, chatSnapshotFrames(source));
   const delivery = feed(fresh, singleRecordFrames(terminalRecord(source.cursor, 'user_stop')));
   assert.equal(delivery?.kind === 'terminal' && delivery.terminal.terminalCause, 'user_stop');
+});
+
+test('a terminal must identify the exact committed final cursor', () => {
+  const projection = new ChatOperationProjection('s1');
+  const source = capture(4);
+  feed(projection, chatSnapshotFrames(source));
+
+  assert.throws(() => feed(projection, singleRecordFrames(terminalRecord({ operationId, sequence: 50, historyRevision: 0 }))), /terminal cursor mismatch/u);
 });
 
 test('an error record discards staging, keeps the readable view, and is delivered as a failure', () => {

@@ -666,6 +666,30 @@ test('a committed coalescing splice represents the rejected call without reopeni
   assert.deepEqual(recovered.toolExecutions.find(execution => execution.toolCallId === 'call_dup')?.executionState, 'rejected');
 });
 
+test('represented tool calls release recovery arguments while retaining their identity', () => {
+  const call = toolCall(0, 'call_large');
+  const events: ChatJournalEvent[] = [
+    { kind: 'context_initialized', contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'request' }] },
+    { kind: 'tool_proposed', call, toolName: 'run', arguments: { command: 'x'.repeat(4 * 1024 * 1024) }, command: 'run',
+      activityKind: 'command', activitySubject: { kind: 'none' }, maxTurns: 10, promptTokenCount: 0, executionState: 'proposed' },
+    { kind: 'tool_result', call, executionState: 'completed', exitCode: 0, output: 'done', images: [], imageMeta: [],
+      outputTokens: 1, outputTokensEstimated: true, promptTokenCount: 0, finishedAtUtc: RECORDED_AT },
+    { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, turnBoundary: 0, reason: 'append', coalescedToolCallIds: [],
+      inserted: [buildAssistantToolCallMessage([{ action: { toolName: 'run', args: { command: 'run' } }, toolCallId: 'call_large', toolContent: 'done' }]),
+        buildToolResultMessage('call_large', 'done')] },
+  ];
+  const replay = new ChatContextReplay();
+  const wrapped = envelopes(events);
+  replay.apply(wrapped[0]);
+  replay.apply(wrapped[1]);
+  assert.deepEqual(replay.retainedToolPayloadIds(), ['tc_0']);
+  replay.apply(wrapped[2]);
+  assert.deepEqual(replay.retainedToolPayloadIds(), ['tc_0']);
+  replay.apply(wrapped[3]);
+  assert.deepEqual(replay.retainedToolPayloadIds(), []);
+  assert.equal(replay.finish().status, 'ok');
+});
+
 for (const [name, splice] of [
   ['an unknown call', { ...COALESCING_SPLICE, coalescedToolCallIds: ['tc_missing'] }],
   ['a call whose result was not a rejection', { ...COALESCING_SPLICE, coalescedToolCallIds: ['tc_0'] }],

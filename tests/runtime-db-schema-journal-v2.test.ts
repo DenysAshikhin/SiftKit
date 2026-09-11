@@ -29,9 +29,16 @@ function digest(body: JsonValue): string {
 
 /** Historical v1 bodies: current events minus the field version 2 introduced. */
 function toLegacyBody(event: ChatJournalEvent): JsonValue {
-  if (event.kind !== 'context_spliced') return JsonValueSchema.parse(event);
-  const { coalescedToolCallIds: _added, ...legacy } = event;
-  return JsonValueSchema.parse(legacy);
+  if (event.kind === 'context_spliced') {
+    const { coalescedToolCallIds: _added, ...legacy } = event;
+    return JsonValueSchema.parse(legacy);
+  }
+  if (event.kind === 'queue_delivered') {
+    const { imageMeta, ...legacyMessage } = event.message;
+    const { message: _message, ...legacyEvent } = event;
+    return JsonValueSchema.parse({ ...legacyEvent, message: legacyMessage, imageMeta });
+  }
+  return JsonValueSchema.parse(event);
 }
 
 function journalFixture(): ChatJournalEvent[] {
@@ -52,7 +59,10 @@ function journalFixture(): ChatJournalEvent[] {
     { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, turnBoundary: 1, reason: 'append',
       coalescedToolCallIds: [], inserted: [{ role: 'assistant', content: '', tool_calls: [{ id: 'call_a', type: 'function', function: { name: 'read', arguments: '{}' } }] }] },
     { kind: 'context_spliced', expectedRevision: 1, contextRevision: 2, startIndex: 0, deleteCount: 2, turnBoundary: 0, reason: 'compacted',
-      coalescedToolCallIds: [], compressedMessageIds: ['user-1'], queueMessageIds: ['queued-1'], inserted: [{ role: 'assistant', content: 'summary' }] },
+      coalescedToolCallIds: [], compressedMessageIds: ['user-1'], queueMessageIds: ['11111111-1111-4111-8111-111111111111'], inserted: [{ role: 'assistant', content: 'summary' }] },
+    { kind: 'queue_delivered', message: { id: '11111111-1111-4111-8111-111111111111', turn: 1, boundary: 'post_tool_batch', content: 'queued', images: [image],
+      imageMeta: [{ width: 8, height: 8, originalWidth: 8, originalHeight: 8, mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null }] },
+      requestId: null, deliveredAtUtc: AT },
     { kind: 'history_revised', expectedSessionRevision: 0, revision: { action: 'image_removed', messageId: 'legacy-1', imageIndex: 0,
       originalImageIndex: 0, imagePathKey: null, payloadDigest: createHash('sha256').update(image).digest('hex') } },
     { kind: 'run_finished', terminalCause: 'server_restart', detail: 'server stopped', usage: null, recoveryStatus: 'recovery_needed', finishedAtUtc: AT },
@@ -67,7 +77,7 @@ function seedLegacyJournal(prefix: string, mutate: (rows: EventRow[]) => EventRo
     INSERT INTO chat_sessions (id, title, model_preset_id, model_preset_json, thinking_enabled, web_search_enabled, preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc)
       VALUES ('s1', 'Session', 'preset-a', '{}', 1, 0, 'chat', 'chat', 'C:/repo', '${AT}', '${AT}');
     INSERT INTO chat_runs (operation_id, session_id, record_kind, operation_kind, run_order, owner_epoch, created_at_utc, updated_at_utc, terminal_cause, latest_sequence)
-      VALUES ('${OPERATION_ID}', 's1', 'execution', 'repo-agent', 1, 'owner:1', '${AT}', '${AT}', 'server_restart', 8),
+      VALUES ('${OPERATION_ID}', 's1', 'execution', 'repo-agent', 1, 'owner:1', '${AT}', '${AT}', 'server_restart', 9),
              ('${CONDENSE_ID}', 's1', 'execution', 'condense', 2, 'owner:1', '${AT}', '${AT}', NULL, 1);
   `);
   const rows = mutate([
@@ -115,6 +125,12 @@ test('the marker-70 upgrade converts version-1 journal events to version 2 and a
       assert.equal(row.payload_digest, digest(body));
       if (row.kind === 'context_spliced') {
         assert.deepEqual(body, { ...JsonObjectSchema.parse(JSON.parse(legacy.body_json)), coalescedToolCallIds: [] });
+      } else if (row.kind === 'queue_delivered') {
+        assert.deepEqual(body, {
+          kind: 'queue_delivered', requestId: null, deliveredAtUtc: AT,
+          message: { id: '11111111-1111-4111-8111-111111111111', turn: 1, boundary: 'post_tool_batch', content: 'queued', images: ['data:image/png;base64,AAAA'],
+            imageMeta: [{ width: 8, height: 8, originalWidth: 8, originalHeight: 8, mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null }] },
+        });
       } else {
         assert.equal(row.body_json, legacy.body_json);
         assert.equal(row.payload_digest, legacy.payload_digest);
@@ -158,6 +174,16 @@ test('an unknown journal event version rejects the marker-70 upgrade', () => {
   const { dbPath } = seedLegacyJournal('siftkit-runtime-schema-upgrade-70-unknown-', seeded => seeded.map(row => row.sequence === 1 ? { ...row, version: 7 } : row));
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /unsupported version 7/u);
+  } finally {
+    closeAllRuntimeDatabases();
+  }
+});
+
+test('a digest-valid malformed v1 body rejects the marker-70 upgrade', () => {
+  const { dbPath } = seedLegacyJournal('siftkit-runtime-schema-upgrade-70-malformed-', seeded => seeded.map(row => row.sequence === 2 && row.operation_id === OPERATION_ID
+    ? { ...row, body_json: JSON.stringify({ kind: 'run_started' }), payload_digest: digest({ kind: 'run_started' }) } : row));
+  try {
+    assert.throws(() => getRuntimeDatabase(dbPath), /invalid/u);
   } finally {
     closeAllRuntimeDatabases();
   }

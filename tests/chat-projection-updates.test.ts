@@ -92,7 +92,28 @@ test('text growth travels as suffixes with metadata while unchanged rows, images
   assert.equal(records.some(record => record.kind === 'token_turn'), false);
 });
 
-test('a rewrite, a usage change and a narration-to-progress conversion are full replacements, not suffixes', () => {
+test('a usage-only text-row update carries metadata without resending its body', () => {
+  const { recorder, capture } = fixture();
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'a'.repeat(1024 * 1024) } });
+  const before = capture();
+  recorder.recordDisplay({ kind: 'usage', usage: usage(1, 256) });
+  const after = capture();
+
+  const records = roundTrip(before, after);
+  assert.deepEqual(records.map(record => record.kind), ['begin', 'append_text', 'token_turn', 'commit']);
+  const append = records[1];
+  assert.equal(append?.kind, 'append_text');
+  if (append?.kind !== 'append_text') return;
+  assert.equal(append.text, '');
+  const beforeAnswer = before.snapshot.messages.find(message => message.kind === 'assistant_answer');
+  const afterAnswer = after.snapshot.messages.find(message => message.kind === 'assistant_answer');
+  assert.ok(beforeAnswer);
+  assert.ok(afterAnswer);
+  assert.equal(append.offset, beforeAnswer.content.length);
+  assert.equal(append.metadata.outputTokensEstimate, afterAnswer.outputTokensEstimate);
+});
+
+test('a rewrite and kind conversion use replacements while usage changes use metadata updates', () => {
   const { recorder, capture } = fixture();
   recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'first draft' } });
   recorder.recordDisplay({ kind: 'answer', delta: { turn: 2, offset: 0, text: 'partial' } });
@@ -105,8 +126,9 @@ test('a rewrite, a usage change and a narration-to-progress conversion are full 
   const after = capture();
   const records = roundTrip(before, after);
   const replaced = records.filter(record => record.kind === 'message').map(record => record.kind === 'message' ? record.message.kind : '');
-  assert.deepEqual(replaced.sort(), ['assistant_answer', 'assistant_progress', 'assistant_tool_call']);
-  assert.equal(records.some(record => record.kind === 'append_text'), false);
+  assert.deepEqual(replaced.sort(), ['assistant_progress', 'assistant_tool_call']);
+  assert.equal(records.filter(record => record.kind === 'append_text').length, 1);
+  assert.equal(records.some(record => record.kind === 'append_text' && record.text === ''), true);
   assert.deepEqual(records.filter(record => record.kind === 'tool').length, 1);
   assert.deepEqual(records.filter(record => record.kind === 'token_turn').length, 1);
 });

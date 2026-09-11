@@ -392,7 +392,7 @@ test('a projection failure cannot roll back the source event', () => {
   }
 });
 
-/** Sums the decoded body characters each body fetch returned, as the store's own database sees it. */
+/** Sums the decoded UTF-8 body bytes each body fetch returned. */
 function observeBodyFetches(database: RuntimeDatabase): { rows: number; bytes: number }[] {
   const fetches: { rows: number; bytes: number }[] = [];
   const prepare = database.prepare.bind(database);
@@ -404,13 +404,27 @@ function observeBodyFetches(database: RuntimeDatabase): { rows: number; bytes: n
     statement.all = (...parameters: Parameters<typeof all>) => {
       const rows = all(...parameters);
       const parsed = FetchedRowsSchema.safeParse(rows);
-      if (parsed.success) fetches.push({ rows: parsed.data.length, bytes: parsed.data.reduce((total, row) => total + row.body_json.length, 0) });
+      if (parsed.success) fetches.push({ rows: parsed.data.length, bytes: parsed.data.reduce((total, row) => total + Buffer.byteLength(row.body_json, 'utf8'), 0) });
       return rows;
     };
     return statement;
   };
   return fetches;
 }
+
+test('readThrough bounds pages by UTF-8 body bytes for non-ASCII events', () => {
+  const { store, database } = openFixture('chat-journal-utf8-byte-pages-');
+  const run = store.begin(runStart());
+  const emojiCommand = '😀'.repeat(120_000);
+  const events = [proposalEvent(emojiCommand), proposalEvent(emojiCommand), proposalEvent(emojiCommand)];
+  database.transaction(() => {
+    for (const [index, event] of events.entries()) store.append(appendInput(run.operationId, index, event, { eventId: `emoji-${String(index)}` }));
+  })();
+
+  const fetches = observeBodyFetches(database);
+  assert.deepEqual([...store.readThrough(run.operationId, 0, events.length)].map(envelope => envelope.sequence), [1, 2, 3]);
+  assert.ok(fetches.every(fetch => fetch.rows === 1 || fetch.bytes <= CHAT_JOURNAL_READ_PAGE_BYTES), JSON.stringify(fetches));
+});
 
 test('readThrough pages by row count and decoded body size, fetching one oversized event alone', () => {
   const { store, database } = openFixture('chat-journal-byte-pages-');

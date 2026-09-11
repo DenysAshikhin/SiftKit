@@ -82,7 +82,7 @@ const ChatProjectionAppendTextRecordSchema = z.strictObject({
   kind: z.literal('append_text'),
   messageId: MessageIdSchema,
   offset: z.number().int().nonnegative(),
-  text: z.string().min(1),
+  text: z.string(),
   metadata: ChatTextRowMetadataSchema,
 });
 

@@ -59,7 +59,7 @@ const MaxRunOrderRowSchema = z.object({ next_order: z.number().int() });
 export const CHAT_JOURNAL_READ_PAGE_SIZE = 500;
 /** Decoded body characters one page targets; a single larger event is fetched on its own. */
 export const CHAT_JOURNAL_READ_PAGE_BYTES = 1024 * 1024;
-const PageRowsSchema = z.array(z.object({ sequence: z.number().int(), body_chars: z.number().int() }));
+const PageRowsSchema = z.array(z.object({ sequence: z.number().int(), body_bytes: z.number().int() }));
 
 export class ChatJournalIntegrityError extends Error {
   constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, readonly eventId: string,
@@ -346,7 +346,7 @@ export class ChatJournalStore {
     return this.readThrough(operationId, cursor, run.latestSequence);
   }
 
-  /** Rows in (afterSequence, throughSequence], paged by row count and decoded body size. */
+  /** Rows in (afterSequence, throughSequence], paged by row count and UTF-8 body size. */
   *readThrough(operationId: string, afterSequence: number, throughSequence: number): Generator<ChatJournalEnvelope> {
     const id = z.string().uuid().parse(operationId);
     let cursor = z.number().int().nonnegative().parse(afterSequence);
@@ -355,16 +355,16 @@ export class ChatJournalStore {
     while (cursor < head) {
       // Row metadata decides the page; only the chosen bodies are fetched afterwards.
       const candidates = PageRowsSchema.parse(this.database.prepare(`
-        SELECT sequence, length(body_json) AS body_chars FROM chat_run_events
+        SELECT sequence, length(CAST(body_json AS BLOB)) AS body_bytes FROM chat_run_events
         WHERE operation_id = ? AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT ?
       `).all(id, cursor, head, Math.min(CHAT_JOURNAL_READ_PAGE_SIZE, head - cursor)));
       const first = candidates[0];
       if (first === undefined) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal is missing committed evidence.');
       let last = first.sequence;
-      let chars = first.body_chars;
+      let bytes = first.body_bytes;
       for (const row of candidates.slice(1)) {
-        if (chars + row.body_chars > CHAT_JOURNAL_READ_PAGE_BYTES) break;
-        chars += row.body_chars;
+        if (bytes + row.body_bytes > CHAT_JOURNAL_READ_PAGE_BYTES) break;
+        bytes += row.body_bytes;
         last = row.sequence;
       }
       const page = EventRowsSchema.parse(this.database.prepare(`

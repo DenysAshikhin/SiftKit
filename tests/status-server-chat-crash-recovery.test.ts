@@ -38,6 +38,8 @@ if (childConfig !== undefined) {
     { operationKind: 'repo-agent', barrier: 'start', force: false },
     { operationKind: 'repo-agent', barrier: 'effect', force: false },
     { operationKind: 'repo-agent', barrier: 'result', force: false },
+    { operationKind: 'repo-agent', barrier: 'finalization', force: false },
+    { operationKind: 'message', barrier: 'invalid_rejection', force: false },
     { operationKind: 'repo-agent', barrier: 'queue', force: false },
     { operationKind: 'condense', barrier: 'submission', force: false },
     { operationKind: 'condense', barrier: 'terminal', force: false },
@@ -70,21 +72,25 @@ if (childConfig !== undefined) {
     });
     const baseUrl = await child.ready();
     const sessionUrl = `${baseUrl}/dashboard/chat/sessions/crash-session`;
-    const toolBarrier = ['proposal', 'approval', 'start', 'effect', 'result', 'queue'].includes(scenario.barrier) && !scenario.force;
+    const toolBarrier = ['proposal', 'approval', 'start', 'effect', 'result', 'finalization', 'invalid_rejection', 'queue'].includes(scenario.barrier) && !scenario.force;
     pump = (async () => {
       try {
         while (!closing) {
           const response = await backend.nextRequest();
           if (closing) return;
-          if (!continuing && originalResponses++ === 0 && toolBarrier) {
-            if (scenario.barrier === 'queue') {
+          const shouldSendTool = !continuing && toolBarrier && originalResponses === 0;
+          if (shouldSendTool) {
+            const responseNumber = originalResponses++;
+            if (scenario.barrier === 'queue' && responseNumber === 0) {
               const enqueued = await requestJson(`${sessionUrl}/queue`, { method: 'POST', body: JSON.stringify({
                 id: randomUUID(), content: 'CRASH_STEERING_41', images: [], options: { operationKind: scenario.operationKind },
               }) });
               assert.equal(enqueued.statusCode, 200);
             }
             const name = scenario.operationKind === 'repo-agent' ? 'run' : 'read';
-            const args = name === 'run' ? { command: 'node --experimental-strip-types effect.ts' } : { path: 'evidence.txt' };
+            const args = scenario.barrier === 'invalid_rejection'
+              ? {}
+              : name === 'run' ? { command: 'node --experimental-strip-types effect.ts' } : { path: 'evidence.txt' };
             backend.write(response, { tool_calls: [{ index: 0, id: 'native-crash-call', type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
             backend.finish(response);
           } else if (!continuing && (scenario.barrier === 'text' || scenario.barrier === 'projection')) {
@@ -123,7 +129,7 @@ if (childConfig !== undefined) {
     const effects = (): number => existsSync(join(root, 'effects.txt'))
       ? z.array(z.literal('effect')).parse(readFileSync(join(root, 'effects.txt'), 'utf8').trim().split('\n')).length : 0;
     const effectCount = effects();
-    if (scenario.operationKind === 'repo-agent' && ['effect', 'result', 'queue'].includes(scenario.barrier) && !scenario.force) assert.equal(effectCount, 1);
+    if (scenario.operationKind === 'repo-agent' && ['effect', 'result', 'finalization', 'queue'].includes(scenario.barrier) && !scenario.force) assert.equal(effectCount, 1);
     else assert.equal(effectCount, 0);
     const requestCount = backend.requests.length;
     replacement = new ChatRecoveryProcess(fileURLToPath(import.meta.url), { ...processConfig, barrier: 'none', clockAdvanceMs: CHAT_OWNER_LEASE_MS + 1 });
@@ -142,8 +148,9 @@ if (childConfig !== undefined) {
       const tools = recovered.session.messages.filter(message => message.sourceRunId === barrier.operationId && message.kind === 'assistant_tool_call');
       if (toolBarrier) {
         assert.equal(tools.length, 1);
-        assert.equal(tools[0]?.toolCallExecutionState, ['proposal', 'approval'].includes(scenario.barrier) ? 'not_started'
-          : ['start', 'effect'].includes(scenario.barrier) ? 'uncertain' : 'completed');
+        assert.equal(tools[0]?.toolCallExecutionState, scenario.barrier === 'invalid_rejection' ? 'rejected'
+          : ['proposal', 'approval'].includes(scenario.barrier) ? 'not_started'
+            : ['start', 'effect'].includes(scenario.barrier) ? 'uncertain' : 'completed');
       }
     } finally { database.close(); }
     if (scenario.barrier === 'queue') {

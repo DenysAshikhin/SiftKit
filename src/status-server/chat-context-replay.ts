@@ -76,10 +76,13 @@ class ToolCallRecord {
   completed = false;
   rejected = false;
   represented = false;
+  private recoveryArguments: JsonObject | null;
   private output: string | null = null;
   private finalizedText: string | null = null;
 
-  constructor(readonly call: ChatToolCallIdentity, readonly toolName: string, readonly commandArguments: JsonObject) {}
+  constructor(readonly call: ChatToolCallIdentity, readonly toolName: string, commandArguments: JsonObject) {
+    this.recoveryArguments = commandArguments;
+  }
 
   get toolCallId(): string { return this.call.toolCallId; }
 
@@ -89,7 +92,14 @@ class ToolCallRecord {
     return this.started ? 'uncertain' : 'not_started';
   }
 
-  get retainsPayload(): boolean { return this.output !== null || this.finalizedText !== null; }
+  get retainsPayload(): boolean {
+    return this.recoveryArguments !== null || this.output !== null || this.finalizedText !== null;
+  }
+
+  get commandArguments(): JsonObject {
+    if (this.recoveryArguments === null) throw new Error(`Tool call ${this.call.displayToolCallId} no longer retains its arguments.`);
+    return this.recoveryArguments;
+  }
 
   recordOutput(output: string, rejected: boolean): void {
     this.completed = true;
@@ -103,6 +113,7 @@ class ToolCallRecord {
 
   markRepresented(): void {
     this.represented = true;
+    this.recoveryArguments = null;
     this.output = null;
     this.finalizedText = null;
   }

@@ -17,10 +17,11 @@ import { ChatOperationSnapshotReader } from '../../src/status-server/chat-operat
 import { getAddressInfo } from './dashboard-http.js';
 import { getDefaultServerConfig, mockModelPreset } from './mock-config.js';
 import { createTestChatSession } from './chat-sessions.js';
+import { ToolActionProcessor } from '../../src/repo-search/engine/tool-action-processor.js';
 
 export const RECOVERY_CHILD_ENV = 'SIFTKIT_TEST_CHAT_RECOVERY_CHILD';
 const CONTROL_PREFIX = 'CHAT_RECOVERY_CONTROL ';
-export const ChatRecoveryBarrierSchema = z.enum(['none', 'submission', 'text', 'proposal', 'approval', 'start', 'effect', 'result', 'projection', 'terminal', 'queue']);
+export const ChatRecoveryBarrierSchema = z.enum(['none', 'submission', 'text', 'proposal', 'approval', 'start', 'effect', 'result', 'finalization', 'invalid_rejection', 'projection', 'terminal', 'queue']);
 export const ChatRecoveryProcessConfigSchema = z.strictObject({
   root: z.string().min(1), providerUrl: z.string().url(), barrier: ChatRecoveryBarrierSchema,
   operationKind: ChatSessionOperationKindSchema, clockAdvanceMs: z.number().int().nonnegative(),
@@ -108,6 +109,18 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
     freeze('effect', this);
     result.call(this, evidence);
     freeze('result', this);
+  });
+  const finalized = ChatRunRecorder.prototype.recordToolResultFinalized;
+  mock.method(ChatRunRecorder.prototype, 'recordToolResultFinalized', function(this: ChatRunRecorder, evidence: Parameters<typeof finalized>[0]) {
+    finalized.call(this, evidence);
+    freeze('finalization', this);
+  });
+  const invalidResponse = ToolActionProcessor.prototype.recordInvalidResponse;
+  mock.method(ToolActionProcessor.prototype, 'recordInvalidResponse', function(this: ToolActionProcessor, turn: Parameters<typeof invalidResponse>[0], input: Parameters<typeof invalidResponse>[1]) {
+    const outcome = invalidResponse.call(this, turn, input);
+    if (target === null) throw new Error('Invalid response barrier has no target recorder.');
+    freeze('invalid_rejection', target);
+    return outcome;
   });
   const finish = ChatRunRecorder.prototype.finish;
   mock.method(ChatRunRecorder.prototype, 'finish', function(this: ChatRunRecorder, outcome: Parameters<typeof finish>[0]) {

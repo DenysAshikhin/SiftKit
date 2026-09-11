@@ -157,9 +157,10 @@ function isPrefix(before: readonly JsonSerializable[], after: readonly JsonSeria
 /** The suffix and metadata an append record may carry, or null when the row changed in any other way. */
 function textSuffix(before: ChatTranscriptMessage, after: ChatTranscriptMessage): { text: string; metadata: ChatTextRowMetadata } | null {
   if (!ChatTextRowKindSchema.safeParse(after.kind).success || !ChatTextRowKindSchema.safeParse(before.kind).success) return null;
-  if (after.content.length <= before.content.length || !after.content.startsWith(before.content)) return null;
+  if (after.content.length < before.content.length || !after.content.startsWith(before.content)) return null;
   const metadata = ChatTextRowMetadataSchema.strip().parse(after);
   if (!same({ ...before, ...metadata, content: '' }, { ...after, content: '' })) return null;
+  if (same(before, after)) return null;
   return { text: after.content.slice(before.content.length), metadata };
 }
 

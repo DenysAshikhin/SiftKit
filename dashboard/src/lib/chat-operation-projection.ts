@@ -99,7 +99,10 @@ export class ChatOperationProjection {
       if (staged) fail('terminal inside an open transfer');
       const committed = this.committed;
       if (!committed) fail('terminal before any committed view');
-      if (!advancesChatProjectionCursor(committed.cursor, record.cursor)) fail('terminal cursor regressed');
+      if (!sameCursor(committed.cursor, record.cursor)) fail('terminal cursor mismatch');
+      if (committed.snapshot.terminalCause !== null && committed.snapshot.terminalCause !== record.terminalCause) {
+        fail('terminal cause mismatch');
+      }
       this.finishedTransferIds.add(transferId);
       return { kind: 'terminal', terminal: record };
     }
@@ -141,6 +144,9 @@ export class ChatOperationProjection {
   private stageRecord(staged: Staged, record: Exclude<ChatProjectionRecord, { kind: 'begin' | 'commit' | 'terminal' | 'error' }>): void {
     switch (record.kind) {
       case 'message': {
+        if (staged.begin.mode === 'snapshot' && staged.messages.some(message => message.id === record.message.id)) {
+          fail('duplicate message id in snapshot');
+        }
         removeMessage(staged, record.message.id);
         insertAfter(staged, record.message, record.afterMessageId);
         return;

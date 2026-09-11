@@ -218,6 +218,27 @@ test('a broken attach refetches and reconnects without resubmitting the user tur
   } finally { fixture.restore(); }
 });
 
+test('a terminal refresh failure retains the committed live view for retry', async () => {
+  const committedBody = snapshotBody({ messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'committed answer')] })
+    + terminalBody();
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    operationStreams: [committedBody],
+    detailFailureRequestNumbers: [2],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => {
+      assert.ok(fixture.detailRequestCount >= 2);
+      assert.equal(hook.result.current.runtimeStore.get('s1').liveMessages[0]?.content, 'committed answer');
+    }, { timeout: 3000 });
+    assert.notEqual(hook.result.current.runtimeStore.get('s1').journalSnapshot, null);
+  } finally { fixture.restore(); }
+});
+
 class ChatFetchFixture {
   readonly queuedBodies: ChatQueueEnqueueRequest[] = [];
   readonly forcedBodies: string[] = [];
@@ -246,6 +267,7 @@ class ChatFetchFixture {
     activeOperations?: ActiveChatOperation[];
     operationStream?: string;
     operationStreams?: string[];
+    detailFailureRequestNumbers?: number[];
     holdOperationStream?: boolean;
     /** Rejects the first submitted turn as another client's, the way a live server would. */
     conflictOperationKind?: ActiveChatOperation['operationKind'];
@@ -297,6 +319,9 @@ class ChatFetchFixture {
       }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
+        if (this.options.detailFailureRequestNumbers?.includes(this.detailRequestCount)) {
+          return new Response(JSON.stringify({ error: 'Session refresh failed.' }), { status: 503 });
+        }
         const detail = this.settled ? this.options.streamResponse : this.options.detailResponse;
         const response = hasMultipleSessions ? { ...detail, session: requestedSession } : detail;
         return new Response(JSON.stringify(response), { status: 200 });
