@@ -35,14 +35,18 @@ import { assistantKeyFile, assistantRestoreUploadsDir } from '../src/assistant/l
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import {
-  closeRuntimeDatabase, getRuntimeDatabase, CURRENT_SCHEMA_VERSION,
+  closeRuntimeDatabase, getRuntimeDatabase, CURRENT_SCHEMA_VERSION, type RuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { archiveBytes, archiveEntries, archiveUploadPath } from './helpers/archive-bytes.js';
+import { archiveBytes, archiveEntries, archiveUploadPath, readArchiveEntries } from './helpers/archive-bytes.js';
+import { createTestChatSession } from './helpers/chat-sessions.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
@@ -525,4 +529,38 @@ test('restore runs through the service maintenance path and refreshes the owner 
   } finally {
     closeRuntimeDatabase();
   }
+});
+
+test('the snapshot carries the chat journal, and an assistant restore never rewrites it', async () => {
+  await withAssistantContextAsync(async (context) => {
+    seedOwnerAssertion(context, { objectName: 'Chi Tool' });
+    const session = createTestChatSession(context.runtimeRoot);
+    const recorder = createTestChatRunRecorder(context.runtimeRoot, session, getDefaultConfigObject());
+    recorder.recordContextInitialized({ messages: [{ role: 'user', content: 'find target' }], contextRevision: 0, turnBoundary: 0 });
+    recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+    recorder.readSession();
+    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
+
+    // The whole runtime database is snapshotted: every chat table is present, the journal with its rows.
+    const snapshotPath = path.join(context.runtimeRoot, 'snapshot-under-test.sqlite');
+    fs.writeFileSync(snapshotPath, (await readArchiveEntries(archiveUploadPath(backupBytes))).get('snapshot.sqlite') ?? Buffer.alloc(0));
+    const snapshot = new Database(snapshotPath, { readonly: true });
+    const chatTables = (database: RuntimeDatabase) => z.array(z.object({ name: z.string() })).parse(
+      database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'chat_%' ORDER BY name").all()).map(row => row.name);
+    try {
+      assert.deepEqual(chatTables(snapshot), chatTables(context.database));
+      for (const table of ['chat_runs', 'chat_run_events', 'chat_messages']) {
+        assert.ok(z.object({ n: z.number() }).parse(snapshot.prepare(`SELECT count(*) AS n FROM ${table}`).get()).n > 0, table);
+      }
+    } finally { snapshot.close(); }
+
+    // A chat run that lands after the backup survives an assistant restore untouched.
+    const later = createTestChatRunRecorder(context.runtimeRoot, session, getDefaultConfigObject());
+    later.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
+    const runsBefore = new ChatJournalStore(context.database).listSessionRuns(session.id).map(run => run.operationId);
+    const restores = restoreServiceFor(context);
+    const preview = await restores.preview(archiveUploadPath(backupBytes));
+    assert.deepEqual(await restores.confirm(preview.uploadId, preview.confirmToken), { ok: true, blobsReadable: true, warning: null });
+    assert.deepEqual(new ChatJournalStore(context.database).listSessionRuns(session.id).map(run => run.operationId), runsBefore);
+  });
 });

@@ -5,11 +5,11 @@ import path from 'node:path';
 import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   ChatToolResultsError,
-  readChatToolResults,
   requireDurableToolResult,
   type ChatToolResultsFailure,
 } from '../src/status-server/chat-tool-results.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { readChatToolResults } from './helpers/chat-tool-results.js';
 
 function isReaderFailure(reason: ChatToolResultsFailure): (error: Error) => boolean {
   return (error) => error instanceof ChatToolResultsError && error.reason === reason;

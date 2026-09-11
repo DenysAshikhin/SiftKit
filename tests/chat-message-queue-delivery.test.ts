@@ -18,10 +18,9 @@ import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/
 import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import type { ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.js';
+import type { ChatDeliveredMessage, ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import type { ChatQueuedMessage } from '../src/state/chat-message-queue.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
@@ -51,7 +50,7 @@ function session(): ChatSession {
 }
 
 class CaptureDelivery implements ChatMessageQueueDelivery {
-  readonly rows: ChatQueuedMessage[];
+  readonly rows: ChatDeliveredMessage[];
   snapshots: ChatMessage[][] = [];
   private consumed = false;
 
@@ -63,6 +62,7 @@ class CaptureDelivery implements ChatMessageQueueDelivery {
       id: `4f9c1f9a-0000-4000-8000-${String(index + 10).padStart(12, '0')}`,
       content: `queued ${index}`,
       images: [],
+      imageMeta: [],
       options: { operationKind: 'repo-search' },
       revision: 1,
       state: 'delivered',
@@ -72,7 +72,7 @@ class CaptureDelivery implements ChatMessageQueueDelivery {
     }));
   }
 
-  consume(_turn: number, transcript: TranscriptManager): ChatQueuedMessage[] {
+  consume(_turn: number, transcript: TranscriptManager): ChatDeliveredMessage[] {
     if (this.consumed) return [];
     this.consumed = true;
     for (const row of this.rows) transcript.pushUser(row.content, row.images);
@@ -80,7 +80,7 @@ class CaptureDelivery implements ChatMessageQueueDelivery {
     return this.rows;
   }
 
-  initial(): ChatQueuedMessage[] { return []; }
+  initial(): ChatDeliveredMessage[] { return []; }
 }
 
 test('initial queue delivery claims the fixed force snapshot only at the engine boundary', () => {
@@ -94,7 +94,7 @@ test('initial queue delivery claims the fixed force snapshot only at the engine 
     store.beginForce('session-1', { id: forceId, operationId: null }, '4f9c1f9a-0000-4000-8000-000000000003');
     const owner = new ChatMessageQueue(store, new ChatSessionOperationRegistry());
     const recorder = createTestChatRunRecorder(runtimeRoot, session(), mockSiftConfig());
-    const delivery = owner.createDelivery({ recorder, sessionId: 'session-1', requestId: 'admitted', operationKind: 'message', forceId });
+    const delivery = owner.createDelivery({ recorder, sessionId: 'session-1', requestId: 'admitted', operationKind: 'message', modelPreset: session().modelPreset, forceId });
     store.enqueue('session-1', message('4f9c1f9a-0000-4000-8000-000000000004', 'arrived after force'));
     assert.equal(store.get('session-1', id)?.state, 'pending');
     assert.deepEqual(delivery.initial().map((row) => [row.id, row.deliveredTurn, row.deliveredRequestId]), [[id, 0, 'admitted']]);
@@ -182,6 +182,7 @@ test('queue delivery claims and appends one FIFO snapshot at a post-tool boundar
       sessionId: 'session-1',
       requestId: 'request-1',
       operationKind: 'message',
+      modelPreset: session().modelPreset,
     });
     const transcript = new TranscriptManager({
       systemPromptContent: 'system',

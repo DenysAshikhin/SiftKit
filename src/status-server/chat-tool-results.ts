@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-import { PersistedChatTranscriptMessageSchema, RunOperationTypeSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
+import { RunOperationTypeSchema } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -354,13 +354,6 @@ function toOutcome(requestId: string, entry: TranscriptEvent, format: ToolResult
  * it never consults a scorecard, a browser preview, or the current state of the repository.
  * The format is established from the header and the events before any outcome is matched.
  */
-export function readChatToolResults(
-  database: DatabaseInstance,
-  requestId: string,
-): ChatToolResults {
-  return readChatToolResultsFromTranscript(readChatToolTranscript(database, requestId));
-}
-
 export function readChatToolResultsFromTranscript(transcript: ChatToolTranscript): ChatToolResults {
   const { requestId: normalizedRequestId, events } = transcript;
   if (transcript.parseError) throw transcript.parseError;

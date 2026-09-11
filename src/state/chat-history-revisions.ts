@@ -22,6 +22,13 @@ export function readChatCompactionRevisions(database: RuntimeDatabase, sessionId
   });
 }
 
+/** How many revisions the session has committed: the events, not the run rows a revision in progress has already begun. */
+export function readChatHistoryRevisionCount(database: RuntimeDatabase, sessionId: string): number {
+  return z.object({ n: z.number().int().nonnegative() }).parse(database.prepare(`
+    SELECT count(*) AS n FROM chat_run_events e JOIN chat_runs r ON r.operation_id=e.operation_id WHERE r.session_id=? AND e.kind='history_revised'
+  `).get(sessionId)).n;
+}
+
 export function readChatHistoryRevisions(database: RuntimeDatabase, sessionId: string): ChatHistoryRevision[] {
   return z.array(z.object({ body_json: z.string(), payload_digest: z.string(), event_id: z.string(), operation_id: z.string(),
     version: z.literal(CHAT_JOURNAL_EVENT_VERSION), record_kind: z.literal('history_revision') })).parse(database.prepare(`
@@ -49,7 +56,7 @@ export function recordChatHistoryRevision(database: RuntimeDatabase, sessionId: 
     store.begin({ operationId, sessionId, recordKind: 'history_revision', operationKind: null,
       ownerEpoch: 'history-edit', settings: null, provenance: null, createdAtUtc: now });
     store.append({ operationId, ownerEpoch: 'history-edit', expectedSequence: 0, eventId: 'revision', occurredAtUtc: now,
-      event: { kind: 'history_revised', revision, expectedSessionRevision: readChatHistoryRevisions(database, sessionId).length } });
+      event: { kind: 'history_revised', revision, expectedSessionRevision: readChatHistoryRevisionCount(database, sessionId) } });
     store.finish({ operationId, ownerEpoch: 'history-edit', terminalCause: 'completed', updatedAtUtc: now });
   })();
 }
@@ -138,8 +145,8 @@ function removeImageFromEvent(event: ChatJournalEvent, operationId: string, mess
   if (event.kind === 'run_started' && event.userMessageId === messageId) return { ...event,
     images: event.images.filter((_, index) => index !== imageIndex), imageMeta: event.imageMeta.filter((_, index) => index !== imageIndex) };
   if (event.kind === 'queue_delivered' && event.message.id === messageId) return { ...event,
-    message: { ...event.message, images: event.message.images.filter((_, index) => index !== imageIndex) },
-    imageMeta: event.imageMeta.filter((_, index) => index !== imageIndex) };
+    message: { ...event.message, images: event.message.images.filter((_, index) => index !== imageIndex),
+      imageMeta: event.message.imageMeta.filter((_, index) => index !== imageIndex) } };
   if (event.kind === 'context_initialized') return { ...event,
     messages: event.messages.map(message => removeImageFromNative(message, messageId, imageIndex, payload)) };
   if (event.kind === 'context_spliced') return { ...event,

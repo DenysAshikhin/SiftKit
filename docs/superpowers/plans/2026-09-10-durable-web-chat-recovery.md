@@ -248,12 +248,12 @@ Run `npm run build:test` before each focused runner invocation after changing te
 
 **Consumes:** Existing version 66/67 schemas and production CHECK definition. **Produces:** a tested next-version migration with canonical `chat_messages` constraints; migration module extended by Task 2 before rollout.
 
-- [ ] Add a fixture database at marker 67 with the actual `running/done` CHECK and representative messages in every column, indexes, and related session/queue rows. Include a second marker-67 fixture already accepting `stopped`.
-- [ ] Add a regression that opens the stale fixture through `getRuntimeDatabase`, saves a stopped tool row using the normal store, closes/reopens it, and checks every original row/column survives.
-- [ ] Assert the initial failure is the stale CHECK, not a missing fixture/import. Test rollback on injected copy failure and verify the schema marker does not advance.
-- [ ] Extract the canonical chat-table DDL/column list so fresh creation and the rebuild cannot drift. Rebuild with explicit column names; recreate indexes and check foreign keys. Do not use `SELECT *`, `writable_schema`, or a `tableHasColumn` guard as constraint migration.
-- [ ] Keep migration atomic, support 66→67→new version, and verify stale/already-correct definitions converge. Validate expected object/column layout; reject unsupported drift rather than discarding extra data.
-- [ ] Run focused tests and inspect the copied DB definitions and row equality.
+- [x] Add a fixture database at marker 67 with the actual `running/done` CHECK and representative messages in every column, indexes, and related session/queue rows. Include a second marker-67 fixture already accepting `stopped`.
+- [x] Add a regression that opens the stale fixture through `getRuntimeDatabase`, saves a stopped tool row using the normal store, closes/reopens it, and checks every original row/column survives.
+- [x] Assert the initial failure is the stale CHECK, not a missing fixture/import. Test rollback on injected copy failure and verify the schema marker does not advance.
+- [x] Extract the canonical chat-table DDL/column list so fresh creation and the rebuild cannot drift. Rebuild with explicit column names; recreate indexes and check foreign keys. Do not use `SELECT *`, `writable_schema`, or a `tableHasColumn` guard as constraint migration.
+- [x] Keep migration atomic, support 66→67→new version, and verify stale/already-correct definitions converge. Validate expected object/column layout; reject unsupported drift rather than discarding extra data.
+- [x] Run focused tests and inspect the copied DB definitions and row equality.
 
 ```ts
 assert.match(tableDefinition, /'stopped'/u);
@@ -272,13 +272,13 @@ assert.deepEqual(foreignKeyFailures, []);
 
 **Consumes:** Task 1 migration and existing runtime schemas. **Produces:** the store and event/row contracts in section 4.
 
-- [ ] Write storage regressions: begin/bind, append and reopen, identical retry, conflicting same-ID retry, stale sequence/owner, wrong-session binding, unknown version, and missing run.
-- [ ] Define a runtime schema for the existing planner message shape using reusable protocol content/tool schemas, derive `ChatMessage`, and migrate its type imports. This schema must exist before the journal's context event union references it; remove the old hand-maintained declaration without a compatibility re-export.
-- [ ] Add journal/context/recovery tables to the same unreleased upgrade. Add required FK/unique indexes; keep event and binding insertion transactional.
-- [ ] Implement strict event IO, sequence allocation and payload digest comparison. Generate operation binding before engine dispatch, never by later log search.
-- [ ] Enable FULL durability for journal writes and test the effective connection setting after repeated runtime DB access.
-- [ ] Commit source evidence separately from projection. Test a projection callback failure indirectly through the later projector boundary; store APIs must not require a function argument for projection.
-- [ ] Verify memory grows with the current pending write/page, not the lifetime of the conversation; use paged `readAfter`.
+- [x] Write storage regressions: begin/bind, append and reopen, identical retry, conflicting same-ID retry, stale sequence/owner, wrong-session binding, unknown version, and missing run.
+- [x] Define a runtime schema for the existing planner message shape using reusable protocol content/tool schemas, derive `ChatMessage`, and migrate its type imports. This schema must exist before the journal's context event union references it; remove the old hand-maintained declaration without a compatibility re-export.
+- [x] Add journal/context/recovery tables to the same unreleased upgrade. Add required FK/unique indexes; keep event and binding insertion transactional.
+- [x] Implement strict event IO, sequence allocation and payload digest comparison. Generate operation binding before engine dispatch, never by later log search.
+- [x] Enable FULL durability for journal writes and test the effective connection setting after repeated runtime DB access.
+- [x] Commit source evidence separately from projection. Test a projection callback failure indirectly through the later projector boundary; store APIs must not require a function argument for projection.
+- [x] Verify memory grows with the current pending write/page, not the lifetime of the conversation; use paged `readAfter`.
 
 ```ts
 assert.equal(first.sequence, 1);
@@ -298,12 +298,12 @@ assert.throws(() => store.append(staleOwnerWrite), /owner/u);
 
 **Consumes:** Journal context events. **Produces:** schema-derived `ChatMessage`, validated context splices, `replayChatContext`, `buildRecoveredChatHistory`.
 
-- [ ] Reuse Task 2's planner schema and inferred type throughout mutation/replay boundaries; add semantic role/tool-pair validation without creating another message type.
-- [ ] Add failing context round-trip tests for tool batches, rejected calls, finalized output replacement, empty output, multimodal content, inserted images, queued user steering, trailing-message replacement, thinking pruning, and compaction that preserves an unfinished turn.
-- [ ] Make all planner-history mutations explicit methods. Return a readonly view; eliminate caller-side array/object mutation. Serialize each validated splice with an expected context revision.
-- [ ] Implement replay of initial context and splices with revision/index/boundary validation. A gap or invalid mutation returns a recovery integrity error instead of partial silent context.
-- [ ] Reuse current system-prompt and retention policy behavior when building a new run, but source retained conversation history from the journal projection. Keep the current display reducer independent of provider message grouping.
-- [ ] Handle an interrupted batch by preserving complete results and producing explicit protocol-closing interruption messages for remaining calls. Distinguish never-started from uncertain execution in both context and display.
+- [x] Reuse Task 2's planner schema and inferred type throughout mutation/replay boundaries; add semantic role/tool-pair validation without creating another message type.
+- [x] Add failing context round-trip tests for tool batches, rejected calls, finalized output replacement, empty output, multimodal content, inserted images, queued user steering, trailing-message replacement, thinking pruning, and compaction that preserves an unfinished turn.
+- [x] Make all planner-history mutations explicit methods. Return a readonly view; eliminate caller-side array/object mutation. Serialize each validated splice with an expected context revision.
+- [x] Implement replay of initial context and splices with revision/index/boundary validation. A gap or invalid mutation returns a recovery integrity error instead of partial silent context.
+- [x] Reuse current system-prompt and retention policy behavior when building a new run, but source retained conversation history from the journal projection. Keep the current display reducer independent of provider message grouping.
+- [x] Handle an interrupted batch by preserving complete results and producing explicit protocol-closing interruption messages for remaining calls. Distinguish never-started from uncertain execution in both context and display.
 
 ```ts
 assert.deepEqual(replayChatContext(recordedEvents).messages, liveTranscript.getMessages());
@@ -323,13 +323,13 @@ assert.equal(toolExecutionCountAfterReplay, toolExecutionCountBeforeReplay);
 
 **Consumes:** Store and context mutation contracts. **Produces:** a concrete recorder bound to each Web engine request, complete lifecycle events, and commit-before-action ordering.
 
-- [ ] Add a test that fails the journal write before tool start and verifies the external command never runs. Add a second case where full result recording fails: no next model turn may consume an unrecorded result.
-- [ ] Record operation/request/repo-agent IDs separately and immutably. Bind before issuing model requests or exposing run identifiers.
-- [ ] Record typed tool proposals before approval, starts after durable authorization, and complete results before the next dependent operation. Reuse stable tool IDs assigned before review; store structured arguments directly.
-- [ ] Capture the exact `turn_command_result_finalized` replacement before it mutates command output/context. Preserve rejected calls and empty successful outputs. Include images and measured usage.
-- [ ] Attach recording at context mutation and semantic progress boundaries, not by reparsing terminal JSONL or SSE snippets. Make storage failure fatal to further work and separately reportable from provider failure.
-- [ ] Keep diagnostic logger behavior available to existing non-Web consumers, but remove the Web recorder's dependency on terminal `getText/persist`. Diagnostic events are not a second recovery path.
-- [ ] Add source-level caller checks/tests to ensure every Web engine entrypoint supplies the recorder. Do not silently accept a missing recorder for a Web request.
+- [x] Add a test that fails the journal write before tool start and verifies the external command never runs. Add a second case where full result recording fails: no next model turn may consume an unrecorded result.
+- [x] Record operation/request/repo-agent IDs separately and immutably. Bind before issuing model requests or exposing run identifiers.
+- [x] Record typed tool proposals before approval, starts after durable authorization, and complete results before the next dependent operation. Reuse stable tool IDs assigned before review; store structured arguments directly.
+- [x] Capture the exact `turn_command_result_finalized` replacement before it mutates command output/context. Preserve rejected calls and empty successful outputs. Include images and measured usage.
+- [x] Attach recording at context mutation and semantic progress boundaries, not by reparsing terminal JSONL or SSE snippets. Make storage failure fatal to further work and separately reportable from provider failure.
+- [x] Keep diagnostic logger behavior available to existing non-Web consumers, but remove the Web recorder's dependency on terminal `getText/persist`. Diagnostic events are not a second recovery path.
+- [x] Add source-level caller checks/tests to ensure every Web engine entrypoint supplies the recorder. Do not silently accept a missing recorder for a Web request.
 
 ```ts
 assert.deepEqual(observedOrder, ['proposal_committed', 'approval_committed', 'start_committed', 'execute', 'result_committed', 'next_model']);
@@ -347,13 +347,13 @@ assert.equal(modelCallsAfterResultCommitFails, 0);
 
 **Consumes:** Recorded display/context/tool events. **Produces:** deterministic incremental/rebuild display projection and extracted progress writer.
 
-- [ ] Write a regression that commits events, forces the message projection to throw, reopens storage, rebuilds, and compares all message content/IDs/order to a fault-free run.
-- [ ] Update persisted/display schemas to represent in-progress rows; remove the old rule that persistence implies terminal tool status. Keep model replay validation distinct.
-- [ ] Extend the shared reducer with full-result and lifecycle state support. Preserve current token-counter fixes, segment identity and retention behavior; never overwrite measured usage with a later text delta.
-- [ ] Extract `ChatStreamProgressWriter` from the route file. Delete its independent authoritative `transcriptMessages`/`getStoppedMessages` path. Coalesce text, commit, project, then publish.
-- [ ] Replace completed/stopped builders with `run_finished` plus reconciliation. Remove Web calls to terminal `hydrateTerminalChatMessages` and full-session reconstruction from telemetry scorecards.
-- [ ] Update projection rows incrementally by stable identity; advance checkpoint atomically with projection writes. Rebuild an affected run from zero without replacing unrelated session rows. Terminal replay is idempotent and does not generate a second answer or double usage.
-- [ ] Keep journal evidence committed if SQL projection fails. Return a recovery-needed status; continuation retries reconciliation before dispatch.
+- [x] Write a regression that commits events, forces the message projection to throw, reopens storage, rebuilds, and compares all message content/IDs/order to a fault-free run.
+- [x] Update persisted/display schemas to represent in-progress rows; remove the old rule that persistence implies terminal tool status. Keep model replay validation distinct.
+- [x] Extend the shared reducer with full-result and lifecycle state support. Preserve current token-counter fixes, segment identity and retention behavior; never overwrite measured usage with a later text delta.
+- [x] Extract `ChatStreamProgressWriter` from the route file. Delete its independent authoritative `transcriptMessages`/`getStoppedMessages` path. Coalesce text, commit, project, then publish.
+- [x] Replace completed/stopped builders with `run_finished` plus reconciliation. Remove Web calls to terminal `hydrateTerminalChatMessages` and full-session reconstruction from telemetry scorecards.
+- [x] Update projection rows incrementally by stable identity; advance checkpoint atomically with projection writes. Rebuild an affected run from zero without replacing unrelated session rows. Terminal replay is idempotent and does not generate a second answer or double usage.
+- [x] Keep journal evidence committed if SQL projection fails. Return a recovery-needed status; continuation retries reconciliation before dispatch.
 
 ```ts
 assert.deepEqual(rebuilt.messages, uninterrupted.messages);
@@ -372,13 +372,13 @@ assert.equal(rebuilt.messages.filter(message => message.kind === 'assistant_answ
 
 **Consumes:** Recorder/projector. **Produces:** one durable admission/terminal contract for all Web modes, atomic queue delivery.
 
-- [ ] Test that a submission is durable before HTTP acknowledgement/SSE `submitted`, including a run still waiting for the model lock.
-- [ ] Persist a run in admission before engine dispatch, enforce one active run per session in SQLite, and keep in-memory registry only for live process handles/subscribers.
-- [ ] Route message, plan, repo-search, repo-agent and non-streaming variants through the same recorder/projector. Move terminal ownership out of individual route-specific append functions; preserve their mode-specific execution/configuration behavior.
-- [ ] Couple queue claim and `queue_delivered` event in one database transaction. Preserve message IDs and exact delivery order/boundary; deduplicate initial forced delivery against submitted events.
-- [ ] Incorporate/delete delivered queue entries only after the journal proves delivery is durable. Separate retained pending messages from delivered history. Preserve force-request identity and pause semantics across failure.
-- [ ] Stop commits a terminal cause only after observing the execution boundary; if a tool cannot be conclusively joined, mark uncertain instead of inventing completion. Persist terminal state before releasing the session for a successor.
-- [ ] Ensure duplicate request/finish calls, simultaneous Stop/finish/Force, and two tabs cannot create duplicate turns or launch two active engines.
+- [x] Test that a submission is durable before HTTP acknowledgement/SSE `submitted`, including a run still waiting for the model lock.
+- [x] Persist a run in admission before engine dispatch, enforce one active run per session in SQLite, and keep in-memory registry only for live process handles/subscribers.
+- [x] Route message, plan, repo-search, repo-agent and non-streaming variants through the same recorder/projector. Move terminal ownership out of individual route-specific append functions; preserve their mode-specific execution/configuration behavior.
+- [x] Couple queue claim and `queue_delivered` event in one database transaction. Preserve message IDs and exact delivery order/boundary; deduplicate initial forced delivery against submitted events.
+- [x] Incorporate/delete delivered queue entries only after the journal proves delivery is durable. Separate retained pending messages from delivered history. Preserve force-request identity and pause semantics across failure.
+- [x] Stop commits a terminal cause only after observing the execution boundary; if a tool cannot be conclusively joined, mark uncertain instead of inventing completion. Persist terminal state before releasing the session for a successor.
+- [x] Ensure duplicate request/finish calls, simultaneous Stop/finish/Force, and two tabs cannot create duplicate turns or launch two active engines.
 
 ```ts
 assert.equal(savedUserMessages.filter(message => message.id === queuedId).length, 1);
@@ -397,12 +397,12 @@ assert.equal(successorLaunchesAfterUserStop, 0);
 
 **Consumes:** Run recorder, tool identities, durable operation owner. **Produces:** durable approval state/deadlines and safe terminal/restart behavior.
 
-- [ ] Use a controlled clock/test timer to prove expiry is exactly request time plus 600,000ms, unaffected by page attach or process reload.
-- [ ] Persist exact proposed action/review payload before emitting approval; persist the decision before unblocking execution. Use CAS so decision/timeout races have one winner.
-- [ ] Include requested/expiry times in shared response schemas. Separate displayed historical approval from actionable live binding.
-- [ ] On a stale run/approval decision, return a typed conflict containing current state. Never return success when no live engine can receive it.
-- [ ] Mark interrupted approvals when their owning process is dead; preserve their original deadline and decision history. A new continuation's new action requires a new approval identity.
-- [ ] Keep the current 10-minute limit; do not add a configurable/unlimited timeout as scope drift.
+- [x] Use a controlled clock/test timer to prove expiry is exactly request time plus 600,000ms, unaffected by page attach or process reload.
+- [x] Persist exact proposed action/review payload before emitting approval; persist the decision before unblocking execution. Use CAS so decision/timeout races have one winner.
+- [x] Include requested/expiry times in shared response schemas. Separate displayed historical approval from actionable live binding.
+- [x] On a stale run/approval decision, return a typed conflict containing current state. Never return success when no live engine can receive it.
+- [x] Mark interrupted approvals when their owning process is dead; preserve their original deadline and decision history. A new continuation's new action requires a new approval identity.
+- [x] Keep the current 10-minute limit; do not add a configurable/unlimited timeout as scope drift.
 
 ```ts
 assert.equal(Date.parse(approval.expiresAtUtc) - Date.parse(approval.requestedAtUtc), 600_000);
@@ -421,12 +421,12 @@ assert.equal(executionsAfterStaleApprovalSubmission, 0);
 
 **Consumes:** Journal/projector/context/approval lifecycle. **Produces:** startup, read and pre-continuation reconciliation.
 
-- [ ] Add reopen tests at each boundary: accepted submission, text committed, proposal awaiting review, start without result, result without display projection, terminal without final response.
-- [ ] Establish a unique server owner epoch and startup ordering after schema initialization/import and before requests/queue execution. Add a runtime-database owner lease with a fenced epoch, heartbeat and expiry; PID/port alone is insufficient because two servers can use different ports against the same database. Only its current owner may admit Web runs or classify them as orphaned. A takeover increments the epoch, and every old writer/tool authorization checks it before proceeding. Use a named 30-second lease and 5-second heartbeat with controlled-clock tests; wait for verified expiry before takeover rather than classifying a live owner's work as crashed.
-- [ ] Recover only orphaned runs. Reconcile events, mark interruption, close context batches, invalidate dead approval bindings, pause queued successors, and release stale active-run constraints. If storage is unavailable, fail readiness instead of marking evidence recovered.
-- [ ] Call `reconcileChatSession` for chat reads and before selecting model history. A malformed event leaves a visible recovery error and blocks continuation; missing projection rows alone trigger rebuilding.
-- [ ] Delete the old queue-only recovery path and evidence-unavailable synthetic message. Queue recovery becomes one part of journal reconciliation.
-- [ ] Ensure repeated startup/read/continue reconciliation changes neither message counts nor usage. Continue after interruption creates a new operation, retains the old terminal outcome, and appends the new user message once.
+- [x] Add reopen tests at each boundary: accepted submission, text committed, proposal awaiting review, start without result, result without display projection, terminal without final response.
+- [x] Establish a unique server owner epoch and startup ordering after schema initialization/import and before requests/queue execution. Add a runtime-database owner lease with a fenced epoch, heartbeat and expiry; PID/port alone is insufficient because two servers can use different ports against the same database. Only its current owner may admit Web runs or classify them as orphaned. A takeover increments the epoch, and every old writer/tool authorization checks it before proceeding. Use a named 30-second lease and 5-second heartbeat with controlled-clock tests; wait for verified expiry before takeover rather than classifying a live owner's work as crashed.
+- [x] Recover only orphaned runs. Reconcile events, mark interruption, close context batches, invalidate dead approval bindings, pause queued successors, and release stale active-run constraints. If storage is unavailable, fail readiness instead of marking evidence recovered.
+- [x] Call `reconcileChatSession` for chat reads and before selecting model history. A malformed event leaves a visible recovery error and blocks continuation; missing projection rows alone trigger rebuilding.
+- [x] Delete the old queue-only recovery path and evidence-unavailable synthetic message. Queue recovery becomes one part of journal reconciliation.
+- [x] Ensure repeated startup/read/continue reconciliation changes neither message counts nor usage. Continue after interruption creates a new operation, retains the old terminal outcome, and appends the new user message once.
 
 ```ts
 assert.equal(recoveredRun.terminalCause, 'server_restart');
@@ -445,12 +445,12 @@ assert.equal(providerCallsWhenRecoveryIsCorrupt, 0);
 
 **Consumes:** Journal cursor/snapshot contracts and reconciliation. **Produces:** bounded, lossless reconnect protocol with sequence identities.
 
-- [ ] Test a transcript larger than 8 MiB and a disconnect between snapshot capture and subscriber attachment. All messages must arrive exactly once after reconnect.
-- [ ] Replace retained-frame preamble with a paged consistent projected snapshot carrying operation ID/high-water sequence, then events after the cursor. Reuse SSE event IDs or a typed equivalent parsed by the client.
-- [ ] Buffer committed publications during snapshot sending; filter duplicates and catch gaps from the journal. Add slow-reader backpressure with a reconnect cursor, not silent truncation.
-- [ ] Make attach return durable terminal/interrupted state for finished operations. It must not require an in-memory registry entry to show their conversation.
-- [ ] Read approval state from durable evidence plus live binding. Remove approval-history replay suppression as the authority for current state; historical approval rows and the actionable card are distinct.
-- [ ] Update dashboard protocol parsers, snapshot application and affected fixtures in this task so the protocol change is complete and existing suites stay green. Remove `CHAT_OPERATION_REPLAY_MAX_BYTES`, `replayTruncated`, and old fallback/replay branches together. Task 10 builds user-facing interruption handling on this new protocol; it does not supply a missing compatibility branch.
+- [x] Test a transcript larger than 8 MiB and a disconnect between snapshot capture and subscriber attachment. All messages must arrive exactly once after reconnect.
+- [x] Replace retained-frame preamble with a paged consistent projected snapshot carrying operation ID/high-water sequence, then events after the cursor. Reuse SSE event IDs or a typed equivalent parsed by the client.
+- [x] Buffer committed publications during snapshot sending; filter duplicates and catch gaps from the journal. Add slow-reader backpressure with a reconnect cursor, not silent truncation.
+- [x] Make attach return durable terminal/interrupted state for finished operations. It must not require an in-memory registry entry to show their conversation.
+- [x] Read approval state from durable evidence plus live binding. Remove approval-history replay suppression as the authority for current state; historical approval rows and the actionable card are distinct.
+- [x] Update dashboard protocol parsers, snapshot application and affected fixtures in this task so the protocol change is complete and existing suites stay green. Remove `CHAT_OPERATION_REPLAY_MAX_BYTES`, `replayTruncated`, and old fallback/replay branches together. Task 10 builds user-facing interruption handling on this new protocol; it does not supply a missing compatibility branch.
 
 ```ts
 assert.deepEqual(reconnectedMessageIds, uninterruptedMessageIds);
@@ -469,13 +469,13 @@ assert.equal(replayStartedProviderRequests, 0);
 
 **Consumes:** Snapshot plus sequenced events. **Produces:** UI state that survives refresh/errors without duplicate rendering or context loss.
 
-- [ ] Add DOM/runtime tests where partial text/tool rows remain visible after error, then are replaced by an identical authoritative recovered snapshot. Test two tabs and stale frames from an earlier operation.
-- [ ] Track last applied sequence per operation. Replace snapshot state atomically; apply newer events once and refetch on gaps. Do not merge cumulative text by concatenating duplicate replay frames.
-- [ ] Remove terminal/error transitions that clear the only available transcript before a durable replacement arrives. Network error changes connection status; it is not evidence that the conversation is empty.
-- [ ] Present interrupted/uncertain tools accurately. Show the normal continuation composer with recovered history; disable only while reconciliation reports an integrity error. Preserve the original stopped/failed outcome.
-- [ ] Show the durable approval deadline and disable stale approvals whose execution binding ended. Refresh adopts live approval state without changing its expiry.
-- [ ] Preserve current token estimation/measurement and queued-message grouping changes. Keep presentation-only state such as scroll/collapse separate; do not serialize it into model context.
-- [ ] Verify Task 9 left no old replayTruncated handling or memory-only adoption paths. Extend the new strict parser/fixtures for recovery-error and uncertain-action presentation without retaining the old protocol.
+- [x] Add DOM/runtime tests where partial text/tool rows remain visible after error, then are replaced by an identical authoritative recovered snapshot. Test two tabs and stale frames from an earlier operation.
+- [x] Track last applied sequence per operation. Replace snapshot state atomically; apply newer events once and refetch on gaps. Do not merge cumulative text by concatenating duplicate replay frames.
+- [x] Remove terminal/error transitions that clear the only available transcript before a durable replacement arrives. Network error changes connection status; it is not evidence that the conversation is empty.
+- [x] Present interrupted/uncertain tools accurately. Show the normal continuation composer with recovered history; disable only while reconciliation reports an integrity error. Preserve the original stopped/failed outcome.
+- [x] Show the durable approval deadline and disable stale approvals whose execution binding ended. Refresh adopts live approval state without changing its expiry.
+- [x] Preserve current token estimation/measurement and queued-message grouping changes. Keep presentation-only state such as scroll/collapse separate; do not serialize it into model context.
+- [x] Verify Task 9 left no old replayTruncated handling or memory-only adoption paths. Extend the new strict parser/fixtures for recovery-error and uncertain-action presentation without retaining the old protocol.
 
 ```ts
 assert.equal(runtime.messages.find(message => message.id === partialId)?.content, 'partial answer');
@@ -494,15 +494,15 @@ assert.equal(recoveredUsage, uninterruptedMeasuredUsage);
 
 **Consumes:** Journal, current saved chats, exact archived run associations, existing tool-outcome parsers. **Produces:** deterministic import plus an inspectable repair tool.
 
-- [ ] Build a sanitized fixture structurally matching this incident: empty chat, delivered turn-41 steering, identified archive, compaction, final partial response, and separate repo-agent state with pending deletion. Do not check private transcript content into the repository.
-- [ ] Import saved chat baselines once, preserving existing IDs, images, compaction markers and measured usage. Treat already-projected complete runs as baselines, not additional turns to append again.
-- [ ] Reconstruct missing runs from validated request/archive evidence: initial submission, model text/reasoning according to policy, complete tool outcomes and finalization, queued messages at their actual boundaries, images, compaction and terminal outcome. Preserve native context grouping from `turn_new_messages`; reconcile the final response/results that have not yet appeared in the next turn's message log.
-- [ ] Import pending approval/state evidence only with verified identity/provenance. Distinguish the engine request ID from repo-agent session ID; never join by short prefixes alone.
-- [ ] Fail on duplicate/conflicting source text, mismatched call identity, malformed context, uncertain chronology, missing required image evidence, or ambiguous historical tool pairing. Report recoverable display prefix separately from model-continuation readiness.
-- [ ] Implement `--session-id`, `--request-id`, `--repo-agent-state`, `--dry-run`, `--apply`, and `--expected-digest`. Dry run is default and read-only. Apply uses validated unchanged evidence and an exclusive repair lease. Provide a machine-readable report with counts, known gaps, source hashes, target order and planned writes.
-- [ ] Move existing legacy tool-output parsing into the explicit importer as needed; remove `migrateRepoAgentHistory` from ordinary request paths. Delete the `repo-agent-history-v1:*` markers once their responsibility is replaced. Keep an explicit importer for historical data, with no automatic runtime fallback.
-- [ ] Validate the exact incident on a consistent backup/copy before any production apply. Compare 103 turns and 116 completed outcomes; the pending final command is an additional proposal, not a 117th executed result. Do not equate 61 automated verdicts with 61 human decisions.
-- [ ] Verify importing twice is a no-op and queue delivery is incorporated once. If any legacy evidence cannot be reconstructed exactly, state that in the report; do not invent missing pre-crash fragments.
+- [x] Build a sanitized fixture structurally matching this incident: empty chat, delivered turn-41 steering, identified archive, compaction, final partial response, and separate repo-agent state with pending deletion. Do not check private transcript content into the repository.
+- [x] Import saved chat baselines once, preserving existing IDs, images, compaction markers and measured usage. Treat already-projected complete runs as baselines, not additional turns to append again.
+- [x] Reconstruct missing runs from validated request/archive evidence: initial submission, model text/reasoning according to policy, complete tool outcomes and finalization, queued messages at their actual boundaries, images, compaction and terminal outcome. Preserve native context grouping from `turn_new_messages`; reconcile the final response/results that have not yet appeared in the next turn's message log.
+- [x] Import pending approval/state evidence only with verified identity/provenance. Distinguish the engine request ID from repo-agent session ID; never join by short prefixes alone.
+- [x] Fail on duplicate/conflicting source text, mismatched call identity, malformed context, uncertain chronology, missing required image evidence, or ambiguous historical tool pairing. Report recoverable display prefix separately from model-continuation readiness.
+- [x] Implement `--session-id`, `--request-id`, `--repo-agent-state`, `--dry-run`, `--apply`, and `--expected-digest`. Dry run is default and read-only. Apply uses validated unchanged evidence and an exclusive repair lease. Provide a machine-readable report with counts, known gaps, source hashes, target order and planned writes.
+- [x] Move existing legacy tool-output parsing into the explicit importer as needed; remove `migrateRepoAgentHistory` from ordinary request paths. Delete the `repo-agent-history-v1:*` markers once their responsibility is replaced. Keep an explicit importer for historical data, with no automatic runtime fallback.
+- [x] Validate the exact incident on a consistent backup/copy before any production apply. Compare 103 turns and 116 completed outcomes; the pending final command is an additional proposal, not a 117th executed result. Do not equate 61 automated verdicts with 61 human decisions.
+- [x] Verify importing twice is a no-op and queue delivery is incorporated once. If any legacy evidence cannot be reconstructed exactly, state that in the report; do not invent missing pre-crash fragments.
 
 ```ts
 assert.equal(report.completedToolResults, 116);
@@ -522,12 +522,12 @@ assert.equal(secondImport.changed, false);
 
 **Consumes:** Journal history-revision events and recovery. **Produces:** deletion/retention semantics that reconstruction cannot undo.
 
-- [ ] Add failing tests that delete a message/image or condense a chat, erase its derived projection in an isolated DB, then rebuild. Removed content must remain removed and compressed history must not re-enter model context.
-- [ ] Route all history-mutating Web endpoints through validated revision events/transactions. Preserve current user-visible deletion semantics, including whether deleting a message removes descendants; journal the same scope.
-- [ ] Pin or own image evidence while referenced by retained chat/context. Enforce current image-removal and thinking-retention policies in both durable history and continuation, including purging payloads when required.
-- [ ] Separate diagnostic run-log retention from conversation retention. Run-log deletion cannot destroy journal evidence needed by a chat; session deletion releases its journal/context/image references without harming other sessions.
-- [ ] Extend backup/restore to cover the new tables and schema version. Restore must perform migrations and owner-epoch recovery before accepting requests. Use the existing SQLite-aware backup mechanisms.
-- [ ] Remove obsolete Web terminal writer helpers, imports, tests that assert terminal-only durability, and queue-only startup recovery. Preserve assertions by moving them to the unified implementation; do not preserve wrappers forwarding to old code.
+- [x] Add failing tests that delete a message/image or condense a chat, erase its derived projection in an isolated DB, then rebuild. Removed content must remain removed and compressed history must not re-enter model context.
+- [x] Route all history-mutating Web endpoints through validated revision events/transactions. Preserve current user-visible deletion semantics, including whether deleting a message removes descendants; journal the same scope.
+- [x] Pin or own image evidence while referenced by retained chat/context. Enforce current image-removal and thinking-retention policies in both durable history and continuation, including purging payloads when required.
+- [x] Separate diagnostic run-log retention from conversation retention. Run-log deletion cannot destroy journal evidence needed by a chat; session deletion releases its journal/context/image references without harming other sessions.
+- [x] Extend backup/restore to cover the new tables and schema version. Restore must perform migrations and owner-epoch recovery before accepting requests. Use the existing SQLite-aware backup mechanisms.
+- [x] Remove obsolete Web terminal writer helpers, imports, tests that assert terminal-only durability, and queue-only startup recovery. Preserve assertions by moving them to the unified implementation; do not preserve wrappers forwarding to old code.
 
 ```ts
 assert.equal(rebuilt.messages.some(message => message.id === deletedId), false);
@@ -546,14 +546,14 @@ assert.equal(unrelatedSessionAfterDelete.id, unrelatedSessionBeforeDelete.id);
 
 **Consumes:** Completed implementation. **Produces:** independent crash-boundary evidence and bounded replay/performance measurements.
 
-- [ ] Spawn an isolated status-server child and controlled fake provider on ephemeral ports. Use explicit IPC barriers for committed events; kill only that test-owned child using the existing process-tree helper. Do not rely on cleanup/finally paths as the crash test.
-- [ ] Test hard termination after submission, partial text publication, tool proposal, approval commit, execution start, external side effect, full result commit, projection commit, terminal commit, and queue claim. Reopen the same isolated DB in a new child.
-- [ ] Submit Continue and capture the provider request. Assert original instructions, steering order, full tool outputs, image evidence, compaction summary and interruption notices are present exactly once and protocol tool pairs are valid.
-- [ ] Use a test-owned file/counter as the side effect. Verify recovery alone never increments it. A crash after the effect but before result commit must produce uncertain state and must not silently retry.
-- [ ] Cover normal message, plan, repo-search, repo-agent, condense and forced queue transitions with the same harness. Parameterize the mode/fault cases; do not invent a separate recovery implementation for tests.
-- [ ] Test browser disconnect without killing the server: the same operation continues and reconnects. Test actual server restart: a new continuation operation is required and the old approval is no longer actionable.
-- [ ] Run a synthetic 103-turn trace with 116 full results and a >8 MiB display history. Measure append latency, replay time, rows/bytes written and resident memory. Assert no per-token full-transcript rewrites, no lifetime SSE buffer, and indexed/paged reads. Record timing as measurements rather than flaky machine-specific wall-clock assertions.
-- [ ] Exercise simulated SQLITE_BUSY/FULL and projection exceptions using isolated DB/test harness controls; prove no uncommitted tool authorization or lost published prefix. Never fill the real disk to simulate SQLITE_FULL.
+- [x] Spawn an isolated status-server child and controlled fake provider on ephemeral ports. Use explicit IPC barriers for committed events; kill only that test-owned child using the existing process-tree helper. Do not rely on cleanup/finally paths as the crash test.
+- [x] Test hard termination after submission, partial text publication, tool proposal, approval commit, execution start, external side effect, full result commit, projection commit, terminal commit, and queue claim. Reopen the same isolated DB in a new child.
+- [x] Submit Continue and capture the provider request. Assert original instructions, steering order, full tool outputs, image evidence, compaction summary and interruption notices are present exactly once and protocol tool pairs are valid.
+- [x] Use a test-owned file/counter as the side effect. Verify recovery alone never increments it. A crash after the effect but before result commit must produce uncertain state and must not silently retry.
+- [x] Cover normal message, plan, repo-search, repo-agent, condense and forced queue transitions with the same harness. Parameterize the mode/fault cases; do not invent a separate recovery implementation for tests.
+- [x] Test browser disconnect without killing the server: the same operation continues and reconnects. Test actual server restart: a new continuation operation is required and the old approval is no longer actionable.
+- [x] Run a synthetic 103-turn trace with 116 full results and a >8 MiB display history. Measure append latency, replay time, rows/bytes written and resident memory. Assert no per-token full-transcript rewrites, no lifetime SSE buffer, and indexed/paged reads. Record timing as measurements rather than flaky machine-specific wall-clock assertions.
+- [x] Exercise simulated SQLITE_BUSY/FULL and projection exceptions using isolated DB/test harness controls; prove no uncommitted tool authorization or lost published prefix. Never fill the real disk to simulate SQLITE_FULL.
 
 ```ts
 assert.equal(sideEffectCountAfterRecovery, 1);
@@ -573,15 +573,15 @@ assert.deepEqual(refreshedTranscript, uninterruptedCommittedTranscript);
 
 **Consumes:** Tasks 1–13. **Produces:** verified release, migration/repair reports, and documented limits.
 
-- [ ] Run the relevant focused tests after final edits, then the broader applicable suites and static checks below. Record exact command status; typecheck invokes lint internally, but still run the explicitly required lint command.
-- [ ] Audit every Web operation path and all chat message writes. Prove there is no direct route-specific authoritative terminal writer, preview-to-model fallback, memory-only pending approval, or recovery that deletes queue provenance before journal import.
-- [ ] Verify deletion and retention tests, source schema validation, strict protocol migration, and no callback framework/type assertions introduced by the refactor.
-- [ ] Review legacy restructuring against section 7. Remove dead files/imports/constants/tests only after replacements cover their behavior. Preserve unrelated uncommitted changes.
-- [ ] Write operational instructions: what refresh does, what Continue restores, interrupted/uncertain command semantics, 10-minute approval deadline, retention, backup, exact-ID recovery, and explicit repair errors.
-- [ ] Produce a dry-run repair report for the affected chat using a consistent copy, including source identities/hashes, reconstructable counts, any gaps and expected inserted rows. Do not claim perfect historical reproduction if missing evidence prevents it.
+- [x] Run the relevant focused tests after final edits, then the broader applicable suites and static checks below. Record exact command status; typecheck invokes lint internally, but still run the explicitly required lint command.
+- [x] Audit every Web operation path and all chat message writes. Prove there is no direct route-specific authoritative terminal writer, preview-to-model fallback, memory-only pending approval, or recovery that deletes queue provenance before journal import.
+- [x] Verify deletion and retention tests, source schema validation, strict protocol migration, and no callback framework/type assertions introduced by the refactor.
+- [x] Review legacy restructuring against section 7. Remove dead files/imports/constants/tests only after replacements cover their behavior. Preserve unrelated uncommitted changes.
+- [x] Write operational instructions: what refresh does, what Continue restores, interrupted/uncertain command semantics, 10-minute approval deadline, retention, backup, exact-ID recovery, and explicit repair errors.
+- [x] Produce a dry-run repair report for the affected chat using a consistent copy, including source identities/hashes, reconstructable counts, any gaps and expected inserted rows. Do not claim perfect historical reproduction if missing evidence prevents it.
 - [ ] Before a production deployment/apply, stop new admissions, let active runs settle or explicitly stop them, take and verify a SQLite-aware backup, migrate, reconcile/import, then verify chat and continuation on the copy. Do not restore an older database over newer accepted writes as a casual rollback.
 - [ ] Only after separate deployment/data-write authorization, apply the reviewed migration/import to production and verify reads, cursor attach and a controlled continuation. Until then, deliver code/test evidence and the ready repair command; do not silently alter this user's real chat.
-- [ ] Clean only task-owned scratch artifacts and report changed files, checks, unresolved limitations, and whether production repair was performed.
+- [x] Clean only task-owned scratch artifacts and report changed files, checks, unresolved limitations, and whether production repair was performed.
 
 ## 6. Acceptance matrix and validation commands
 
@@ -622,19 +622,19 @@ Remove `repo-agent-history-repair` from the focused command only after its tests
 
 ## 7. Required legacy replacement checklist
 
-- [ ] Replace guarded CHECK addition/idempotent bootstrap as the repair mechanism with a real versioned table rebuild.
-- [ ] Replace terminal-only Web `appendChatRepoAgentMessages` / stopped-turn / scorecard reconstruction with journal projection; delete obsolete Web-only helpers after all callers migrate.
-- [ ] Replace `ChatStreamProgressWriter`'s in-memory authoritative transcript with recorder-backed events; extract it from the route file.
-- [ ] Replace display-row-to-native-tool-context reconstruction for new Web runs with exact typed context mutation replay. Move the current row reader into explicit legacy import where still needed.
-- [ ] Replace mutable externally owned planner arrays with `TranscriptManager` mutation ownership and a schema-derived planner message type.
-- [ ] Replace in-memory SSE replay as authority, its 8 MiB truncation contract, and associated browser branches with snapshot/cursor catch-up.
-- [ ] Replace in-memory run/approval state as the recovery authority; keep process handles only as liveness bindings.
-- [ ] Replace `recoverInterruptedChatQueue` and its evidence-unavailable insertion with unified journal recovery.
-- [ ] Replace automatic `repo-agent-history-v1` output-only repair with explicit baseline/archive migration and durable import provenance.
-- [ ] Remove dependence on terminal JSONL hydration for new Web tool results. Retain diagnostic archives as diagnostic exports/import evidence, not an alternate continuation source.
-- [ ] Migrate every chat edit/delete/image/condense writer so recovery cannot resurrect older content.
-- [ ] Make retention/backup/restore aware of journal ownership and referenced evidence; no deletion of the only chat source.
-- [ ] Preserve opaque legacy IDs and intentional retention rules; avoid unrelated renaming, model-policy changes, or CLI refactoring.
+- [x] Replace guarded CHECK addition/idempotent bootstrap as the repair mechanism with a real versioned table rebuild.
+- [x] Replace terminal-only Web `appendChatRepoAgentMessages` / stopped-turn / scorecard reconstruction with journal projection; delete obsolete Web-only helpers after all callers migrate.
+- [x] Replace `ChatStreamProgressWriter`'s in-memory authoritative transcript with recorder-backed events; extract it from the route file.
+- [x] Replace display-row-to-native-tool-context reconstruction for new Web runs with exact typed context mutation replay. Move the current row reader into explicit legacy import where still needed.
+- [x] Replace mutable externally owned planner arrays with `TranscriptManager` mutation ownership and a schema-derived planner message type.
+- [x] Replace in-memory SSE replay as authority, its 8 MiB truncation contract, and associated browser branches with snapshot/cursor catch-up.
+- [x] Replace in-memory run/approval state as the recovery authority; keep process handles only as liveness bindings.
+- [x] Replace `recoverInterruptedChatQueue` and its evidence-unavailable insertion with unified journal recovery.
+- [x] Replace automatic `repo-agent-history-v1` output-only repair with explicit baseline/archive migration and durable import provenance.
+- [x] Remove dependence on terminal JSONL hydration for new Web tool results. Retain diagnostic archives as diagnostic exports/import evidence, not an alternate continuation source.
+- [x] Migrate every chat edit/delete/image/condense writer so recovery cannot resurrect older content.
+- [x] Make retention/backup/restore aware of journal ownership and referenced evidence; no deletion of the only chat source.
+- [x] Preserve opaque legacy IDs and intentional retention rules; avoid unrelated renaming, model-policy changes, or CLI refactoring.
 
 ## 8. Self-review and delivery boundaries
 

@@ -90,3 +90,17 @@ test('selector fails loud for an unknown persisted preset id', () => {
     /Preset 'missing' was not found\./u,
   );
 });
+
+test('selector keeps a custom repo-agent preset and switches other kinds to built-in repo-agent', () => {
+  const catalog = PresetCatalog.createDefault();
+  const presets = [...catalog.list(), { ...catalog.requireById('repo-agent'), id: 'custom-agent', label: 'Custom Agent', builtin: false, deletable: true, maxTurns: 7 }];
+  const selector = new ChatOperationPresetSelector(presets);
+
+  const kept = selector.select(createSession('custom-agent', 'chat'), 'repo-agent');
+  assert.equal(kept.preset.id, 'custom-agent');
+  assert.equal(kept.preset.maxTurns, 7);
+
+  const switched = selector.select(createSession('plan', 'plan'), 'repo-agent');
+  assert.equal(switched.preset.id, 'repo-agent');
+  assert.equal(switched.session.presetId, 'repo-agent');
+});

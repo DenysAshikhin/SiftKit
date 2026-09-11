@@ -33,8 +33,9 @@ export function projectChatHistoryArchive(archive: ReturnType<typeof readChatHis
         if (!submission) throw new Error(`Archive line ${entry.lineNumber} has no original submission.`);
         const images = Array.isArray(submission.content)
           ? submission.content.flatMap(part => part.type === 'image_url' ? [ImageDataUrlSchema.parse(part.image_url?.url)] : []) : [];
+        // Legacy archives recorded image payloads but never their admission metadata.
         messages = reduceChatTranscript(messages, { kind: 'submission', message: {
-          id: buildChatMessageId(messageIdPrefix, { kind: 'user' }), content: extractContentText(submission.content), images,
+          id: buildChatMessageId(messageIdPrefix, { kind: 'user' }), content: extractContentText(submission.content), images, imageMeta: [],
         } }, metadata);
       }
       if (compacted) {
@@ -52,7 +53,7 @@ export function projectChatHistoryArchive(archive: ReturnType<typeof readChatHis
     if (entry.kind === 'queued_user_message') {
       const message = ChatStreamQueuedUserMessageSchema.parse({
         id: entry.event.id, turn: entry.event.turn, boundary: entry.event.boundary,
-        content: entry.event.content, images: entry.event.images,
+        content: entry.event.content, images: entry.event.images, imageMeta: [],
       });
       messages = reduceChatTranscript(messages, { kind: 'user_message', message }, metadata);
     }

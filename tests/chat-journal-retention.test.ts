@@ -14,6 +14,7 @@ import { buildRecoveredChatHistory } from '../src/status-server/chat-context-rep
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { readChatHistoryRevisionCount, readChatHistoryRevisions } from '../src/state/chat-history-revisions.js';
 import { startHarness } from './helpers/streamed-op-harness.js';
 import { requestJson, asObject, asObjectArray } from './helpers/dashboard-http.js';
 import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
@@ -327,4 +328,13 @@ test('deleted answer stays absent from display rebuild and retained model contex
   assert.notEqual(history.status, 'recovery_failed');
   assert.equal(JSON.stringify(history.messages).includes('removed answer'), false);
   assert.deepEqual(history.messages, [{ role: 'user', content: 'question' }]);
+});
+
+test('the session revision count is the number of committed history revisions', () => {
+  const { root, session, recorder, database } = savedImageRun();
+  assert.equal(readChatHistoryRevisionCount(database, session.id), 0);
+  // Deleting an image-bearing message records the image purge and the deletion itself.
+  assert.ok(deleteChatMessage(root, session.id, recorder.userMessageId));
+  assert.equal(readChatHistoryRevisionCount(database, session.id), 2);
+  assert.equal(readChatHistoryRevisionCount(database, session.id), readChatHistoryRevisions(database, session.id).length);
 });

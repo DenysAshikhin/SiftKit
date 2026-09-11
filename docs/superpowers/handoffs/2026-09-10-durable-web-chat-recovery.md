@@ -1,98 +1,77 @@
-# Durable web chat recovery — handoff (session 2)
+# Durable web chat recovery — handoff (session 3)
 
-Date: 2026-09-10. Implementation is **nearly complete; final validation and documentation are outstanding.**
+Date: 2026-09-10. Implementation, validation and documentation are **complete**; only the production repair/apply remains, and it is a separately authorized action that has **not** been performed.
 
-Plan: [2026-09-10-durable-web-chat-recovery.md](../plans/2026-09-10-durable-web-chat-recovery.md).
+Plan: [2026-09-10-durable-web-chat-recovery.md](../plans/2026-09-10-durable-web-chat-recovery.md) — every checkbox is reconciled against code; the two unchecked items are the production rollout/apply steps. Operational doc: [web-chat-recovery.md](../../web-chat-recovery.md).
 
-Base checkpoint: `8bdf83ec` (implementation) + `b045722e` (previous handoff). Everything below is **uncommitted working-tree state** (56 modified/deleted tracked files + 1 new test). Do not commit unless asked. `docs/superpowers/plans/2026-09-10-exl3-pinned-arena-windows-and-prod-resync.md` is an unrelated untracked file; leave it alone.
+Base checkpoint: `3b300bd9` (session-2 work, committed by the user). Everything below is uncommitted working-tree state. Do not commit unless asked. `docs/superpowers/plans/2026-09-10-exl3-pinned-arena-windows-and-prod-resync.md` is unrelated; leave it alone.
 
 ## Resume constraints
 
-- No SiftKit, no worktrees, no commits without request. Preserve unrelated work. Comments 1–2 lines max.
-- Repository TypeScript rules: runtime-validated IO, `z.infer` types, no `any`/assertions/non-null/namespace imports; complete replacements, no shims.
-- TDD; never weaken valid tests.
-- Scratch lives only in `.scratch/web-chat-recovery/` (447 files). Private incident evidence there must survive until closeout (see bottom). Never run tests against the real `.siftkit/runtime.sqlite` (`SIFTKIT_GUARD_RUNTIME_DATABASE` deny guard). Never restore an older copy over newer writes. Production repair is a separately authorized action and has **not** been performed.
+- No SiftKit, no worktrees, no commits without request. Comments 1–2 lines max. Preserve unrelated work.
+- Never run tests against the real `.siftkit/runtime.sqlite` (`SIFTKIT_GUARD_RUNTIME_DATABASE`). Never restore an older copy over newer writes. Production repair needs separate authorization.
 - Do not edit source while a full Node run is in progress (manifest-freshness checks).
 
-## Completed this session (all uncommitted)
+## Completed this session
 
-### Crash harness (Task 13, part)
-- `tests/status-server-chat-crash-recovery.test.ts` compiles: null native content handled via `messageText` helper (line 22).
-- `tests/helpers/chat-recovery-process.ts`: `BaseUrl: config.providerUrl` (was double `/v1` → 404 on `/v1/models`).
-- All 15 hard-crash cases pass (~2 s each).
+### Task 13 closure
+- `tests/chat-recovery-performance.test.ts` runs green: 996 rows / 28 MB journal, one delta per narration event, 116 `tool_result` rows, paged/indexed reads, replay reproduces 116 full results, 3 snapshot pages. Corrected expectations: rebuild status is `ok` (all tools completed), context replay is `recovery_needed` with exactly the partial-narration notice, narration before a tool start projects as `assistant_progress`. Diagnostic: append ≈2 s, replay ≈1.8 s, RSS +≈0.5 GiB (documented limitation).
+- New `tests/chat-recovery-storage-faults.test.ts`: `SQLITE_BUSY` (second connection holds `BEGIN IMMEDIATE`, busy timeout lowered on the test handle) and `SQLITE_FULL` (`PRAGMA max_page_count` on the temp DB). Both prove: the failing commit writes nothing, the published prefix is intact, the recorder's head does not drift, and the retried write lands at head+1. The "finish under pressure" assertion was dropped: `run_finished` is small enough to fit page headroom, so it is not deterministic.
 
-### Admission settings captured once (Task 6)
-- `ChatRunEffectiveSettingsSchema` gained `presetId`. `ChatWebSearchOverrideSchema` added in `packages/contracts/src/chat.ts`.
-- `chat-route-request-normalizers.ts`: `ChatMessageRequest.maxTurns/webSearchOverride`, `ChatRepoRequest.maxTurns`, `optionalMaxTurns`.
-- `chat-run-recorder.ts`: `buildChatRunSettings(...)` takes presetId/maxTurns/webSearchEnabled; `get settings()` throws if absent. `claimQueuedMessages` reads the session and admits images inside the claim transaction; `queue_delivered` carries `imageMeta` (schema, projection, revision purge updated).
-- `routes/chat.ts`: `describeChatMessageRun(session, value, config, webToolsAllowed)`; Create endpoint passes `false`, Stream `true`; condense uses `session.presetId`; `runChatEngineTurn` consumes `recorder.settings`; `readRouteNumber` removed.
-- `routes/chat-repo-agent.ts`: `selectRepoAgentPreset`; runner and endpoint read `recorder.settings` for `maxTurns`/`webToolsEnabled`.
-- `chat-session-operation-endpoint.ts`: `retainedHistoryRevision` = count of `readChatHistoryRevisions(...)` (no longer hardcoded 0). `chat-queue-successor.ts` forwards `maxTurns`/`webSearchOverride`.
-- Approval audit outcome: `approval_auto` verdicts are progress-only, not journaled approval events — documented limitation, diagnostic-only.
+### Review findings (13 raised; 11 fixed, 2 declined with rationale)
+1. Repo-agent preset selection now goes through `ChatOperationPresetSelector` (`ChatPresetOperation` gained `'repo-agent'`); `selectRepoAgentPreset` deleted. A chat-preset session now records the built-in repo-agent limit (100) explicitly; `status-server-chat-repo-agent` test updated accordingly.
+2. `imageMeta` flows through the reducer: `ChatSubmittedUserMessageSchema` and `ChatStreamQueuedUserMessageSchema` carry it, `reduceUserMessageEvent` sets it, the `queue_delivered` journal event holds it inside `message` (sibling field removed), task-loop emits it live, projection `.map` patches for user rows removed (tool-result patch stays — different event). Legacy archive paths pass `imageMeta: []`. `ChatDeliveredMessage` type in `queue-delivery.ts`.
+3. `chat-tool-results.ts`: unused imports trimmed (lint was red), `readChatToolResults` removed; tests use `tests/helpers/chat-tool-results.ts`.
+4. `maxTurns` / `webSearchOverride` are validated at admission (`ChatRunLimitsSchema`); invalid values → 400 (`ChatRequestRejection`). Repo-agent's duplicate `maxTurns` parse removed. Route test added.
+5. `readChatHistoryRevisionCount` (counts `history_revised` events — counting `chat_runs` was off by one inside the revision transaction); used by the writer and `beginRun`, which now opens one database handle.
+6. `admitChatImages(preset, images)` shared by admission and queue claim; `claimQueuedMessages(sessionId, input, modelPreset, forceId?)` takes the run's preset from the caller (`QueueDeliveryOptions.modelPreset`; `StartRepoAgentRunInput.queue = { owner, sessionId, modelPreset, forceId }`). The recorder no longer reads the session file inside the transaction.
+8. `allowedTools` derives from `settings.webSearchEnabled`; `webToolsAllowed` removed from `runChatEngineTurn` (equivalent under `applyWebToolPolicy`).
+9. `ChatTurnTelemetry` collapsed to `countChatInputTokens(tokenConfig, content)`.
+10. Recorder `settings` is a readonly constructor field (`begin` from input, `resume` from the run row; a settings-less record cannot be resumed).
+12. `chat-history-import.ts`: stray docblock moved, dead `typeof` guard and forwarding wrapper removed.
+13. Successor `parsedBody` carries only mock/test fields; limits go through `value` alone.
+- **Declined 7** (history-revision wake-up placement): the durable write lives in the state layer with no broadcast access; a callback hook is forbidden; the subscriber interface is the single wake channel.
+- **Declined 11** (condense via selector): condense deliberately runs under the session's own preset; `webSearchEnabled: false` is a fact of condense, not a fallback.
 
-### Live history mutation wake-ups
-- `ChatOperationSubscriber.onHistoryRevised()`; `ChatOperationBroadcast.notifyHistoryRevised()`; SSE subscriber marks dirty and pumps; delete-message, delete-image, and caption endpoints notify. Tests in `status-server-chat-stop.test.ts` ("deleting a projected message wakes attached readers") and `chat-operation-broadcast.test.ts`.
+### Task 11 incident revalidation (copy only)
+Rebuilt `.scratch/web-chat-recovery/apply-incident-copy.mjs` (`npx esbuild … --bundle --format=esm --platform=node --target=node24 --packages=external`) and ran `node .scratch/web-chat-recovery/apply-incident-copy.mjs` with the production guard set. Fresh copy `incident-repair-validation-5b774eb3-….sqlite`: 231 messages (229 inserted + 2 saved), second apply `changed: false`, integrity/FK clean, native context `ok`, 0 delivered queue rows, `executedToolsDuringImport: 0`, `continuationReady: true`, terminal `approval_timeout`, payload SHA-256 `6d7ea62c…` matches. Regenerated `incident-repair-report.json`. Production `.siftkit/runtime.sqlite` mtime unchanged.
 
-### Task 11 CLI E2Es
-- `tests/chat-history-import.test.ts`: `runRecoveryCommand` + apply / repeat / stale-input / failure cases pass.
+### Task 12 backup/restore audit
+Pinned by a new test in `tests/assistant-backup-restore.test.ts`: the online snapshot carries every `chat_%` table with journal rows; an assistant restore leaves later chat runs untouched.
 
-### Task 12 cleanup
-- Deleted: `src/status-server/repo-agent-history-repair.ts`, `tests/repo-agent-history-repair.test.ts`, `scripts/analysis/repair-repo-agent-history.ts`.
-- `src/status-server/chat.ts`: obsolete terminal writers removed; exports `trimText`, `shouldPreserveThinking`, `selectReplayableChatMessages`. Pre-cleanup copy at `.scratch/web-chat-recovery/chat.ts.before-cleanup`.
-- Baseline reader `buildChatHistoryMessages` moved into `chat-history-import.ts` (import ownership).
-- `chat-tool-results.ts`: `hydrateChatToolMessages`/`hydrateTerminalChatMessages` removed. `chat-turn-telemetry.ts`: dead helpers removed.
-- Schema **68→69**: `retireRepoAgentHistoryRepairMarkers` deletes `runtime_metadata` keys `repo-agent-history-v1:%`; `CURRENT_SCHEMA_VERSION = 69`; upgrade test added in `runtime-db-schema.test.ts`.
-- 27 legacy tests removed across `chat-sessions-db`, `status-server-chat`, queue-delivery, image-retention, tool-results (they exercised deleted writers); fixtures updated with `presetId`/`webSearchEnabled`.
-- Dashboard grep found no remaining `replayTruncated`/raw-event branches.
+### Task 14
+- `docs/web-chat-recovery.md` written (journal model, projections, refresh/Continue matrix, revisions/retention, backup, CLI repair, limitations incl. auto-approval provenance and replay memory).
+- Plan checkboxes reconciled (95 checked; production steps open).
 
-### Validation evidence (`.scratch/web-chat-recovery/`)
-- `cleanup-green3.log`: targets `chat- runtime-db-schema status-server-chat approval-gate image-retention operation-stream assistant-backup-restore dashboard-run-log-admin` → **858 pass / 0 fail** after cleanup.
-- `resume-typecheck1.log`: typecheck + lint clean **before** cleanup; main-project `tsc` and eslint on touched modules clean **after** cleanup. Full `npm run typecheck` / `npm run lint` not rerun since.
+## Validation (this session, independent runs)
 
-## Immediate next step
+| Command | Result |
+| --- | --- |
+| `npm run build` | exit 0 |
+| `npm run build:test` | exit 0 |
+| `node dist/test-runner/run-tests.js chat- runtime-db-schema approval-gate status-server-chat` | 820 pass / 0 fail |
+| broad set (`… image-retention operation-stream assistant-backup-restore dashboard-run-log-admin image-input-surfaces engine-tool-action-processor repo-agent`) | 1103 pass / 0 fail (`review-fixes-run2.log`) |
+| `status-server-chat-crash-recovery chat-recovery-performance chat-recovery-storage-faults …` | 42 pass / 0 fail |
+| `assistant-backup-restore` | 24 pass / 0 fail |
+| `node dist/test-runner/run-tests.js --dashboard` | 519 pass / 1 fail — pre-existing `memory summary reports context, chunk size and KV cache mode` |
+| `npm run typecheck` (includes lint) | exit 0 |
+| `npm run lint` | exit 0 |
+| `npm test` | 3874 pass / 2 fail: `chat route request normalizers return typed values` (stale expectation from session 2, fixed; file now 7/0) and `terminal metadata idle wait reports stuck queue state at its ceiling` (pre-existing at HEAD — regex predates the `direct=0` field from `8062cf9e`; unrelated, left alone) |
+| `npm --prefix dashboard run build` | exit 0 |
 
-`tests/chat-recovery-performance.test.ts` was just written (Task 13 measurement test) and **has not been built or run**. Run:
+## Gotchas learned
 
-```
-npm run build:test 2>&1 | tail -40
-node dist/test-runner/run-tests.js chat-recovery-performance
-```
-
-Expected fix-ups: `recordContextSpliced` inserted-message shape for `tool_calls`, `recordToolProposed`/`recordToolResult` field names, `rebuildChatRun` return shape (`status`), `ChatOperationSnapshotReader.capture` signature, `pageChatOperationSnapshot` page fields (`messages`, `complete`), `mockModelPreset` overrides. Adjust the test to the real APIs — do not add shims. Assertions: rows == `latestSequence`, bytes > 8 MiB, 309 narration events each carrying exactly one delta, 116 `tool_result` rows, `readAfter` page == `CHAT_JOURNAL_READ_PAGE_SIZE`, contiguous `readAll`, indexed `EXPLAIN QUERY PLAN`, replay yields 116 full tool messages, snapshot pages ≤100 messages and >1 page, `t.diagnostic` timing/rss (no timing thresholds).
-
-## Remaining work, in order
-
-1. **Fault coverage (Task 13).** SQLITE_BUSY (hold a write lock from a second connection while the recorder commits; expect a structured failure, no partial publish) and SQLITE_FULL (isolated: e.g. `PRAGMA max_page_count` on a temp DB — never fill the real disk); projection failure, authorization failure, and published-prefix preservation on recovery error. Consider adding a timeout to the kill path in `tests/helpers/chat-recovery-process.ts` (currently awaits exit unbounded).
-2. **Incident revalidation (Task 11).** Copy `.scratch/web-chat-recovery/incident-copy.sqlite` to a fresh file, run the current importer against the copy only (see `apply-incident-copy.ts`; rebuild its `.mjs` bundle first), regenerate a sanitized `incident-repair-report.json`, record the exact reviewed command. No production apply.
-3. **Backup/restore audit (Task 12).** `assistant-backup-restore` passed in the broad run; confirm the full runtime DB backup/restore path carries `chat_runs`/`chat_run_events`/recovery/owner-lease tables and that assistant-only `RestoreService` does not become a full chat restore.
-4. **Task 14.** Write `docs/web-chat-recovery.md` (journal model, recovery/attach flow, revision/purge semantics, CLI repair, limitations incl. auto-approval provenance). Reconcile plan checkboxes against code. Then run independently and record status:
-   - `npm run build`, `npm run build:test`
-   - `node dist/test-runner/run-tests.js chat- runtime-db-schema approval-gate status-server-chat`
-   - `node dist/test-runner/run-tests.js --dashboard` (known pre-existing failure: `memory summary reports context, chunk size and KV cache mode` — do not weaken)
-   - `npm test`, `npm run typecheck`, `npm run lint`, `npm --prefix dashboard run build`
-5. **Closeout.** Delete task-owned scratch logs/scripts; keep private incident evidence listed below unless the user says otherwise. Final report: changed files, checks run with results, limitations, and that production repair was not performed.
-
-## Gotchas learned this session
-
-- `python` is unavailable in Git Bash; use node/perl or the Edit tool. Multi-line bash heredocs containing `'` fail in this shell — use the Write tool for new files.
-- Admission `retainedHistoryRevision` test expects `[0, 2]`: image purge and message deletion each record a revision.
-- Live-wake partial text can arrive in a `projection` frame rather than `snapshot`; read from either.
-- Stop detail lives in `runTerminalDetail`, not `content` (`chat-usage-stream-frame.test.ts`).
-- `readChatRunMessages` rows are empty until `recorder.readSession()` (projection) runs.
-- Compaction replay rows carry stable `chatMessageId` (e.g. `'s0'`).
-- `git stash` to compare against baseline is unsafe: baseline does not compile (crash harness). Working tree was restored intact.
+- `readAfter` honours the caller's limit; only `readAll` clamps to `CHAT_JOURNAL_READ_PAGE_SIZE`.
+- A run interrupted after narration but before the assistant text reached planner history replays as `recovery_needed` with the partial-answer notice, even when every tool completed.
+- `assert.throws` validator callbacks typed `unknown` trip the lint ban; use object matchers (`{ code: 'SQLITE_BUSY' }`).
+- perl `s{}{}` edits break on unbalanced braces/backticks in TypeScript; use `#` delimiters or the Edit tool.
+- Counting revisions from `chat_runs` inside `recordChatHistoryRevision` is off by one (the run row is begun before the event is appended).
+- `StartRepoAgentRunInput.modelPreset` is optional; the queue linkage requires it, hence the grouped `queue` object.
 
 ## Private evidence to preserve (do not commit)
 
-- `.scratch/web-chat-recovery/incident-copy.sqlite` (schema-68 consistent copy, not imported), `incident-repair-report.json` (historical; regenerate), `apply-incident-copy.ts/.mjs`, `incident-database-comparison.json`, `native-pairing-diagnostics.json`, `incident-shape.json`, `archive-context-shape.json`, `HANDOFF.md`.
-- `incident-repair-validation-563ffea0-….sqlite` is obsolete (pre-`repairDigest`); create a fresh validation copy.
-- Incident identity: request `706f2e52-01ec-4e62-9dc0-b7ced282e27e`, repo-agent session `074bbeb7-88aa-4412-8e38-94ad8bf1cf80`, chat `3e3b5cf7-39ce-438b-8d6c-1031056e471d`, artifact `9d5ca37a-45d6-4c61-bf28-6044e9da93da`; payload 1,919,450 bytes, SHA-256 `6d7ea62c4e83fa6ba443082aa2df919798a2119dbe2d33026519953677b91de4`. 103 turns / 116 outcomes = 115 executed + 1 duplicate-rejected. Earlier copy-only repair: 231 display messages, idempotent, clean integrity/FK.
-- The real `.siftkit/runtime.sqlite` was migrated 67→68 by an earlier inadvertent open; it will migrate to 69 on next legitimate open. No intentional production import/repair has been applied.
+`.scratch/web-chat-recovery/`: `incident-copy.sqlite`, `incident-repair-validation-5b774eb3-890f-4083-a554-84997a7faf30.sqlite` (fresh, current importer), `incident-repair-report.json` (regenerated), `apply-incident-copy.ts/.mjs`, `incident-database-comparison.json`, `native-pairing-diagnostics.json`, `incident-shape.json`, `archive-context-shape.json`, `HANDOFF.md`, `incident-copy-apply-session3.log`, plus the small inspection scripts that produced the evidence (`inspect-*.ts/.mjs`, `compare-incident-databases.ts`, `prepare-incident-repair.*`, `validate-incident-migration.*`). All other scratch logs/scripts were deleted at closeout. Incident identity: request `706f2e52-01ec-4e62-9dc0-b7ced282e27e`, repo-agent session `074bbeb7-88aa-4412-8e38-94ad8bf1cf80`, chat `3e3b5cf7-39ce-438b-8d6c-1031056e471d`, artifact `9d5ca37a-45d6-4c61-bf28-6044e9da93da`.
 
-## Feedback verdicts to preserve
+## Remaining
 
-- JSON message handling already ingests memory via `ChatMessageTurn.respond()`; consolidation keeps one ingestion.
-- `getRuntimeDatabasePath(runtimeRoot)` may append `.siftkit` to an already-resolved root; do not mechanically replace explicit joins.
-- Internal queue rows vs public editable DTOs are distinct shapes.
-- Stream chunk limits are UTF-16 code units; journal page limits and display snapshot page limits are different concerns.
-- Strict tool replay accepts a completed result without a start when the result itself is positive evidence.
+Production repair only, under separate authorization: stop admissions, back up, migrate (67/68→69 on open), run the dry run with the exact incident arguments, apply with `--expected-digest` + new `--backup`, verify reads/attach/continuation.

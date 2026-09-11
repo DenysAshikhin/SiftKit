@@ -25,9 +25,9 @@ function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueC
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
   const database = getRuntimeDatabase(databasePath);
   const prior = new ChatJournalStore(database).listSessionRuns(sessionId).find(run => run.requestId === input.requestId);
-  if (prior) return ChatRunRecorder.resume(databasePath, prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input);
   const saved = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
   assert.ok(saved);
+  if (prior) return ChatRunRecorder.resume(databasePath, prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input, saved.modelPreset);
   const initial = new ChatMessageQueueStore(database).listPending(sessionId).find(message => input.ids === null || input.ids.includes(message.id));
   assert.ok(initial);
   const recorder = ChatRunRecorder.begin(databasePath, {
@@ -36,7 +36,7 @@ function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueC
     settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', presetId: 'chat', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
   });
   recorder.bindEngine({ requestId: input.requestId, repoAgentSessionId: null });
-  return recorder.claimQueuedMessages(sessionId, input);
+  return recorder.claimQueuedMessages(sessionId, input, saved.modelPreset);
 }
 
 function recoverRecordedQueue(runtimeRoot: string): void {

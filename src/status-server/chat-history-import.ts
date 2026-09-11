@@ -58,10 +58,6 @@ export function importChatSessionBaseline(database: RuntimeDatabase, session: Ch
 }
 
 /**
- * Legacy saved rows read as planner context. This reader exists only for the one-time baseline
- * import; ordinary continuation replays the journal.
- */
-/**
  * Deleted attachments are stored as a count, never written into the message text. The notice
  * is composed here so the model does not read a dangling reference to an image that is gone.
  */
@@ -75,6 +71,7 @@ function appendRemovedImageNotice(content: string, removedImageCount: number): s
   return content ? `${content}\n${notice}` : notice;
 }
 
+/** Legacy saved rows read as planner context: used only by the one-time baseline import. */
 export function buildChatHistoryMessages(
   config: SiftConfig,
   session: ChatSession,
@@ -147,19 +144,8 @@ export function buildChatHistoryMessages(
 }
 
 function buildReplayToolCallId(messageId: string): string {
-  const raw = typeof messageId === 'string' ? messageId : randomUUID();
-  const safe = raw.replace(/[^A-Za-z0-9_-]/gu, '_');
+  const safe = messageId.replace(/[^A-Za-z0-9_-]/gu, '_');
   return `chat_tool_${safe}`;
-}
-
-/**
- * The persisted result is replayed exactly as it was inserted — no trimming, no refitting, and
- * never the preview. A completed row without its full result is a history-integrity failure that
- * names the row; replaying a 200-character preview there is what made a stopped run forget what
- * it read.
- */
-function resolveReplayToolOutput(message: ReplayableChatMessage & { kind: 'assistant_tool_call' }): string {
-  return requireDurableToolResult(message);
 }
 
 function appendReplayToolMessages(
@@ -169,7 +155,8 @@ function appendReplayToolMessages(
   thinkingMessageId: string | undefined,
 ): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
-  const output = resolveReplayToolOutput(message);
+  // Replayed exactly as inserted, never the preview: a completed row without its result fails loudly.
+  const output = requireDurableToolResult(message);
   const toolCallId = buildReplayToolCallId(message.id);
   history.push({
     role: 'assistant',

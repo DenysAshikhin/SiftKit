@@ -36,6 +36,7 @@ import type { MockPlannerResponseInput } from '../../planner-protocol/mock-respo
 import type { ChatRunRecorder } from '../chat-run-recorder.js';
 import { requireChatRunRecorder } from './chat-session-operation-endpoint.js';
 import type { ChatMessageQueue } from '../chat-message-queue.js';
+import type { ModelRuntimePreset } from '../../config/types.js';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
@@ -97,9 +98,8 @@ export type StartRepoAgentRunInput = {
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
-  queueOwner?: ChatMessageQueue;
-  queueSessionId?: string;
-  queueForceId?: string;
+  /** Chat-launched runs consume their session's queue; queued images are admitted against the run's preset. */
+  queue?: { owner: ChatMessageQueue; sessionId: string; modelPreset: ModelRuntimePreset; forceId?: string };
   /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
   evidenceRecorder?: ChatRunRecorder;
 };
@@ -162,14 +162,15 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       ...(input.history === undefined ? {} : { history: input.history }),
       ...(input.evidenceRecorder === undefined ? {} : { evidenceRecorder: input.evidenceRecorder }),
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
-      ...(input.queueOwner && input.queueSessionId
+      ...(input.queue
         ? {
-          queueDelivery: input.queueOwner.createDelivery({
+          queueDelivery: input.queue.owner.createDelivery({
             recorder: requireChatRunRecorder({ recorder: input.evidenceRecorder ?? null }),
-            sessionId: input.queueSessionId,
+            sessionId: input.queue.sessionId,
             requestId: admission.requestId,
             operationKind: 'repo-agent',
-            forceId: input.queueForceId,
+            modelPreset: input.queue.modelPreset,
+            forceId: input.queue.forceId,
           }),
         }
         : {}),

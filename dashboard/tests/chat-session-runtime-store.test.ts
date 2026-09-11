@@ -14,7 +14,7 @@ test('operation token metadata survives disconnects and clears when an authorita
     .apply({ kind: 'usage', sessionId: 's1', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) });
   const tokenTurns = store.get('s1').tokenTurns;
   const queued = store.apply({ kind: 'queued-submit', sessionId: 's1', content: 'queued', images: [] })
-    .apply({ kind: 'queued-user', sessionId: 's1', message: { id: OPERATION_ID, content: 'queued', images: [], turn: 2, boundary: 'post_tool_batch' } })
+    .apply({ kind: 'queued-user', sessionId: 's1', message: { id: OPERATION_ID, content: 'queued', images: [], imageMeta: [], turn: 2, boundary: 'post_tool_batch' } })
     .apply({ kind: 'draft', sessionId: 's1', draft: 'next' })
     .apply({ kind: 'warning', sessionId: 's1', text: 'warning' });
   assert.equal(queued.get('s1').tokenTurns, tokenTurns);
@@ -37,7 +37,7 @@ test('queued delivery keeps stable FIFO bubbles and completion preserves the nex
     .apply({ kind: 'submit', sessionId: 's1', content: 'original', images: [] })
     .apply({ kind: 'draft', sessionId: 's1', draft: 'still typing' });
   for (const id of ['4f9c1f9a-0000-4000-8000-000000000001', '4f9c1f9a-0000-4000-8000-000000000002']) {
-    const message = { id, content: id, images: [], turn: 1, boundary: 'post_tool_batch' as const };
+    const message = { id, content: id, images: [], imageMeta: [], turn: 1, boundary: 'post_tool_batch' as const };
     store = store.apply({ kind: 'queued-user', sessionId: 's1', message })
       .apply({ kind: 'queued-user', sessionId: 's1', message });
   }

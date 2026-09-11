@@ -415,7 +415,7 @@ test('chat repo-agent omission uses the built-in 100-turn default', async (t) =>
   assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 100);
 });
 
-test('chat sessions using the ordinary chat preset keep direct-hook default resolution', async (t) => {
+test('chat sessions using the ordinary chat preset run under the built-in repo-agent turn limit', async (t) => {
   const engineService = new CapturingEngineService();
   const harness = await startHarness('siftkit-chat-repo-agent-chat-preset-', t, { engineService });
   const sessionId = await createSession(harness, 'Ordinary chat preset');
@@ -427,7 +427,8 @@ test('chat sessions using the ordinary chat preset keep direct-hook default reso
   if (toolMessage?.kind === 'assistant_tool_call') {
     assert.equal(toolMessage.toolCallMaxTurns, 100);
   }
-  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, undefined);
+  // The built-in repo-agent preset's limit is admitted explicitly rather than left to the engine default.
+  assert.equal(getCapturedRepoAgentRequest(engineService, 'read a file').maxTurns, 100);
 });
 
 test('a chat repo-agent run forwards the session web-search toggle to the engine', async (t) => {

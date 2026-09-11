@@ -468,6 +468,7 @@ export const ChatStreamQueuedUserMessageSchema = z.strictObject({
   boundary: z.enum(['post_tool_batch', 'successor_start']),
   content: z.string(),
   images: z.array(ImageDataUrlSchema),
+  imageMeta: z.array(ImageMetadataSchema),
 });
 export type ChatStreamQueuedUserMessage = z.infer<typeof ChatStreamQueuedUserMessageSchema>;
 

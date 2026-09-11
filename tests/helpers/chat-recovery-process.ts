@@ -117,8 +117,8 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
     freeze('terminal', this);
   });
   const claim = ChatRunRecorder.prototype.claimQueuedMessages;
-  mock.method(ChatRunRecorder.prototype, 'claimQueuedMessages', function(this: ChatRunRecorder, sessionId: string, input: Parameters<typeof claim>[1], forceId?: string) {
-    const messages = claim.call(this, sessionId, input, forceId);
+  mock.method(ChatRunRecorder.prototype, 'claimQueuedMessages', function(this: ChatRunRecorder, sessionId: string, input: Parameters<typeof claim>[1], modelPreset: Parameters<typeof claim>[2], forceId?: string) {
+    const messages = claim.call(this, sessionId, input, modelPreset, forceId);
     if (messages.length > 0) freeze('queue', this);
     return messages;
   });

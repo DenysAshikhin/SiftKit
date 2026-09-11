@@ -967,3 +967,22 @@ test('admission records the preset, turn limit, web override and history revisio
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }
 });
+
+test('admission rejects an invalid turn limit or web override instead of silently running under defaults', async () => {
+  const engine = new SettingsCapturingEngineService();
+  const context = await withCaptionServer({}, engine);
+  try {
+    const sessionUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}`;
+    for (const body of [{ content: 'zero turns', maxTurns: 0 }, { content: 'text turns', maxTurns: '5' }, { content: 'bad override', webSearchOverride: 'yes' }]) {
+      const response = await requestJson(`${sessionUrl}/messages`, { method: 'POST', body: JSON.stringify(body) });
+      assert.equal(response.statusCode, 400, JSON.stringify(response.body));
+    }
+    const repo = await requestJson(`${sessionUrl}/repo-search`, { method: 'POST', body: JSON.stringify({ content: 'zero turns', maxTurns: 0 }) });
+    assert.equal(repo.statusCode, 400, JSON.stringify(repo.body));
+    assert.equal(engine.requests.length, 0);
+    const store = new ChatJournalStore(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite')));
+    assert.equal(store.listSessionRuns(context.fixture.session.id).filter(run => run.recordKind === 'execution').length, 0);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});

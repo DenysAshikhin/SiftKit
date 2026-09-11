@@ -24,27 +24,12 @@ export type ChatInputTokenCount = {
   estimated: boolean;
 };
 
-export class ChatTurnTelemetry {
-  constructor(
-    private readonly config: SiftConfig,
-    private readonly tokenConfig: SiftConfig | undefined,
-  ) {}
-
-  async countInputTokens(content: string): Promise<ChatInputTokenCount> {
-    if (!content.trim()) {
-      return { tokenCount: 0, estimated: false };
-    }
-    const count = await this.countTokens(content);
-    return {
-      tokenCount: count.tokenCount,
-      estimated: count.source === 'estimate',
-    };
-  }
-
-  private countTokens(content: string): ReturnType<typeof countTokensWithFallbackDetailed> {
-    return countTokensWithFallbackDetailed(this.tokenConfig, content, {
-      timeoutMs: CHAT_TOKEN_COUNT_TIMEOUT_MS,
-      retryMaxWaitMs: CHAT_TOKEN_COUNT_TIMEOUT_MS,
-    });
-  }
+/** Measures a submission against the tokenizer `tokenConfig` names, or estimates when there is none. */
+export async function countChatInputTokens(tokenConfig: SiftConfig | undefined, content: string): Promise<ChatInputTokenCount> {
+  if (!content.trim()) return { tokenCount: 0, estimated: false };
+  const count = await countTokensWithFallbackDetailed(tokenConfig, content, {
+    timeoutMs: CHAT_TOKEN_COUNT_TIMEOUT_MS,
+    retryMaxWaitMs: CHAT_TOKEN_COUNT_TIMEOUT_MS,
+  });
+  return { tokenCount: count.tokenCount, estimated: count.source === 'estimate' };
 }

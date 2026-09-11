@@ -82,7 +82,7 @@ test('startup retries projection and queue cleanup after the terminal event alre
   recorder.bindEngine({ requestId: 'request', repoAgentSessionId: null });
   recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'find target' }] });
   queue.enqueue(session.id, { id, content: 'durable steering', images: [], options: { operationKind: 'repo-search' } });
-  recorder.claimQueuedMessages(session.id, { requestId: 'request', turn: 1, ids: [id] });
+  recorder.claimQueuedMessages(session.id, { requestId: 'request', turn: 1, ids: [id] }, session.modelPreset);
   recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
   database.exec(`CREATE TRIGGER refuse_queue_projection BEFORE INSERT ON chat_messages WHEN NEW.content='durable steering'
     BEGIN SELECT RAISE(ABORT, 'queue projection blocked'); END;`);

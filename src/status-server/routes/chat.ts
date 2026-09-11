@@ -61,7 +61,7 @@ import {
 ChatStreamProgressWriter,
 } from '../chat-stream-progress-writer.js';
 import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
-import { ChatTurnTelemetry, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
+import { countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
 import { reconcileChatSession } from '../chat-run-recovery.js';
 import {
 buildChatSystemContent,
@@ -293,7 +293,6 @@ async function openChatOperationStream<TParsed extends { content: string; images
 async function runChatEngineTurn(options: {
   ctx: ServerContext;
   config: SiftConfig;
-  webToolsAllowed: boolean;
   recorder: ChatRunRecorder;
   session: ChatSession;
   content: string;
@@ -340,7 +339,7 @@ async function runChatEngineTurn(options: {
     ),
     history: options.recorder.readHistory(),
     thinkingEnabled: selected.session.thinkingEnabled !== false,
-    allowedTools: options.webToolsAllowed ? ['web_search', 'web_fetch'] : [],
+    allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
     webToolsEnabled: webEnabled,
     retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selected.session) : [],
     maxTurns: settings.maxTurns ?? undefined,
@@ -682,11 +681,11 @@ class ChatMessageTurn {
       const mockResponses = readRouteMockResponses(new JsonRecordReader(this.parsedBody), 'mockResponses');
       await this.measureInputTokens(getMockTokenConfig(this.config, mockResponses));
       const { updatedSession, failure } = await runChatEngineTurn({
-        ctx: this.ctx, config: this.config, webToolsAllowed: false, recorder: this.recorder,
+        ctx: this.ctx, config: this.config, recorder: this.recorder,
         session: this.session, content: this.userContent, images: this.userImages, requestId: this.requestId,
         progressWriter: progress, operationProgressWriter: progress, parsedBody: this.parsedBody, startedAtMs: this.startedAt,
         queueDelivery: this.ctx.chatMessageQueue.createDelivery({ recorder: this.recorder, sessionId: this.session.id,
-          requestId: this.requestId, operationKind: 'message' }),
+          requestId: this.requestId, operationKind: 'message', modelPreset: this.session.modelPreset }),
       });
       this.respond(updatedSession);
       return { failure };
@@ -726,7 +725,7 @@ class ChatMessageTurn {
   }
 
   private async measureInputTokens(tokenConfig: SiftConfig | undefined): Promise<void> {
-    const count = await new ChatTurnTelemetry(this.config, tokenConfig).countInputTokens(this.userContent);
+    const count = await countChatInputTokens(tokenConfig, this.userContent);
     this.recorder.recordDisplay({ kind: 'user_usage', messageId: this.recorder.userMessageId, inputTokens: count.tokenCount, estimated: count.estimated });
   }
 
@@ -901,6 +900,7 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
       sessionId: activeSession.id,
       requestId: engineRequestId,
       operationKind: 'message',
+      modelPreset: activeSession.modelPreset,
       forceId: request.queueIntentId,
     });
     // One owner for the console: the presentation writer renders, this one logs.
@@ -913,7 +913,6 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
       const { updatedSession, failure } = await runChatEngineTurn({
         ctx,
         config,
-        webToolsAllowed: true,
         recorder: requireChatRunRecorder(request),
         session: activeSession,
         content: userContent,
@@ -1041,7 +1040,8 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
           sessionId: activeSession.id,
           requestId: engineRequestId,
           operationKind: this.operationKind,
-      forceId: request.queueIntentId,
+          modelPreset: activeSession.modelPreset,
+          forceId: request.queueIntentId,
         }),
       }));
       sendJson(res, 200, {
@@ -1082,6 +1082,7 @@ export class StreamChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
       sessionId: activeSession.id,
       requestId: engineRequestId,
       operationKind: this.operationKind,
+      modelPreset: activeSession.modelPreset,
       forceId: request.queueIntentId,
     });
     // One owner for the console: the presentation writer renders, this one logs.

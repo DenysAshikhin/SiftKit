@@ -272,12 +272,12 @@ test('chat message requests carry validated images', () => {
     content: 'what is this?',
     images: ['data:image/webp;base64,AAAA'],
   });
-  assert.deepEqual(parsed?.images, ['data:image/webp;base64,AAAA']);
+  assert.deepEqual('error' in parsed ? null : parsed.images, ['data:image/webp;base64,AAAA']);
 });
 
 test('chat message requests accept an image with empty text', () => {
   const parsed = parseChatMessageRequest({ content: '', images: ['data:image/png;base64,AAAA'] });
-  assert.notEqual(parsed, null);
+  assert.equal('error' in parsed, false);
 });
 
 test('chat message requests reject a non-image URL', () => {

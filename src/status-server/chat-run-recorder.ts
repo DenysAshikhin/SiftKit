@@ -11,7 +11,7 @@ import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-
 import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { getChatSessionPath, readChatSessionFromPath, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
-import type { SiftConfig } from '../config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import { resolveChatSessionContextWindow } from './chat.js';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import {
@@ -29,7 +29,7 @@ import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.js'
 import { buildRecoveredChatHistory } from './chat-context-replay.js';
 import { getGenerationTokensPerSecond, getPromptTokensPerSecond } from '../lib/telemetry-metrics.js';
 import { getAbortError, throwIfAborted } from '../lib/abort.js';
-import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
+import { admitChatImages } from '../llm-protocol/preset-image-admission.js';
 import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
@@ -98,6 +98,8 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     readonly operationId: string,
     private readonly ownerEpoch: string,
     readonly sessionId: string,
+    /** The admitted settings; execution reads them here instead of re-deriving them from the request. */
+    readonly settings: ChatRunEffectiveSettings,
   ) {
     this.latestSequence = 0;
   }
@@ -118,13 +120,6 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
 
   get messageIdPrefix(): string { return buildChatRunMessageIdPrefix(this.operationId); }
 
-  /** The admitted settings; execution reads them here instead of re-deriving them from the request. */
-  get settings(): ChatRunEffectiveSettings {
-    const settings = this.store.readRun(this.operationId)?.settings;
-    if (!settings) throw new Error(`Chat run ${this.operationId} has no admitted execution settings.`);
-    return settings;
-  }
-
   resolveAssistantMessageId(turn: number): string {
     this.progressWriter?.flushPending();
     return buildChatMessageId(this.messageIdPrefix, { kind: this.narratedTurns.has(turn) ? 'narration' : 'answer', turn: turn });
@@ -143,7 +138,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
 
   static begin(databasePath: string, input: ChatRunRecorderStart): ChatRunRecorder {
     const start = ChatRunRecorderStartSchema.parse(input);
-    const recorder = new ChatRunRecorder(databasePath, start.operationId, start.ownerEpoch, start.sessionId);
+    const recorder = new ChatRunRecorder(databasePath, start.operationId, start.ownerEpoch, start.sessionId, start.settings);
     return getRuntimeDatabase(databasePath).transaction(() => {
     const run = recorder.store.begin({
       operationId: start.operationId,
@@ -174,7 +169,8 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   static resume(databasePath: string, operationId: string, ownerEpoch: string): ChatRunRecorder {
     const run = new ChatJournalStore(getRuntimeDatabase(databasePath)).readRun(operationId);
     if (!run || run.ownerEpoch !== ownerEpoch) throw new Error('Cannot resume a chat recorder owned by another epoch.');
-    const recorder = new ChatRunRecorder(databasePath, operationId, ownerEpoch, run.sessionId);
+    if (run.settings === null) throw new Error('Only an execution run with admitted settings can be resumed.');
+    const recorder = new ChatRunRecorder(databasePath, operationId, ownerEpoch, run.sessionId, run.settings);
     for (const envelope of recorder.store.readAll(operationId)) recorder.observeCommitted(envelope.event);
     recorder.latestSequence = run.latestSequence;
     return recorder;
@@ -244,7 +240,8 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     return this.readSession();
   }
 
-  claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, forceId?: string) {
+  /** `modelPreset` is the run's admitted model preset: a queued image is admitted exactly as the submission was. */
+  claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, modelPreset: ModelRuntimePreset, forceId?: string) {
     const before = this.latestSequence;
     try {
       return getRuntimeDatabase(this.databasePath).transaction(() => {
@@ -255,18 +252,12 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
         const force = forceId ? queue.state(sessionId).force : null;
         if (forceId && (!force || force.id !== forceId || force.phase === 'failed')) throw new Error('Queued continuation was cancelled.');
         const now = new Date().toISOString();
-        const session = readChatSessionFromPath(getChatSessionPath(dirname(this.databasePath), sessionId));
-        if (!session) throw new Error(`Chat session ${sessionId} is missing.`);
         // Admission runs inside the claim: a refused image leaves the message pending, not half-delivered.
-        const messages = queue.claim(sessionId, input, now).map(message => {
-          const admitted = admitImagesForPreset(session.modelPreset, message.images);
-          return { ...message, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata) };
-        });
+        const messages = queue.claim(sessionId, input, now).map(message => ({ ...message, ...admitChatImages(modelPreset, message.images) }));
         for (const message of messages) {
           this.commit({ kind: 'queue_delivered', requestId: input.requestId, deliveredAtUtc: now,
-            message: { id: message.id, content: message.content, images: message.images, turn: input.turn,
+            message: { id: message.id, content: message.content, images: message.images, imageMeta: message.imageMeta, turn: input.turn,
               boundary: input.turn === 0 ? 'successor_start' : 'post_tool_batch' },
-            imageMeta: message.imageMeta,
           }, now);
         }
         if (forceId) {

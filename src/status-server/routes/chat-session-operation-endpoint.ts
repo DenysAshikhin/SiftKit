@@ -30,10 +30,10 @@ import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-ut
 import { ChatRunRecorder } from '../chat-run-recorder.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import { importChatSessionBaseline } from '../chat-history-import.js';
-import { readChatHistoryRevisions } from '../../state/chat-history-revisions.js';
+import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.js';
 import { readConfig } from '../config-store.js';
 import type { SiftConfig } from '../../config/types.js';
-import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
+import { admitChatImages } from '../../llm-protocol/preset-image-admission.js';
 import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -127,8 +127,8 @@ export function parseChatMessageOperationRequest(
   parsedBody: JsonObject,
 ): ChatMessageRequest | null {
   const messageRequest = parseChatMessageRequest(parsedBody);
-  if (!messageRequest) {
-    sendJson(res, 400, { error: 'Expected content.' });
+  if ('error' in messageRequest) {
+    sendJson(res, 400, messageRequest);
     return null;
   }
   return messageRequest;
@@ -146,8 +146,8 @@ export function parseChatRepoOperationRequest(
   parsedBody: JsonObject,
 ): ResolvedChatRepoRequest | null {
   const repoRequest = parseChatRepoRequest(parsedBody);
-  if (!repoRequest) {
-    sendJson(res, 400, { error: 'Expected content.' });
+  if ('error' in repoRequest) {
+    sendJson(res, 400, repoRequest);
     return null;
   }
   const repoRoot = resolveChatRepoRoot(repoRequest.repoRoot, session);
@@ -299,11 +299,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     ctx.chatRuntimeOwner.assertOwned();
     const submission = this.describeRun(session, value, config);
     if (submission === null) return null;
-    let admittedImages: ReturnType<typeof admitImagesForPreset>;
-    try { admittedImages = admitImagesForPreset(session.modelPreset, submission.images); }
+    let admitted: ReturnType<typeof admitChatImages>;
+    try { admitted = admitChatImages(session.modelPreset, submission.images); }
     catch (error) { throw new ChatImageAdmissionError(toError(error)); }
-    importChatSessionBaseline(getRuntimeDatabase(getRuntimeDatabasePath()), session, config);
-    const recovery = reconcileChatSession(getRuntimeDatabase(getRuntimeDatabasePath()), sessionId);
+    const database = getRuntimeDatabase(getRuntimeDatabasePath());
+    importChatSessionBaseline(database, session, config);
+    const recovery = reconcileChatSession(database, sessionId);
     const failed = recovery.find(report => report.status === 'recovery_failed');
     if (failed) throw new ChatRecoveryAdmissionError(failed);
     return ChatRunRecorder.begin(getRuntimeDatabasePath(), {
@@ -313,10 +314,10 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       operationKind: this.operationKind,
       userMessageId,
       content: submission.content,
-      images: admittedImages.map(image => image.dataUrl),
-      imageMeta: admittedImages.map(image => image.metadata),
+      images: admitted.images,
+      imageMeta: admitted.imageMeta,
       settings: submission.settings,
-      retainedHistoryRevision: readChatHistoryRevisions(getRuntimeDatabase(getRuntimeDatabasePath()), sessionId).length,
+      retainedHistoryRevision: readChatHistoryRevisionCount(database, sessionId),
       startedAtUtc: new Date().toISOString(),
     });
   }

@@ -101,16 +101,21 @@ test('chat route request normalizers return typed values', () => {
     content: 'hello',
     images: [],
     assistantContent: 'answer',
+    maxTurns: undefined,
+    webSearchOverride: undefined,
   });
+  assert.deepEqual(parseChatMessageRequest({ content: 'x', maxTurns: 0 }), { error: 'maxTurns must be a positive integer and webSearchOverride must be "on" or "off".' });
   assert.deepEqual(parseChatRepoRequest({ content: ' plan ', repoRoot: ' C:/repo ' }), {
     content: 'plan',
     images: [],
     repoRoot: 'C:/repo',
+    maxTurns: undefined,
   });
   assert.deepEqual(parseChatRepoRequest({ content: ' plan ', images: [PNG], repoRoot: ' C:/repo ' }), {
     content: 'plan',
     images: [PNG],
     repoRoot: 'C:/repo',
+    maxTurns: undefined,
   });
 });
 

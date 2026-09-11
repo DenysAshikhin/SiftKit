@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import type { ChatJournalEnvelope } from '../src/state/chat-journal-schema.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { getChatSessionPath, readChatRunMessages, readChatSessionFromPath, saveChatSession } from '../src/state/chat-sessions.js';
+import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
 import type { RuntimeDatabase } from '../src/state/database-handle.js';
@@ -209,10 +209,10 @@ test('queue delivery and journal evidence commit together or leave the message p
   const input = { requestId: 'request-queue', turn: 1, ids: [id] };
   database.exec(`CREATE TRIGGER reject_delivery BEFORE INSERT ON chat_run_events WHEN NEW.kind = 'queue_delivered'
     BEGIN SELECT RAISE(ABORT, 'delivery write refused'); END;`);
-  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, input), /delivery write refused/u);
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, input, mockModelPreset({ Model: 'model-a', NumCtx: 4096 })), /delivery write refused/u);
   assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
   database.exec('DROP TRIGGER reject_delivery');
-  assert.equal(recorder.claimQueuedMessages(SESSION_ID, input)[0]?.id, id);
+  assert.equal(recorder.claimQueuedMessages(SESSION_ID, input, mockModelPreset({ Model: 'model-a', NumCtx: 4096 }))[0]?.id, id);
   const events = readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'queue_delivered');
   assert.equal(events.length, 1);
 });
@@ -468,24 +468,21 @@ test('a run keeps recording after another runtime root evicts its cached databas
   assert.equal(run?.requestId, 'request-1');
 });
 
-test('a mid-run queued delivery admits its images for the session preset and projects their metadata', () => {
+test('a mid-run queued delivery admits its images for the run preset and projects their metadata', () => {
   const { database, databasePath } = openSessionDatabase('chat-queue-image-admission-');
-  const runtimeRoot = path.dirname(databasePath);
-  const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, SESSION_ID));
-  assert.ok(session);
-  saveChatSession(runtimeRoot, { ...session, modelPreset: { ...session.modelPreset, VisionEnabled: true, VisionImageRetention: 4 } });
+  const modelPreset = mockModelPreset({ Model: 'model-a', NumCtx: 4096, VisionEnabled: true, VisionImageRetention: 4 });
   const recorder = beginRecorder(databasePath);
   const queue = new ChatMessageQueueStore(database);
   const image = toDataUrl('image/png', rasterBuffer('png', 32, 24));
   const id = randomUUID();
   queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [image], options: { operationKind: 'repo-agent' } });
-  const claimed = recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] });
+  const claimed = recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }, modelPreset);
   assert.equal(claimed.length, 1);
   assert.deepEqual(claimed[0]?.images, [image]);
   const delivered = readAll(database, recorder.operationId).find(envelope => envelope.event.kind === 'queue_delivered');
   assert.ok(delivered && delivered.event.kind === 'queue_delivered');
-  assert.equal(delivered.event.imageMeta[0]?.width, 32);
-  assert.equal(delivered.event.imageMeta[0]?.height, 24);
+  assert.equal(delivered.event.message.imageMeta[0]?.width, 32);
+  assert.equal(delivered.event.message.imageMeta[0]?.height, 24);
   recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
   recorder.readSession();
   const row = readChatRunMessages(database, SESSION_ID, recorder.operationId).find(message => message.id === id);
@@ -494,17 +491,14 @@ test('a mid-run queued delivery admits its images for the session preset and pro
   assert.ok((row?.imageMeta?.[0]?.tokenEstimate ?? 0) > 0);
 });
 
-test('a queued delivery whose images the session preset refuses stays pending and records nothing', () => {
+test('a queued delivery whose images the run preset refuses stays pending and records nothing', () => {
   const { database, databasePath } = openSessionDatabase('chat-queue-image-refusal-');
-  const runtimeRoot = path.dirname(databasePath);
-  const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, SESSION_ID));
-  assert.ok(session);
-  saveChatSession(runtimeRoot, { ...session, modelPreset: { ...session.modelPreset, VisionEnabled: false } });
+  const modelPreset = mockModelPreset({ Model: 'model-a', NumCtx: 4096, VisionEnabled: false });
   const recorder = beginRecorder(databasePath);
   const queue = new ChatMessageQueueStore(database);
   const id = randomUUID();
   queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [toDataUrl('image/png', rasterBuffer('png', 1, 1))], options: { operationKind: 'repo-agent' } });
-  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }), /image/iu);
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }, modelPreset), /image/iu);
   assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
   assert.equal(readAll(database, recorder.operationId).some(envelope => envelope.event.kind === 'queue_delivered'), false);
 });

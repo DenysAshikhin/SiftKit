@@ -280,7 +280,7 @@ export class TaskLoop {
       contextRecorder: options.evidenceRecorder,
     });
     for (const message of initialQueuedMessages) {
-      const event = { kind: 'queued_user_message' as const, id: message.id, turn: 0, boundary: 'successor_start' as const, content: message.content, images: message.images };
+      const event = { kind: 'queued_user_message' as const, id: message.id, turn: 0, boundary: 'successor_start' as const, content: message.content, images: message.images, imageMeta: message.imageMeta };
       options.logger?.write({ ...event, taskId: task.id });
       options.progressWriter?.write(event);
     }
@@ -620,7 +620,7 @@ export class TaskLoop {
     if (outcome === 'continue') {
       const queuedMessages = this.options.queueDelivery?.consume(context.turnNumber, this.transcript) ?? [];
       for (const message of queuedMessages) {
-        this.options.logger?.write({ kind: 'queued_user_message', taskId: this.task.id, id: message.id, turn: context.turnNumber, boundary: 'post_tool_batch', content: message.content, images: message.images });
+        this.options.logger?.write({ kind: 'queued_user_message', taskId: this.task.id, id: message.id, turn: context.turnNumber, boundary: 'post_tool_batch', content: message.content, images: message.images, imageMeta: message.imageMeta });
         this.options.progressWriter?.write({
           kind: 'queued_user_message',
           id: message.id,
@@ -628,6 +628,7 @@ export class TaskLoop {
           boundary: 'post_tool_batch',
           content: message.content,
           images: message.images,
+          imageMeta: message.imageMeta,
         });
       }
     }

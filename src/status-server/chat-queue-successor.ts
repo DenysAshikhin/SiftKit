@@ -66,21 +66,21 @@ export class ChatQueueSuccessorRunner {
     const session = readChatSessionFromPath(sessionPath);
     const first = queuedMessages[0];
     if (!session || !first) throw new Error('Queued session or first message is missing.');
-    const { operationKind, ...options } = first.options;
-    const parsedBody = { ...options, content: first.content, images: first.images };
+    // Execution settles limits and web access at admission; the body only carries the mock/test fields it still reads.
+    const { operationKind, maxTurns, webSearchOverride, approval, repoRoot: requestedRepoRoot, ...parsedBody } = first.options;
     const request = { sessionId, sessionPath, session, lease, parsedBody, queuedMessages, queueIntentId: force.id };
     if (operationKind === 'message') {
-      await new StreamChatMessageEndpoint().executeDetached(this.ctx, { ...request, value: { content: first.content, images: first.images, assistantContent: '', maxTurns: options.maxTurns, webSearchOverride: options.webSearchOverride } });
+      await new StreamChatMessageEndpoint().executeDetached(this.ctx, { ...request, value: { content: first.content, images: first.images, assistantContent: '', maxTurns, webSearchOverride } });
     } else {
-      const repoRoot = resolve(options.repoRoot ?? session.planRepoRoot);
+      const repoRoot = resolve(requestedRepoRoot ?? session.planRepoRoot);
       if (!existsSync(repoRoot) || !statSync(repoRoot).isDirectory()) throw new Error('Expected existing repoRoot directory.');
-      const value = { content: first.content, images: first.images, repoRoot, maxTurns: options.maxTurns };
+      const value = { content: first.content, images: first.images, repoRoot, maxTurns };
       if (operationKind === 'repo-agent') {
         await new StreamChatRepoAgentEndpoint().executeDetached(this.ctx, {
           ...request, value: {
-            ...value, approval: options.approval ?? DEFAULT_APPROVAL_MODE,
-            mockResponses: options.mockResponses ? MockPlannerResponsesSchema.parse(options.mockResponses) : undefined,
-            mockCommandResults: options.mockCommandResults ? z.record(z.string(), RepoSearchMockCommandResultSchema).parse(options.mockCommandResults) : undefined,
+            ...value, approval: approval ?? DEFAULT_APPROVAL_MODE,
+            mockResponses: parsedBody.mockResponses ? MockPlannerResponsesSchema.parse(parsedBody.mockResponses) : undefined,
+            mockCommandResults: parsedBody.mockCommandResults ? z.record(z.string(), RepoSearchMockCommandResultSchema).parse(parsedBody.mockCommandResults) : undefined,
           },
         });
       } else await new StreamChatRepoOperationEndpoint(operationKind).executeDetached(this.ctx, { ...request, value });

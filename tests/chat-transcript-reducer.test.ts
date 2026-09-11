@@ -164,6 +164,7 @@ test('queued transcript events keep each stable user identity and delivery bound
       boundary: 'post_tool_batch',
       content: 'first queued message',
       images: [],
+      imageMeta: [],
     },
   }, metadata);
   messages = reduceChatTranscript(messages, {
@@ -174,6 +175,7 @@ test('queued transcript events keep each stable user identity and delivery bound
       boundary: 'post_tool_batch',
       content: 'second queued message',
       images: [],
+      imageMeta: [],
     },
   }, metadata);
 
@@ -324,7 +326,7 @@ test('a usage frame for another turn leaves that turn thinking row alone', () =>
 test('measured input usage lands on the submitted user row and never on a message that is not there', () => {
   const submitted = reduceChatTranscript([], {
     kind: 'submission',
-    message: { id: 'user-1', content: 'tiny', images: [] },
+    message: { id: 'user-1', content: 'tiny', images: [], imageMeta: [] },
   }, metadata);
   const estimated = reduceChatTranscript(submitted, { kind: 'user_usage', messageId: 'user-1', inputTokens: 2, estimated: true }, metadata);
   assert.equal(estimated[0]?.inputTokensEstimate, 2);
@@ -337,4 +339,18 @@ test('measured input usage lands on the submitted user row and never on a messag
     () => reduceChatTranscript(submitted, { kind: 'user_usage', messageId: 'absent', inputTokens: 1, estimated: true }, metadata),
     /no submitted user message/u,
   );
+});
+
+test('user rows carry their admitted image metadata from the event, live and rebuilt alike', () => {
+  const imageMeta = [{ width: 32, height: 24, originalWidth: 32, originalHeight: 24, mime: 'image/png' as const, byteLength: 90, tokenEstimate: 12, resized: false, caption: null }];
+  const submitted = reduceChatTranscript([], {
+    kind: 'submission',
+    message: { id: 'user-1', content: 'look', images: ['data:image/png;base64,AAAA'], imageMeta },
+  }, metadata);
+  assert.deepEqual(submitted[0]?.imageMeta, imageMeta);
+  const queued = reduceChatTranscript(submitted, {
+    kind: 'user_message',
+    message: { id: '4f9c1f9a-0000-4000-8000-000000000003', turn: 1, boundary: 'post_tool_batch', content: 'and this', images: ['data:image/png;base64,AAAA'], imageMeta },
+  }, metadata);
+  assert.deepEqual(queued[1]?.imageMeta, imageMeta);
 });

@@ -15,7 +15,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { readChatToolResults } from '../src/status-server/chat-tool-results.js';
+import { readChatToolResults } from './helpers/chat-tool-results.js';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(

@@ -120,7 +120,7 @@ export function prepareChatHistoryRepair(input: z.input<typeof ChatHistoryRepair
   const expectedDigest = createHash('sha256').update(`${sourceDigest}:${targetDigest}`).digest('hex');
   const messages = [...archivedMessages, ...laterMessages];
   const queueMessages = archive.events.filter(entry => entry.kind === 'queued_user_message').map(entry => ChatStreamQueuedUserMessageSchema.parse({
-    id: entry.event.id, turn: entry.event.turn, boundary: entry.event.boundary, content: entry.event.content, images: entry.event.images,
+    id: entry.event.id, turn: entry.event.turn, boundary: entry.event.boundary, content: entry.event.content, images: entry.event.images, imageMeta: [],
   }));
   const report = ChatHistoryRepairReportSchema.parse({
     importerVersion: 1, sessionId, requestId, repoAgentSessionId: state.runId, sourceDigest, targetDigest, expectedDigest,

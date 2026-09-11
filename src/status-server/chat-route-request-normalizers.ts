@@ -2,6 +2,7 @@ import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import { ChatWebSearchOverrideSchema, type ChatWebSearchOverride } from '@siftkit/contracts';
+import { z } from '../lib/zod.js';
 
 export type ChatSessionCreateRequest = {
   presetId: string;
@@ -36,10 +37,18 @@ function optionalBoolean(reader: JsonRecordReader, key: string): boolean | undef
   return typeof value === 'boolean' ? value : undefined;
 }
 
-/** A turn limit is a positive integer or absent; the route keeps its lenient numeric-string reading. */
-function optionalMaxTurns(reader: JsonRecordReader): number | undefined {
-  const value = reader.number('maxTurns');
-  return value !== null && Number.isInteger(value) && value > 0 ? value : undefined;
+/** Admission-time limits are validated, never coerced: a malformed value is a rejected request. */
+const ChatRunLimitsSchema = z.object({
+  maxTurns: z.number().int().positive().optional(),
+  webSearchOverride: ChatWebSearchOverrideSchema.optional(),
+});
+
+/** Why a chat request body was refused; the endpoint answers it with a 400. */
+export type ChatRequestRejection = { error: string };
+
+function parseChatRunLimits(body: JsonObject): z.infer<typeof ChatRunLimitsSchema> | ChatRequestRejection {
+  const limits = ChatRunLimitsSchema.safeParse(body);
+  return limits.success ? limits.data : { error: 'maxTurns must be a positive integer and webSearchOverride must be "on" or "off".' };
 }
 
 export function parseChatSessionCreateRequest(body: JsonObject): ChatSessionCreateRequest {
@@ -67,32 +76,21 @@ export function parseChatSessionUpdateRequest(body: JsonObject): ChatSessionUpda
   };
 }
 
-export function parseChatMessageRequest(body: JsonObject): ChatMessageRequest | null {
+export function parseChatMessageRequest(body: JsonObject): ChatMessageRequest | ChatRequestRejection {
   const reader = new JsonRecordReader(body);
   const content = reader.optionalString('content') ?? '';
   const images = parseImageDataUrls(reader.value('images'));
-  if (!content && images.length === 0) {
-    return null;
-  }
-  return {
-    content,
-    images,
-    assistantContent: reader.optionalString('assistantContent'),
-    maxTurns: optionalMaxTurns(reader),
-    webSearchOverride: ChatWebSearchOverrideSchema.optional().catch(undefined).parse(reader.value('webSearchOverride')),
-  };
+  if (!content && images.length === 0) return { error: 'Expected content.' };
+  const limits = parseChatRunLimits(body);
+  if ('error' in limits) return limits;
+  return { content, images, assistantContent: reader.optionalString('assistantContent'), maxTurns: limits.maxTurns, webSearchOverride: limits.webSearchOverride };
 }
 
-export function parseChatRepoRequest(body: JsonObject): ChatRepoRequest | null {
+export function parseChatRepoRequest(body: JsonObject): ChatRepoRequest | ChatRequestRejection {
   const reader = new JsonRecordReader(body);
   const content = reader.optionalString('content');
-  if (!content) {
-    return null;
-  }
-  return {
-    content,
-    images: parseImageDataUrls(reader.value('images')),
-    repoRoot: reader.optionalString('repoRoot'),
-    maxTurns: optionalMaxTurns(reader),
-  };
+  if (!content) return { error: 'Expected content.' };
+  const limits = parseChatRunLimits(body);
+  if ('error' in limits) return limits;
+  return { content, images: parseImageDataUrls(reader.value('images')), repoRoot: reader.optionalString('repoRoot'), maxTurns: limits.maxTurns };
 }

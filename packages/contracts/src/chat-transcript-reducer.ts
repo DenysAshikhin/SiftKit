@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ImageDataUrlSchema } from './image.js';
+import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 import {
   ChatAnswerCompletionSchema,
   ChatRunTerminalCauseSchema,
@@ -27,6 +27,7 @@ export const ChatSubmittedUserMessageSchema = z.strictObject({
   id: z.string().min(1),
   content: z.string(),
   images: z.array(ImageDataUrlSchema),
+  imageMeta: z.array(ImageMetadataSchema),
 });
 export type ChatSubmittedUserMessage = z.infer<typeof ChatSubmittedUserMessageSchema>;
 
@@ -297,6 +298,7 @@ function reduceUserMessageEvent(
     createdAtUtc: metadata.createdAtUtc,
     sourceRunId: metadata.sourceRunId,
     images: message.images,
+    imageMeta: message.imageMeta,
   }));
 }
 

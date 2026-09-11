@@ -118,8 +118,8 @@ function applyEvent(
     if (event.operationKind === 'condense') return [...messages];
     return reduceChatTranscript(messages, {
       kind: 'submission',
-      message: { id: event.userMessageId, content: event.content, images: event.images },
-    }, metadata).map(message => message.id === event.userMessageId ? { ...message, imageMeta: event.imageMeta } : message);
+      message: { id: event.userMessageId, content: event.content, images: event.images, imageMeta: event.imageMeta },
+    }, metadata);
   }
   if (event.kind === 'context_spliced' && event.reason === 'compacted') {
     const summary = event.inserted.find(message => message.role === 'assistant' && typeof message.content === 'string'
@@ -143,8 +143,7 @@ function applyEvent(
     return reduceChatTranscript(messages, event.event, metadata);
   }
   if (event.kind === 'queue_delivered') {
-    return reduceChatTranscript(messages, { kind: 'user_message', message: event.message }, metadata)
-      .map(message => message.id === event.message.id ? { ...message, imageMeta: event.imageMeta } : message);
+    return reduceChatTranscript(messages, { kind: 'user_message', message: event.message }, metadata);
   }
   if (event.kind === 'tool_proposed') {
     toolCallIds.add(event.call.displayToolCallId);

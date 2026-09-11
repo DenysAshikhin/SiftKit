@@ -10,7 +10,7 @@ import {
 import { PresetCatalog } from '../preset-catalog.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 
-export type ChatPresetOperation = 'chat' | 'plan' | 'repo-search';
+export type ChatPresetOperation = 'chat' | 'plan' | 'repo-search' | 'repo-agent';
 
 export type SelectedChatOperationPreset = {
   preset: SiftPreset;

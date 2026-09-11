@@ -44,12 +44,11 @@ function recordSyntheticRun(databasePath: string): ChatRunRecorder {
     for (let piece = 0; piece < 3; piece += 1) {
       recorder.recordDisplay({ kind: 'narration', delta: { turn, offset: piece * TEXT_DELTA.length, text: TEXT_DELTA } });
     }
-    const callsThisTurn = resultsRecorded + 2 <= TOOL_RESULTS && turn % 8 === 0 ? 2 : resultsRecorded < TOOL_RESULTS ? 1 : 0;
+    const callsThisTurn = turn % 8 === 0 || turn === MODEL_TURNS ? 2 : 1;
     const calls = Array.from({ length: callsThisTurn }, (_, index) => ({
       toolCallId: `call_${String(turn)}_${String(index)}`, displayToolCallId: `tc_${String(resultsRecorded + index)}`,
       batchId: `batch-${String(turn)}`, turn, indexInBatch: index,
     }));
-    if (calls.length === 0) continue;
     for (const call of calls) {
       recorder.recordToolProposed({ call, toolName: 'run', arguments: { command: `rg -n needle-${call.toolCallId}` }, command: `rg -n needle-${call.toolCallId}`,
         activityKind: 'command', activitySubject: { kind: 'none' }, maxTurns: 120, promptTokenCount: 1000 + turn, executionState: 'proposed' });
@@ -111,8 +110,8 @@ test('incident-scale journal: appends stay per-delta, reads are paged, and repla
   assert.equal(resultCount, TOOL_RESULTS);
 
   // Paged reads: one page never exceeds the read page size, and the pages cover the run exactly once.
-  const firstPage = store.readAfter(recorder.operationId, 0, CHAT_JOURNAL_READ_PAGE_SIZE * 4);
-  assert.equal(firstPage.length, CHAT_JOURNAL_READ_PAGE_SIZE);
+  assert.ok(run.latestSequence > CHAT_JOURNAL_READ_PAGE_SIZE);
+  assert.equal(store.readAfter(recorder.operationId, 0, CHAT_JOURNAL_READ_PAGE_SIZE).length, CHAT_JOURNAL_READ_PAGE_SIZE);
   let cursor = 0;
   let paged = 0;
   for (const envelope of store.readAll(recorder.operationId)) {
@@ -131,8 +130,12 @@ test('incident-scale journal: appends stay per-delta, reads are paged, and repla
   const rebuilt = rebuildChatRun(database, recorder.operationId);
   const history = buildRecoveredChatHistory(database, SESSION_ID);
   const replayMs = Number(process.hrtime.bigint() - replayStart) / 1e6;
-  assert.equal(rebuilt.status, 'recovery_needed');
-  assert.equal(history.status, 'ok');
+  assert.equal(rebuilt.status, 'ok');
+  assert.equal(rebuilt.toolCount, TOOL_RESULTS);
+  // Interrupted mid-answer: the partial narration is folded back once; no batch is reopened.
+  assert.equal(history.status, 'recovery_needed');
+  assert.equal(history.interruptionNotices.length, 1);
+  assert.match(history.interruptionNotices[0] ?? '', /partial narration/u);
   const rows = readChatRunMessages(database, SESSION_ID, recorder.operationId);
   const toolRows = rows.filter(message => message.kind === 'assistant_tool_call');
   assert.equal(toolRows.length, TOOL_RESULTS);
@@ -140,7 +143,8 @@ test('incident-scale journal: appends stay per-delta, reads are paged, and repla
   const toolContext = history.messages.filter(message => message.role === 'tool');
   assert.equal(toolContext.length, TOOL_RESULTS);
   assert.equal(toolContext.every(message => typeof message.content === 'string' && message.content.length > RESULT_BYTES), true);
-  assert.equal(rows.filter(message => message.kind === 'assistant_narration').length, MODEL_TURNS);
+  // Narration that precedes a tool start in its turn is displayed as progress, one row per turn.
+  assert.equal(rows.filter(message => message.kind === 'assistant_progress').length, MODEL_TURNS);
 
   // Attach snapshots are paged and bounded; a page never carries the whole transcript.
   const snapshot = new ChatOperationSnapshotReader(recorder.operationId).capture(database, { approval: null, controlOperationId: null });

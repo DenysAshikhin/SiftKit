@@ -19,7 +19,6 @@ import { z } from '../../lib/zod.js';
 import {
 MockPlannerResponsesSchema,
 } from '../../planner-protocol/mock-response.js';
-import { PresetCatalog } from '../../preset-catalog.js';
 import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
 import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
 import {
@@ -28,6 +27,7 @@ RepoSearchMockCommandResultSchema,
 import type { ChatSession } from '../../state/chat-sessions.js';
 import { readChatSessionFromPath } from '../../state/chat-sessions.js';
 import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
+import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
 import {
 toChatStreamApproval,
@@ -69,21 +69,11 @@ import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
   approval: ApprovalModeSchema,
-  maxTurns: z.number().int().positive().optional(),
   mockResponses: MockPlannerResponsesSchema.optional(),
   mockCommandResults: z.record(z.string(), RepoSearchMockCommandResultSchema).optional(),
 });
 
 type ChatRepoAgentRequest = ResolvedChatRepoRequest & z.infer<typeof ChatRepoAgentRequestExtrasSchema>;
-
-/**
- * The session's own repo-agent preset supplies the default turn limit; a session on any other
- * preset kind runs under the built-in repo-agent preset and the engine's default.
- */
-function selectRepoAgentPreset(config: SiftConfig, presetId: string | undefined): { presetId: string; maxTurns: number | null } {
-  const preset = presetId ? PresetCatalog.fromPresets(config.Presets).requireById(presetId) : null;
-  return preset?.presetKind === 'repo-agent' ? { presetId: preset.id, maxTurns: preset.maxTurns } : { presetId: 'repo-agent', maxTurns: null };
-}
 
 export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
   protected readonly operationKind = 'repo-agent' as const;
@@ -94,13 +84,14 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     value: ChatRepoAgentRequest,
     config: SiftConfig,
   ): ChatRunSubmission {
-    const preset = selectRepoAgentPreset(config, session.presetId);
+    // The session's own repo-agent preset supplies the default turn limit; other kinds run built-in.
+    const preset = new ChatOperationPresetSelector(config.Presets).select(session, 'repo-agent').preset;
     return {
       settings: buildChatRunSettings({
         session,
         config,
         operationKind: 'repo-agent',
-        presetId: preset.presetId,
+        presetId: preset.id,
         repoRoot: value.repoRoot,
         approval: value.approval,
         maxTurns: value.maxTurns ?? preset.maxTurns,
@@ -125,11 +116,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       sendJson(res, 400, { error: APPROVAL_MODE_ERROR });
       return null;
     }
-    const maxTurns = z.number().int().positive().optional().safeParse(parsedBody.maxTurns);
-    if (!maxTurns.success) {
-      sendJson(res, 400, { error: 'maxTurns must be a positive integer.' });
-      return null;
-    }
     const mockResponses = MockPlannerResponsesSchema.optional().safeParse(parsedBody.mockResponses);
     const mockCommandResults = z.record(
       z.string(),
@@ -141,7 +127,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     }
     const extras = ChatRepoAgentRequestExtrasSchema.parse({
       approval: approval.data,
-      maxTurns: maxTurns.data,
       mockResponses: mockResponses.data,
       mockCommandResults: mockCommandResults.data,
     });
@@ -196,7 +181,6 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         queueStart: request,
         lease: request.lease ?? undefined,
         queueOwner: ctx.chatMessageQueue,
-        queueSessionId: request.sessionId,
       });
       stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
       return { failure };
@@ -221,8 +205,7 @@ export async function executeChatRepoAgentOperation(options: {
   mockCommandResults?: ChatRepoAgentRequest['mockCommandResults'];
   history: PlannerChatMessage[];
   effectiveConfig: SiftConfig;
-  queueOwner?: ServerContext['chatMessageQueue'];
-  queueSessionId?: string;
+  queueOwner: ServerContext['chatMessageQueue'];
   stream: ChatOperationBroadcast;
   connection?: SseResponseWriter;
   queueStart?: Pick<ChatSessionOperationRequest<ChatRepoAgentRequest>, 'sessionId' | 'queuedMessages' | 'queueIntentId'>;
@@ -247,9 +230,7 @@ export async function executeChatRepoAgentOperation(options: {
     modelPreset: options.session.modelPreset,
     mockResponses: options.mockResponses,
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.mockCommandResults),
-    queueOwner: options.queueOwner,
-    queueSessionId: options.queueSessionId,
-    queueForceId: options.queueStart?.queueIntentId,
+    queue: { owner: options.queueOwner, sessionId: options.sessionId, modelPreset: options.session.modelPreset, forceId: options.queueStart?.queueIntentId },
   });
   if (!options.lease || !options.ctx.chatSessionOperations.registerAbort(options.lease, () => started.session.abort())) {
     started.session.abort();
