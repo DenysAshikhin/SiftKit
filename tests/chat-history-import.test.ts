@@ -18,7 +18,7 @@ import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
 import { spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 
 const at = '2026-09-10T11:00:00.000Z';
 function archive(extra: readonly JsonObject[] = []) {
@@ -200,7 +200,7 @@ test('repair applies atomically and an identical repeat cannot duplicate the tra
   const root = createManagedTempDir('chat-archive-repair-');
   const databasePath = join(root, 'runtime.sqlite');
   saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'repair');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'repair');
   const database = getRuntimeDatabase(databasePath);
   seedRepairArchive(database);
   const prepared = prepareChatHistoryRepair(repairInput());
@@ -219,7 +219,7 @@ test('repair rejects a stale digest before creating any journal or display row',
   const root = createManagedTempDir('chat-archive-repair-stale-');
   const databasePath = join(root, 'runtime.sqlite');
   saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'repair');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'repair');
   const database = getRuntimeDatabase(databasePath);
   seedRepairArchive(database);
   const prepared = prepareChatHistoryRepair(repairInput());
@@ -233,7 +233,7 @@ test('repair validates queue turn provenance and rolls projection failures back 
   const root = createManagedTempDir('chat-archive-repair-rollback-');
   const databasePath = join(root, 'runtime.sqlite');
   saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'repair');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'repair');
   const database = getRuntimeDatabase(databasePath);
   seedRepairArchive(database);
   const queue = new ChatMessageQueueStore(database);
@@ -259,7 +259,7 @@ test('repair refuses source text changed since the reviewed plan even if display
   const root = createManagedTempDir('chat-archive-repair-source-drift-');
   const databasePath = join(root, 'runtime.sqlite');
   saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'repair');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'repair');
   const database = getRuntimeDatabase(databasePath);
   seedRepairArchive(database);
   const prepared = prepareChatHistoryRepair(repairInput());
@@ -279,7 +279,7 @@ test('recovery command defaults to dry-run and leaves its source database unchan
   const statePath = join(root, 'state.json');
   writeFileSync(statePath, JSON.stringify(input.state));
   writeFileSync(join(root, 'request.json'), JSON.stringify(input.request));
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const result = spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/recover-web-chat.ts'),
     '--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', statePath, '--max-turns', '200'],
   { encoding: 'utf8', timeout: 30_000 });
@@ -306,7 +306,7 @@ test('recovery command applies once under a verified backup, repeats as a no-op,
   const statePath = join(root, 'state.json');
   writeFileSync(statePath, JSON.stringify(input.state));
   writeFileSync(join(root, 'request.json'), JSON.stringify(input.request));
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const target = ['--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', statePath, '--max-turns', '200'];
   const dryRun = runRecoveryCommand(target);
   assert.equal(dryRun.status, 0, dryRun.stderr);
@@ -321,7 +321,7 @@ test('recovery command applies once under a verified backup, repeats as a no-op,
   assert.match(staleDigest.stderr, /digest/iu);
   assert.equal(existsSync(backupPath), false, 'a refused apply must not leave a backup behind');
   assert.equal(new ChatJournalStore(getRuntimeDatabase(databasePath)).listSessionRuns('session').length, 0);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const applied = runRecoveryCommand([...target, '--apply', '--expected-digest', plan.expectedDigest, '--backup', backupPath]);
   assert.equal(applied.status, 0, applied.stderr);
@@ -331,12 +331,12 @@ test('recovery command applies once under a verified backup, repeats as a no-op,
   assert.equal(existsSync(backupPath), true);
   const backup = getRuntimeDatabase(backupPath);
   assert.equal(new ChatJournalStore(backup).listSessionRuns('session').length, 0, 'the backup captures the pre-repair state');
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const repaired = getRuntimeDatabase(databasePath);
   assert.equal(new ChatJournalStore(repaired).listSessionRuns('session').length, 1);
   const messageCount = readChatSessionFromDatabase(repaired, 'session')?.messages?.length ?? 0;
   assert.ok(messageCount > 0);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const repeated = runRecoveryCommand([...target, '--apply', '--expected-digest', plan.expectedDigest, '--backup', join(root, 'backups', 'second.sqlite')]);
   assert.equal(repeated.status, 0, repeated.stderr);
@@ -346,7 +346,7 @@ test('recovery command applies once under a verified backup, repeats as a no-op,
   const reopened = getRuntimeDatabase(databasePath);
   assert.equal(new ChatJournalStore(reopened).listSessionRuns('session').length, 1);
   assert.equal(readChatSessionFromDatabase(reopened, 'session')?.messages?.length, messageCount);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const missingState = runRecoveryCommand(['--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', join(root, 'absent.json')]);
   assert.equal(missingState.status, 1);

@@ -6,7 +6,7 @@ import type {
   AssistantInferenceClient, AssistantInferenceResult,
 } from '../src/assistant/inference/client.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { buildAssistantService } from './helpers/assistant-fixture.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
@@ -50,7 +50,7 @@ test('maintenance waits for the drain already in flight before it mutates anythi
     await Promise.all([drain, maintenance]);
     assert.deepEqual(order, ['drain', 'maintenance']);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -67,7 +67,7 @@ test('concurrent maintenance operations run one at a time', async () => {
     await Promise.all([first, second]);
     assert.deepEqual(order, ['first-start', 'first-end', 'second']);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -82,7 +82,7 @@ test('the service creates the owner person node exactly once', () => {
       service.graph.nodes.listNodesByType(service.ownerId, 'person').length, 1,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -120,7 +120,7 @@ test('a disabled service is inert until a validated config refresh enables it', 
     assert.equal(service.enabled, true);
     assert.notEqual(service.ownerPersonNodeId, null);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -136,7 +136,7 @@ test('a chat turn is ingested without any model call', () => {
     assert.equal(service.graph.jobs.countByStatus(service.ownerId, 'queued'), 2);
     assert.equal(service.graph.evidence.countEvidence(service.ownerId), 2);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -148,7 +148,7 @@ test('an unavailable image runtime is not logged when no capture is waiting', as
 
     assert.deepEqual(service.listBackgroundWorkDecisions(), []);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -158,7 +158,7 @@ test('retrieval on an empty graph returns an empty block', async () => {
     const result = await service.retrieveMemoryContext('what shell do I use?');
     assert.equal(result.renderedBlock, '');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -174,7 +174,7 @@ test('an ingestion failure never throws at the caller', () => {
       });
     });
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -217,7 +217,7 @@ test('the environment heartbeat closes a foreground session that simply stopped 
     service.ingestEnvironment(heartbeat('2026-08-05T09:06:00.000Z'));
     assert.equal(sessionEvidence(), 1, 'the stalled session closed and emitted its observation');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -244,7 +244,7 @@ test('a residency change preempts the drain and waits for it to finish', async (
 
     assert.deepEqual(order, ['drain', 'residency']);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -273,7 +273,7 @@ test('a residency change blocks a second drain while the first drain is unwindin
     inference.release();
     await Promise.all([firstDrain, secondDrain, residency]);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -301,7 +301,7 @@ test('concurrent drain ticks do not start overlapping model calls', async () => 
     inference.release();
     await Promise.all([firstDrain, secondDrain]);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -320,7 +320,7 @@ test('private mode does not block queued background work', async () => {
 
     assert.ok(inference.requests.length > 0);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -335,7 +335,7 @@ test("the owner's configured display name becomes an alias of the owner node", (
     assert.ok(aliases.includes('the user'));
     assert.ok(aliases.includes('myself'));
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -361,7 +361,7 @@ test('an owner node created before the display name was set picks the alias up o
         .some((row) => row.normalized_alias === 'denys'),
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -388,6 +388,6 @@ test('renaming the owner retires the previous configured alias but keeps learned
     assert.ok(aliases.includes('the user'));
     assert.equal(service.graph.identity.getOwner().display_name, 'Dennis');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

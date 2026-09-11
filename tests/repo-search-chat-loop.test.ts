@@ -94,7 +94,11 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
-  assert.equal(result.commands.length, 0);
+  assert.equal(result.commands.length, 1);
+  assert.equal(result.commands[0]?.safe, false);
+  assert.equal(result.commands[0]?.reason, 'invalid action');
+  assert.equal(result.commands[0]?.exitCode, null);
+  assert.equal(String(result.commands[0]?.output).includes('should not execute'), false);
 });
 
 test('chat mode streams finish output as answer events', async () => {

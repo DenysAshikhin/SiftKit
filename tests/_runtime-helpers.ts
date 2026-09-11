@@ -99,7 +99,7 @@ import {
   terminateProcessTree,
 } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
@@ -1055,7 +1055,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
     // the database closes, or the late write reopens runtime.sqlite inside the temp root.
     await awaitRepoSearchRunPersistence();
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     envBackup.restore();
     if (!await removeDirectoryWithRetries(tempRoot)) {
       reportUndeletableTempDirectories([tempRoot]);
@@ -1236,7 +1236,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => { server.close((error) => (error ? reject(error) : resolve())); });
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {
         delete process.env[key];

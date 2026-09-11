@@ -1,6 +1,6 @@
 import { renderTaskTranscript } from '../planner-protocol.js';
 import { buildChatMessageId } from '@siftkit/contracts';
-import { applyLiveChatContextRevisions } from '../../state/chat-history-revisions.js';
+import { applyChatContextRevisions } from '../../state/chat-history-revisions.js';
 import { COMPACTION_SUMMARY_MARKER } from './transcript-compactor.js';
 import {
   ChatContextInitSchema,
@@ -12,10 +12,8 @@ import {
 import type { ChatContextRecorder } from './chat-run-evidence.js';
 import {
   buildToolBatchMessages,
-  buildToolExchangeMessages,
   resolveTrailingUserSlot,
   type ToolBatchOutcome,
-  type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 import { ImageRetentionPolicy } from '../../image-retention-policy.js';
@@ -73,14 +71,16 @@ export class TranscriptManager {
     ];
     const revisions = this.recorder?.readHistoryRevisions() ?? [];
     const pending = revisions.slice(this.recorder?.historyRevision ?? 0);
-    this.messages = applyLiveChatContextRevisions(initialMessages, pending);
-    this.currentTurnStartIndexValue = applyLiveChatContextRevisions(initialMessages.slice(0, 1 + options.historyMessages.length), pending).length;
-    this.recorder?.recordContextInitialized(ChatContextInitSchema.parse({
+    const init = ChatContextInitSchema.parse({
       ...(options.initialQueueMessageIds ? { queueMessageIds: options.initialQueueMessageIds } : {}),
-      messages: this.messages,
+      messages: applyChatContextRevisions(initialMessages, pending),
       contextRevision: 0,
-      turnBoundary: this.currentTurnStartIndexValue,
-    }));
+      turnBoundary: applyChatContextRevisions(initialMessages.slice(0, 1 + options.historyMessages.length), pending).length,
+    });
+    // The recorder sanitizes deleted images inside its append; the live array is exactly what it committed.
+    const committed = this.recorder?.recordContextInitialized(init) ?? init;
+    this.messages = [...committed.messages];
+    this.currentTurnStartIndexValue = committed.turnBoundary;
     this.appliedHistoryRevision = revisions.length;
   }
 
@@ -132,9 +132,6 @@ export class TranscriptManager {
     this.releaseDroppedImageGuards();
   }
 
-  appendToolExchange(action: ToolTranscriptAction, toolCallId: string, toolContent: string, thinkingText: string): void {
-    this.append(buildToolExchangeMessages(action, toolCallId, toolContent, thinkingText));
-  }
 
   /** Appends the batch and returns the index its assistant message landed at. */
   appendBatchExchange(outcomes: readonly ToolBatchOutcome[], thinkingText: string, content = ''): number {
@@ -175,7 +172,7 @@ export class TranscriptManager {
    * Rewrites the result of an already-answered call. Anchored by call id rather than by index,
    * because the image messages inserted after a batch shift every index it was appended at.
    */
-  replaceToolResult(toolCallId: string, content: string): void {
+  replaceToolResult(toolCallId: string, content: string, coalescedToolCallIds: readonly string[] = []): void {
     const index = this.findToolResultIndex(toolCallId);
     if (index < 0) {
       throw new Error(`TranscriptManager: no tool result for call ${toolCallId} to replace`);
@@ -186,6 +183,7 @@ export class TranscriptManager {
       [{ ...this.messages[index], content }],
       'tool_result_replaced',
       this.currentTurnStartIndexValue,
+      { coalescedToolCallIds: [...coalescedToolCallIds] },
     );
   }
 
@@ -222,17 +220,16 @@ export class TranscriptManager {
     const outcome = new ImageRetentionPolicy(retention).prune(this.messages);
     if (outcome.messages === this.messages) return;
     this.applySplice(0, this.messages.length, outcome.messages, 'images_pruned', this.currentTurnStartIndexValue);
-    for (const droppedPathKey of outcome.droppedPathKeys) {
-      this.liveImagePathKeys.delete(droppedPathKey);
-    }
+    for (const droppedPathKey of outcome.droppedPathKeys) this.liveImagePathKeys.delete(droppedPathKey);
+    this.releaseDroppedImageGuards();
   }
 
   reconcileHistory(): void {
     const revisions = this.recorder?.readHistoryRevisions() ?? [];
     const pending = revisions.slice(this.appliedHistoryRevision);
     if (pending.length === 0) return;
-    const messages = applyLiveChatContextRevisions(this.messages, pending);
-    const boundary = applyLiveChatContextRevisions(this.messages.slice(0, this.currentTurnStartIndexValue), pending).length;
+    const messages = applyChatContextRevisions(this.messages, pending);
+    const boundary = applyChatContextRevisions(this.messages.slice(0, this.currentTurnStartIndexValue), pending).length;
     this.applySplice(0, this.messages.length, messages, 'history_revised', boundary);
     this.appliedHistoryRevision = revisions.length;
     this.releaseDroppedImageGuards();
@@ -254,9 +251,10 @@ export class TranscriptManager {
     inserted: readonly ChatMessage[],
     reason: ChatContextSpliceReason,
     turnBoundary: number,
-    metadata?: Pick<ChatContextSplice, 'queueMessageIds' | 'compressedMessageIds'>,
+    metadata?: Partial<Pick<ChatContextSplice, 'queueMessageIds' | 'compressedMessageIds' | 'coalescedToolCallIds'>>,
   ): void {
     const splice = ChatContextSpliceSchema.parse({
+      coalescedToolCallIds: [],
       ...metadata,
       expectedRevision: this.contextRevisionValue,
       contextRevision: this.contextRevisionValue + 1,
@@ -280,10 +278,10 @@ export class TranscriptManager {
       turnBoundary,
       reason,
     });
-    this.recorder?.recordContextSpliced(splice);
-    this.messages.splice(splice.startIndex, splice.deleteCount, ...splice.inserted);
-    this.contextRevisionValue = splice.contextRevision;
-    this.currentTurnStartIndexValue = splice.turnBoundary;
+    const committed = this.recorder?.recordContextSpliced(splice) ?? splice;
+    this.messages.splice(committed.startIndex, committed.deleteCount, ...committed.inserted);
+    this.contextRevisionValue = committed.contextRevision;
+    this.currentTurnStartIndexValue = committed.turnBoundary;
   }
 
   /**

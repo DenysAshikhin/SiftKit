@@ -280,15 +280,15 @@ export function useChatSessions(deps: {
           if (cancelled) {
             return;
           }
+          if (transition.kind === 'terminal') {
+            // The stored session replaces the live view; refresh it first so the transcript never blanks.
+            try { await refreshSession(); }
+            finally { if (!cancelled) setRuntimeStore((previous) => previous.apply(transition)); }
+            continue;
+          }
           setRuntimeStore((previous) => previous.apply(transition));
           if (transition.kind === 'snapshot') {
             attached = true;
-          }
-          if (transition.kind === 'done') {
-            setSessions((previous) => upsertSession(previous, transition.response.session));
-          }
-          if (transition.kind === 'detach') {
-            await refreshSession();
           }
           if (transition.kind === 'failure') {
             try { if (await refreshSession()) scheduleReconnect(); }
@@ -544,13 +544,14 @@ export function useChatSessions(deps: {
         stream,
         thinkingEnabled,
       )) {
+        if (transition.kind === 'terminal') {
+          try { applySessionResponse(await getChatSession(sessionId)); }
+          finally { setRuntimeStore((previous) => previous.apply(transition)); }
+          continue;
+        }
         setRuntimeStore((previous) => previous.apply(transition));
         if (transition.kind === 'snapshot') accepted = true;
         if (transition.kind === 'failure' && (accepted || queueOperationIds.current.get(sessionId) === operationId)) ownedElsewhere = true;
-        if (transition.kind === 'done') {
-          setSessions((previous) => upsertSession(previous, transition.response.session));
-        }
-        if (transition.kind === 'detach') applySessionResponse(await getChatSession(sessionId));
         if (transition.kind === 'remote-begin') ownedElsewhere = true;
       }
     } finally {

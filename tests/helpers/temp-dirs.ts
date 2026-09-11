@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
 import { findNearestSiftKitRepoRoot } from '../../src/lib/paths.js';
 
 /** The one wording for a leaked temp directory, so acceptance checks grep for a single string. */
@@ -134,10 +134,10 @@ const fileRegistry = new TempDirRegistry();
  * Removes every managed directory and names the survivors. The cached runtime DB is closed
  * first: better-sqlite3 keeps `runtime.sqlite` open, and on Windows that open handle blocks
  * removal of the directory containing it. Owning that here is what spares every test file
- * its own `after(() => closeRuntimeDatabase())` hook.
+ * its own `after(() => closeAllRuntimeDatabases())` hook.
  */
 export function sweepManagedTempDirs(): string[] {
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const survivors = fileRegistry.removeAll();
   reportUndeletableTempDirectories(survivors);
   return survivors;

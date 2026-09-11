@@ -3,7 +3,7 @@ import test from 'node:test';
 import path from 'node:path';
 
 import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -80,7 +80,7 @@ for (const fail of [false, true]) test(`normal queued delivery retains safe chro
   const ids = [randomUUID(), randomUUID()];
   for (const [index, id] of ids.entries()) assert.equal((await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id, content: `steering ${index}`, images: [], options: { operationKind: 'repo-search' } }) })).statusCode, 200);
   const response = await original;
-  const streamed = readChatStreamViews(response).at(-1)?.snapshot.messages;
+  const streamed = readChatStreamViews(response, sessionId).at(-1)?.snapshot.messages;
   assert.ok(streamed);
   assert.deepEqual(streamed.filter(message => ids.some(id => id === message.id)).map(message => message.id), ids);
   const messages = asObjectArray(asObject((await requestJson(url)).body.session).messages);
@@ -286,6 +286,6 @@ test('force intent snapshots pending IDs durably and retries by idempotency key'
       operationId: request.operationId,
     }, '4f9c1f9a-0000-4000-8000-000000000103').kind, 'conflict');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

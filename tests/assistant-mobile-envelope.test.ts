@@ -10,7 +10,7 @@ import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
 import { EnvelopeVerifier } from '../src/assistant/mobile/envelope-verifier.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContext,
   type AssistantTestContext,
@@ -148,7 +148,7 @@ test('a rejection is audited by reason alone, never by payload', () => {
     // The audit trail must not leak what the phone said.
     assert.ok(!(events[0]?.details_json ?? '').includes('dark mode'));
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -170,6 +170,6 @@ test('an accepted envelope becomes ordinary mobile_event evidence at its declare
     // The phone's own classification is a floor; the pipeline may raise it but never lowers it.
     assert.equal(evidence.sensitivity, 'highly_sensitive');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

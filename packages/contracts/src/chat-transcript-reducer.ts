@@ -183,9 +183,9 @@ function reduceToolEvent(
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
   const tool = event.tool;
-  const existing = messages.find(
-    (message) => message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId }),
-  );
+  const toolMessageId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId });
+  const narrationId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: tool.turn });
+  const existing = messages.find((message) => message.id === toolMessageId);
   if (existing && existing.kind !== 'assistant_tool_call') throw new Error('Tool progress conflicts with an existing message identity.');
   // A live frame only ever advances the state; a journal-derived outcome is what settles it.
   const hasFullResult = typeof existing?.toolCallOutput === 'string';
@@ -193,15 +193,14 @@ function reduceToolEvent(
     : tool.kind === 'tool_result' ? 'completed' : existing?.toolCallExecutionState ?? 'executing';
   const beforeTool = tool.kind === 'tool_start'
     ? messages.map((message) => (
-      message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: tool.turn })
-      && message.kind === 'assistant_narration'
+      message.id === narrationId && message.kind === 'assistant_narration'
         ? ChatTranscriptMessageSchema.parse({ ...message, kind: 'assistant_progress' })
         : message
     ))
     : [...messages];
   const message = ChatTranscriptMessageSchema.parse({
     ...existing,
-    id: buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId }),
+    id: toolMessageId,
     role: 'assistant',
     kind: 'assistant_tool_call',
     content: tool.command,

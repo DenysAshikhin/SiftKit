@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { closeRuntimeDatabase, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
@@ -58,6 +58,6 @@ test('fresh database uses current backend-neutral schema columns', () => {
       database.close();
     }
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

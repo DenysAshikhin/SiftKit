@@ -10,7 +10,7 @@ import {
   readInferenceRun,
   readInferenceRunLogTextByStream,
 } from '../src/state/inference-runs.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { withTempEnv } from './_runtime-helpers.js';
 
 /**
@@ -176,7 +176,7 @@ test('finalize tolerates a closed runtime database', async () => {
     });
 
     recorder.appendLine('engine_stderr', 'late\n');
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     assert.doesNotThrow(() => recorder.finalize({ status: 'stopped', exitCode: 0 }));
   });
 });

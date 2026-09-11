@@ -118,23 +118,19 @@ export function removeChatImageEvidence(database: RuntimeDatabase, sessionId: st
   })();
 }
 
-function removeImageFromNative(message: ChatMessage, messageId: string, imageIndex: number, payload?: string): ChatMessage {
+/** Native copies drop one occurrence of the exact payload: positions drift once retention ages siblings out. */
+function removeImageFromNative(message: ChatMessage, messageId: string, payload: string): ChatMessage {
   if (!Array.isArray(message.content)) return message;
-  if (payload !== undefined && message.chatMessageId === undefined && message.content.some(part => part.image_url?.url === payload)) {
+  if (message.chatMessageId === undefined && message.content.some(part => part.image_url?.url === payload)) {
     throw new Error('Image deletion requires migrated native message identities.');
   }
   if (message.chatMessageId !== messageId) return message;
-  let index = 0;
-  return { ...message, content: message.content.filter(part => part.type !== 'image_url' || index++ !== imageIndex) };
-}
-
-/** The live array still holds pixels already purged from durable source; apply each new removal once. */
-export function applyLiveChatContextRevisions(messages: readonly ChatMessage[], revisions: readonly ChatHistoryRevision[]): ChatMessage[] {
-  let retained = applyChatContextRevisions(messages, revisions);
-  for (const revision of revisions) {
-    if (revision.action === 'image_removed') retained = retained.map(message => removeImageFromNative(message, revision.messageId, revision.imageIndex));
-  }
-  return retained;
+  let removed = false;
+  return { ...message, content: message.content.filter(part => {
+    if (removed || part.type !== 'image_url' || part.image_url?.url !== payload) return true;
+    removed = true;
+    return false;
+  }) };
 }
 
 function removeImageFromEvent(event: ChatJournalEvent, operationId: string, messageId: string, imageIndex: number, payload: string): ChatJournalEvent {
@@ -147,13 +143,13 @@ function removeImageFromEvent(event: ChatJournalEvent, operationId: string, mess
     message: { ...event.message, images: event.message.images.filter((_, index) => index !== imageIndex),
       imageMeta: event.message.imageMeta.filter((_, index) => index !== imageIndex) } };
   if (event.kind === 'context_initialized') return { ...event,
-    messages: event.messages.map(message => removeImageFromNative(message, messageId, imageIndex, payload)) };
+    messages: event.messages.map(message => removeImageFromNative(message, messageId, payload)) };
   if (event.kind === 'context_spliced') return { ...event,
-    inserted: event.inserted.map(message => removeImageFromNative(message, messageId, imageIndex, payload)) };
+    inserted: event.inserted.map(message => removeImageFromNative(message, messageId, payload)) };
   if (event.kind === 'baseline_imported') return { ...event,
     messages: event.messages.map(message => message.id === messageId ? { ...message,
       images: message.images?.filter((_, index) => index !== imageIndex), imageMeta: message.imageMeta?.filter((_, index) => index !== imageIndex) } : message),
-    retainedContext: event.retainedContext.map(message => removeImageFromNative(message, messageId, imageIndex, payload)) };
+    retainedContext: event.retainedContext.map(message => removeImageFromNative(message, messageId, payload)) };
   if (event.kind === 'display' && event.event.kind === 'submission' && event.event.message.id === messageId) {
     return { ...event, event: { ...event.event, message: { ...event.event.message,
       images: event.event.message.images.filter((_, index) => index !== imageIndex) } } };

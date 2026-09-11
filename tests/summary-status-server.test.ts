@@ -11,7 +11,7 @@ import { getConfigPath } from '../src/config/index.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { requestSse } from './helpers/sse-http.js';
@@ -103,7 +103,7 @@ test('summary endpoint waits behind the model request queue', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -188,7 +188,7 @@ test('summary endpoint processes terminal status before granting next queued sum
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -280,7 +280,7 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -383,7 +383,7 @@ test('terminal metadata waits for inference flush queue to drain first', async (
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -523,7 +523,7 @@ test('split terminal routes clear active request before next running post', asyn
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -583,7 +583,7 @@ test('legacy terminal status posts to /status are rejected', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -680,7 +680,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -743,7 +743,7 @@ test('command-output endpoint analyzes captured command output on the server', a
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];

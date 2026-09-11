@@ -10,7 +10,7 @@ import { SequentialIdGenerator } from '../src/assistant/ids.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import type { AssistantConfig } from '../src/config/types.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
 import { CaptureRetentionService } from '../src/assistant/images/capture-retention.js';
 import type { CaptureQueueState } from '../src/assistant/domain/enums.js';
@@ -294,7 +294,7 @@ test('a drain enqueues a scheduled retention run that expires stale captures', a
       'image_capability_unavailable',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -340,7 +340,7 @@ test('an intake that pushes stored bytes over the cap enqueues a capacity retent
       'the capacity-triggered pass records its provenance',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

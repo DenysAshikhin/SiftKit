@@ -16,7 +16,7 @@ import { condenseChatSession } from '../src/status-server/chat.js';
 import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
@@ -80,7 +80,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
     process.chdir(tempRoot);
     fn(tempRoot);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(previousCwd);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -98,7 +98,7 @@ async function withTempRepoAsync(fn: (repoRoot: string) => Promise<void>): Promi
     process.chdir(tempRoot);
     await fn(tempRoot);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(previousCwd);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -744,7 +744,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
   const runtimeRoot = createManagedTempDir('siftkit-legacy-check-store-');
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
   seedLegacyChatDatabase(databasePath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const reader = new Database(databasePath, { readonly: true });
   let rowsBeforeUpgrade: ChatMessageRow[];
@@ -790,7 +790,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
       ],
     });
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 
   const reopened = new Database(databasePath, { readonly: true });
@@ -809,7 +809,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
     assert.equal(toolMessage?.toolCallStatus, 'stopped');
     assert.equal(readChatSessions(runtimeRoot).length, 2);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

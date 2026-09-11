@@ -16,7 +16,7 @@ import type {
 } from '../src/assistant/projections/projection-summarizer.js';
 import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
   type AssistantTestContext,
@@ -209,7 +209,7 @@ test('gate E scenario 5: deleting capture evidence purges the blob and queues th
     await service.memoryMutations.rebuildProjections(context.ownerId, PROJECTION_SIGNAL);
     assertProjectionIntegrity(context);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -332,6 +332,6 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     assert.equal(desktop.custody.custody, 'file');
     assertProjectionIntegrity(context);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

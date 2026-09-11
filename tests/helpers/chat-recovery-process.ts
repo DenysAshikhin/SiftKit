@@ -5,8 +5,7 @@ import { mock } from 'node:test';
 import { z } from '../../src/lib/zod.js';
 import { toError } from '../../src/lib/errors.js';
 import { terminateProcessTree } from '../../src/lib/process-tree.js';
-import type { JsonSerializable } from '../../src/lib/json-types.js';
-import { ChatSessionOperationKindSchema, type ChatStreamEventName } from '@siftkit/contracts';
+import { ChatSessionOperationKindSchema, type ChatTranscriptEvent } from '@siftkit/contracts';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { ChatJournalStore } from '../../src/state/chat-journal.js';
 import { readChatSessionFromDatabase, saveChatSession } from '../../src/state/chat-sessions.js';
@@ -14,7 +13,6 @@ import { getConfigPath, getRuntimeRoot } from '../../src/status-server/paths.js'
 import { writeConfig } from '../../src/status-server/config-store.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { ChatRunRecorder } from '../../src/status-server/chat-run-recorder.js';
-import { ChatOperationBroadcast } from '../../src/status-server/chat-operation-broadcast.js';
 import { ChatOperationSnapshotReader } from '../../src/status-server/chat-operation-snapshot.js';
 import { getAddressInfo } from './dashboard-http.js';
 import { getDefaultServerConfig, mockModelPreset } from './mock-config.js';
@@ -84,8 +82,8 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
     throw new Error('A crash barrier must never resume.');
   };
   const begin = ChatRunRecorder.begin;
-  mock.method(ChatRunRecorder, 'begin', (databasePath: string, input: Parameters<typeof begin>[1]) => {
-    const recorder = begin(databasePath, input);
+  mock.method(ChatRunRecorder, 'begin', (database: Parameters<typeof begin>[0], input: Parameters<typeof begin>[1]) => {
+    const recorder = begin(database, input);
     if (input.operationKind === config.operationKind) target = recorder;
     freeze('submission', recorder);
     return recorder;
@@ -122,16 +120,16 @@ export async function runChatRecoveryProcess(config: ProcessConfig): Promise<voi
     if (messages.length > 0) freeze('queue', this);
     return messages;
   });
-  const broadcast = ChatOperationBroadcast.prototype.writeEvent;
-  mock.method(ChatOperationBroadcast.prototype, 'writeEvent', function(this: ChatOperationBroadcast, event: ChatStreamEventName, payload: JsonSerializable) {
-    broadcast.call(this, event, payload);
-    if (target && (event === 'narration' || event === 'answer') && JSON.stringify(payload).includes('CRASH_PARTIAL_21')) freeze('text', target);
+  const display = ChatRunRecorder.prototype.recordDisplay;
+  mock.method(ChatRunRecorder.prototype, 'recordDisplay', function(this: ChatRunRecorder, event: ChatTranscriptEvent) {
+    display.call(this, event);
+    if (target && (event.kind === 'narration' || event.kind === 'answer') && event.delta.text.includes('CRASH_PARTIAL_21')) freeze('text', target);
   });
   const capture = ChatOperationSnapshotReader.prototype.capture;
   mock.method(ChatOperationSnapshotReader.prototype, 'capture', function(this: ChatOperationSnapshotReader, database: Parameters<typeof capture>[0], live: Parameters<typeof capture>[1], nowMs?: number) {
-    const snapshot = capture.call(this, database, live, nowMs);
-    if (target && snapshot.messages.some(message => message.content.includes('CRASH_PARTIAL_21'))) freeze('projection', target);
-    return snapshot;
+    const captured = capture.call(this, database, live, nowMs);
+    if (target && captured.snapshot.messages.some(message => message.content.includes('CRASH_PARTIAL_21'))) freeze('projection', target);
+    return captured;
   });
   process.on('exit', () => { appendFileSync(join(config.root, 'clean-shutdown.txt'), 'cleanup\n'); });
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 0 });

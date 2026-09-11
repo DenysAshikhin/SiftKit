@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getConfigPath } from '../../src/config/index.js';
 import { writeConfig } from '../../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './mock-config.js';
@@ -58,7 +58,9 @@ export function enterDashboardTestRepo(tempRoot: string): string {
   return previousCwd;
 }
 
+/** Closes only the temp repo's runtime database; another root's handle stays open. */
 export function restoreDashboardTestRepo(previousCwd: string): void {
+  const tempRoot = process.cwd();
   process.chdir(previousCwd);
-  closeRuntimeDatabase();
+  closeRuntimeDatabase(getRuntimeDatabasePath(tempRoot));
 }

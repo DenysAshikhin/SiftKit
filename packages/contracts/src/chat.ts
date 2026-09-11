@@ -240,6 +240,25 @@ export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
 ]);
 export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
 
+/** Streamed assistant text kinds; the only rows a text suffix may extend. */
+export const ChatTextRowKindSchema = z.enum(['assistant_thinking', 'assistant_narration', 'assistant_progress', 'assistant_answer']);
+export type ChatTextRowKind = z.infer<typeof ChatTextRowKindSchema>;
+
+/**
+ * The fields text and usage projection change on a streamed row, without its body. A suffix update
+ * carries these so the receiver merges them over the content and attachments it already holds.
+ */
+export const ChatTextRowMetadataSchema = ChatMessageBaseSchema.pick({
+  inputTokensEstimate: true, outputTokensEstimate: true, thinkingTokens: true,
+  inputTokensEstimated: true, outputTokensEstimated: true, thinkingTokensEstimated: true,
+  promptCacheTokens: true, promptEvalTokens: true, promptTokensPerSecond: true, generationTokensPerSecond: true,
+  requestDurationMs: true, promptEvalDurationMs: true, generationDurationMs: true, requestStartedAtUtc: true,
+  thinkingStartedAtUtc: true, thinkingEndedAtUtc: true, answerStartedAtUtc: true, answerEndedAtUtc: true,
+  speculativeAcceptedTokens: true, speculativeGeneratedTokens: true, groundingStatus: true,
+  runTerminalCause: true, runTerminalDetail: true,
+}).extend({ kind: ChatTextRowKindSchema }).strict();
+export type ChatTextRowMetadata = z.infer<typeof ChatTextRowMetadataSchema>;
+
 export const PersistedChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
   ChatTranscriptToolCallMessageSchema,
   ChatRepoAgentApprovalMessageSchema,
@@ -472,52 +491,6 @@ export const ChatStreamQueuedUserMessageSchema = z.strictObject({
 });
 export type ChatStreamQueuedUserMessage = z.infer<typeof ChatStreamQueuedUserMessageSchema>;
 
-/** Every SSE frame name a chat stream can carry. The wire contract, so no caller spells one out. */
-export const ChatStreamEventNameSchema = z.enum([
-  'snapshot',
-  'projection',
-  'thinking',
-  'narration',
-  'answer',
-  'warning',
-  'tool_start',
-  'tool_result',
-  'progress',
-  'usage',
-  'prompt',
-  'approval',
-  'approval_state',
-  'approval_resolved',
-  'submitted',
-  'queue',
-  'queued_user_message',
-  'done',
-  'error',
-  'ended',
-]);
-export type ChatStreamEventName = z.infer<typeof ChatStreamEventNameSchema>;
-
-/**
- * Frames after which the server closes the stream. `done` carries the finished session, `error` a
- * failure, and `ended` says the operation finished without a stream payload (a condense, or a turn
- * that exited before it opened its stream) so the reader refetches instead of reporting a break.
- * A body that ends without one of these was cut off.
- */
-export const CHAT_STREAM_TERMINAL_EVENT_NAMES = [
-  'done',
-  'error',
-  'ended',
-] as const satisfies readonly ChatStreamEventName[];
-
-const TERMINAL_CHAT_STREAM_EVENT_NAMES: ReadonlySet<ChatStreamEventName> = new Set(
-  CHAT_STREAM_TERMINAL_EVENT_NAMES,
-);
-
-export function isTerminalChatStreamEventName(name: string): boolean {
-  const parsed = ChatStreamEventNameSchema.safeParse(name);
-  return parsed.success && TERMINAL_CHAT_STREAM_EVENT_NAMES.has(parsed.data);
-}
-
 export const ChatStreamTextDeltaSchema = z.object({
   turn: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
@@ -540,34 +513,6 @@ export const ChatStreamApprovalSchema = z.object({
   reviewPayload: z.string().nullable(),
 });
 export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
-
-/**
- * The prompt that started the run. Persisted only when the turn ends, so without this frame a
- * client that attaches mid-run would show assistant output with no user message above it.
- */
-export const ChatStreamSubmittedSchema = z.strictObject({
-  content: z.string(),
-  images: z.array(ImageDataUrlSchema),
-});
-export type ChatStreamSubmitted = z.infer<typeof ChatStreamSubmittedSchema>;
-
-/**
- * The authoritative pending-approval state, sent once at the end of a replay. Replaying the raw
- * `approval` frames would resurrect an approval that has since been decided, so the attach path
- * sends live state instead.
- */
-export const ChatStreamApprovalStateSchema = z.strictObject({
-  approval: ChatStreamApprovalSchema.nullable(),
-});
-export type ChatStreamApprovalState = z.infer<typeof ChatStreamApprovalStateSchema>;
-
-/** Broadcast when an approval is decided, so every attached client clears the same card. */
-export const ChatStreamApprovalResolvedSchema = z.strictObject({
-  approval: ChatStreamApprovalSchema,
-  decision: RepoAgentDecisionSchema,
-  decidedAtUtc: z.string().datetime(),
-});
-export type ChatStreamApprovalResolved = z.infer<typeof ChatStreamApprovalResolvedSchema>;
 
 export const ActiveChatOperationSchema = z.strictObject({
   sessionId: z.string().min(1),

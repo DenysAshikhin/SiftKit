@@ -236,12 +236,20 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     resolveStartupPromise = resolve;
     rejectStartupPromise = reject;
   });
+  let resolveShutdownPromise: () => void = () => {};
+  let rejectShutdownPromise: (error: Error) => void = () => {};
+  const shutdownPromise = new Promise<void>((resolve, reject) => {
+    resolveShutdownPromise = resolve;
+    rejectShutdownPromise = reject;
+  });
 
   // Build the shared mutable context.
   const engineService = options.engineService ?? new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
   const chatSessionOperations = new ChatSessionOperationRegistry();
-  const chatRuntimeOwner = ChatRuntimeOwner.acquire(getRuntimeDatabasePath(), randomUUID());
+  const runtimeDatabasePath = getRuntimeDatabasePath();
+  const runtimeDatabase = getRuntimeDatabase(runtimeDatabasePath);
+  const chatRuntimeOwner = ChatRuntimeOwner.acquire(runtimeDatabase, randomUUID());
   const ctx: ServerContext = {
     configPath,
     statusPath,
@@ -251,6 +259,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     engineService,
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
+    runtimeDatabasePath,
+    runtimeDatabase,
     chatRunOwnerEpoch: chatRuntimeOwner.ownerEpoch,
     chatRuntimeOwner,
     server: null,
@@ -264,7 +274,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     metrics,
     statusRuns: new StatusRunRegistry(),
     chatSessionOperations,
-    chatMessageQueue: new ChatMessageQueue(new ChatMessageQueueStore(getRuntimeDatabase()), chatSessionOperations),
+    chatMessageQueue: new ChatMessageQueue(new ChatMessageQueueStore(runtimeDatabase), chatSessionOperations),
     chatRepoAgentRuns: new Map(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
@@ -302,7 +312,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
-  recoverInterruptedChatRuns(getRuntimeDatabase(getRuntimeDatabasePath()), chatRuntimeOwner.ownerEpoch);
+  recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch);
   const chatOwnerHeartbeat = setInterval(() => {
     if (!renewChatRuntimeOwner(chatRuntimeOwner, ctx.chatSessionOperations)) clearInterval(chatOwnerHeartbeat);
   }, CHAT_OWNER_HEARTBEAT_MS);
@@ -325,14 +335,14 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 
   // Create the run-history tables up front so the first dashboard read and the
   // first artifact persist never race on schema creation.
-  const runtimeDatabase = getIdleSummaryDatabase(ctx);
+  const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
   if (options.assistant !== undefined) {
     ctx.assistant = options.assistant;
     ctx.assistantControl = options.assistant instanceof AssistantService ? options.assistant : null;
   } else {
     try {
       const assistant = AssistantService.create({
-        database: runtimeDatabase,
+        database: idleSummaryDatabase,
         runtimeRoot: getRuntimeRoot(),
         clock: new SystemClock(),
         ids: new RandomIdGenerator(),
@@ -360,7 +370,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     }
   }
   ctx.assistantRouteGuard = new AssistantRouteGuard(
-    new AssistantTokenStore(runtimeDatabase, new SystemClock()),
+    new AssistantTokenStore(idleSummaryDatabase, new SystemClock()),
   );
 
   const handleRequest = createRequestHandler(ctx);
@@ -388,6 +398,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         publishStatus(ctx);
       },
       startupPromise,
+      waitForShutdown: (): Promise<void> => shutdownPromise,
     },
   ) satisfies ExtendedServer;
 
@@ -422,11 +433,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   // Override close to ensure the managed engine shuts down first.
   const originalClose = server.close.bind(server);
   let closeRequested = false;
-  let backgroundShutdown = Promise.resolve();
   server.close = (callback?: (err?: Error) => void) => {
     const finalCallback = typeof callback === 'function' ? callback : undefined;
     const afterClose = (error?: Error): void => {
-      void backgroundShutdown.then(() => finalCallback?.(error), failure => {
+      void shutdownPromise.then(() => finalCallback?.(error), failure => {
         if (finalCallback) finalCallback(toError(failure));
         else process.stderr.write(`[siftKitStatus] Shutdown failed: ${toError(failure).message}\n`);
       });
@@ -479,7 +489,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
   server.on('close', () => {
     clearInterval(chatOwnerHeartbeat);
-    chatRuntimeOwner.release();
     clearIdleSummaryTimer(ctx);
     if (ctx.assistantDrainTimer !== null) {
       clearInterval(ctx.assistantDrainTimer);
@@ -497,13 +506,15 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       ctx.idleSummary.database.close();
       ctx.idleSummary.database = null;
     }
-    backgroundShutdown = (async () => {
+    // Drain this server's writers, release its lease while the handle is open, then close only its path.
+    void (async () => {
       await server.waitForRequestsIdle();
       await server.waitForTerminalMetadataIdle();
       clearIdleSummaryTimer(ctx);
       await ctx.inferenceRunFlushQueue.close();
-      closeRuntimeDatabase();
-    })();
+      chatRuntimeOwner.release();
+      closeRuntimeDatabase(runtimeDatabasePath);
+    })().then(resolveShutdownPromise, (error) => rejectShutdownPromise(toError(error)));
   });
   return server;
 }

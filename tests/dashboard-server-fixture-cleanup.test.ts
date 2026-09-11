@@ -6,7 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { ChatSessionsResponseSchema } from '@siftkit/contracts';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
+import { requestJson } from './helpers/dashboard-http.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { waitForTerminalMetadataIdle } from '../src/status-server/terminal-metadata.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { testHttpAgent } from './helpers/http-agent.js';
@@ -48,7 +51,7 @@ test('terminal metadata idle wait reports stuck queue state at its ceiling', asy
   try {
     await assert.rejects(
       waitForTerminalMetadataIdle(context, 25),
-      /queue=1 scheduled=false running=true request=request-stuck/u,
+      /queue=1 direct=0 scheduled=false running=true request=request-stuck/u,
     );
   } finally {
     await context.inferenceRunFlushQueue.close();
@@ -199,4 +202,29 @@ test('DashboardTestServer rolls back cwd, env, and temp files when setup throws'
   assert.equal(cwdAfterFailure, previousCwd);
   assert.equal(statusPortAfterFailure, previousStatusPort);
   assert.deepEqual(leftovers, []);
+});
+
+test('closing a second status server leaves the first server and its database usable', async () => {
+  const first = await DashboardTestServer.start('siftkit-two-servers-a-');
+  const firstDatabase = getRuntimeDatabase(getRuntimeDatabasePath(first.tempRoot));
+  const second = await DashboardTestServer.start('siftkit-two-servers-b-');
+  const secondDatabase = getRuntimeDatabase(getRuntimeDatabasePath(second.tempRoot));
+  try {
+    assert.notEqual(firstDatabase, secondDatabase);
+    await second.close();
+    await second.waitForShutdown();
+    assert.equal(secondDatabase.open, false);
+    assert.equal(firstDatabase.open, true);
+    assert.equal(process.cwd(), first.tempRoot);
+
+    const response = await requestJson(`${first.baseUrl}/dashboard/chat/sessions`);
+    assert.equal(response.statusCode, 200);
+    const body = ChatSessionsResponseSchema.parse(response.body);
+    assert.deepEqual(body.sessions, []);
+    assert.equal(getRuntimeDatabase(getRuntimeDatabasePath(first.tempRoot)), firstDatabase);
+  } finally {
+    await first.close();
+  }
+  await first.waitForShutdown();
+  assert.equal(firstDatabase.open, false);
 });

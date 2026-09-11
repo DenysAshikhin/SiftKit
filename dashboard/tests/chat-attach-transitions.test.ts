@@ -5,24 +5,12 @@ import { ChatOperationIdleError } from '../src/api';
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
-import { CHAT_SESSION_RESPONSE } from './fixtures.js';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
+import {
+  FIXTURE_OPERATION_ID, chatProjectionCapture, chatQueueState, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord,
+} from './chat-snapshot-fixture.js';
 
-const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
-const RUN_ID = '4f9c1f9a-0000-4000-8000-000000000001';
-const APPROVAL_ID = '4f9c1f9a-0000-4000-8000-000000000002';
-
-const APPROVAL = {
-  runId: RUN_ID,
-  approvalId: APPROVAL_ID,
-  toolName: 'bash',
-  command: 'git status',
-  reviewPayload: null,
-} as const;
-
-const ATTACHED: ChatStreamEvent = {
-  kind: 'snapshot', snapshot: chatSnapshot({ operationId: OPERATION_ID }),
-};
+const CAPTURE = chatProjectionCapture({ operationId: FIXTURE_OPERATION_ID }, 0, chatQueueState({ revision: 2 }));
+const ATTACHED: ChatStreamEvent[] = projectionEvents(chatSnapshotFrames(CAPTURE));
 
 async function* streamOf(events: ChatStreamEvent[]): AsyncGenerator<ChatStreamEvent> {
   for (const event of events) {
@@ -43,66 +31,45 @@ async function collect(stream: AsyncGenerator<ChatStreamEvent>): Promise<ChatSes
   return collected;
 }
 
-test('an attached stream adopts its complete snapshot without a speculative begin', async () => {
-  const transitions = await collect(streamOf([ATTACHED, { kind: 'done', payload: CHAT_SESSION_RESPONSE }]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'done']);
-  assert.deepEqual(transitions[0], {
-    kind: 'snapshot',
-    sessionId: 's1',
-    snapshot: chatSnapshot({ operationId: OPERATION_ID }),
-  });
+test('an attached stream adopts its committed view and queue without a speculative begin', async () => {
+  const transitions = await collect(streamOf([...ATTACHED, ...projectionEvents(singleRecordFrames(terminalRecord(CAPTURE.cursor)))]));
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'queue', 'terminal']);
+  assert.deepEqual(transitions[0], { kind: 'snapshot', sessionId: 's1', snapshot: CAPTURE.snapshot });
+  assert.deepEqual(transitions[1], { kind: 'queue', sessionId: 's1', queue: CAPTURE.queue });
 });
 
-test('an incomplete snapshot page is not adopted before the next page arrives', async () => {
-  const transitions = await collect(streamOf([
-    { kind: 'snapshot', snapshot: chatSnapshot({ complete: false }) },
-    { kind: 'snapshot', snapshot: chatSnapshot({ complete: true }) },
-    { kind: 'done', payload: CHAT_SESSION_RESPONSE },
-  ]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'done']);
+test('an incomplete transfer is never adopted, and a body that ends inside one is a failure', async () => {
+  const transitions = await collect(streamOf(ATTACHED.slice(0, -1)));
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['failure']);
+  assert.equal(transitions[0]?.kind === 'failure' && transitions[0].message, 'Chat stream ended before its terminal record');
 });
 
-test('a submitted frame becomes a user-turn transition', async () => {
-  const transitions = await collect(streamOf([
-    ATTACHED,
-    { kind: 'submitted', content: 'fix it', images: [] },
-    { kind: 'done', payload: CHAT_SESSION_RESPONSE },
-  ]));
-  assert.deepEqual(transitions[1], { kind: 'user-turn', sessionId: 's1', content: 'fix it', images: [] });
+test('thinking rows are filtered from adopted views when thinking is disabled', async () => {
+  const capture = chatProjectionCapture({ operationId: FIXTURE_OPERATION_ID, messages: [
+    { id: 'think', kind: 'assistant_thinking', role: 'assistant', content: 'private', createdAtUtc: '2026-09-08T12:00:00.000Z',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0, inputTokensEstimated: false, outputTokensEstimated: false, thinkingTokensEstimated: false },
+    { id: 'answer', kind: 'assistant_answer', role: 'assistant', content: 'shown', createdAtUtc: '2026-09-08T12:00:00.000Z',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0, inputTokensEstimated: false, outputTokensEstimated: false, thinkingTokensEstimated: false },
+  ] });
+  const collected: ChatSessionRuntimeTransition[] = [];
+  for await (const transition of toRuntimeTransitions('s1', { kind: 'attached' }, streamOf(projectionEvents(chatSnapshotFrames(capture))), false)) {
+    collected.push(transition);
+  }
+  const snapshot = collected[0];
+  assert.equal(snapshot?.kind === 'snapshot' && snapshot.snapshot.messages.map(message => message.id).join(','), 'answer');
 });
 
-test('approval state maps to a pending approval or an explicit clear', async () => {
-  const pending = await collect(streamOf([
-    ATTACHED,
-    { kind: 'approval-state', approval: APPROVAL },
-    { kind: 'done', payload: CHAT_SESSION_RESPONSE },
-  ]));
-  assert.deepEqual(pending[1], { kind: 'approval', sessionId: 's1', approval: APPROVAL });
-  const cleared = await collect(streamOf([
-    ATTACHED,
-    { kind: 'approval-state', approval: null },
-    { kind: 'done', payload: CHAT_SESSION_RESPONSE },
-  ]));
-  assert.deepEqual(cleared[1], { kind: 'approval-clear', sessionId: 's1' });
+test('an error record becomes a failure carrying its recovery issue and ends the stream', async () => {
+  const issue = { code: 'sequence_gap' as const, operationId: FIXTURE_OPERATION_ID, eventId: null, sequence: 3, detail: 'Source has a sequence gap.' };
+  const transitions = await collect(streamOf([...ATTACHED, ...projectionEvents(singleRecordFrames(errorRecord({ error: 'Source has a sequence gap.', issue })))]));
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'queue', 'failure']);
+  assert.deepEqual(transitions[2], { kind: 'failure', sessionId: 's1', message: 'Source has a sequence gap.', issue });
 });
 
-test('a resolved approval becomes an approval decision transition', async () => {
-  const resolution = {
-    approval: APPROVAL,
-    decision: { decision: 'approve' },
-    decidedAtUtc: '2026-09-08T12:00:05.000Z',
-  } as const;
-  const transitions = await collect(streamOf([
-    ATTACHED,
-    { kind: 'approval-resolved', resolution },
-    { kind: 'done', payload: CHAT_SESSION_RESPONSE },
-  ]));
-  assert.deepEqual(transitions[1], { kind: 'approval-decision', sessionId: 's1', resolution });
-});
-
-test('an ended frame becomes a detach and counts as completion', async () => {
-  const transitions = await collect(streamOf([ATTACHED, { kind: 'ended' }]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'detach']);
+test('a view for another session fails the attaching session', async () => {
+  const other = chatProjectionCapture({ sessionId: 'other', operationId: FIXTURE_OPERATION_ID });
+  const transitions = await collect(streamOf(projectionEvents(chatSnapshotFrames(other))));
+  assert.equal(transitions[0]?.kind === 'failure' && /session mismatch/u.test(transitions[0].message), true);
 });
 
 test('an idle session escapes as ChatOperationIdleError instead of a failure transition', async () => {
@@ -116,11 +83,11 @@ test('an owned stream still emits begin up front', async () => {
   const collected: ChatSessionRuntimeTransition[] = [];
   for await (const transition of toRuntimeTransitions(
     's1',
-    { kind: 'owned', operationKind: 'message', operationId: OPERATION_ID },
-    streamOf([{ kind: 'done', payload: CHAT_SESSION_RESPONSE }]),
+    { kind: 'owned', operationKind: 'message', operationId: FIXTURE_OPERATION_ID },
+    streamOf([...ATTACHED, ...projectionEvents(singleRecordFrames(terminalRecord(CAPTURE.cursor)))]),
     true,
   )) {
     collected.push(transition);
   }
-  assert.deepEqual(collected.map((transition) => transition.kind), ['begin', 'done']);
+  assert.deepEqual(collected.map((transition) => transition.kind), ['begin', 'snapshot', 'queue', 'terminal']);
 });

@@ -2,48 +2,62 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
-import { DEFAULT_APPROVAL_MODE } from '@siftkit/contracts';
+import { DEFAULT_APPROVAL_MODE, type ChatProjectionTerminalRecord, type DurableChatApproval } from '@siftkit/contracts';
 import type { ChatSessionResponse } from '../src/types';
 import { buildUsageFrame } from './usage-frame';
+import { chatSnapshot } from './chat-snapshot-fixture.js';
 
 const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
+const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
+const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
+/** A committed view for the session, the only way streamed evidence reaches the store now. */
+function snapshotFor(sessionId: string, overrides: Parameters<typeof chatSnapshot>[0] = {}) {
+  return { kind: 'snapshot' as const, sessionId, snapshot: chatSnapshot({ sessionId, operationId: OPERATION_ID, operationKind: 'message', ...overrides }) };
+}
+
+function terminalFor(sessionId: string, operationId = OPERATION_ID, issue: ChatProjectionTerminalRecord['issue'] = null) {
+  return { kind: 'terminal' as const, sessionId, terminal: { kind: 'terminal' as const, cursor: { operationId, sequence: 1, historyRevision: 0 }, terminalCause: 'completed' as const, issue } };
+}
+
+const APPROVAL: DurableChatApproval = {
+  runId: '4f9c1f9a-0000-4000-8000-000000000000', approvalId: '4f9c1f9a-0000-4000-8000-000000000001', toolName: 'bash', command: 'npm test',
+  reviewPayload: null, toolCallId: 'call', mode: 'interactive', requestedAtUtc: '2026-09-08T12:00:00.000Z', expiresAtUtc: '2026-09-08T12:10:00.000Z',
+  outcome: null, decidedAtUtc: null, actionable: true,
+};
 
 test('operation token metadata survives disconnects and clears when an authoritative replacement arrives', () => {
   const store = new ChatSessionRuntimeStore().ensureSession('s1', '').ensureSession('s2', '')
-    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
-    .apply({ kind: 'usage', sessionId: 's1', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) });
+    .apply(snapshotFor('s1', { tokenTurns: [{ turn: 1, prompt: PROMPT_FRAME, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) }] }));
   const tokenTurns = store.get('s1').tokenTurns;
+  assert.equal(tokenTurns.size, 1);
   const queued = store.apply({ kind: 'queued-submit', sessionId: 's1', content: 'queued', images: [] })
-    .apply({ kind: 'queued-user', sessionId: 's1', message: { id: OPERATION_ID, content: 'queued', images: [], imageMeta: [], turn: 2, boundary: 'post_tool_batch' } })
-    .apply({ kind: 'draft', sessionId: 's1', draft: 'next' })
-    .apply({ kind: 'warning', sessionId: 's1', text: 'warning' });
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'next' });
   assert.equal(queued.get('s1').tokenTurns, tokenTurns);
   assert.equal(queued.get('s2').tokenTurns.size, 0);
   for (const kind of ['begin', 'attach'] as const) {
     assert.equal(queued.apply({ kind, sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }).get('s1').tokenTurns.size, 0);
   }
-  assert.equal(queued.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').tokenTurns.size, 0);
+  assert.equal(queued.apply(terminalFor('s1')).get('s1').tokenTurns.size, 0);
   assert.equal(queued.apply({ kind: 'failure', sessionId: 's1', message: 'failed' }).get('s1').tokenTurns, tokenTurns);
   assert.equal(queued.apply({ kind: 'detach', sessionId: 's1' }).get('s1').tokenTurns, tokenTurns);
   assert.equal(store.get('s1').tokenTurns, tokenTurns);
 });
 
-const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
-const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
-const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
-
-test('queued delivery keeps stable FIFO bubbles and completion preserves the next draft', () => {
-  let store = new ChatSessionRuntimeStore().ensureSession('s1', '')
+test('a committed view replaces the live transcript and completion preserves the next draft', () => {
+  const store = new ChatSessionRuntimeStore().ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'original', images: [] })
-    .apply({ kind: 'draft', sessionId: 's1', draft: 'still typing' });
-  for (const id of ['4f9c1f9a-0000-4000-8000-000000000001', '4f9c1f9a-0000-4000-8000-000000000002']) {
-    const message = { id, content: id, images: [], imageMeta: [], turn: 1, boundary: 'post_tool_batch' as const };
-    store = store.apply({ kind: 'queued-user', sessionId: 's1', message })
-      .apply({ kind: 'queued-user', sessionId: 's1', message });
-  }
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'still typing' })
+    .apply(snapshotFor('s1', { messages: [
+      createLiveMessage('u1', 'user_text', 'user', 'original'),
+      createLiveMessage('q1', 'user_text', 'user', 'queued one'),
+      createLiveMessage('q2', 'user_text', 'user', 'queued two'),
+    ] }));
   assert.equal(store.get('s1').liveMessages.length, 3);
-  store = store.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
-  assert.equal(store.get('s1').draft, 'still typing');
+  const settled = store.apply(terminalFor('s1'));
+  assert.equal(settled.get('s1').draft, 'still typing');
+  assert.deepEqual(settled.get('s1').liveMessages, []);
 });
 
 const SAMPLE_RESPONSE: ChatSessionResponse = {
@@ -81,8 +95,7 @@ test('apply routes every transition through one copy-on-write path', () => {
   const next = store
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'hello' })
-    .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'hi there' } })
-    .apply({ kind: 'warning', sessionId: 'session-a', text: 'careful' });
+    .apply(snapshotFor('session-a', { controlOperationId: OPERATION_ID, messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'hi there')], warnings: ['careful'] }));
 
   assert.deepEqual(next.get('session-a').activity, {
     kind: 'local', operationKind: 'message', operationId: OPERATION_ID,
@@ -134,7 +147,7 @@ test('session B cannot clear session A streaming state or draft', () => {
     .ensureSession('session-b', '')
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'draft-a' })
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'answer-a' } })
+    .apply(snapshotFor('session-a', { controlOperationId: OPERATION_ID, messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'answer-a')] }))
     .apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'plan', operationId: OPERATION_ID });
 
   assert.equal(initial.get('session-a').draft, 'draft-a');
@@ -173,134 +186,21 @@ test('begin sets local activity with operation kind and ownership id', () => {
   }
 });
 
-test('thinking deltas assemble per turn into separate live messages', () => {
-  let store = new ChatSessionRuntimeStore().ensureSession('s1', '');
-  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'first ' } });
-  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 6, text: 'turn' } });
-  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'second turn' } });
-  const messages = store.get('s1').liveMessages;
-  assert.equal(messages.length, 2);
-  assert.equal(messages[0]?.content, 'first turn');
-  assert.equal(messages[0]?.id, 'live-thinking-1');
-  assert.equal(messages[1]?.content, 'second turn');
-  assert.equal(messages[1]?.id, 'live-thinking-2');
-});
-
-test('answer deltas assemble on the live answer message', () => {
-  let store = new ChatSessionRuntimeStore().ensureSession('s1', '');
-  store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Answer' } });
-  store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 6, text: ' body' } });
-  const answer = store.get('s1').liveMessages.find((message) => message.id === 'live-answer-4');
-  assert.equal(answer?.content, 'Answer body');
-});
-
-test('narration deltas assemble in one turn-scoped live message', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Reading' } })
-    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 4, offset: 7, text: ' files' } });
-
-  assert.deepEqual(store.get('s1').liveMessages.map((message) => ({
-    id: message.id,
-    kind: message.kind,
-    content: message.content,
-  })), [{
-    id: 'live-narration-4',
-    kind: 'assistant_narration',
-    content: 'Reading files',
-  }]);
-});
-
-test('tool start demotes narration and answer promotes the same message identity', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'narration', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Candidate draft' } })
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start', toolCallId: 'tc1', turn: 2, maxTurns: 4,
-      activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 0,
-    }});
-  const demoted = store.get('s1').liveMessages.find((message) => message.id === 'live-narration-2');
-  assert.equal(demoted?.kind, 'assistant_progress');
-
-  const promoted = store
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'Authoritative answer' } })
-    .get('s1').liveMessages.find((message) => message.id === 'live-narration-2');
-  assert.equal(promoted?.kind, 'assistant_answer');
-  assert.equal(promoted?.content, 'Authoritative answer');
-});
-
-test('thinking and answer deltas accumulate streamed chars and the next prompt frame rebases them', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcde' } })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'abcdef' } });
-  assert.equal(store.get('s1').streamedCharsSinceBase, 11);
-
-  const narration = store.apply({ kind: 'narration', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'narrated steps' } });
-  assert.equal(narration.get('s1').streamedCharsSinceBase, 11 + 'narrated steps'.length);
-
-  // The next turn's measured prompt already counts everything streamed against the old base.
-  const rebased = narration.apply({
-    kind: 'prompt',
-    sessionId: 's1',
-    prompt: { turn: 2, maxTurns: 20, promptTokens: 1400, charsPerToken: 4.2 },
-  });
-  assert.equal(rebased.get('s1').streamedCharsSinceBase, 0);
-  assert.deepEqual(rebased.get('s1').liveTokenBase, { turn: 2, maxTurns: 20, promptTokens: 1400, charsPerToken: 4.2 });
-
-  const growing = rebased.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'xyz' } });
-  assert.equal(growing.get('s1').streamedCharsSinceBase, 3);
-});
-
-test('a usage frame settles the transcript without disturbing the streaming base', () => {
-  const usage = buildUsageFrame({
-    turn: 1,
-    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
-  });
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'reasoning' } })
-    .apply({ kind: 'usage', sessionId: 's1', usage });
-  assert.deepEqual(store.get('s1').liveTokenBase, PROMPT_FRAME);
-  assert.equal(store.get('s1').streamedCharsSinceBase, 'reasoning'.length);
-});
-
-test('begin drops the previous run base so the bar never restarts behind the persisted total', () => {
-  const finished = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'tail' } });
-  assert.deepEqual(finished.get('s1').liveTokenBase, PROMPT_FRAME);
-  assert.equal(finished.get('s1').streamedCharsSinceBase, 4);
-
-  const restarted = finished.apply({
-    kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID,
-  });
-  assert.equal(restarted.get('s1').liveTokenBase, null);
-  assert.equal(restarted.get('s1').streamedCharsSinceBase, 0);
-});
-
-test('a usage transition snaps the live thinking row to the measured count and ends the wait', () => {
-  const usage = buildUsageFrame({
-    turn: 1,
-    record: { promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40, generatedChars: 320 },
-  });
-  const submitted = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'question', images: [] });
-  assert.equal(submitted.get('s1').awaitingResponse, true);
-
-  // A frame is stream traffic like any other transcript event: on its own it proves the run
-  // started answering, so the spinner stops even before any text arrives.
-  assert.equal(submitted.apply({ kind: 'usage', sessionId: 's1', usage }).get('s1').awaitingResponse, false);
-
-  const store = submitted
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'reasoning at length' } })
-    .apply({ kind: 'usage', sessionId: 's1', usage });
-  const thinking = store.get('s1').liveMessages.find((message) => message.kind === 'assistant_thinking');
-  assert.equal(thinking?.thinkingTokens, 70);
+test('a committed view carries the token base, streamed tail and turn metadata; begin drops the previous base', () => {
+  const store = new ChatSessionRuntimeStore().ensureSession('s1', '')
+    .apply(snapshotFor('s1', { streamedCharsSinceBase: 12, tokenTurns: [
+      { turn: 1, prompt: PROMPT_FRAME, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) },
+      { turn: 2, prompt: { ...PROMPT_FRAME, turn: 2, promptTokens: 950 }, usage: null },
+    ] }));
+  const runtime = store.get('s1');
+  assert.equal(runtime.liveTokenBase?.promptTokens, 950);
+  assert.equal(runtime.streamedCharsSinceBase, 12);
+  assert.equal(runtime.tokenTurns.get(1)?.usage?.record.thinkingTokens, 20);
+  // A new run measures its own prompt; the previous base would restart the bar behind itself.
+  const restarted = store.apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }).get('s1');
+  assert.equal(restarted.liveTokenBase, null);
+  assert.equal(restarted.streamedCharsSinceBase, 0);
+  assert.equal(restarted.tokenTurns.size, 0);
 });
 
 test('ensureSession seeds the composer repo root with the session default', () => {
@@ -310,91 +210,35 @@ test('ensureSession seeds the composer repo root with the session default', () =
   assert.equal(runtime.planRepoRootInput, 'C:/srv/siftkit');
 });
 
-test('applyToolEvent appends running tool message on tool_start', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      promptTokenCount: 0,
-    }});
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.toolCallStatus, 'running');
-});
-
-test('applyToolEvent completes tool message on tool_result', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_start',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      promptTokenCount: 0,
-    }})
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-      kind: 'tool_result',
-      toolCallId: 'tc1',
-      turn: 1,
-      maxTurns: 4,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      exitCode: 0,
-      outputSnippet: 'hit',
-      outputTokens: 0,
-      outputTokensEstimated: false,
-      promptTokenCount: 0,
-    }});
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.toolCallStatus, 'done');
-  assert.equal(runtime.liveMessages[0]?.toolCallExitCode, 0);
-});
-
-test('applyAnswer upserts an answer live message', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello world' } });
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.content, 'hello world');
-});
-
-test('applyAnswer handles empty answer text', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: '' } });
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.content, '');
-  assert.equal(runtime.liveMessages[0]?.outputTokensEstimate, 0);
-});
-
-test('applyWarning appends a warning string', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'warning', sessionId: 's1', text: 'missing file' });
-  assert.deepEqual(store.get('s1').warnings, ['missing file']);
-});
-
-test('applyDone sets idle activity and applies context usage', () => {
+test('terminal sets idle activity and retires the live view; REST supplies context usage separately', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
+    .apply(snapshotFor('s1', { controlOperationId: OPERATION_ID, messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'answer')] }))
+    .apply({ kind: 'context-usage', sessionId: 's1', contextUsage: SAMPLE_RESPONSE.contextUsage })
+    .apply(terminalFor('s1'));
   const runtime = store.get('s1');
   assert.equal(runtime.activity.kind, 'idle');
+  assert.equal(runtime.journalSnapshot, null);
+  assert.deepEqual(runtime.liveMessages, []);
   assert.equal(runtime.contextUsage?.totalUsedTokens, 0);
+});
+
+test('a terminal for another operation than the adopted one is ignored', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply(snapshotFor('s1', { messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'answer')] }));
+  const other = store.apply(terminalFor('s1', '4f9c1f9a-0000-4000-8000-000000000009')).get('s1');
+  assert.equal(other.liveMessages.length, 1);
+  assert.equal(other.journalSnapshot?.operationId, OPERATION_ID);
+});
+
+test('a terminal carrying a recovery issue blocks continuation', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply(snapshotFor('s1'))
+    .apply(terminalFor('s1', OPERATION_ID, { code: 'context_gap', operationId: OPERATION_ID, eventId: null, sequence: 4, detail: 'Missing result evidence.' }));
+  assert.equal(store.get('s1').recoveryStatus, 'recovery_failed');
 });
 
 test('applyFailure sets error and idle activity', () => {
@@ -485,21 +329,9 @@ test('plan inputs initialize once on ensureSession but do not overwrite dirty dr
 test('apply rejects a session that was never seeded by ensureSession', () => {
   const store = new ChatSessionRuntimeStore();
   assert.throws(
-    () => store.apply({ kind: 'answer', sessionId: 'unknown', delta: { turn: 1, offset: 0, text: 'text' } }),
+    () => store.apply({ kind: 'draft', sessionId: 'unknown', draft: 'text' }),
     /unknown session "unknown"/,
   );
-});
-
-test('applyDone clears live messages and preserves the next draft for the session', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
-    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
-  const runtime = store.get('s1');
-  assert.deepEqual(runtime.liveMessages, []);
-  assert.equal(runtime.draft, 'draft');
-  assert.deepEqual(runtime.pendingImages, []);
 });
 
 test('applyFailure preserves generated messages, draft, and images', () => {
@@ -507,7 +339,7 @@ test('applyFailure preserves generated messages, draft, and images', () => {
     .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
     .apply({ kind: 'images', sessionId: 's1', images: [IMAGE_A] })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
+    .apply(snapshotFor('s1', { messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'answer')] }))
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages.map(message => message.content), ['answer']);
@@ -542,18 +374,6 @@ test('submit moves the draft and images into a live user bubble', () => {
   assert.deepEqual(runtime.submittedInput, { content: 'look at this', images: [IMAGE_A] });
 });
 
-test('submit keeps the live user bubble first when the answer starts streaming', () => {
-  const next = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello' } });
-
-  assert.deepEqual(
-    next.get('s1').liveMessages.map((message) => message.id),
-    ['live-user', 'live-answer-1'],
-  );
-});
-
 test('failure restores the submitted draft and images and drops the live bubble', () => {
   const next = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
@@ -586,100 +406,37 @@ test('submit marks the session as awaiting the first streamed response', () => {
   assert.equal(next.get('s1').awaitingResponse, true);
 });
 
-test('a warning before the stream starts leaves the session still awaiting', () => {
-  const next = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
-    .apply({ kind: 'warning', sessionId: 's1', text: 'repo root is dirty' });
-
-  assert.equal(next.get('s1').awaitingResponse, true);
-});
-
-test('any streamed evidence ends the awaiting state, whatever arrives first', () => {
+test('a committed view, a terminal and a failure all end the awaiting state', () => {
   const submitted = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
 
-  const afterTool = submitted.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
-    kind: 'tool_start',
-    toolCallId: 'tc1',
-    turn: 1,
-    maxTurns: 4,
-    activityKind: 'search',
-    activitySubject: { kind: 'none' },
-    command: 'rg foo',
-    promptTokenCount: 0,
-  }});
-  const afterThinking = submitted
-    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hmm' } });
-  const afterAnswer = submitted
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello' } });
-
-  assert.equal(afterTool.get('s1').awaitingResponse, false);
-  assert.equal(afterThinking.get('s1').awaitingResponse, false);
-  assert.equal(afterAnswer.get('s1').awaitingResponse, false);
-});
-
-test('done and failure both end the awaiting state', () => {
-  const submitted = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
-
-  assert.equal(submitted.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').awaitingResponse, false);
+  assert.equal(submitted.apply(snapshotFor('s1')).get('s1').awaitingResponse, false);
+  assert.equal(submitted.apply(terminalFor('s1')).get('s1').awaitingResponse, false);
   assert.equal(submitted.apply({ kind: 'failure', sessionId: 's1', message: 'boom' }).get('s1').awaitingResponse, false);
 });
 
-test('done clears the submitted input along with the live messages', () => {
+test('terminal clears the submitted input along with the live messages', () => {
   const next = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
     .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [IMAGE_A] })
-    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
+    .apply(terminalFor('s1'));
 
   assert.equal(next.get('s1').submittedInput, null);
   assert.deepEqual(next.get('s1').liveMessages, []);
   assert.deepEqual(next.get('s1').pendingImages, []);
 });
 
-test('progress transitions upsert a single live-progress message in place', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', '')
-    .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 3, text: 'RED done', elapsedMs: 1_000 } })
-    .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 5, text: 'GREEN wiring', elapsedMs: 2_000 } });
-
-  const progressMessages = store.get('s1').liveMessages.filter((message) => message.id === 'live-progress');
-  assert.equal(progressMessages.length, 1);
-  assert.equal(progressMessages[0]?.kind, 'assistant_progress');
-  assert.equal(progressMessages[0]?.content, 'GREEN wiring');
-});
-
-test('approval state is set by approval and cleared by submit, done, and failure', () => {
-  const approval = {
-    runId: '4f9c1f9a-0000-4000-8000-000000000000',
-    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-    toolName: 'bash',
-    command: 'npm test',
-    reviewPayload: null,
-  };
+test('approval state comes from the actionable committed approval and is cleared by submit, terminal, failure and an explicit clear', () => {
   const pending = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'approval', sessionId: 's1', approval });
-  assert.deepEqual(pending.get('s1').pendingApproval, approval);
-  assert.equal(
-    pending.apply({ kind: 'submit', sessionId: 's1', content: 'again', images: [] }).get('s1').pendingApproval,
-    null,
-  );
-  assert.equal(
-    pending.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').pendingApproval,
-    null,
-  );
-  assert.equal(
-    pending.apply({ kind: 'failure', sessionId: 's1', message: 'boom' }).get('s1').pendingApproval,
-    null,
-  );
-  assert.equal(
-    pending.apply({ kind: 'approval-clear', sessionId: 's1' }).get('s1').pendingApproval,
-    null,
-  );
+    .apply(snapshotFor('s1', { approval: APPROVAL }));
+  assert.deepEqual(pending.get('s1').pendingApproval, APPROVAL);
+  assert.equal(pending.apply(snapshotFor('s1', { approval: { ...APPROVAL, actionable: false } })).get('s1').pendingApproval, null);
+  assert.equal(pending.apply({ kind: 'submit', sessionId: 's1', content: 'again', images: [] }).get('s1').pendingApproval, null);
+  assert.equal(pending.apply(terminalFor('s1')).get('s1').pendingApproval, null);
+  assert.equal(pending.apply({ kind: 'failure', sessionId: 's1', message: 'boom' }).get('s1').pendingApproval, null);
+  assert.equal(pending.apply({ kind: 'approval-clear', sessionId: 's1' }).get('s1').pendingApproval, null);
 });
 
 test('local activity retains the client operation id used by Stop', () => {
@@ -711,28 +468,19 @@ test('remote activity clears only when authoritative status reports no lease', (
 });
 
 test('a Stop control error preserves the live local operation and pending approval', () => {
-  const approval = {
-    runId: OPERATION_ID,
-    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-    toolName: 'bash',
-    command: 'npm test',
-    reviewPayload: null,
-  };
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'keep me', images: [IMAGE_A] })
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'repo-agent', operationId: OPERATION_ID })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
-    .apply({ kind: 'approval', sessionId: 's1', approval })
+    .apply(snapshotFor('s1', { operationKind: 'repo-agent', controlOperationId: OPERATION_ID, approval: APPROVAL,
+      messages: [createLiveMessage('a1', 'assistant_answer', 'assistant', 'partial')] }))
     .apply({ kind: 'control-error', sessionId: 's1', message: 'Stop request failed' })
     .get('s1');
 
   assert.deepEqual(runtime.activity, {
     kind: 'local', operationKind: 'repo-agent', operationId: OPERATION_ID,
   });
-  assert.equal(runtime.liveMessages.find((message) => message.id === 'live-answer-1')?.content, 'partial');
-  assert.equal(runtime.submittedInput?.content, 'keep me');
-  assert.deepEqual(runtime.pendingApproval, approval);
+  assert.equal(runtime.liveMessages.find((message) => message.id === 'a1')?.content, 'partial');
+  assert.deepEqual(runtime.pendingApproval, APPROVAL);
   assert.equal(runtime.error, 'Stop request failed');
 });
 
@@ -752,7 +500,7 @@ test('repo-agent-approval-mode replaces only that field for its own session and 
   assert.equal(store.get('session-b').repoAgentApprovalMode, 'auto');
   const afterRun = store
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'repo-agent', operationId: OPERATION_ID })
-    .apply({ kind: 'done', sessionId: 'session-a', response: SAMPLE_RESPONSE });
+    .apply(terminalFor('session-a'));
   assert.equal(afterRun.get('session-a').repoAgentApprovalMode, 'off');
 });
 
@@ -765,7 +513,7 @@ test('attach adopts a running operation and clears the stale live transcript', (
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', 'C:/repo')
     .apply({ kind: 'submit', sessionId: 's1', content: 'old', images: [] })
-    .apply({ kind: 'warning', sessionId: 's1', text: 'stale warning' })
+    .apply(snapshotFor('s1', { warnings: ['stale warning'] }))
     .apply({ kind: 'control-error', sessionId: 's1', message: 'stale failure' })
     .apply({
       kind: 'attach',
@@ -802,39 +550,17 @@ test('attach preserves the composer draft so a reload does not eat typed text', 
   assert.equal(store.get('s1').draft, 'queued follow-up');
 });
 
-test('user-turn restores the prompt bubble without touching the draft', () => {
+test('detach idles an attached session without a payload, drops the live user bubble and keeps the draft', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', 'C:/repo')
-    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed' })
-    .apply({ kind: 'user-turn', sessionId: 's1', content: 'fix it', images: ['data:image/png;base64,AAAA'] });
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.role, 'user');
-  assert.equal(runtime.liveMessages[0]?.content, 'fix it');
-  assert.deepEqual(runtime.liveMessages[0]?.images, ['data:image/png;base64,AAAA']);
-  assert.equal(runtime.awaitingResponse, true);
-  assert.equal(runtime.draft, 'typed');
-});
-
-test('user-turn after submit upserts the same bubble instead of adding a second', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', 'C:/repo')
-    .apply({ kind: 'submit', sessionId: 's1', content: 'fix it', images: [] })
-    .apply({ kind: 'user-turn', sessionId: 's1', content: 'fix it', images: [] });
-  assert.equal(store.get('s1').liveMessages.length, 1);
-});
-
-test('detach idles an attached session without a payload and keeps the draft', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1', 'C:/repo')
-    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed' })
     .apply({
       kind: 'attach',
       sessionId: 's1',
       operationKind: 'condense',
       operationId: '4f9c1f9a-0000-4000-8000-000000000000',
     })
-    .apply({ kind: 'user-turn', sessionId: 's1', content: 'x', images: [] })
+    .apply({ kind: 'submit', sessionId: 's1', content: 'x', images: [] })
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed' })
     .apply({ kind: 'detach', sessionId: 's1' });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.activity, { kind: 'idle' });

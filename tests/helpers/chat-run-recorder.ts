@@ -14,7 +14,7 @@ export function createTestChatRunRecorder(runtimeRoot: string, session: ChatSess
   settings: Partial<Pick<ChatRunEffectiveSettings, 'presetId' | 'approval' | 'maxTurns' | 'webSearchEnabled'>> = {}): ChatRunRecorder {
   saveChatSession(runtimeRoot, session);
   importChatSessionBaseline(getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite')), session, config);
-  return ChatRunRecorder.begin(join(runtimeRoot, 'runtime.sqlite'), {
+  return ChatRunRecorder.begin(getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite')), {
     operationId: randomUUID(), sessionId: session.id, ownerEpoch: 'test-owner', ...submission,
     userMessageId: randomUUID(), retainedHistoryRevision: 0,
     startedAtUtc: new Date().toISOString(),

@@ -17,7 +17,7 @@ import {
   writeConfig,
 } from '../src/status-server/config-store.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -34,7 +34,7 @@ function withTempRepo(run: (repoRoot: string) => void): void {
     process.chdir(tempRoot);
     run(tempRoot);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(previousCwd);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

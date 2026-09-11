@@ -23,8 +23,9 @@ export interface ChatContextRecorder {
   resolveToolMessageId(toolCallId: string): string | null;
   readonly historyRevision: number;
   readHistoryRevisions(): ChatHistoryRevision[];
-  recordContextInitialized(init: ChatContextInit): void;
-  recordContextSpliced(splice: ChatContextSplice): void;
+  /** Both return exactly the value committed, which may differ from the proposal by deleted images. */
+  recordContextInitialized(init: ChatContextInit): ChatContextInit;
+  recordContextSpliced(splice: ChatContextSplice): ChatContextSplice;
 }
 
 /**

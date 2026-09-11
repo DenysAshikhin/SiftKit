@@ -11,7 +11,6 @@ import { buildTaskInitialUserPrompt } from '../repo-search/prompts.js';
 import { linkChatArchiveContext, projectChatHistoryArchive } from './chat-history-archive-projection.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 import type { ChatRuntimeOwner } from '../state/chat-runtime-owner.js';
-import { resolve } from 'node:path';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import { readChatSessionFromDatabase } from '../state/chat-sessions.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
@@ -140,7 +139,7 @@ export function applyChatHistoryRepair(database: RuntimeDatabase, prepared: Retu
   const { report } = prepared;
   if (expectedDigest !== report.expectedDigest) throw new Error('Repair digest differs from the reviewed report.');
   if (!report.continuationReady) throw new Error('Repair has unresolved native context evidence.');
-  if (resolve(database.name) !== resolve(owner.databasePath)) throw new Error('Repair lease belongs to a different database.');
+  if (database !== owner.database) throw new Error('Repair lease belongs to a different database.');
   owner.assertOwned();
   return database.transaction(() => {
     const sourceDigests = digestChatArchiveSources(readChatHistoryArchiveSources(database, report.requestId));

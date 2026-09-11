@@ -8,7 +8,7 @@ import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-ut
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
-import type { ChatOperationSubscriber } from '../chat-operation-broadcast.js';
+import type { ChatQueueSubscriber } from '../chat-message-queue.js';
 import { admitSelectedChatImages } from './chat.js';
 import { readConfig } from '../config-store.js';
 import { z } from '../../lib/zod.js';
@@ -92,11 +92,7 @@ export class ChatMessageQueueStreamEndpoint implements RouteEndpoint {
     if (!readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId))) { sendJson(res, 404, { error: 'Session not found.' }); return; }
     const writer = new SseResponseWriter(req, res);
     writer.open();
-    const subscriber: ChatOperationSubscriber = {
-      onFrame(frame) { writer.writeSerializedEvent(frame.event, frame.data); },
-      onHistoryRevised() {},
-      onClosed() { writer.end(); },
-    };
+    const subscriber: ChatQueueSubscriber = { onQueue(state) { writer.writeEvent('queue', state); } };
     ctx.chatMessageQueue.attach(sessionId, subscriber);
     res.on('close', () => ctx.chatMessageQueue.detach(sessionId, subscriber));
   }

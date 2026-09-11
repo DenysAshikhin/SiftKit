@@ -9,7 +9,7 @@ import type { ManagedEngineLauncherOptions } from './helpers/managed-engine-fixt
 import { OutputCapture } from './helpers/stdout-capture.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -181,7 +181,7 @@ async function withPassthroughServer(
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {

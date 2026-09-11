@@ -17,7 +17,7 @@ import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { closeHttpServer, getAddressInfo, requestJson } from './helpers/dashboard-http.js';
@@ -129,7 +129,7 @@ test('desktop state reports config, custody, capability, queue depth, and the el
       'a state poll never marks a question shown',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -156,7 +156,7 @@ test('mark-shown is the only writer of shown_at_utc and rejects every other stat
     assert.throws(() => service.markQuestionShown('question_missing'), AssistantNotFoundError);
     assert.throws(() => service.dismissQuestion('question_missing'), AssistantNotFoundError);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

@@ -1,356 +1,122 @@
 import test from 'node:test';
-import { chatSnapshot, chatSnapshotFrame } from './chat-snapshot-fixture.js';
 import assert from 'node:assert/strict';
+import { CHAT_PROJECTION_MAX_FRAME_BYTES, ChatTranscriptMessageSchema, type ChatProjectionFrame } from '@siftkit/contracts';
 import { parseChatStreamPacket, ChatStreamReader, type ChatStreamEvent } from '../src/lib/chat-stream-parser';
-import type { ChatSessionResponse } from '../src/types';
+import { ChatOperationProjection } from '../src/lib/chat-operation-projection';
+import { chatProjectionCapture, chatQueueState, chatSnapshotFrames, nextTransferId, projectionPackets } from './chat-snapshot-fixture.js';
 
-test('malformed and unknown recovery packets require refetch instead of disappearing', () => {
-  assert.throws(() => parseChatStreamPacket('event: snapshot\ndata: {not-json'), /JSON|frame/i);
-  assert.throws(() => parseChatStreamPacket('event: projection\ndata: {"operationId":"bad"}'));
-  assert.throws(() => parseChatStreamPacket('event: future_event\ndata: {}'), /Unsupported|unknown/i);
-});
+const encoder = new TextEncoder();
 
-test('recovery frames support multiline data and CRLF packet boundaries', async () => {
-  const snapshot = chatSnapshot();
-  const packet = `event: snapshot\r\n${JSON.stringify(snapshot, null, 2).split('\n').map(line => `data: ${line}`).join('\r\n')}\r\n\r\n`;
-  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(packet)); controller.close(); } });
-  const events: ChatStreamEvent[] = [];
-  for await (const event of new ChatStreamReader(stream.getReader()).events()) events.push(event);
-  assert.deepEqual(events, [{ kind: 'snapshot', snapshot }]);
-});
-
-test('malformed multiline payloads fail validation', () => {
-  const multiLine = 'event: thinking\ndata: {"thinking":\ndata: "ignored second line"}';
-  assert.throws(() => parseChatStreamPacket(multiLine));
-});
-
-test('empty packets are ignored and incomplete event packets fail', () => {
-  assert.equal(parseChatStreamPacket(''), null);
-  assert.throws(() => parseChatStreamPacket('event: thinking'));
-});
-
-test('parses a thinking delta payload', () => {
-  const packet = 'event: thinking\ndata: {"turn":2,"offset":5,"text":" more"}';
-  assert.deepEqual(parseChatStreamPacket(packet), {
-    kind: 'thinking',
-    delta: { turn: 2, offset: 5, text: ' more' },
-  });
-});
-
-test('parses a narration delta payload independently from answers', () => {
-  const packet = 'event: narration\ndata: {"turn":2,"offset":5,"text":" more"}';
-  assert.deepEqual(parseChatStreamPacket(packet), {
-    kind: 'narration',
-    delta: { turn: 2, offset: 5, text: ' more' },
-  });
-});
-
-test('parses an answer delta payload', () => {
-  const packet = 'event: answer\ndata: {"turn":3,"offset":0,"text":"Answer start"}';
-  assert.deepEqual(parseChatStreamPacket(packet), {
-    kind: 'answer',
-    delta: { turn: 3, offset: 0, text: 'Answer start' },
-  });
-});
-
-test('rejects a malformed thinking payload', () => {
-  const packet = 'event: thinking\ndata: {"thinking":"legacy snapshot"}';
-  assert.throws(() => parseChatStreamPacket(packet));
-});
-
-test('parseChatStreamPacket parses warning events', () => {
-  assert.deepEqual(
-    parseChatStreamPacket('event: warning\ndata: {"warning":"missing file"}\n\n'),
-    { kind: 'warning', text: 'missing file' },
-  );
-});
-
-test('parseChatStreamPacket validates approval events', () => {
-  const approval = {
-    runId: '4f9c1f9a-0000-4000-8000-000000000000',
-    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-    toolName: 'bash',
-    command: 'npm test',
-    reviewPayload: null,
-  };
-  assert.deepEqual(
-    parseChatStreamPacket(`event: approval\ndata: ${JSON.stringify(approval)}`),
-    { kind: 'approval', approval },
-  );
-  assert.throws(() => parseChatStreamPacket('event: approval\ndata: {"runId":"not-a-uuid"}'));
-});
-
-test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', () => {
-  const start = parseChatStreamPacket(
-    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","promptTokenCount":42}'
-  );
-  assert.deepEqual(start, {
-    kind: 'tool',
-    tool: {
-      kind: 'tool_start',
-      toolCallId: 'tc_0',
-      turn: 1,
-      maxTurns: 5,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      promptTokenCount: 42,
-    },
-  });
-  const result = parseChatStreamPacket(
-    'event: tool_result\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","exitCode":0,"outputSnippet":"hit","outputTokens":4915,"outputTokensEstimated":false,"promptTokenCount":42}'
-  );
-  assert.deepEqual(result, {
-    kind: 'tool',
-    tool: {
-      kind: 'tool_result',
-      toolCallId: 'tc_0',
-      turn: 1,
-      maxTurns: 5,
-      activityKind: 'search',
-      activitySubject: { kind: 'none' },
-      command: 'rg foo',
-      exitCode: 0,
-      outputSnippet: 'hit',
-      outputTokens: 4915,
-      outputTokensEstimated: false,
-      promptTokenCount: 42,
-    },
-  });
-  // The cap crosses the wire only as maxTurns; a legacy toolCallLimit field is rejected, not coerced.
-  assert.throws(() => parseChatStreamPacket(
-      'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"toolCallLimit":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","promptTokenCount":42}'
-    ));
-});
-
-test('parseChatStreamPacket rejects malformed tool events instead of coercing them', () => {
-  const invalidBodies = [
-    { turn: 1, maxTurns: 5, activityKind: 'search', command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: '1', maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 0, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 0, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: '', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
-    { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'invalid', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
-  ];
-  for (const body of invalidBodies) {
-    assert.throws(() => parseChatStreamPacket(`event: tool_start\ndata: ${JSON.stringify(body)}`));
-  }
-});
-
-test('parseChatStreamPacket requires complete tool result metadata', () => {
-  const base = {
-    toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42,
-  };
-  assert.throws(() => parseChatStreamPacket(`event: tool_result\ndata: ${JSON.stringify(base)}`));
-});
-
-const SAMPLE_SESSION: ChatSessionResponse['session'] = {
-  id: 's1',
-  title: 't',
-  modelPresetId: 'test-model',
-  model: null,
-  contextWindowTokens: 0,
-  planRepoRoot: 'C:/repo',
-  createdAtUtc: '2026-06-03T00:00:00.000Z',
-  updatedAtUtc: '2026-06-03T00:00:00.000Z',
-  messages: [],
-};
-const SAMPLE_CONTEXT_USAGE: ChatSessionResponse['contextUsage'] = {
-  contextWindowTokens: 0,
-  usedTokens: 0,
-  chatUsedTokens: 0,
-  thinkingUsedTokens: 0,
-  toolUsedTokens: 0,
-  imageUsedTokens: 0,
-  totalUsedTokens: 0,
-  remainingTokens: 0,
-  warnThresholdTokens: 0,
-  shouldCondense: false,
-  estimatedTokenFallbackTokens: 0,
-  providerOverheadTokens: 0,
-};
-const SAMPLE_DONE: ChatSessionResponse = { session: SAMPLE_SESSION, contextUsage: SAMPLE_CONTEXT_USAGE };
-
-test('parseChatStreamPacket parses done and error', () => {
-  const done = parseChatStreamPacket(`event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}`);
-  assert.ok(done?.kind === 'done');
-  assert.deepEqual(done.payload, SAMPLE_DONE);
-  assert.deepEqual(parseChatStreamPacket('event: error\ndata: {"error":"boom"}'), { kind: 'error', message: 'boom' });
-});
-
-test('malformed JSON is a recoverable stream failure', () => {
-  assert.throws(() => parseChatStreamPacket('event: answer\ndata: {not json'));
-});
-
-test('ChatStreamReader flushes a trailing packet that ends without a blank line', async () => {
-  const encoder = new TextEncoder();
-  const trailingFrame = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}`;
-  let consumed = false;
-  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
+function readerOf(chunks: readonly Uint8Array[], onRelease?: () => void): ReadableStreamDefaultReader<Uint8Array> {
+  let index = 0;
+  return {
     async read() {
-      if (consumed) return { value: undefined, done: true };
-      consumed = true;
-      return { value: encoder.encode(trailingFrame), done: false };
-    },
-    async cancel() {},
-    releaseLock() {},
-    closed: Promise.resolve(undefined),
-  };
-  const events: ChatStreamEvent[] = [];
-  for await (const event of new ChatStreamReader(mockReader).events()) {
-    events.push(event);
-  }
-  assert.equal(events.length, 1);
-  assert.equal(events[0].kind, 'done');
-});
-
-test('ChatStreamReader yields events split across chunks', async () => {
-  const encoder = new TextEncoder();
-  const doneFrame = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`;
-  const chunks = [
-    'event: thinking\ndata: {"turn":1,"offset":0,"text":"a"}\n\nevent: too',
-    'l_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"activityKind":"command","activitySubject":{"kind":"none"},"command":"x","promptTokenCount":0}\n\n',
-    doneFrame,
-  ].map((chunk) => encoder.encode(chunk));
-  let chunkIndex = 0;
-  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
-    async read() {
-      if (chunkIndex >= chunks.length) return { value: undefined, done: true };
-      const value = chunks[chunkIndex];
-      chunkIndex += 1;
+      const value = chunks[index];
+      if (value === undefined) return { value: undefined, done: true };
+      index += 1;
       return { value, done: false };
     },
     async cancel() {},
-    releaseLock() {},
+    releaseLock() { onRelease?.(); },
     closed: Promise.resolve(undefined),
   };
+}
+
+async function collect(reader: ReadableStreamDefaultReader<Uint8Array>, maxPacketBytes?: number | null): Promise<ChatStreamEvent[]> {
   const events: ChatStreamEvent[] = [];
-  const reader = new ChatStreamReader(mockReader);
-  for await (const event of reader.events()) {
-    events.push(event);
-  }
-  assert.equal(events.length, 3);
-  assert.equal(events[0].kind, 'thinking');
-  assert.equal(events[1].kind, 'tool');
-  assert.equal(events[2].kind, 'done');
+  const stream = maxPacketBytes === undefined ? new ChatStreamReader(reader) : new ChatStreamReader(reader, maxPacketBytes);
+  for await (const event of stream.events()) events.push(event);
+  return events;
+}
+
+function frameOf(data: string, overrides: Partial<ChatProjectionFrame> = {}): ChatProjectionFrame {
+  return { version: 2, transferId: nextTransferId(), recordIndex: 0, chunkIndex: 0, finalChunk: true, data, ...overrides };
+}
+
+test('malformed, unknown and incomplete packets fail instead of disappearing; empty ones are ignored', () => {
+  assert.throws(() => parseChatStreamPacket('event: chat_projection\ndata: {not-json'), /Malformed/u);
+  assert.throws(() => parseChatStreamPacket('event: chat_projection\ndata: {"version":1,"transferId":"x"}'), /Malformed/u);
+  assert.throws(() => parseChatStreamPacket('event: snapshot\ndata: {}'), /Unsupported/u);
+  assert.throws(() => parseChatStreamPacket('event: done\ndata: {}'), /Unsupported/u);
+  assert.throws(() => parseChatStreamPacket('event: chat_projection'), /Malformed/u);
+  assert.throws(() => parseChatStreamPacket('event: queue\ndata: {"sessionId":"s1"}'), /Malformed/u);
+  assert.equal(parseChatStreamPacket(''), null);
+  assert.equal(parseChatStreamPacket(': heartbeat'), null);
 });
 
-test('ChatStreamReader releases the reader lock after complete consumption', async () => {
-  let released = false;
-  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
-    async read() {
-      return { value: undefined, done: true };
-    },
+test('projection frames and queue state parse from their packets, with CRLF and multiline data', () => {
+  const frame = frameOf('{"kind":"commit"}');
+  assert.deepEqual(parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify(frame)}`), { kind: 'projection', frame });
+  const queue = chatQueueState({ revision: 4 });
+  const packet = `event: queue\r\n${JSON.stringify(queue, null, 2).split('\n').map(line => `data: ${line}`).join('\r\n')}`;
+  assert.deepEqual(parseChatStreamPacket(packet), { kind: 'queue', queue });
+});
+
+test('a frame with another protocol version or an oversized data field is rejected', () => {
+  assert.throws(() => parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify({ ...frameOf('{}'), version: 1 })}`), /Malformed/u);
+  assert.throws(() => parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify(frameOf('x'.repeat(CHAT_PROJECTION_MAX_FRAME_BYTES + 1)))}`), /Malformed/u);
+});
+
+test('a real transfer survives every byte split of its wire form and reassembles the same view', async () => {
+  const text = 'ünïcödé 😀 "quoted" \\ backslash 🇺🇦';
+  const source = chatProjectionCapture({ messages: [ChatTranscriptMessageSchema.parse({ id: 'm', kind: 'assistant_answer', role: 'assistant', content: text,
+    createdAtUtc: '2026-09-10T12:00:00.000Z', inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+    inputTokensEstimated: false, outputTokensEstimated: false, thinkingTokensEstimated: false })] });
+  const wire = encoder.encode(projectionPackets(chatSnapshotFrames(source)));
+  for (const split of [1, 2, 3, 7, 64, 1000, wire.length - 1]) {
+    const chunks: Uint8Array[] = [];
+    for (let offset = 0; offset < wire.length; offset += split) chunks.push(wire.slice(offset, offset + split));
+    const projection = new ChatOperationProjection('s1');
+    let view = null;
+    for (const event of await collect(readerOf(chunks))) {
+      assert.equal(event.kind, 'projection');
+      if (event.kind === 'projection') view = projection.acceptFrame(event.frame) ?? view;
+    }
+    assert.equal(view?.kind === 'view' && view.snapshot.messages[0]?.content, text, `split ${String(split)}`);
+  }
+});
+
+test('one network chunk carrying many packets is processed packet by packet', async () => {
+  const frames = Array.from({ length: 40 }, (_, index) => frameOf(`"${'x'.repeat(2000)}"`, { recordIndex: index }));
+  const events = await collect(readerOf([encoder.encode(projectionPackets(frames))]));
+  assert.deepEqual(events.map(event => event.kind === 'projection' ? event.frame.recordIndex : -1), frames.map((_, index) => index));
+});
+
+test('a packet that outgrows the frame bound fails before more of it is buffered', async () => {
+  const oversized = encoder.encode(`event: chat_projection\ndata: {"version":2,"data":"${'y'.repeat(CHAT_PROJECTION_MAX_FRAME_BYTES)}`);
+  const chunks = [oversized.slice(0, 40_000), oversized.slice(40_000, 70_000)];
+  let reads = 0;
+  const reader = readerOf([...chunks, encoder.encode('never read')]);
+  const counting: ReadableStreamDefaultReader<Uint8Array> = { ...reader, async read() { reads += 1; return reader.read(); } };
+  await assert.rejects(collect(counting), /exceeds 65536 bytes/u);
+  assert.equal(reads, 2);
+  // Unbounded readers (the queue-only stream) reject only the malformed content, not its size.
+  await assert.rejects(collect(readerOf(chunks), null), /Malformed/u);
+});
+
+test('invalid and truncated UTF-8 fail explicitly', async () => {
+  await assert.rejects(collect(readerOf([new Uint8Array([0xff, 0xfe, 0x0a])])), /(?:decode|invalid|encoded)/iu);
+  const truncated = encoder.encode('event: queue\ndata: {"sessionId":"s1","revision":0,"messages":[],"paused":false,"force":null}\n\n😀').slice(0, -2);
+  await assert.rejects(collect(readerOf([truncated])), /(?:decode|invalid|encoded)/iu);
+});
+
+test('a trailing packet without a blank line is flushed at end of body', async () => {
+  const frame = frameOf('{"kind":"commit"}');
+  const events = await collect(readerOf([encoder.encode(`event: chat_projection\ndata: ${JSON.stringify(frame)}`)]));
+  assert.deepEqual(events, [{ kind: 'projection', frame }]);
+});
+
+test('the reader lock is released after complete consumption and when consumption stops early', async () => {
+  let released = 0;
+  await collect(readerOf([], () => { released += 1; }));
+  assert.equal(released, 1);
+  const frame = frameOf('{"kind":"commit"}');
+  const endless: ReadableStreamDefaultReader<Uint8Array> = {
+    async read() { return { value: encoder.encode(`event: chat_projection\ndata: ${JSON.stringify(frame)}\n\n`), done: false }; },
     async cancel() {},
-    releaseLock() {
-      released = true;
-    },
+    releaseLock() { released += 1; },
     closed: Promise.resolve(undefined),
   };
-  for await (const _event of new ChatStreamReader(mockReader).events()) {
-    void _event;
-  }
-  assert.equal(released, true);
-});
-
-test('ChatStreamReader releases the reader lock when consumption stops early', async () => {
-  const encoder = new TextEncoder();
-  let released = false;
-  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
-    async read() {
-      return { value: encoder.encode('event: thinking\ndata: {"turn":1,"offset":0,"text":"partial"}\n\n'), done: false };
-    },
-    async cancel() {},
-    releaseLock() {
-      released = true;
-    },
-    closed: Promise.resolve(undefined),
-  };
-  for await (const _event of new ChatStreamReader(mockReader).events()) {
-    void _event;
-    break;
-  }
-  assert.equal(released, true);
-});
-
-test('parses a usage frame into a usage event', () => {
-  const payload = {
-    turn: 3,
-    maxTurns: 20,
-    record: {
-      turn: 3, promptTokens: 700, thinkingTokens: 55, outputTokens: 12, toolTokens: 33,
-      generatedChars: 268, thinkingTokensEstimated: false, outputTokensEstimated: false,
-    },
-    totals: {
-      promptTokens: 2100, thinkingTokens: 165, outputTokens: 36, toolTokens: 99,
-      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
-    },
-    charsPerToken: 4,
-  };
-  const packet = `event: usage\ndata: ${JSON.stringify(payload)}`;
-  assert.deepEqual(parseChatStreamPacket(packet), { kind: 'usage', usage: payload });
-});
-
-test('rejects a malformed usage frame instead of silently dropping the numbers', () => {
-  const packet = 'event: usage\ndata: {"turn":3,"maxTurns":20,"charsPerToken":4}';
-  assert.throws(() => parseChatStreamPacket(packet));
-});
-
-test('parses the journal snapshot frame', () => {
-  const event = parseChatStreamPacket(chatSnapshotFrame({ operationKind: 'plan' }));
-  assert.deepEqual(event, {
-    kind: 'snapshot', snapshot: chatSnapshot({ operationKind: 'plan' }),
-  });
-});
-
-test('parses the submitted frame', () => {
-  const event = parseChatStreamPacket(
-    'event: submitted\ndata: {"content":"fix it","images":["data:image/png;base64,AAAA"]}',
-  );
-  assert.deepEqual(event, {
-    kind: 'submitted',
-    content: 'fix it',
-    images: ['data:image/png;base64,AAAA'],
-  });
-});
-
-test('parses a pending approval state frame', () => {
-  const event = parseChatStreamPacket(
-    'event: approval_state\ndata: {"approval":{'
-      + '"runId":"4f9c1f9a-0000-4000-8000-000000000000",'
-      + '"approvalId":"4f9c1f9a-0000-4000-8000-000000000001",'
-      + '"toolName":"bash","command":"git status","reviewPayload":null}}',
-  );
-  assert.equal(event?.kind, 'approval-state');
-  assert.equal(event?.kind === 'approval-state' ? event.approval?.command : null, 'git status');
-});
-
-test('parses an empty approval state frame as a cleared approval', () => {
-  const event = parseChatStreamPacket('event: approval_state\ndata: {"approval":null}');
-  assert.deepEqual(event, { kind: 'approval-state', approval: null });
-});
-
-test('parses a resolved approval frame', () => {
-  const event = parseChatStreamPacket(
-    'event: approval_resolved\ndata: {"approval":{'
-      + '"runId":"4f9c1f9a-0000-4000-8000-000000000000",'
-      + '"approvalId":"4f9c1f9a-0000-4000-8000-000000000001",'
-      + '"toolName":"bash","command":"rm -rf build","reviewPayload":null},'
-      + '"decision":{"decision":"deny","reason":"too broad"},'
-      + '"decidedAtUtc":"2026-09-08T12:00:05.000Z"}',
-  );
-  assert.equal(event?.kind, 'approval-resolved');
-  assert.equal(
-    event?.kind === 'approval-resolved' ? event.resolution.decision.decision : null,
-    'deny',
-  );
-});
-
-test('parses the ended frame', () => {
-  assert.deepEqual(parseChatStreamPacket('event: ended\ndata: {}'), { kind: 'ended' });
-});
-
-test('rejects a malformed approval state frame', () => {
-  assert.throws(() => parseChatStreamPacket('event: approval_state\ndata: {"approval":{"runId":"x"}}'));
+  for await (const event of new ChatStreamReader(endless).events()) { void event; break; }
+  assert.equal(released, 2);
 });

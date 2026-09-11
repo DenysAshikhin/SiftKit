@@ -15,6 +15,7 @@ import { PlannerChatMessagesSchema, findPlannerContextViolation } from '../src/r
 import { ChatRecoveryProcess, ChatRecoveryProcessConfigSchema, ChatRecoveryBarrierSchema, RECOVERY_CHILD_ENV, runChatRecoveryProcess } from './helpers/chat-recovery-process.js';
 import { GatedChatBackend } from './helpers/gated-chat-backend.js';
 import { requestJson, requestSse } from './helpers/dashboard-http.js';
+import { readChatStream } from './helpers/chat-stream-views.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
@@ -156,7 +157,7 @@ if (childConfig !== undefined) {
       method: 'POST', timeoutMs: 30_000, body: JSON.stringify({ operationId: randomUUID(), content: 'CRASH_CONTINUE_99', repoRoot: root, maxTurns: 4, approval: 'off' }),
     });
     assert.equal(response.statusCode, 200);
-    assert.ok(response.events.some(event => event.event === 'done'));
+    assert.equal(readChatStream(response, 'crash-session').terminal?.terminalCause, 'completed', JSON.stringify(response.events.at(-1)));
     const captured = backend.requests.slice(requestCount).find(request => request.messages.some(message => messageText(message.content).includes('CRASH_CONTINUE_99')));
     assert.ok(captured, 'expected a captured continuation provider request');
     const history = PlannerChatMessagesSchema.parse(captured.messages);

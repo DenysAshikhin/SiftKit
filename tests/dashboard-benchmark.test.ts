@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner.js';
 import {
   appendBenchmarkLogChunk,
@@ -52,7 +52,7 @@ test('dashboard benchmark preset store seeds built-in prompts and supports CRUD'
     assert.equal(deleteBenchmarkQuestionPreset(created.id, databasePath), true);
     assert.equal(listBenchmarkQuestionPresets({ databasePath }).some((entry) => entry.id === created.id), false);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -188,6 +188,6 @@ test('dashboard benchmark session plan creates case-prompt-repeat attempts in or
       'starting attempt\nfinished attempt\n',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

@@ -16,7 +16,7 @@ import {
 } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
-import { getRuntimeDatabase, setRuntimeMetadataValue, type RuntimeDatabase } from './runtime-db.js';
+import { setRuntimeMetadataValue, type RuntimeDatabase } from './runtime-db.js';
 import { CHAT_QUEUE_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.js';
 
 const QueueRowSchema = z.object({
@@ -113,9 +113,7 @@ function sameBody(message: ChatQueuedMessage, input: ChatQueueEnqueueInput): boo
  * is one SQLite transaction, so a claim and its bookkeeping cannot be observed half-done.
  */
 export class ChatMessageQueueStore {
-  private readonly databasePath: string;
-  constructor(database: RuntimeDatabase) { this.databasePath = database.name; }
-  private get database(): RuntimeDatabase { return getRuntimeDatabase(this.databasePath); }
+  constructor(private readonly database: RuntimeDatabase) {}
 
   private metadata(sessionId: string) {
     const raw = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(chatMetadataKey.queue(sessionId));

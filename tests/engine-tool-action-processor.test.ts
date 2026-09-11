@@ -14,8 +14,14 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { readChatToolResults } from './helpers/chat-tool-results.js';
+import { createTestChatSession } from './helpers/chat-sessions.js';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { replayChatContext } from '../src/status-server/chat-context-replay.js';
+import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -48,7 +54,7 @@ function writeNoisyValidationRepo(root: string): void {
 const TurnCommandResultSchema = z.object({ perToolCapTokens: z.number() });
 
 function readCanonicalProcessorResults(root: string, events: readonly JsonObject[]) {
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const database = getRuntimeDatabase(path.join(root, 'runtime.sqlite'));
   database.prepare(`
     INSERT OR REPLACE INTO runtime_artifacts (
@@ -812,3 +818,132 @@ test('a tool with one token of capacity still executes', async () => {
   assert.equal(commands[0]?.safe, true);
   assert.equal(commands[0]?.exitCode, 0);
 });
+
+/** Executes one batch per turn against a real journal and returns the recorder plus the journal store. */
+function recordedProcessor(root: string) {
+  const session = createTestChatSession(root);
+  const recorder = createTestChatRunRecorder(root, session, getDefaultConfigObject());
+  const made = makeProcessor(root, ['ls'], 'repo-search', null, undefined, { evidenceRecorder: recorder });
+  const store = new ChatJournalStore(getRuntimeDatabase(path.join(root, 'runtime.sqlite')));
+  return { ...made, recorder, store };
+}
+
+function ls(callId: string, dir: string): AgentLoopToolAction {
+  return { kind: 'tool', callId, toolName: 'ls', args: { path: dir } };
+}
+
+for (const [label, thirdBatch, collapsedCount, freshIndex] of [
+  ['first', [ls('c1', '.'), ls('c2', 'subdir')], 1, 1],
+  ['twice before a fresh call', [ls('c1', '.'), ls('c2', '.'), ls('c3', 'subdir')], 2, 2],
+  ['for every call', [ls('c1', '.'), ls('c2', '.')], 2, null],
+] as const) test(`a duplicate collapsed ${label} keeps every call's original identity and replays as completed`, async () => {
+  const root = createManagedTempDir('siftkit-collapse-');
+  fs.mkdirSync(path.join(root, 'subdir'), { recursive: true });
+  const { processor, recorder, store, transcript } = recordedProcessor(root);
+  await processor.executeBatch(1, [ls('a1', '.')], '', 0, false);
+  await processor.executeBatch(2, [ls('b1', '.')], '', 0, false);
+  await processor.executeBatch(3, thirdBatch, '', 0, false);
+
+  const events = [...store.readAll(recorder.operationId)];
+  const proposals = events.flatMap(envelope => envelope.event.kind === 'tool_proposed' && envelope.event.call.turn === 3 ? [envelope.event.call] : []);
+  assert.deepEqual(proposals.map(call => call.indexInBatch), thirdBatch.map((_, index) => index));
+  const collapsed = proposals.filter(call => thirdBatch.find(action => action.callId === call.toolCallId)?.args.path === '.');
+  assert.equal(collapsed.length, collapsedCount);
+  const splices = events.flatMap(envelope => envelope.event.kind === 'context_spliced' && envelope.event.coalescedToolCallIds.length > 0 ? [envelope.event] : []);
+  assert.deepEqual(splices.map(splice => splice.reason), collapsed.map(() => 'tool_result_replaced'));
+  assert.deepEqual(splices.flatMap(splice => splice.coalescedToolCallIds), collapsed.map(call => call.displayToolCallId));
+  for (const call of collapsed) {
+    assert.equal(events.some(envelope => envelope.event.kind === 'tool_result' && envelope.event.call.displayToolCallId === call.displayToolCallId
+      && envelope.event.executionState === 'rejected'), true);
+  }
+
+  const finalized = events.flatMap(envelope => envelope.event.kind === 'tool_result_finalized' && envelope.event.call.turn === 3 ? [envelope.event.call] : []);
+  if (freshIndex === null) {
+    assert.deepEqual(finalized, []);
+  } else {
+    assert.deepEqual(finalized, [proposals[freshIndex]]);
+    assert.equal(finalized[0]?.indexInBatch, freshIndex);
+  }
+  assert.equal(events.filter(envelope => envelope.event.kind === 'tool_started').length, 1 + thirdBatch.length - collapsedCount);
+
+  const replay = replayChatContext(events);
+  assert.equal(replay.status, 'ok');
+  assert.equal(findPlannerContextViolation(replay.messages), null);
+  assert.deepEqual(replay.messages, transcript.getMessages());
+  for (const call of collapsed) assert.equal(replay.messages.some(message => message.tool_call_id === call.toolCallId), false);
+});
+
+for (const [label, actions] of [
+  ['unknown tool name', [{ kind: 'tool', callId: 'x1', toolName: 'not_a_tool', args: { anything: 1 } }]],
+  ['disallowed tool name', [{ kind: 'tool', callId: 'x1', toolName: 'grep', args: { pattern: 'needle', path: '.' } }]],
+  ['invalid arguments', [{ kind: 'tool', callId: 'x1', toolName: 'ls', args: { path: 42 } }]],
+  ['invalid arguments before a valid sibling', [{ kind: 'tool', callId: 'x1', toolName: 'ls', args: { path: 42 } }, ls('x2', '.')]],
+] satisfies [string, AgentLoopToolAction[]][]) test(`a processor-level ${label} is journalled as proposal then rejection before its exchange`, async () => {
+  const root = createManagedTempDir('siftkit-invalid-journal-');
+  const { processor, recorder, store, transcript, events: logged } = recordedProcessor(root);
+  await processor.executeBatch(1, actions, '', 0, false);
+  const kinds = [...store.readAll(recorder.operationId)].map(envelope => envelope.event.kind).filter(kind => kind.startsWith('tool_') || kind === 'context_spliced');
+  assert.equal(kinds[0], 'tool_proposed');
+  assert.equal(kinds[1], 'tool_result');
+  assert.equal(kinds.at(-1), 'context_spliced');
+  const events = [...store.readAll(recorder.operationId)];
+  const rejected = events.flatMap(envelope => envelope.event.kind === 'tool_result' && envelope.event.executionState === 'rejected' ? [envelope.event] : []);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0]?.call.toolCallId, 'x1');
+  assert.equal(logged.filter(event => event.kind === 'turn_action_invalid').length, 1, 'counted once; a valid sibling may decay it afterwards');
+  const replay = replayChatContext(events);
+  assert.equal(replay.status, 'ok');
+  assert.deepEqual(replay.messages, transcript.getMessages());
+  assert.equal(transcript.getMessages().filter(message => message.role === 'tool').length, actions.length);
+});
+
+test('a parser-rejected native call is durably rejected with its validated identity and arguments', async () => {
+  const root = createManagedTempDir('siftkit-invalid-response-');
+  const { processor, recorder, store, counters, transcript, commands } = recordedProcessor(root);
+  const outcome = processor.recordInvalidResponse(1, { callId: 'call_bad', toolName: 'read', args: { raw: '{not json' },
+    message: 'Tool "read" returned invalid JSON arguments.', thinkingText: 'thinking' });
+  assert.equal(outcome, 'next');
+  assert.equal(counters.invalidResponses, 1);
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0]?.safe, false);
+  const events = [...store.readAll(recorder.operationId)];
+  const proposal = events.flatMap(envelope => envelope.event.kind === 'tool_proposed' ? [envelope.event] : [])[0];
+  assert.deepEqual(proposal?.arguments, { raw: '{not json' });
+  assert.equal(proposal?.call.toolCallId, 'call_bad');
+  assert.equal(events.some(envelope => envelope.event.kind === 'tool_started'), false);
+  const messages = transcript.getMessages();
+  assert.equal(messages.at(-2)?.tool_calls?.[0]?.id, 'call_bad');
+  assert.equal(messages.at(-2)?.reasoning_content, 'thinking');
+  assert.equal(messages.at(-1)?.tool_call_id, 'call_bad');
+  assert.equal(messages.at(-1)?.content, 'Tool "read" returned invalid JSON arguments.');
+  assert.deepEqual(replayChatContext(events).messages, messages);
+});
+
+test('repeated parser-rejected responses still hit the invalid-response ceiling', async () => {
+  const root = createManagedTempDir('siftkit-invalid-ceiling-');
+  const { processor, counters } = recordedProcessor(root);
+  const outcomes: string[] = [];
+  for (let turn = 1; turn <= 3; turn += 1) {
+    outcomes.push(processor.recordInvalidResponse(turn, { callId: `c${String(turn)}`, toolName: 'read', args: {}, message: 'bad', thinkingText: '' }));
+  }
+  assert.equal(outcomes.includes('stop_batch'), true);
+  assert.equal(counters.reason, 'invalid_response_limit');
+});
+
+for (const [kind, failAt] of [['proposal', 'tool_proposed'], ['rejected result', 'tool_result'], ['context splice', 'context_spliced']] as const) {
+  test(`a failed ${kind} write stops the rejection before any later step`, async () => {
+    const root = createManagedTempDir('siftkit-invalid-fault-');
+    const { processor, recorder, store, counters, transcript, commands, database } = { ...recordedProcessor(root), database: getRuntimeDatabase(path.join(root, 'runtime.sqlite')) };
+    const before = transcript.getMessages().length;
+    database.exec(`CREATE TRIGGER reject_write BEFORE INSERT ON chat_run_events WHEN NEW.kind='${failAt}' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;`);
+    await assert.rejects(processor.executeBatch(1, [{ kind: 'tool', callId: 'x1', toolName: 'ls', args: { path: 42 } }], '', 0, false), /journal unavailable/u);
+    database.exec('DROP TRIGGER reject_write');
+    assert.equal(transcript.getMessages().length, before);
+    const kinds = [...store.readAll(recorder.operationId)].map(envelope => envelope.event.kind);
+    assert.equal(kinds.includes(failAt), false);
+    if (failAt !== 'context_spliced') {
+      assert.equal(counters.invalidResponses, 0);
+      assert.equal(commands.length, 0);
+    }
+  });
+}

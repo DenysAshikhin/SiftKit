@@ -225,10 +225,8 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
   // The source artifact predates persistence of provider tool-call IDs. `call_0` is the
   // streaming client's deterministic fallback for the first native tool call; the live
   // pre-compaction token assertion below rejects the replay if this reconstruction differs.
-  transcript.appendToolExchange(
-    { toolName: 'ls', args: { path: 'tests/helpers', limit: 10 } },
-    'call_0',
-    source.finalToolResultText,
+  transcript.appendBatchExchange(
+    [{ action: { toolName: 'ls', args: { path: 'tests/helpers', limit: 10 } }, toolCallId: 'call_0', toolContent: source.finalToolResultText }],
     source.finalThinkingText,
   );
   const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 100 });

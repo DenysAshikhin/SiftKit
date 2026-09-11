@@ -18,6 +18,7 @@ import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
 import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
 import type { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
+import type { RuntimeDatabase } from '../state/database-handle.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -85,6 +86,8 @@ export type ExtendedServer = Server & {
   startupPromise?: Promise<void>;
   waitForRequestsIdle(): Promise<void>;
   waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
+  /** Resolves once close() has drained writers, released the owner, and closed its database. */
+  waitForShutdown(): Promise<void>;
 };
 
 export type StartStatusServerOptions = {
@@ -109,7 +112,10 @@ export type ServerContext = {
   readonly engineService: StatusEngineService;
   readonly repoAgentRunStore: RepoAgentRunStore;
   readonly repoAgentSessions: RepoAgentSessionManager;
-  /** Identifies this process as the writer of the chat journal; Task 8 turns it into a lease. */
+  /** This process's stable runtime connection; chat dependencies never re-resolve it by cwd. */
+  readonly runtimeDatabasePath: string;
+  readonly runtimeDatabase: RuntimeDatabase;
+  /** Identifies this process as the writer of the chat journal. */
   readonly chatRunOwnerEpoch: string;
   readonly chatRuntimeOwner: import('../state/chat-runtime-owner.js').ChatRuntimeOwner;
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;

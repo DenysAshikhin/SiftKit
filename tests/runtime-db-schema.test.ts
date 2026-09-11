@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { SystemClock } from '../src/assistant/clock.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   CURRENT_SCHEMA_VERSION,
   getRuntimeDatabase,
   getSchemaVersion,
@@ -146,7 +146,7 @@ test('fresh creation bootstraps the current schema and marker', () => {
       true,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -166,7 +166,7 @@ test('fresh bootstrap creates every current bootstrap-owned table', () => {
       database.close();
     }
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -209,7 +209,7 @@ test('fresh schema carries current backend, web-search, timeline, and assistant 
       ) VALUES ('invalid', ?, 'test', 'failed', '2026-09-07', '2026-09-07')
     `).run(REMOVED_BACKEND_ID), /CHECK constraint failed/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -224,7 +224,7 @@ test('opening a current database preserves stored values and device identity', (
     database.prepare(
       'INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)',
     ).run('schema-test.sentinel', 'preserve-exactly', '2026-09-07T00:00:00.000Z');
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
 
     const reopened = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(reopened), CURRENT_SCHEMA_VERSION);
@@ -235,7 +235,7 @@ test('opening a current database preserves stored values and device identity', (
       "SELECT value FROM runtime_metadata WHERE key = 'schema-test.sentinel'",
     ).get()).value, 'preserve-exactly');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -255,7 +255,7 @@ test('historical and future schema markers are rejected without changing their c
       assert.deepEqual(readFileSync(dbPath), before);
       assert.equal(readSentinel(dbPath), 'preserve');
     } finally {
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
     }
   }
 });
@@ -275,7 +275,7 @@ test('a version 66 database upgrades in place, adding the pending-message table 
     `);
     // The exact shape a database left by the previous release has: no queue table, marker 66.
     database.exec('DROP TABLE chat_pending_messages; UPDATE runtime_schema SET version = 66 WHERE id = 1;');
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
 
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
@@ -291,7 +291,7 @@ test('a version 66 database upgrades in place, adding the pending-message table 
     upgraded.exec("DELETE FROM chat_sessions WHERE id = 's1'");
     assert.equal(CountRow.parse(upgraded.prepare('SELECT count(*) AS count FROM chat_pending_messages').get()).count, 0);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -303,7 +303,7 @@ test('unreadable files are rejected without destructive recovery', () => {
     assert.throws(() => getRuntimeDatabase(dbPath));
     assert.deepEqual(readFileSync(dbPath), original);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -332,7 +332,7 @@ test('fresh bootstrap rolls back schema and seed rows when the clock fails', () 
     assert.throws(() => getRuntimeDatabase(dbPath), /clock failed/u);
   } finally {
     clockMock.mock.restore();
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 
   const database = new Database(dbPath, { readonly: true });
@@ -384,7 +384,7 @@ for (const marker of [
       }
     } finally {
       reader.close();
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
     }
   });
 }
@@ -419,13 +419,13 @@ test('current inference and benchmark streams enforce constraints and foreign ke
     const CountSchema = z.object({ count: z.number() });
     assert.equal(CountSchema.parse(database.prepare('SELECT count(*) AS count FROM inference_run_log_chunks').get()).count, 0);
     assert.equal(CountSchema.parse(database.prepare('SELECT count(*) AS count FROM benchmark_logs').get()).count, 0);
-  } finally { closeRuntimeDatabase(); }
+  } finally { closeAllRuntimeDatabases(); }
 });
 
 test('the seeded marker-67 fixture really rejects a stopped tool row', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-stale-check-');
   seedLegacyChatDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const database = new Database(dbPath);
   try {
@@ -442,7 +442,7 @@ test('the seeded marker-67 fixture really rejects a stopped tool row', () => {
 test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column value', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-');
   seedLegacyChatDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const reader = new Database(dbPath, { readonly: true });
   let rowsBeforeUpgrade: ChatMessageRow[];
@@ -472,7 +472,7 @@ test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column
       2,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 
   const reopened = new Database(dbPath, { readonly: true });
@@ -487,7 +487,7 @@ test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column
 test('a marker-67 database that already accepts stopped converges without rewriting rows', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-current-');
   seedLegacyChatDatabase(dbPath, { toolCallStatusValues: CANONICAL_TOOL_CALL_STATUS_VALUES });
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const reader = new Database(dbPath, { readonly: true });
   let rowsBeforeUpgrade: ChatMessageRow[];
@@ -504,14 +504,14 @@ test('a marker-67 database that already accepts stopped converges without rewrit
     assert.deepEqual(readChatMessageRows(upgraded), withBackfilledExecutionState(rowsBeforeUpgrade));
     assert.deepEqual(upgraded.prepare('PRAGMA foreign_key_check').all(), []);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
 test('a row the canonical definition rejects aborts the rebuild and leaves marker 67 intact', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-uncopyable-');
   seedLegacyChatDatabase(dbPath, { nullableContent: true });
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const reader = new Database(dbPath, { readonly: true });
   let rowsBeforeUpgrade: ChatMessageRow[];
@@ -524,7 +524,7 @@ test('a row the canonical definition rejects aborts the rebuild and leaves marke
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /NOT NULL constraint failed/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 
   assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
@@ -546,7 +546,7 @@ test('a row the canonical definition rejects aborts the rebuild and leaves marke
 test('marker-67 migrates the historical tool_call_limit rename without losing values', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-historical-limit-');
   seedLegacyChatDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const legacy = new Database(dbPath);
   legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
     UPDATE chat_messages SET tool_call_limit = tool_call_max_turns, tool_call_max_turns = NULL;`);
@@ -555,32 +555,32 @@ test('marker-67 migrates the historical tool_call_limit rename without losing va
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(readTableColumns(upgraded, 'chat_messages').includes('tool_call_limit'), false);
     assert.equal(readChatMessageRows(upgraded).find(row => row.id === 'message-populated')?.tool_call_max_turns, 120);
-  } finally { closeRuntimeDatabase(); }
+  } finally { closeAllRuntimeDatabases(); }
 });
 
 test('marker-67 refuses conflicting historical and current tool limits atomically', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-conflicting-limit-');
   seedLegacyChatDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const legacy = new Database(dbPath);
   legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
     UPDATE chat_messages SET tool_call_limit = 999 WHERE id = 'message-populated';`);
   legacy.close();
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /conflicting.*tool.*limit/iu);
-  } finally { closeRuntimeDatabase(); }
+  } finally { closeAllRuntimeDatabases(); }
   assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
 });
 
 test('an unknown legacy chat_messages column is rejected instead of silently dropped', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-drift-');
   seedLegacyChatDatabase(dbPath, { extraColumn: true });
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /legacy_only_column/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
   assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
 });
@@ -588,7 +588,7 @@ test('an unknown legacy chat_messages column is rejected instead of silently dro
 test('the marker-67 upgrade adds the chat journal with its identity and active-run constraints', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-journal-');
   seedLegacyChatDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   try {
     const upgraded = getRuntimeDatabase(dbPath);
@@ -623,7 +623,7 @@ test('the marker-67 upgrade adds the chat journal with its identity and active-r
       0,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -637,7 +637,7 @@ test('the marker-68 upgrade retires repo-agent history repair markers and keeps 
   fresh.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)')
     .run('schema-test.sentinel', 'keep', '2026-09-10T11:00:00.000Z');
   fresh.prepare('UPDATE runtime_schema SET version = 68 WHERE id = 1').run();
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   try {
     const upgraded = getRuntimeDatabase(dbPath);
     const keys = z.array(z.object({ key: z.string() })).parse(upgraded.prepare('SELECT key FROM runtime_metadata ORDER BY key').all()).map(row => row.key);
@@ -645,7 +645,7 @@ test('the marker-68 upgrade retires repo-agent history repair markers and keeps 
     assert.equal(keys.includes('schema-test.sentinel'), true);
     assert.equal(z.object({ version: z.number() }).parse(upgraded.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, CURRENT_SCHEMA_VERSION);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -670,7 +670,7 @@ test('the marker-69 upgrade moves projection checkpoints onto run rows, backfill
     CREATE TABLE chat_context_snapshots (operation_id TEXT PRIMARY KEY);
     UPDATE runtime_schema SET version = 69 WHERE id = 1;
   `);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   try {
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(upgraded), CURRENT_SCHEMA_VERSION);
@@ -693,6 +693,6 @@ test('the marker-69 upgrade moves projection checkpoints onto run rows, backfill
     ]);
     assert.equal(columnNames(upgraded, 'chat_context_snapshots').length, 0);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

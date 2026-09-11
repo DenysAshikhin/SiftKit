@@ -80,12 +80,10 @@ test('pruneThinking keeps only the latest assistant reasoning_content when per-s
   assert.equal(reasoningMessages[0].reasoning_content, 'final think');
 });
 
-test('appendToolExchange and explicit push helpers append transcript messages', () => {
+test('appendBatchExchange and explicit push helpers append transcript messages', () => {
   const transcript = makeTranscript();
-  transcript.appendToolExchange(
-    { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } },
-    'call_1',
-    'result-text',
+  transcript.appendBatchExchange(
+    [{ action: { toolName: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
     'thinking-text',
   );
   transcript.pushAssistant({ role: 'assistant', content: 'assistant reply' });
@@ -250,13 +248,15 @@ class SpyRecorder implements ChatContextRecorder {
   readonly splices: ChatContextSplice[] = [];
   constructor(private readonly refuseSplices = false) {}
 
-  recordContextInitialized(init: ChatContextInit): void {
+  recordContextInitialized(init: ChatContextInit): ChatContextInit {
     this.initialized.push(init);
+    return init;
   }
 
-  recordContextSpliced(splice: ChatContextSplice): void {
+  recordContextSpliced(splice: ChatContextSplice): ChatContextSplice {
     if (this.refuseSplices) throw new Error('journal write failed');
     this.splices.push(splice);
+    return splice;
   }
 }
 

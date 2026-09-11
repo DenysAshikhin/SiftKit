@@ -8,7 +8,7 @@ import { FixedClock } from '../src/assistant/clock.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { CaptureQueueStore } from '../src/assistant/images/capture-queue-store.js';
@@ -188,7 +188,7 @@ test('a drain with a capable runtime extracts every unprocessed capture oldest-f
     await service.drainJobs();
     assert.equal(inference.requests.length, 2, 'a processed capture is never extracted twice');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -250,7 +250,7 @@ test('a drain with an unlimited session budget promotes every pending capture', 
     assert.equal(queue.require(fourth.evidenceId).state, 'processed');
     assert.equal(inference.requests.length, 4);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

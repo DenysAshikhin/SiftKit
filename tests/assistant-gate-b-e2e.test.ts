@@ -10,7 +10,7 @@ import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.js';
 import { buildChatSystemContent } from '../src/status-server/chat.js';
 import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
@@ -133,7 +133,7 @@ test('Gate B: conversation, correction, projection, retrieval, and opt-out work 
       'an opted-out prompt is byte-identical to today',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -176,6 +176,6 @@ test('Gate B: replaying a turn adds no second assertion', async () => {
       1,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

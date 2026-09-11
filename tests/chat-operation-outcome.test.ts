@@ -32,7 +32,7 @@ class OutcomeProbeEndpoint extends ChatSessionOperationEndpoint<'probe'> {
     const recorder = requireChatRunRecorder(request);
     recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,
       messages: [{ role: 'user', content: 'probe', chatMessageId: recorder.userMessageId }] });
-    if (this.failure === null) ctx.chatSessionOperations.getBroadcast(request.sessionId)?.writeEvent('error', { error: 'transport diagnostic' });
+    if (this.failure === null) ctx.chatSessionOperations.getBroadcast(request.sessionId)?.fail('transport diagnostic');
     return { failure: this.failure };
   }
 }
@@ -45,7 +45,7 @@ for (const failure of [null, 'explicit execution failure']) test(`durable termin
   writeConfig(configPath, getDefaultServerConfig());
   const session = createTestChatSession(getRuntimeRoot());
   saveChatSession(getRuntimeRoot(), session);
-  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabasePath(), 'outcome-test');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(getRuntimeDatabasePath()), 'outcome-test');
   const ctx = { ...createTestServerContext(configPath, getRuntimeRoot()), chatRuntimeOwner: owner, chatRunOwnerEpoch: owner.ownerEpoch };
   const acquired = ctx.chatSessionOperations.acquire(session.id, 'message', randomUUID(), Date.now());
   assert.equal(acquired.kind, 'acquired');

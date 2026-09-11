@@ -69,6 +69,8 @@ export const ChatContextSpliceSchema = z.strictObject({
   inserted: PlannerChatMessagesSchema,
   turnBoundary: z.number().int().nonnegative(),
   reason: ChatContextSpliceReasonSchema,
+  /** Current-proposal display IDs deliberately represented by this replacement of an earlier result. */
+  coalescedToolCallIds: z.array(z.string().min(1)),
 });
 export type ChatContextSplice = z.infer<typeof ChatContextSpliceSchema>;
 

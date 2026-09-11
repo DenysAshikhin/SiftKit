@@ -1,5 +1,4 @@
 import test from 'node:test';
-import { chatSnapshot } from './chat-snapshot-fixture.js';
 import { buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 import assert from 'node:assert/strict';
@@ -9,10 +8,12 @@ import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatSessionBusyError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
-import type { ChatSession, ChatSessionOperationKind, ChatSessionResponse } from '../src/types';
-import { parseChatStreamPacket } from '../src/lib/chat-stream-parser';
+import type { ChatSessionOperationKind } from '../src/types';
 import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display';
 import { buildUsageFrame } from './usage-frame';
+import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
+
+const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
 for (const thinking of [true, false]) {
   test(`recovered token metadata stays session scoped, respects thinking=${thinking}, and survives failure until its successor`, async () => {
@@ -20,19 +21,15 @@ for (const thinking of [true, false]) {
     const gate = new Gate();
     const firstId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'thinking', turn: 1 });
     const secondId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'thinking', turn: 2 });
-    const frames = [['snapshot', chatSnapshot({ sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
+    const capture = chatProjectionCapture({ sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
       messages: [createLiveMessage(firstId, 'assistant_thinking', 'assistant', 'x'.repeat(400)),
         createLiveMessage('queued', 'user_text', 'user', 'queued'),
         createLiveMessage(secondId, 'assistant_thinking', 'assistant', 'y'.repeat(400))],
       tokenTurns: [{ turn: 1, prompt: null, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) },
         { turn: 2, prompt: { turn: 2, maxTurns: 20, promptTokens: 100, charsPerToken: 8 }, usage: null }],
-    })]] as const;
+    });
     async function* replay(): AsyncGenerator<ChatStreamEvent> {
-      for (const [event, data] of frames) {
-        const parsed = parseChatStreamPacket(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        assert.ok(parsed);
-        yield parsed;
-      }
+      yield* projectionEvents(chatSnapshotFrames(capture));
       gate.markWaiting();
       await gate.promise;
       throw new Error('provider failure after text');
@@ -53,13 +50,14 @@ for (const thinking of [true, false]) {
     const successorGate = new Gate();
     const successorId = '4f9c1f9a-0000-4000-8000-000000000003';
     const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(successorId), { kind: 'answer', turn: 1 });
+    const successorCapture = chatProjectionCapture({ sessionId: 'session-a', operationId: successorId, runOrder: 2,
+      controlOperationId: OPERATION_ID, messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', 'z'.repeat(400))],
+      tokenTurns: [{ turn: 1, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 }, usage: null }] });
     async function* successor(): AsyncGenerator<ChatStreamEvent> {
-      yield { kind: 'snapshot', snapshot: chatSnapshot({ sessionId: 'session-a', operationId: successorId, runOrder: 2,
-        controlOperationId: OPERATION_ID, messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', 'z'.repeat(400))],
-        tokenTurns: [{ turn: 1, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 }, usage: null }] }) };
+      yield* projectionEvents(chatSnapshotFrames(successorCapture));
       successorGate.markWaiting();
       await successorGate.promise;
-      yield { kind: 'done', payload: response('session-a') };
+      yield* projectionEvents(singleRecordFrames(terminalRecord(successorCapture.cursor)));
     }
     const successorDone = drain.drain(successor(), 'session-a', thinking);
     await successorGate.waiting;
@@ -71,17 +69,14 @@ for (const thinking of [true, false]) {
   });
 }
 
-const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
-
 test('a structured recovery failure blocks continuation immediately and preserves the readable prefix', async () => {
   const drain = new StoreDrain();
+  const capture = chatProjectionCapture({ sessionId: 'session-a', operationId: OPERATION_ID,
+    messages: [createLiveMessage('saved-prefix', 'assistant_narration', 'assistant', 'readable prefix')] });
   async function* stream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'snapshot', snapshot: chatSnapshot({ sessionId: 'session-a', operationId: OPERATION_ID,
-      messages: [createLiveMessage('saved-prefix', 'assistant_narration', 'assistant', 'readable prefix')] }) };
-    const parsed = parseChatStreamPacket(`event: error\ndata: ${JSON.stringify({ error: 'Source has a sequence gap.',
-      issue: { code: 'sequence_gap', operationId: OPERATION_ID, eventId: null, sequence: 3, detail: 'Source has a sequence gap.' } })}\n\n`);
-    assert.ok(parsed);
-    yield parsed;
+    yield* projectionEvents(chatSnapshotFrames(capture));
+    yield* projectionEvents(singleRecordFrames(errorRecord({ error: 'Source has a sequence gap.',
+      issue: { code: 'sequence_gap', operationId: OPERATION_ID, eventId: null, sequence: 3, detail: 'Source has a sequence gap.' } })));
   }
   await drain.drain(stream(), 'session-a', true);
   const runtime = drain.store.get('session-a');
@@ -89,38 +84,6 @@ test('a structured recovery failure blocks continuation immediately and preserve
   assert.equal(runtime.liveMessages[0]?.content, 'readable prefix');
   assert.equal(runtime.error, 'Source has a sequence gap.');
 });
-
-const SESSION: ChatSession = {
-  id: 's1',
-  title: 'Session',
-  modelPresetId: 'test-model',
-  model: null,
-  contextWindowTokens: 100,
-  planRepoRoot: 'C:/repo',
-  createdAtUtc: '2026-06-03T12:00:00.000Z',
-  updatedAtUtc: '2026-06-03T12:00:00.000Z',
-  messages: [],
-};
-
-function response(sessionId: string): ChatSessionResponse {
-  return {
-    session: { ...SESSION, id: sessionId },
-    contextUsage: {
-      contextWindowTokens: 100,
-      usedTokens: 0,
-      chatUsedTokens: 0,
-      thinkingUsedTokens: 0,
-      toolUsedTokens: 0,
-      imageUsedTokens: 0,
-      totalUsedTokens: 0,
-      remainingTokens: 100,
-      warnThresholdTokens: 80,
-      shouldCondense: false,
-      estimatedTokenFallbackTokens: 0,
-      providerOverheadTokens: 0,
-    },
-  };
-}
 
 class Gate {
   private releaseGate: (() => void) | null = null;
@@ -155,38 +118,33 @@ class StoreDrain {
   async drain(stream: AsyncGenerator<ChatStreamEvent>, sessionId: string, thinking: boolean): Promise<void> {
     for await (const transition of toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'message', operationId: OPERATION_ID }, stream, thinking)) {
       this.store = this.store.apply(transition);
-      if (transition.kind === 'done') {
+      if (transition.kind === 'terminal') {
         this.completions.push(transition.sessionId);
       }
     }
   }
 }
 
+function answerCapture(sessionId: string) {
+  const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'answer', turn: 1 });
+  return chatProjectionCapture({ sessionId, operationKind: 'message', operationId: OPERATION_ID,
+    messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', `answer-${sessionId}`)] });
+}
+
 async function* controlledStream(sessionId: string, gate: Gate): AsyncGenerator<ChatStreamEvent> {
-  yield { kind: 'answer', delta: { turn: 1, offset: 0, text: `answer-${sessionId}` } };
+  const capture = answerCapture(sessionId);
+  yield* projectionEvents(chatSnapshotFrames(capture));
   gate.markWaiting();
   await gate.promise;
-  yield { kind: 'done', payload: response(sessionId) };
+  yield* projectionEvents(singleRecordFrames(terminalRecord(capture.cursor)));
 }
 
 async function* prematureStream(): AsyncGenerator<ChatStreamEvent> {
-  yield { kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial' } };
+  yield* projectionEvents(chatSnapshotFrames(answerCapture('session-a')));
 }
 
 async function* mismatchedStream(): AsyncGenerator<ChatStreamEvent> {
-  yield { kind: 'done', payload: response('session-b') };
-}
-
-async function collect(
-  stream: AsyncGenerator<ChatStreamEvent>,
-  operationKind: ChatSessionOperationKind,
-  thinking: boolean,
-): Promise<ChatSessionRuntimeTransition[]> {
-  const transitions: ChatSessionRuntimeTransition[] = [];
-  for await (const transition of toRuntimeTransitions('session-a', { kind: 'owned', operationKind, operationId: OPERATION_ID }, stream, thinking)) {
-    transitions.push(transition);
-  }
-  return transitions;
+  yield* projectionEvents(chatSnapshotFrames(answerCapture('session-b')));
 }
 
 async function collectKinds(
@@ -194,85 +152,20 @@ async function collectKinds(
   operationKind: ChatSessionOperationKind,
   thinking: boolean,
 ): Promise<string[]> {
-  return (await collect(stream, operationKind, thinking)).map((transition) => transition.kind);
+  const transitions: ChatSessionRuntimeTransition[] = [];
+  for await (const transition of toRuntimeTransitions('session-a', { kind: 'owned', operationKind, operationId: OPERATION_ID }, stream, thinking)) {
+    transitions.push(transition);
+  }
+  return transitions.map((transition) => transition.kind);
 }
 
-test('the first transition begins the operation for the requested session', async () => {
-  async function* empty(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'done', payload: response('session-a') };
+test('the first transition begins the operation for the requested session and the terminal settles it', async () => {
+  async function* settled(): AsyncGenerator<ChatStreamEvent> {
+    const capture = answerCapture('session-a');
+    yield* projectionEvents(chatSnapshotFrames(capture));
+    yield* projectionEvents(singleRecordFrames(terminalRecord(capture.cursor)));
   }
-  assert.deepEqual(await collectKinds(empty(), 'plan', true), ['begin', 'done']);
-});
-
-test('thinking events are dropped when thinking is disabled', async () => {
-  async function* thinkingStream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'pondering' } };
-    yield { kind: 'done', payload: response('session-a') };
-  }
-  assert.deepEqual(await collectKinds(thinkingStream(), 'plan', false), ['begin', 'done']);
-  assert.deepEqual(await collectKinds(thinkingStream(), 'plan', true), ['begin', 'thinking', 'done']);
-});
-
-test('repo-agent streams yield thinking transitions', async () => {
-  async function* repoAgentThinkingStream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'inspecting the cipher' } };
-    yield { kind: 'done', payload: response('session-a') };
-  }
-  const transitions = await collect(repoAgentThinkingStream(), 'repo-agent', true);
-  assert.deepEqual(transitions.map((entry) => entry.kind), ['begin', 'thinking', 'done']);
-  assert.deepEqual(transitions[1], {
-    kind: 'thinking',
-    sessionId: 'session-a',
-    delta: { turn: 1, offset: 0, text: 'inspecting the cipher' },
-  });
-  assert.deepEqual(await collectKinds(repoAgentThinkingStream(), 'repo-agent', false), ['begin', 'done']);
-});
-
-test('narration events always become narration transitions', async () => {
-  async function* narrationStream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'narration', delta: { turn: 1, offset: 0, text: 'Reading files' } };
-    yield { kind: 'done', payload: response('session-a') };
-  }
-  assert.deepEqual(await collectKinds(narrationStream(), 'plan', false), ['begin', 'narration', 'done']);
-});
-
-test('usage events become session-scoped usage transitions', async () => {
-  const usage = {
-    turn: 1, maxTurns: 20,
-    record: {
-      turn: 1, promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40,
-      generatedChars: 320, thinkingTokensEstimated: false, outputTokensEstimated: false,
-    },
-    totals: {
-      promptTokens: 900, thinkingTokens: 70, outputTokens: 10, toolTokens: 40,
-      thinkingTokensEstimatedCount: 0, outputTokensEstimatedCount: 0,
-    },
-    charsPerToken: 4,
-  };
-  async function* usageStream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'usage', usage };
-    yield { kind: 'done', payload: response('session-a') };
-  }
-  const transitions = await collect(usageStream(), 'repo-search', true);
-  assert.deepEqual(transitions.map((entry) => entry.kind), ['begin', 'usage', 'done']);
-  assert.deepEqual(transitions[1], { kind: 'usage', sessionId: 'session-a', usage });
-});
-
-test('approval events become session-scoped approval transitions', async () => {
-  async function* approvalStream(): AsyncGenerator<ChatStreamEvent> {
-    yield {
-      kind: 'approval',
-      approval: {
-        runId: '4f9c1f9a-0000-4000-8000-000000000000',
-        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-        toolName: 'bash',
-        command: 'npm test',
-        reviewPayload: null,
-      },
-    };
-    yield { kind: 'done', payload: response('session-a') };
-  }
-  assert.deepEqual(await collectKinds(approvalStream(), 'plan', true), ['begin', 'approval', 'done']);
+  assert.deepEqual(await collectKinds(settled(), 'plan', true), ['begin', 'snapshot', 'queue', 'terminal']);
 });
 
 test('two streams complete out of order without crossing session state', async () => {
@@ -304,12 +197,12 @@ test('premature stream close fails only the initiating session and preserves its
   const drain = new StoreDrain();
   drain.store = drain.store.apply({ kind: 'draft', sessionId: 'session-a', draft: 'retry me' });
   await drain.drain(prematureStream(), 'session-a', true);
-  assert.equal(drain.store.get('session-a').error, 'Chat stream ended before the done event');
+  assert.equal(drain.store.get('session-a').error, 'Chat stream ended before its terminal record');
   assert.equal(drain.store.get('session-a').draft, 'retry me');
   assert.equal(drain.store.get('session-b').error, null);
 });
 
-test('a done payload for another session fails the initiating session', async () => {
+test('a view for another session fails the initiating session', async () => {
   const drain = new StoreDrain();
   await drain.drain(mismatchedStream(), 'session-a', true);
   assert.match(drain.store.get('session-a').error ?? '', /session mismatch/);

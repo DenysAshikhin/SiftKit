@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 
 import { z } from '../../src/lib/zod.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.js';
 import {
   CHAT_MESSAGES_COLUMNS,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
@@ -172,7 +172,7 @@ export function seedLegacyChatDatabase(
   options: LegacyChatFixtureOptions = {},
 ): void {
   getRuntimeDatabase(databasePath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const modelPresetJson = JSON.stringify(mockModelPreset()).replaceAll("'", "''");
   const database = new Database(databasePath);

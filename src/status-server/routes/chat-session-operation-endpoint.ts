@@ -28,7 +28,6 @@ import {
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { ChatRunRecorder } from '../chat-run-recorder.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import { importChatSessionBaseline } from '../chat-history-import.js';
 import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.js';
 import { readConfig } from '../config-store.js';
@@ -40,7 +39,7 @@ import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { reconcileChatSession } from '../chat-run-recovery.js';
 import { buildChatSessionResponse } from '../chat-session-response.js';
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import { ChatOperationSseSubscriber, writeChatProjectionFailure } from '../chat-operation-sse-subscriber.js';
 import { z } from '../../lib/zod.js';
 
 const ChatOperationOutcomeSchema = z.strictObject({ failure: z.string().min(1).nullable() });
@@ -265,7 +264,6 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     request: ChatSessionOperationRequest<TParsed>, recorder: ChatRunRecorder): void {
     if (recorder.terminalCause !== null) return;
     const session = recorder.stop('user_stop', null);
-    const response = buildChatSessionResponse(readConfig(ctx.configPath), session);
     if (this.clientOwnedOperation) {
       const broadcast = ctx.chatSessionOperations.getBroadcast(request.sessionId);
       if (!broadcast) throw new Error('Stopped chat operation lost its lease.');
@@ -273,14 +271,13 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         const writer = new SseResponseWriter(req, res);
         writer.open();
         const subscriber = new ChatOperationSseSubscriber(writer, { ctx, sessionId: request.sessionId,
-          operationId: recorder.operationId, databasePath: getRuntimeDatabasePath() });
+          operationId: recorder.operationId, database: ctx.runtimeDatabase });
         broadcast.attach(subscriber);
         subscriber.start();
         res.on('close', () => broadcast.detach(subscriber));
       }
-      broadcast.writeEvent('done', response);
     } else if (res && !res.writableEnded && !res.destroyed) {
-      sendJson(res, 200, response);
+      sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), session));
     }
   }
 
@@ -302,12 +299,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     let admitted: ReturnType<typeof admitChatImages>;
     try { admitted = admitChatImages(session.modelPreset, submission.images); }
     catch (error) { throw new ChatImageAdmissionError(toError(error)); }
-    const database = getRuntimeDatabase(getRuntimeDatabasePath());
+    const database = ctx.runtimeDatabase;
     importChatSessionBaseline(database, session, config);
     const recovery = reconcileChatSession(database, sessionId);
     const failed = recovery.find(report => report.status === 'recovery_failed');
     if (failed) throw new ChatRecoveryAdmissionError(failed);
-    return ChatRunRecorder.begin(getRuntimeDatabasePath(), {
+    return ChatRunRecorder.begin(database, {
       operationId: randomUUID(),
       sessionId,
       ownerEpoch: ctx.chatRunOwnerEpoch,
@@ -404,8 +401,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         if (this.clientOwnedOperation) {
           const writer = new SseResponseWriter(req, res);
           writer.open();
-          writer.writeEvent('error', { error: error.message });
-          writer.end();
+          await writeChatProjectionFailure(writer, { error: error.message });
         } else {
           sendJson(res, 400, { error: error.message });
         }

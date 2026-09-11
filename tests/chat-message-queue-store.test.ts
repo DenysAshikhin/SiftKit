@@ -1,15 +1,14 @@
-import { ChatMessageQueue } from '../src/status-server/chat-message-queue.js';
+import { ChatMessageQueue, type ChatQueueSubscriber } from '../src/status-server/chat-message-queue.js';
 import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.js';
-import type { ChatOperationFrame } from '../src/status-server/chat-operation-broadcast.js';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { CHAT_QUEUE_MAX_PENDING, ChatMessageQueueResponseSchema } from '@siftkit/contracts';
+import { CHAT_QUEUE_MAX_PENDING, ChatMessageQueueResponseSchema, type ChatMessageQueueState } from '@siftkit/contracts';
 
 import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
 import { deleteChatSession, saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { recoverInterruptedChatRuns } from '../src/status-server/chat-run-recovery.js';
@@ -27,10 +26,10 @@ function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueC
   const prior = new ChatJournalStore(database).listSessionRuns(sessionId).find(run => run.requestId === input.requestId);
   const saved = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
   assert.ok(saved);
-  if (prior) return ChatRunRecorder.resume(databasePath, prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input, saved.modelPreset);
+  if (prior) return ChatRunRecorder.resume(getRuntimeDatabase(databasePath), prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input, saved.modelPreset);
   const initial = new ChatMessageQueueStore(database).listPending(sessionId).find(message => input.ids === null || input.ids.includes(message.id));
   assert.ok(initial);
-  const recorder = ChatRunRecorder.begin(databasePath, {
+  const recorder = ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId, ownerEpoch: 'old-process', operationKind: 'message', userMessageId: initial.id,
     content: initial.content, images: initial.images, imageMeta: [], retainedHistoryRevision: 0, startedAtUtc: new Date().toISOString(),
     settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', presetId: 'chat', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
@@ -44,12 +43,12 @@ function recoverRecordedQueue(runtimeRoot: string): void {
   const database = getRuntimeDatabase(databasePath);
   const row = database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get();
   const owner = row === undefined ? null : ChatRuntimeOwnerSchema.parse(row);
-  const epoch = owner ? `${owner.owner_id}:${owner.epoch}` : ChatRuntimeOwner.acquire(databasePath, 'new-process').ownerEpoch;
+  const epoch = owner ? `${owner.owner_id}:${owner.epoch}` : ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process').ownerEpoch;
   recoverInterruptedChatRuns(database, epoch);
 }
 
 test('restart fails an unfinished Force intent and preserves its pending messages', t => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('chat-force-restart-');
   enqueued(store, 's1', entry(1));
   store.beginForce('s1', { id: uuid(90), operationId: uuid(91) }, uuid(92));
@@ -63,7 +62,7 @@ test('restart fails an unfinished Force intent and preserves its pending message
 });
 
 test('restart preserves journaled deliveries once and never requeues interrupted execution', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-recovery-');
   enqueued(store, 's1', entry(1));
   recordedClaim(runtimeRoot, 's1', { requestId: 'interrupted', turn: 2, ids: null });
@@ -79,7 +78,7 @@ test('restart preserves journaled deliveries once and never requeues interrupted
 });
 
 test('force snapshot cannot be edited or removed while settlement is pending', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-force-freeze-');
   enqueued(store, 's1', entry(1));
   store.beginForce('s1', { id: uuid(90), operationId: uuid(91) }, uuid(92));
@@ -89,7 +88,7 @@ test('force snapshot cannot be edited or removed while settlement is pending', (
 });
 
 test('force rejects empty snapshots and conflicting retry operation identities', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-force-boundaries-');
   assert.equal(store.beginForce('s1', { id: uuid(90), operationId: uuid(91) }, uuid(92)).kind, 'empty');
   enqueued(store, 's1', entry(1));
@@ -98,7 +97,7 @@ test('force rejects empty snapshots and conflicting retry operation identities',
 });
 
 test('a fixed claim with missing or duplicate IDs leaves every row pending', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-claim-boundaries-');
   enqueued(store, 's1', entry(1));
   assert.throws(() => store.claim('s1', { requestId: 'run', turn: 1, ids: [uuid(1), uuid(2)] }), /snapshot/u);
@@ -107,7 +106,7 @@ test('a fixed claim with missing or duplicate IDs leaves every row pending', (t)
 });
 
 test('cleanup of a partially incorporated ledger rolls back as a whole', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-cleanup-atomic-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
@@ -160,7 +159,7 @@ function enqueued(store: ChatMessageQueueStore, sessionId: string, input: ChatQu
 }
 
 test('enqueue keeps submission order and isolates sessions', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-fifo-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2, 'second'));
@@ -174,7 +173,7 @@ test('enqueue keeps submission order and isolates sessions', (t) => {
 });
 
 test('a retried enqueue is idempotent and a reused id with a different body is a conflict', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-idempotent-');
   const original = store.enqueue('s1', { ...entry(1), images: [IMAGE] });
   assert.equal(original.kind, 'enqueued');
@@ -189,7 +188,7 @@ test('a retried enqueue is idempotent and a reused id with a different body is a
 });
 
 test('an overflowing enqueue is rejected and the existing queue is untouched', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-overflow-');
   for (let index = 1; index <= CHAT_QUEUE_MAX_PENDING; index += 1) {
     enqueued(store, 's1', entry(index));
@@ -201,7 +200,7 @@ test('an overflowing enqueue is rejected and the existing queue is untouched', (
 });
 
 test('edit and remove operate only on pending rows at the revision the editor saw', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-edit-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
@@ -228,7 +227,7 @@ test('edit and remove operate only on pending rows at the revision the editor sa
 });
 
 test('claim takes the FIFO snapshot, later arrivals wait, and incorporation is required for cleanup', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-claim-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
@@ -250,7 +249,7 @@ test('claim takes the FIFO snapshot, later arrivals wait, and incorporation is r
 });
 
 test('startup recovery incorporates delivered users and retains only unsent pending users', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-recover-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
@@ -265,7 +264,7 @@ test('startup recovery incorporates delivered users and retains only unsent pend
 });
 
 test('deleting a session removes its queue rows', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-cascade-');
   enqueued(store, 's1', entry(1));
   enqueued(store, 's2', entry(2));
@@ -275,7 +274,7 @@ test('deleting a session removes its queue rows', (t) => {
 });
 
 test('direct storage validates content and image limits before changing the queue', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-validation-');
   assert.throws(() => store.enqueue('s1', entry(1, 'x'.repeat(200_001))));
   assert.throws(() => store.enqueue('s1', { ...entry(1), images: Array.from({ length: 9 }, () => IMAGE) }));
@@ -286,20 +285,20 @@ test('direct storage validates content and image limits before changing the queu
 });
 
 test('queue revision and paused state survive reopening and increase after removal', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-revision-');
   enqueued(store, 's1', entry(1));
   const revision = store.state('s1').revision;
   store.remove('s1', uuid(1));
   store.setPaused('s1', true);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   const reopened = new ChatMessageQueueStore(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')));
   assert.ok(reopened.state('s1').revision > revision);
   assert.equal(reopened.state('s1').paused, true);
 });
 
 test('canonical stable IDs prevent duplicate delivery after queue ledger cleanup', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-persisted-');
   const original = entry(1);
   enqueued(store, 's1', original);
@@ -316,21 +315,22 @@ test('canonical stable IDs prevent duplicate delivery after queue ledger cleanup
 
 
 test('queue owner broadcasts current state to idle clients and active operation readers', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-store-broadcast-');
   const registry = new ChatSessionOperationRegistry();
   const owner = new ChatMessageQueue(store, registry);
-  const idle: string[] = [];
-  const active: string[] = [];
-  const subscriber = { onFrame(frame: ChatOperationFrame) { idle.push(frame.data); }, onHistoryRevised() {}, onClosed() {} };
+  const idle: ChatMessageQueueState[] = [];
+  let activeWakeups = 0;
+  const subscriber: ChatQueueSubscriber = { onQueue(state) { idle.push(state); } };
   owner.attach('s1', subscriber);
-  assert.equal(ChatMessageQueueResponseSchema.parse({ queue: JSON.parse(idle[0] ?? '{}') }).queue.revision, 0);
+  assert.equal(ChatMessageQueueResponseSchema.parse({ queue: idle[0] }).queue.revision, 0);
   registry.acquire('s1', 'message', uuid(8), Date.now());
-  registry.getBroadcast('s1')?.attach({ onFrame(frame: ChatOperationFrame) { active.push(frame.data); }, onHistoryRevised() {}, onClosed() {} });
+  registry.getBroadcast('s1')?.attach({ onPublished() { activeWakeups += 1; }, onHistoryRevised() {}, onClosed() {} });
   enqueued(store, 's1', entry(1));
   owner.publish('s1');
   assert.equal(idle.length, 2);
-  assert.deepEqual(active, idle.slice(1));
+  assert.equal(idle[1]?.revision, 1);
+  assert.equal(activeWakeups, 1, 'an active operation reader is woken to re-read the queue from its journal capture');
   owner.detach('s1', subscriber);
   owner.publish('s1');
   assert.equal(idle.length, 2);
@@ -339,7 +339,7 @@ test('queue owner broadcasts current state to idle clients and active operation 
 
 
 test('delivery recovery advances the durable revision and invalid claims fail', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-store-ledger-revision-');
   enqueued(store, 's1', entry(1));
   assert.throws(() => store.claim('s1', { requestId: '', turn: -1, ids: null }));
@@ -351,7 +351,7 @@ test('delivery recovery advances the durable revision and invalid claims fail', 
 });
 
 test('queue previews retain only the newest fifty delivered rows alongside every pending row', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store } = openStore('siftkit-queue-preview-bound-');
   for (let index = 1; index <= 120; index += 1) {
     enqueued(store, 's1', entry(index));
@@ -366,7 +366,7 @@ test('queue previews retain only the newest fifty delivered rows alongside every
 });
 
 test('state-specific reads do not decode unrelated full delivery payloads', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-filtered-reads-');
   enqueued(store, 's1', entry(1));
   store.claim('s1', { requestId: 'other-run', turn: 1, ids: null });
@@ -380,7 +380,7 @@ test('state-specific reads do not decode unrelated full delivery payloads', (t) 
 });
 
 test('deleting and recreating a session discards its paused queue metadata', (t) => {
-  t.after(closeRuntimeDatabase);
+  t.after(closeAllRuntimeDatabases);
   const { store, runtimeRoot } = openStore('siftkit-queue-delete-metadata-');
   enqueued(store, 's1', entry(1));
   store.setPaused('s1', true);

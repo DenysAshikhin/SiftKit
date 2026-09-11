@@ -28,7 +28,8 @@ export function createTestServerContext(configPath: string, root = path.dirname(
   const engineService = new StatusEngineService();
   const repoAgentRunStore = new RepoAgentRunStore(path.join(root, 'repo-agent', 'runs'));
   const chatSessionOperations = new ChatSessionOperationRegistry();
-  let chatMessageQueue: ChatMessageQueue | null = null;
+  const runtimeDatabasePath = path.join(root, 'runtime.sqlite');
+  const runtimeDatabase = getRuntimeDatabase(runtimeDatabasePath);
   return {
     configPath,
     statusPath: path.join(root, 'status.txt'),
@@ -37,7 +38,9 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     disableManagedEngineStartup: false,
     engineService,
     chatRunOwnerEpoch: randomUUID(),
-    chatRuntimeOwner: new ChatRuntimeOwner(path.join(root, 'runtime.sqlite'), 'test-owner', 1),
+    runtimeDatabasePath,
+    runtimeDatabase,
+    chatRuntimeOwner: new ChatRuntimeOwner(runtimeDatabase, 'test-owner', 1),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     server: null,
@@ -47,10 +50,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     metrics: getDefaultMetrics(),
     statusRuns: new StatusRunRegistry(),
     chatSessionOperations,
-    get chatMessageQueue() {
-      chatMessageQueue ??= new ChatMessageQueue(new ChatMessageQueueStore(getRuntimeDatabase(path.join(root, 'runtime.sqlite'))), chatSessionOperations);
-      return chatMessageQueue;
-    },
+    chatMessageQueue: new ChatMessageQueue(new ChatMessageQueueStore(runtimeDatabase), chatSessionOperations),
     chatRepoAgentRuns: new Map(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),

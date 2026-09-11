@@ -12,7 +12,7 @@ import {
   insertRuntimeErrorEvent,
 } from '../src/state/runtime-error-events.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
@@ -97,7 +97,7 @@ test('runtime error events schema stores serialized diagnostics', () => {
     assert.equal(row?.cause_message, 'Request timed out after 130000 ms.');
     assert.match(String(row?.diagnostic_json), /"operation":"config:get"/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(previousCwd);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

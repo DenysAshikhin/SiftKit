@@ -21,7 +21,7 @@ import type { AssistantConfig } from '../src/config/types.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   MemoryAssistantConfigWriter, withAssistantContext,
 } from './helpers/assistant-fixture.js';
@@ -365,7 +365,7 @@ test('gate D e2e: custody migrates to the shell and survives a daemon restart', 
 
     // Daemon restart: custody stays desktop; decryption works again only after re-import.
     await closeHttpServer(server);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     server = startStatusServer({ disableManagedEngineStartup: true });
     await server.startupPromise;
     const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readChatStreamViews } from './helpers/chat-stream-views.js';
+import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.js';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import fs from 'node:fs';
@@ -29,6 +29,7 @@ import { startHarness, type StreamedOperationHarness } from './helpers/streamed-
 import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
+import { replayChatContext } from '../src/status-server/chat-context-replay.js';
 
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -189,10 +190,9 @@ async function waitForRunStatus(
   throw new Error(`Timed out waiting for chat repo-agent status ${expectedStatus}.`);
 }
 
-function readDoneResponse(response: SseResponse): ReturnType<typeof ChatSessionResponseSchema.parse> {
-  const done = response.events.find((event) => event.event === 'done');
-  assert.ok(done?.payload, 'Expected a done SSE event.');
-  return ChatSessionResponseSchema.parse(done.payload);
+/** The stream settled cleanly; the session it produced is what the browser reads back afterwards. */
+async function readDoneResponse(harness: StreamedOperationHarness, sessionId: string, response: SseResponse): Promise<ReturnType<typeof ChatSessionResponseSchema.parse>> {
+  return ChatSessionResponseSchema.parse(await readSettledChatSession(harness.baseUrl, sessionId, response));
 }
 
 function cipherThinkingMockResponses() {
@@ -312,10 +312,10 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
 
   const response = await stream;
   assert.equal(response.statusCode, 200);
-  const approvalEvent = readChatStreamViews(response).find(view => view.snapshot.approval !== null)?.snapshot.approval;
+  const approvalEvent = readChatStreamViews(response, sessionId).find(view => view.snapshot.approval !== null)?.snapshot.approval;
   assert.ok(approvalEvent);
   assert.equal(approvalEvent.runId, runId);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const messages = completed.session.messages;
   assert.deepEqual(messages.filter(message => message.kind !== 'assistant_narration' && message.kind !== 'assistant_progress').slice(-4).map((message) => message.kind), [
     'user_text',
@@ -375,7 +375,7 @@ test('chat repo-agent explicit maxTurns overrides the selected preset default', 
   const sessionId = await createSession(harness, 'Explicit turns', presetId);
   const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A, 7);
   assert.equal(response.statusCode, 200);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
   assert.ok(toolMessage);
   if (toolMessage?.kind === 'assistant_tool_call') {
@@ -391,7 +391,7 @@ test('chat repo-agent omission uses a custom repo-agent preset maxTurns', async 
   const sessionId = await createSession(harness, 'Custom turns', presetId);
   const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
   assert.equal(response.statusCode, 200);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
   assert.ok(toolMessage);
   if (toolMessage?.kind === 'assistant_tool_call') {
@@ -409,7 +409,7 @@ test('chat repo-agent omission uses the built-in 100-turn default', async (t) =>
   const sessionId = await createSession(harness, 'Built-in turns', 'repo-agent');
   const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
   assert.equal(response.statusCode, 200);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
   assert.ok(toolMessage);
   if (toolMessage?.kind === 'assistant_tool_call') {
@@ -424,7 +424,7 @@ test('chat sessions using the ordinary chat preset run under the built-in repo-a
   const sessionId = await createSession(harness, 'Ordinary chat preset');
   const response = await runSimpleRepoAgentChat(harness, sessionId, OPERATION_A);
   assert.equal(response.statusCode, 200);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const toolMessage = completed.session.messages.find((message) => message.kind === 'assistant_tool_call');
   assert.ok(toolMessage);
   if (toolMessage?.kind === 'assistant_tool_call') {
@@ -483,7 +483,7 @@ test('a repo-agent follow-up receives the preceding repo-agent turn as replayabl
   assert.equal(decision.statusCode, 200);
   const first = await firstStream;
   assert.equal(first.statusCode, 200);
-  const firstDone = readDoneResponse(first);
+  const firstDone = await readDoneResponse(harness, sessionId, first);
   assert.equal(firstDone.session.modelPresetId, originalModelPreset.id);
 
   const second = await requestSse(endpoint, {
@@ -553,7 +553,7 @@ test('chat repo-agent decide rejects a run that is generating instead of parked'
   );
   assert.equal(decide.statusCode, 409);
   engineGate.release();
-  readDoneResponse(await stream);
+  await readDoneResponse(harness, sessionId, await stream);
 });
 
 test('chat repo-agent persists deny reasons and abort outcomes', async (t) => {
@@ -573,7 +573,7 @@ test('chat repo-agent persists deny reasons and abort outcomes', async (t) => {
       { method: 'POST', body: JSON.stringify(payload) },
     );
     assert.equal(decide.statusCode, 200);
-    const completed = readDoneResponse(await stream);
+    const completed = await readDoneResponse(harness, sessionId, await stream);
     const messages = completed.session.messages;
     const approval = messages.find(message => message.kind === 'repo_agent_approval');
     assert.equal(approval?.kind, 'repo_agent_approval');
@@ -607,7 +607,7 @@ test('chat repo-agent streams thinking deltas', async (t) => {
     },
   );
   assert.equal(response.statusCode, 200);
-  const thinkingFrames = readChatStreamViews(response).flatMap(view => view.snapshot.messages.filter(message => message.kind === 'assistant_thinking'));
+  const thinkingFrames = readChatStreamViews(response, sessionId).flatMap(view => view.snapshot.messages.filter(message => message.kind === 'assistant_thinking'));
   assert.ok(
     thinkingFrames.length >= 1,
     `expected at least one thinking frame, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
@@ -618,10 +618,10 @@ test('chat repo-agent streams thinking deltas', async (t) => {
     `reassembled thinking text must contain the mock thinking, got: ${assembled}`,
   );
   assert.ok(
-    readChatStreamViews(response).some(view => view.snapshot.tools.length > 0),
+    readChatStreamViews(response, sessionId).some(view => view.snapshot.tools.length > 0),
     `tool_start frames must still arrive, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
   );
-  readDoneResponse(response);
+  await readDoneResponse(harness, sessionId, response);
 });
 
 test('chat repo-agent persists its thinking trace', async (t) => {
@@ -644,7 +644,7 @@ test('chat repo-agent persists its thinking trace', async (t) => {
     },
   );
   assert.equal(response.statusCode, 200);
-  const completed = readDoneResponse(response);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const messages = completed.session.messages;
   const answerIndex = messages.findIndex((message) => message.kind === 'assistant_answer');
   assert.ok(answerIndex >= 0, 'expected an assistant_answer row in the persisted transcript');
@@ -762,8 +762,8 @@ test('switching a parked chat run to off approves the pending command and skips 
   const response = await stream;
   assert.equal(response.statusCode, 200);
   // Exactly one approval frame: the second write ran under `off` without parking.
-  assert.equal(new Set(readChatStreamViews(response).flatMap(view => view.snapshot.approval ? [view.snapshot.approval.approvalId] : [])).size, 1);
-  const completed = readDoneResponse(response);
+  assert.equal(new Set(readChatStreamViews(response, sessionId).flatMap(view => view.snapshot.approval ? [view.snapshot.approval.approvalId] : [])).size, 1);
+  const completed = await readDoneResponse(harness, sessionId, response);
   const approvals = completed.session.messages.filter((message) => message.kind === 'repo_agent_approval');
   assert.equal(approvals.length, 1);
   const approval = approvals[0];
@@ -806,7 +806,7 @@ test('active endpoint reports the live mode and a running chat run switches mode
   gate.release();
   const response = await stream;
   assert.equal(response.statusCode, 200);
-  assert.equal(readDoneResponse(response).session.messages.filter((m) => m.kind === 'repo_agent_approval').length, 0);
+  assert.equal((await readDoneResponse(harness, sessionId, response)).session.messages.filter((m) => m.kind === 'repo_agent_approval').length, 0);
 });
 
 test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame instead of ending the stream', async (t) => {
@@ -842,9 +842,9 @@ test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame 
   assert.equal(decide.statusCode, 200);
   const response = await stream;
   assert.equal(response.statusCode, 200);
-  assert.equal(readChatStreamViews(response).some(view => view.snapshot.approval !== null), true);
-  assert.equal(response.events.some((event) => event.event === 'error'), false);
-  assert.equal(readDoneResponse(response).session.messages.at(-1)?.content.includes('escalated and approved'), true);
+  assert.equal(readChatStreamViews(response, sessionId).some(view => view.snapshot.approval !== null), true);
+  assert.equal(readChatStream(response, sessionId).failure, null);
+  assert.equal((await readDoneResponse(harness, sessionId, response)).session.messages.at(-1)?.content.includes('escalated and approved'), true);
 });
 
 test('deciding an approval broadcasts an approval_resolved frame to attached readers', async (t) => {
@@ -863,12 +863,12 @@ test('deciding an approval broadcasts an approval_resolved frame to attached rea
   assert.equal(decide.statusCode, 200);
   await run;
   const frames = await attached;
-  const views = readChatStreamViews(frames);
+  const views = readChatStreamViews(frames, sessionId);
   const resolved = views.at(-1)?.snapshot.approval;
   assert.ok(resolved);
   assert.equal(resolved.outcome, 'approved');
   assert.equal(resolved.actionable, false);
-  assert.equal(frames.events.some((event) => event.event === 'snapshot'), true);
+  assert.equal(readChatStream(frames, sessionId).terminal?.terminalCause, 'completed');
   assert.equal(views.at(-1)?.snapshot.messages.filter(message => message.kind === 'repo_agent_approval').length, 1);
 });
 
@@ -922,7 +922,7 @@ test('a stopped repo-agent turn persists and replays the whole tool result, not 
   );
   assert.equal(stopResponse.statusCode, 200);
 
-  const persistedSession = readDoneResponse(await stopped).session;
+  const persistedSession = (await readDoneResponse(harness, sessionId, await stopped)).session;
   const toolRows = readToolRows(persistedSession.messages);
   assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
   const completedRow = toolRows[0];
@@ -992,7 +992,7 @@ test('a completed repo-agent turn persists every tool result in full and replays
       }),
     },
   );
-  const toolRows = readToolRows(readDoneResponse(completed).session.messages);
+  const toolRows = readToolRows((await readDoneResponse(harness, sessionId, completed)).session.messages);
   assert.equal(toolRows.length, 2);
   assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'done']);
   assert.equal(new Set(toolRows.map((row) => row.id)).size, 2);
@@ -1059,7 +1059,7 @@ test('stopping at an approval keeps the finished read whole and records the park
   );
   assert.equal(stopResponse.statusCode, 200);
 
-  const toolRows = readToolRows(readDoneResponse(await stopped).session.messages);
+  const toolRows = readToolRows((await readDoneResponse(harness, sessionId, await stopped)).session.messages);
   assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
   assert.equal(toolRows[1]?.toolCallExecutionState, 'not_started');
   assert.equal(toolRows[1]?.toolCallOutput, null);
@@ -1141,7 +1141,7 @@ test('a continuation cannot start until the stopped turn is durably saved', asyn
 
   engineService.releaseAfterAbort();
   assert.equal((await stopRequest).statusCode, 200);
-  const toolRows = readToolRows(readDoneResponse(await stopped).session.messages);
+  const toolRows = readToolRows((await readDoneResponse(harness, sessionId, await stopped)).session.messages);
   assert.equal(String(toolRows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
 
   const continued = await requestSse(
@@ -1235,7 +1235,7 @@ test('corrupt canonical journal evidence blocks continuation while its display p
   await awaitRepoSearchRunPersistence();
 
   const database = getRuntimeDatabase(getRuntimeDatabasePath());
-  const sourceRunId = readToolRows(readDoneResponse(first).session.messages)[0]?.sourceRunId;
+  const sourceRunId = readToolRows((await readDoneResponse(harness, sessionId, first)).session.messages)[0]?.sourceRunId;
   assert.equal(typeof sourceRunId, 'string');
   database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ?').run(sessionId);
   database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='tool_result'").run(sourceRunId);
@@ -1272,7 +1272,7 @@ test('the first continuation uses repaired historical evidence rather than the p
   const sessionId = await createSession(harness, 'Historical evidence');
   writeSentinelDocument();
   const first = await runReadTurn(harness, sessionId, 'original read', OPERATION_A);
-  const tool = readToolRows(readDoneResponse(first).session.messages)[0];
+  const tool = readToolRows((await readDoneResponse(harness, sessionId, first)).session.messages)[0];
   assert.ok(tool);
   const originalOutput = tool.toolCallOutput;
   const database = getRuntimeDatabase();
@@ -1290,7 +1290,7 @@ test('verified chat evidence survives removal of every run transcript and a rest
   const sessionId = await createSession(harness, 'Verified evidence');
   writeSentinelDocument();
   const first = await runReadTurn(harness, sessionId, 'verified read', OPERATION_A);
-  const tool = readToolRows(readDoneResponse(first).session.messages)[0];
+  const tool = readToolRows((await readDoneResponse(harness, sessionId, first)).session.messages)[0];
   assert.ok(tool);
   await awaitRepoSearchRunPersistence();
   const database = getRuntimeDatabase();
@@ -1319,14 +1319,14 @@ test('a missing display result is rebuilt from the journal before continuation',
   const sessionId = await createSession(harness, 'Missing full result');
   writeSentinelDocument();
   const first = await runReadTurn(harness, sessionId, 'read before corruption', OPERATION_A);
-  const original = readToolRows(readDoneResponse(first).session.messages)[0];
+  const original = readToolRows((await readDoneResponse(harness, sessionId, first)).session.messages)[0];
   assert.ok(original);
   getRuntimeDatabase().prepare('UPDATE chat_messages SET tool_call_output = NULL WHERE session_id = ?').run(sessionId);
   const response = await runReadTurn(harness, sessionId, 'do not replay preview', OPERATION_B);
   assert.equal(response.statusCode, 200);
   const history = engineService.requireRequest('do not replay preview').history ?? [];
   assert.equal(history.find(message => message.role === 'tool')?.content, original.toolCallOutput);
-  assert.equal(readToolRows(readDoneResponse(response).session.messages)[0]?.toolCallOutput, original.toolCallOutput);
+  assert.equal(readToolRows((await readDoneResponse(harness, sessionId, response)).session.messages)[0]?.toolCallOutput, original.toolCallOutput);
 });
 
 class FailAfterReadEngineService extends StatusEngineService {
@@ -1346,7 +1346,8 @@ test('a provider failure preserves completed tools and replays them on continuat
   const sessionId = await createSession(harness, 'Failed evidence');
   writeSentinelDocument();
   const failed = await runReadTurn(harness, sessionId, 'fail after read', OPERATION_A);
-  const saved = readDoneResponse(failed).session;
+  assert.match(readChatStream(failed, sessionId).failure?.error ?? '', /Provider failed after completed read/u);
+  const saved = ChatSessionResponseSchema.parse((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`)).body).session;
   const rows = readToolRows(saved.messages);
   assert.equal(rows.length, 1, 'a completed read must survive a provider failure');
   assert.equal(String(rows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
@@ -1381,7 +1382,7 @@ test('each repo-agent tool invocation prints exactly one command line, whoever i
   await attached;
 
   // One stable tool identity reaches the client; only its actual start reaches the console.
-  const views = readChatStreamViews(first);
+  const views = readChatStreamViews(first, sessionId);
   assert.equal(new Set(views.flatMap(view => view.snapshot.tools.map(tool => tool.toolCallId))).size, 1);
   assert.equal(views.at(-1)?.snapshot.tools.filter(tool => tool.executionState === 'completed').length, 1);
   assert.equal(countConsoleLines(capture, 'command', 'read path="doc.txt"'), 1);
@@ -1449,7 +1450,7 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
     },
   );
   assert.equal(searched.statusCode, 200);
-  const searchRow = readToolRows(readDoneResponse(searched).session.messages)[0];
+  const searchRow = readToolRows((await readDoneResponse(harness, sessionId, searched)).session.messages)[0];
   assert.ok(searchRow);
   const searchRunId = engineService.requireRequest('search the document').requestId;
   assert.equal(typeof searchRunId, 'string');
@@ -1465,7 +1466,7 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
   const agentReplay = (engineService.requireRequest('now use the agent').history ?? []).filter((message) => message.role === 'tool');
   assert.equal(agentReplay.length, 1);
   assert.equal(agentReplay[0]?.content, searchRow.toolCallOutput);
-  const agentRow = readToolRows(readDoneResponse(agent).session.messages)[1];
+  const agentRow = readToolRows((await readDoneResponse(harness, sessionId, agent)).session.messages)[1];
   assert.ok(agentRow);
   const agentRunId = engineService.requireRequest('now use the agent').requestId;
   await awaitRepoSearchRunPersistence();
@@ -1493,4 +1494,108 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
   assert.equal(String(blocked.body.error).includes(String(agentRow.sourceRunId)), true);
   assert.equal(String(blocked.body.error).includes(String(searchRunId)), false);
   assert.equal(engineService.requests.some((entry) => entry.prompt === 'blocked continuation'), false);
+});
+
+const LS_CALL = { name: 'ls', arguments: { path: '.' } } as const;
+
+function followUpHistory(engineService: CapturingEngineService, prompt: string) {
+  const request = engineService.requests.find((candidate) => candidate.prompt === prompt);
+  assert.ok(request?.history, `Expected a captured follow-up request for ${prompt}.`);
+  return request.history;
+}
+
+async function runRepoAgentTools(harness: StreamedOperationHarness, sessionId: string, operationId: string,
+  toolCalls: readonly (readonly (typeof LS_CALL | { name: 'ls'; arguments: { path: string } })[])[], maxTurns: number): Promise<SseResponse> {
+  return await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+    method: 'POST', timeoutMs: 20_000,
+    body: JSON.stringify({ content: 'list things', repoRoot: process.cwd(), approval: 'off', operationId, maxTurns,
+      mockResponses: [...toolCalls.map((calls) => ({ toolCalls: [...calls] })), ...repoAgentFinishResponses('listed')], mockCommandResults: {} }),
+  });
+}
+
+for (const [label, batches, expectedToolMessages] of [
+  ['three repeated ls calls', [[LS_CALL], [LS_CALL], [LS_CALL]], 2],
+  ['two repeats then a mixed batch with a fresh call', [[LS_CALL], [LS_CALL], [LS_CALL, { name: 'ls', arguments: { path: 'subdir' } }]], 3],
+] as const) test(`${label} collapse deliberately and replay as a completed run`, async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-duplicate-collapse-', t, { engineService });
+  fs.mkdirSync(path.join(process.cwd(), 'subdir'), { recursive: true });
+  const sessionId = await createSession(harness, label);
+  const first = await runRepoAgentTools(harness, sessionId, OPERATION_A, batches, 5);
+  assert.equal(first.statusCode, 200);
+
+  const store = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath()));
+  const run = store.listSessionRuns(sessionId).find((candidate) => candidate.recordKind === 'execution');
+  assert.equal(run?.terminalCause, 'completed');
+  assert.ok(run);
+  const events = [...store.readAll(run.operationId)];
+  assert.equal(events.filter((envelope) => envelope.event.kind === 'tool_started').length, expectedToolMessages - 1, 'only distinct calls execute');
+  const coalescing = events.flatMap((envelope) => envelope.event.kind === 'context_spliced' ? envelope.event.coalescedToolCallIds : []);
+  assert.equal(coalescing.length, 1, 'the third repeat is represented by replacing the second');
+  const replay = replayChatContext(events);
+  assert.equal(replay.status, 'ok');
+  assert.deepEqual(replay.issues, []);
+  assert.equal(findPlannerContextViolation(replay.messages), null);
+  assert.equal(replay.messages.filter((message) => message.role === 'tool').length, expectedToolMessages);
+  assert.equal(JSON.stringify(replay.messages).includes('[interrupted]'), false);
+
+  const second = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+    method: 'POST', timeoutMs: 20_000,
+    body: JSON.stringify({ content: 'continue after collapse', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, maxTurns: 2,
+      mockResponses: repoAgentFinishResponses('continued'), mockCommandResults: {} }),
+  });
+  assert.equal(second.statusCode, 200);
+  const history = followUpHistory(engineService, 'continue after collapse');
+  assert.equal(findPlannerContextViolation(history), null);
+  assert.equal(history.filter((message) => message.role === 'tool').length, expectedToolMessages);
+  assert.equal(JSON.stringify(history).includes('interrupted'), false);
+  assert.deepEqual(history.filter((message) => message.role === 'tool'), replay.messages.filter((message) => message.role === 'tool'));
+});
+
+test('an invalid native call is durably rejected, corrected on the next turn, and never executes or asks approval', async (t) => {
+  const engineService = new CapturingEngineService();
+  const harness = await startHarness('siftkit-chat-invalid-call-', t, { engineService });
+  const sessionId = await createSession(harness, 'Invalid call recovery');
+  const response = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+    method: 'POST', timeoutMs: 20_000,
+    body: JSON.stringify({ content: 'read something', repoRoot: process.cwd(), approval: 'interactive', operationId: OPERATION_A, maxTurns: 4,
+      mockResponses: [
+        { toolCalls: [{ name: 'read', arguments: {} }] },
+        { toolCalls: [{ name: 'no_such_tool', arguments: { anything: true } }] },
+        ...repoAgentFinishResponses('Recovered successfully'),
+      ], mockCommandResults: {} }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.events.some((event) => event.event === 'approval'), false);
+  const done = await readDoneResponse(harness, sessionId, response);
+  assert.equal(done.session.messages.at(-1)?.content, 'Recovered successfully');
+
+  const store = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath()));
+  const run = store.listSessionRuns(sessionId).find((candidate) => candidate.recordKind === 'execution');
+  assert.equal(run?.terminalCause, 'completed');
+  assert.ok(run);
+  const events = [...store.readAll(run.operationId)];
+  assert.equal(events.filter((envelope) => envelope.event.kind === 'tool_started').length, 0, 'invalid calls never execute');
+  assert.equal(events.filter((envelope) => envelope.event.kind === 'approval_requested').length, 0);
+  const rejected = events.flatMap((envelope) => envelope.event.kind === 'tool_result' && envelope.event.executionState === 'rejected' ? [envelope.event] : []);
+  assert.equal(rejected.length, 2);
+  const proposals = events.flatMap((envelope) => envelope.event.kind === 'tool_proposed' ? [envelope.event] : []);
+  assert.deepEqual(proposals.map((proposal) => proposal.toolName), ['read', 'no_such_tool']);
+  assert.deepEqual(rejected.map((result) => result.call), proposals.map((proposal) => proposal.call));
+  const replay = replayChatContext(events);
+  assert.equal(replay.status, 'ok');
+  assert.equal(findPlannerContextViolation(replay.messages), null);
+  assert.equal(replay.messages.filter((message) => message.role === 'tool').length, 2);
+  assert.ok(done.session.messages.filter((message) => message.kind === 'assistant_tool_call').length >= 2);
+
+  const second = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
+    method: 'POST', timeoutMs: 20_000,
+    body: JSON.stringify({ content: 'continue after invalid', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, maxTurns: 2,
+      mockResponses: repoAgentFinishResponses('continued'), mockCommandResults: {} }),
+  });
+  assert.equal(second.statusCode, 200);
+  const history = followUpHistory(engineService, 'continue after invalid');
+  assert.equal(findPlannerContextViolation(history), null);
+  assert.equal(history.some((message) => message.role === 'tool'), true);
+  assert.equal(JSON.stringify(history).includes('interrupted'), false);
 });

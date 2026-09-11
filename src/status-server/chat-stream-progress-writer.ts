@@ -1,16 +1,14 @@
-import { ChatStreamQueuedUserMessageSchema, ChatStreamTextDeltaSchema } from '@siftkit/contracts';
+import { ChatStreamTextDeltaSchema } from '@siftkit/contracts';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
 import { LiveTextDeltaTracker, LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from './live-text-delta.js';
-import {
-  forwardRepoSearchPromptEvent, forwardRepoSearchToolEvent, forwardRepoSearchUsageEvent,
-  toChatStreamToolEvent, toChatStreamUsageEvent, toChatStreamPromptEvent, type ChatFrameWriter,
-} from './chat-stream-frames.js';
+import { toChatStreamToolEvent, toChatStreamUsageEvent, toChatStreamPromptEvent } from './chat-stream-frames.js';
+import type { ChatOperationBroadcast } from './chat-operation-broadcast.js';
 import type { ChatTurnPhaseTracker } from './chat-turn-phase-tracker.js';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
 
 
-/** Coalesces live text; the recorder owns the transcript and commits each emitted delta first. */
+/** Coalesces live text; the recorder owns the transcript and commits each emitted delta before readers wake. */
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly thinkingDeltas = new LiveTextDeltaTracker();
   private readonly narrationDeltas = new LiveTextDeltaTracker();
@@ -19,7 +17,7 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
   private flushFailure: Error | null = null;
 
   constructor(
-    private readonly writer: ChatFrameWriter,
+    private readonly broadcast: Pick<ChatOperationBroadcast, 'publish'>,
     private readonly phaseTracker: ChatTurnPhaseTracker | null,
     private readonly streamAnswer: boolean,
     private readonly recorder: ChatRunRecorder,
@@ -49,28 +47,18 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       return;
     }
     this.flushPending();
-    if (event.kind === 'queued_user_message') {
-      const { kind, ...payload } = event;
-      const queued = ChatStreamQueuedUserMessageSchema.parse(payload);
-      this.writer.writeEvent('queued_user_message', queued);
-    } else if (event.kind === 'context_warning') {
+    if (event.kind === 'context_warning') {
       this.recorder.recordPresentation({ kind: 'warning', warning: event.warningText });
-      this.writer.writeEvent('warning', { warning: event.warningText });
     } else if (event.kind === 'progress_update') {
-      const progress = { turn: event.turn, text: event.progressText, elapsedMs: event.elapsedMs };
-      this.recorder.recordDisplay({ kind: 'progress', progress });
-      this.writer.writeEvent('progress', progress);
+      this.recorder.recordDisplay({ kind: 'progress', progress: { turn: event.turn, text: event.progressText, elapsedMs: event.elapsedMs } });
     } else if (event.kind === 'usage') {
       this.recorder.recordDisplay({ kind: 'usage', usage: toChatStreamUsageEvent(event) });
-      forwardRepoSearchUsageEvent(this.writer, event);
     } else if (event.kind === 'prompt') {
       this.recorder.recordPresentation({ kind: 'prompt', prompt: toChatStreamPromptEvent(event) });
-      forwardRepoSearchPromptEvent(this.writer, event);
     } else if (event.kind === 'tool_start' || event.kind === 'tool_result') {
-      const tool = toChatStreamToolEvent(event);
-      this.recorder.recordDisplay({ kind: 'tool', tool });
-      forwardRepoSearchToolEvent(this.writer, tool);
-    }
+      this.recorder.recordDisplay({ kind: 'tool', tool: toChatStreamToolEvent(event) });
+    } else if (event.kind !== 'queued_user_message') return; // the recorder journaled the delivery when it claimed it
+    this.broadcast.publish();
   }
 
   flushPending(): void {
@@ -101,9 +89,8 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
 
   private emitTrackerDeltas(tracker: LiveTextDeltaTracker, kind: 'thinking' | 'narration' | 'answer', now: number, force: boolean): void {
     for (let delta = tracker.takeDue(now, force); delta !== null; delta = tracker.takeDue(now, force)) {
-      const parsed = ChatStreamTextDeltaSchema.parse(delta);
-      this.recorder.recordDisplay({ kind, delta: parsed });
-      this.writer.writeEvent(kind, parsed);
+      this.recorder.recordDisplay({ kind, delta: ChatStreamTextDeltaSchema.parse(delta) });
+      this.broadcast.publish();
     }
   }
 }

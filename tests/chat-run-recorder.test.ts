@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto';
 
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import type { ChatJournalEnvelope } from '../src/state/chat-journal-schema.js';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
 import { reconcileChatRun } from '../src/status-server/chat-run-projection.js';
 import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
@@ -20,6 +21,7 @@ import type {
   ChatToolResultEvidence,
   ChatToolProposedEvidence,
 } from '../src/repo-search/engine/chat-run-evidence.js';
+import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
@@ -63,7 +65,7 @@ function openSessionDatabase(prefix: string): { database: RuntimeDatabase; datab
 }
 
 function beginRecorder(databasePath: string, operationId = randomUUID()): ChatRunRecorder {
-  return ChatRunRecorder.begin(databasePath, {
+  return ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId,
     sessionId: SESSION_ID,
     ownerEpoch: OWNER_EPOCH,
@@ -85,7 +87,7 @@ for (const resumed of [false, true]) test(`late context initialization prevents 
     for (let index = 0; index < 501; index += 1) recorder.recordPresentation({ kind: 'warning', warning: 'status' });
   })();
   recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [] });
-  if (resumed) recorder = ChatRunRecorder.resume(databasePath, recorder.operationId, OWNER_EPOCH);
+  if (resumed) recorder = ChatRunRecorder.resume(getRuntimeDatabase(databasePath), recorder.operationId, OWNER_EPOCH);
   assert.throws(() => recorder.cancelUndispatchedSubmission(), /Only an undispatched/u);
   assert.equal(recorder.terminalCause, null);
 });
@@ -96,7 +98,7 @@ test('resuming a recorder restores narration and tool identities from committed 
   recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'looking' } });
   recorder.recordToolProposed({ call: call(0, 'native'), toolName: 'read', arguments: { path: 'file' }, command: 'read file',
     activityKind: 'read', activitySubject: { kind: 'file', value: 'file' }, maxTurns: 5, promptTokenCount: 0, executionState: 'proposed' });
-  const resumed = ChatRunRecorder.resume(databasePath, recorder.operationId, OWNER_EPOCH);
+  const resumed = ChatRunRecorder.resume(getRuntimeDatabase(databasePath), recorder.operationId, OWNER_EPOCH);
   assert.equal(resumed.resolveAssistantMessageId(1), recorder.resolveAssistantMessageId(1));
   assert.equal(resumed.resolveToolMessageId('native'), recorder.resolveToolMessageId('native'));
 });
@@ -348,12 +350,14 @@ class OrderSpy implements ChatRunEvidenceRecorder {
     if (step === this.failAt) throw new Error(`journal is unavailable at ${step}`);
   }
 
-  recordContextInitialized(): void {
+  recordContextInitialized(init: ChatContextInit): ChatContextInit {
     this.note('context_initialized');
+    return init;
   }
 
-  recordContextSpliced(): void {
+  recordContextSpliced(splice: ChatContextSplice): ChatContextSplice {
     this.note('context_spliced');
+    return splice;
   }
 
   recordToolProposed(evidence: ChatToolProposedEvidence): void {
@@ -454,20 +458,32 @@ test('a denied call is recorded as refused with no invented exit code and no sta
   assert.equal(String(spy.results[0].output).includes('not this one'), true);
 });
 
-test('a run keeps recording after another runtime root evicts its cached database handle', () => {
-  const first = openSessionDatabase('chat-run-recorder-evicted-a-');
+test('a run, its queue and its owner stay on their own database while another root opens and closes', () => {
+  const first = openSessionDatabase('chat-run-recorder-stable-a-');
+  const owner = ChatRuntimeOwner.acquire(first.database, 'owner-a');
+  assert.equal(owner.ownerEpoch, OWNER_EPOCH);
   const recorder = beginRecorder(first.databasePath);
+  const queue = new ChatMessageQueueStore(first.database);
 
-  // A second runtime root in the same process closes the first handle; the run must survive it.
-  openSessionDatabase('chat-run-recorder-evicted-b-');
+  const second = openSessionDatabase('chat-run-recorder-stable-b-');
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'still on A' } });
+  assert.equal(new ChatJournalStore(first.database).readRun(recorder.operationId)?.latestSequence, 2);
+  closeRuntimeDatabase(second.databasePath);
+  assert.equal(second.database.open, false);
+  assert.equal(first.database.open, true);
 
+  const queued = randomUUID();
+  queue.enqueue(SESSION_ID, { id: queued, content: 'queued on A', images: [], options: { operationKind: 'repo-agent' } });
+  assert.equal(queue.state(SESSION_ID).messages.length, 1);
+  owner.renew();
   recorder.bindEngine({ requestId: 'request-1', repoAgentSessionId: null });
   recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
 
-  const reopened = getRuntimeDatabase(first.databasePath);
-  const run = new ChatJournalStore(reopened).readRun(recorder.operationId);
+  assert.equal(getRuntimeDatabase(first.databasePath), first.database);
+  const run = new ChatJournalStore(first.database).readRun(recorder.operationId);
   assert.equal(run?.terminalCause, 'completed');
   assert.equal(run?.requestId, 'request-1');
+  assert.equal(new ChatJournalStore(getRuntimeDatabase(second.databasePath)).readRun(recorder.operationId), null);
 });
 
 test('a mid-run queued delivery admits its images for the run preset and projects their metadata', () => {

@@ -78,6 +78,25 @@ export class SseResponseWriter {
     }
   }
 
+  /** One bounded frame in one write: the whole event is queued before any backpressure wait. */
+  async writeBoundedSerializedEventAndDrain(eventName: string, data: string, maxFrameBytes: number): Promise<boolean> {
+    if (this.drainingFrame) throw new Error('An SSE frame is already draining.');
+    const wire = `event: ${eventName}\ndata: ${data}\n\n`;
+    const bytes = Buffer.byteLength(wire, 'utf8');
+    if (bytes > maxFrameBytes) throw new Error(`SSE frame of ${String(bytes)} bytes exceeds its ${String(maxFrameBytes)}-byte bound.`);
+    if (this.clientDisconnected || this.res.writableEnded) return false;
+    this.drainingFrame = true;
+    try {
+      const ready = this.res.write(wire);
+      return ready || await this.waitForDrain();
+    } catch {
+      this.disconnect();
+      return false;
+    } finally {
+      this.drainingFrame = false;
+    }
+  }
+
   private waitForDrain(): Promise<boolean> {
     if (this.res.destroyed || this.res.writableEnded) return Promise.resolve(false);
     return new Promise(resolve => {

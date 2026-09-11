@@ -4,6 +4,8 @@ import { deriveSessionIndicator, isSessionBusy } from '../src/lib/chat-session-s
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store';
 import type { ChatMessage, ChatSession } from '../src/types';
+import { applyLiveTranscript } from './live-transcript-fixture.js';
+import { chatSnapshot } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
@@ -25,22 +27,21 @@ function session(messages: ChatMessage[]): ChatSession {
 }
 
 test('active session with a running tool live message returns tool', () => {
-  const runtime = new ChatSessionRuntimeStore()
+  const runtime = applyLiveTranscript(new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }), 's1', [{ kind: 'tool', tool: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
-    } })
+    } }], { operationKind: 'message', controlOperationId: OPERATION_ID })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'tool');
 });
 
 test('active streaming assistant with no running tool returns streaming', () => {
-  const runtime = new ChatSessionRuntimeStore()
+  const runtime = applyLiveTranscript(new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
-    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }), 's1',
+  [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial' } }], { operationKind: 'message', controlOperationId: OPERATION_ID })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
 });
@@ -91,17 +92,15 @@ test('isSessionBusy covers local operations, foreign conflicts, and recovered ap
   assert.equal(isSessionBusy(foreignBusy), true);
   const recoveredApproval = new ChatSessionRuntimeStore()
     .ensureSession('s', '')
-    .apply({
-      kind: 'approval',
-      sessionId: 's',
-      approval: {
-        runId: '4f9c1f9a-0000-4000-8000-000000000000',
-        approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-        toolName: 'bash',
-        command: 'npm test',
-        reviewPayload: null,
-      },
-    })
+    .apply({ kind: 'snapshot', sessionId: 's', snapshot: chatSnapshot({ sessionId: 's', controlOperationId: null, approval: {
+      runId: '4f9c1f9a-0000-4000-8000-000000000000',
+      approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
+      toolName: 'bash',
+      command: 'npm test',
+      reviewPayload: null,
+      toolCallId: 'call', mode: 'interactive', requestedAtUtc: '2026-09-08T12:00:00.000Z', expiresAtUtc: '2026-09-08T12:10:00.000Z',
+      outcome: null, decidedAtUtc: null, actionable: true,
+    } }) })
     .get('s');
   assert.equal(isSessionBusy(recoveredApproval), true);
 });

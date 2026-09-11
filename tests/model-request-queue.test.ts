@@ -20,7 +20,7 @@ import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-co
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
 import type { ModelLifecycleActionResult } from '@siftkit/contracts';
 import { writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -31,7 +31,7 @@ const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 let queueContextIndex = 0;
 
 test.after(async () => {
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   fs.rmSync(queueContextRoot, { recursive: true, force: true });
 });
 
@@ -177,7 +177,7 @@ async function closePresetQueueHarness(harness: PresetQueueHarness): Promise<voi
   harness.ctx.modelIdleController?.cancelForPresetChange();
   await harness.ctx.inferenceRunFlushQueue.close();
   await harness.coordinator.shutdown();
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   fs.rmSync(harness.root, { recursive: true, force: true });
 }
 
@@ -415,7 +415,7 @@ test('ParallelSlots limits coordinator-free capacity to configured value', async
     assert.equal(releaseModelRequest(ctx, second.token), true);
     assert.equal(releaseModelRequest(ctx, third.token), true);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

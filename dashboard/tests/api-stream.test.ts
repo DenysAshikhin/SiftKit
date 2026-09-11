@@ -1,8 +1,6 @@
 import test from 'node:test';
-import { chatSnapshotFrame } from './chat-snapshot-fixture.js';
 import assert from 'node:assert/strict';
-import type { ChatSessionResponse } from '../src/types';
-import { CHAT_SESSION_RESPONSE } from './fixtures.js';
+import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionPackets, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
@@ -47,33 +45,9 @@ test('queue transport failures are visible before reconnect and a later queue sn
   } finally { controller.abort(); globalThis.fetch = originalFetch; }
 });
 
-const SAMPLE_DONE: ChatSessionResponse = {
-  session: {
-    id: 's',
-    title: 't',
-    modelPresetId: 'test-model',
-    model: null,
-    contextWindowTokens: 0,
-    planRepoRoot: 'C:/repo',
-    createdAtUtc: '2026-06-03T00:00:00.000Z',
-    updatedAtUtc: '2026-06-03T00:00:00.000Z',
-    messages: [],
-  },
-  contextUsage: {
-    contextWindowTokens: 0,
-    usedTokens: 0,
-    chatUsedTokens: 0,
-    thinkingUsedTokens: 0,
-    toolUsedTokens: 0,
-    imageUsedTokens: 0,
-    totalUsedTokens: 0,
-    remainingTokens: 0,
-    warnThresholdTokens: 0,
-    shouldCondense: false,
-    estimatedTokenFallbackTokens: 0,
-    providerOverheadTokens: 0,
-  },
-};
+const CAPTURE = chatProjectionCapture({ operationId: OPERATION_ID });
+/** A complete operation stream body: one snapshot transfer followed by its terminal record. */
+const SETTLED_BODY = projectionPackets(chatSnapshotFrames(CAPTURE)) + projectionPackets(singleRecordFrames(terminalRecord(CAPTURE.cursor)));
 
 function mockFetchOnce(frames: string[]): () => void {
   const encoder = new TextEncoder();
@@ -94,56 +68,21 @@ function mockFetchStatus(status: number, bodyText: string): () => void {
   return () => { globalThis.fetch = originalFetch; };
 }
 
-test('streamPlanMessage yields typed tool and done events in order', async () => {
-  const { streamPlanMessage } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"activityKind":"command","activitySubject":{"kind":"none"},"command":"x","promptTokenCount":0}\n\n',
-    `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
-  ]);
-  try {
-    const eventKinds: string[] = [];
-    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
-      eventKinds.push(event.kind);
+test('operation streams yield every projection frame in order, terminal included', async () => {
+  const { streamPlanMessage, streamChatMessage, streamRepoSearchMessage } = await import('../src/api');
+  for (const open of [streamPlanMessage, streamChatMessage, streamRepoSearchMessage]) {
+    const restoreFetch = mockFetchOnce([SETTLED_BODY]);
+    try {
+      const indices: number[] = [];
+      for await (const event of open('sess', { content: 'go', operationId: OPERATION_ID })) {
+        assert.equal(event.kind, 'projection');
+        if (event.kind === 'projection') indices.push(event.frame.recordIndex);
+      }
+      assert.deepEqual(indices, [...chatSnapshotFrames(CAPTURE).map((frame) => frame.recordIndex), 0],
+        'every snapshot frame in order, then the terminal record as its own single-record transfer');
+    } finally {
+      restoreFetch();
     }
-    assert.deepEqual(eventKinds, ['tool', 'done']);
-  } finally {
-    restoreFetch();
-  }
-});
-
-test('streamChatMessage yields thinking, answer, and done events', async () => {
-  const { streamChatMessage } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    'event: thinking\ndata: {"turn":1,"offset":0,"text":"planning"}\n\n',
-    'event: answer\ndata: {"turn":1,"offset":0,"text":"result"}\n\n',
-    `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
-  ]);
-  try {
-    const eventKinds: string[] = [];
-    for await (const event of streamChatMessage('sess', { content: 'hi', operationId: OPERATION_ID })) {
-      eventKinds.push(event.kind);
-    }
-    assert.deepEqual(eventKinds, ['thinking', 'answer', 'done']);
-  } finally {
-    restoreFetch();
-  }
-});
-
-test('streamRepoSearchMessage yields warning and done events', async () => {
-  const { streamRepoSearchMessage } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    'event: warning\ndata: {"warning":"missing file"}\n\n',
-    `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
-  ]);
-  try {
-    const events: Array<{ kind: string; text?: string }> = [];
-    for await (const event of streamRepoSearchMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
-      if (event.kind === 'warning') events.push({ kind: 'warning', text: event.text });
-      else if (event.kind === 'done') events.push({ kind: 'done' });
-    }
-    assert.deepEqual(events, [{ kind: 'warning', text: 'missing file' }, { kind: 'done' }]);
-  } finally {
-    restoreFetch();
   }
 });
 
@@ -156,8 +95,7 @@ test('plan and repo-search stream requests include attached images', async () =>
     if (typeof init?.body === 'string') {
       bodies.push(init.body);
     }
-    const body = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`;
-    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    return new Response(SETTLED_BODY, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
   try {
     for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID })) {
@@ -173,47 +111,23 @@ test('plan and repo-search stream requests include attached images', async () =>
   }
 });
 
-test('streamPlanMessage throws on server error event', async () => {
+test('an error record and a body that ends mid-transfer both surface as projection events for the assembler to judge', async () => {
   const { streamPlanMessage } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    'event: error\ndata: {"error":"boom"}\n\n',
-  ]);
+  const restoreFetch = mockFetchOnce([projectionPackets(singleRecordFrames(errorRecord({ error: 'boom' })))]);
   try {
-    let threw = false;
-    try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
-        void _event;
-      }
-    } catch (error) {
-      threw = true;
-      assert.ok(error instanceof Error);
-      assert.equal(error.message, 'boom');
-    }
-    assert.equal(threw, true);
+    const kinds: string[] = [];
+    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) kinds.push(event.kind);
+    assert.deepEqual(kinds, ['projection']);
   } finally {
     restoreFetch();
   }
-});
-
-test('streamPlanMessage throws when done event is missing', async () => {
-  const { streamPlanMessage } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    'event: thinking\ndata: {"turn":1,"offset":0,"text":"partial"}\n\n',
-  ]);
+  const truncated = mockFetchOnce([projectionPackets(chatSnapshotFrames(CAPTURE).slice(0, 2))]);
   try {
-    let threw = false;
-    try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
-        void _event;
-      }
-    } catch (error) {
-      threw = true;
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /Missing final streaming payload/u);
-    }
-    assert.equal(threw, true);
+    let count = 0;
+    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) { void event; count += 1; }
+    assert.equal(count, 2);
   } finally {
-    restoreFetch();
+    truncated();
   }
 });
 
@@ -311,49 +225,25 @@ test('stopChatOperation posts to the session stop endpoint and validates the res
   }
 });
 
-test('attachChatOperationStream yields the attach preamble as parsed events', async () => {
+test('attachChatOperationStream reads the operation stream with GET and yields its frames', async () => {
   const { attachChatOperationStream } = await import('../src/api');
   const originalFetch = globalThis.fetch;
   const requestedUrls: string[] = [];
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     requestedUrls.push(String(input));
     assert.equal(init?.method, 'GET');
-    return new Response(
-      chatSnapshotFrame()
-        + 'event: submitted\ndata: {"content":"do it","images":[]}\n\n'
-        + 'event: answer\ndata: {"turn":0,"offset":0,"text":"hi"}\n\n'
-        + 'event: approval_state\ndata: {"approval":null}\n\n'
-        + `event: done\ndata: ${JSON.stringify(CHAT_SESSION_RESPONSE)}\n\n`,
-      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-    );
+    return new Response(SETTLED_BODY, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
   try {
-    const kinds: string[] = [];
+    let frames = 0;
     for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
-      kinds.push(event.kind);
+      assert.equal(event.kind, 'projection');
+      frames += 1;
     }
-    assert.deepEqual(kinds, ['snapshot', 'submitted', 'answer', 'approval-state', 'done']);
+    assert.equal(frames, chatSnapshotFrames(CAPTURE).length + 1);
     assert.deepEqual(requestedUrls, ['/dashboard/chat/sessions/s1/operation/stream']);
   } finally {
     globalThis.fetch = originalFetch;
-  }
-});
-
-test('an ended frame completes an attached stream without a done payload', async () => {
-  const { attachChatOperationStream } = await import('../src/api');
-  const restoreFetch = mockFetchOnce([
-    chatSnapshotFrame({ operationKind: 'condense' }),
-    'event: approval_state\ndata: {"approval":null}\n\n',
-    'event: ended\ndata: {}\n\n',
-  ]);
-  try {
-    const kinds: string[] = [];
-    for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
-      kinds.push(event.kind);
-    }
-    assert.deepEqual(kinds, ['snapshot', 'approval-state', 'ended']);
-  } finally {
-    restoreFetch();
   }
 });
 

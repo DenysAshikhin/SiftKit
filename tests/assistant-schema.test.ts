@@ -12,7 +12,7 @@ import {
 } from '../src/assistant/storage/schema.js';
 import {
   CURRENT_SCHEMA_VERSION,
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   getRuntimeDatabase,
   getSchemaVersion,
 } from '../src/state/runtime-db.js';
@@ -62,7 +62,7 @@ const EXPECTED_ASSISTANT_TABLES = [
 test('a fresh database lands on the current schema version with every assistant table', () => {
   const dbPath = tempDbPath('siftkit-assistant-schema-fresh-');
   getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
@@ -104,7 +104,7 @@ test('current schema contains proactive assistant fields and question constraint
 test('registries, the owner row, and the local device row are seeded from TypeScript', () => {
   const dbPath = tempDbPath('siftkit-assistant-schema-seed-');
   getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   assert.equal(countRows(dbPath, 'graph_node_types'), NODE_TYPES.length);
   assert.equal(countRows(dbPath, 'graph_relation_types'), RELATION_TYPES.length);
@@ -125,9 +125,9 @@ test('registries, the owner row, and the local device row are seeded from TypeSc
 test('reopening a current database does not duplicate seeded rows', () => {
   const dbPath = tempDbPath('siftkit-assistant-schema-reapply-');
   getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   assert.equal(countRows(dbPath, 'graph_node_types'), NODE_TYPES.length);
   assert.equal(countRows(dbPath, 'graph_relation_types'), RELATION_TYPES.length);
@@ -138,7 +138,7 @@ test('reopening a current database does not duplicate seeded rows', () => {
 test('the relation registry table matches the TypeScript descriptor exactly', () => {
   const dbPath = tempDbPath('siftkit-assistant-schema-descriptor-');
   getRuntimeDatabase(dbPath);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const stored = withReadonlyDb(dbPath, (database) => z.object({ definition_json: z.string() })
     .parse(database.prepare(
@@ -166,7 +166,7 @@ test('FTS5 virtual tables accept a match query', () => {
   const hits = z.array(z.object({ node_id: z.string() })).parse(
     database.prepare("SELECT node_id FROM graph_nodes_fts WHERE graph_nodes_fts MATCH 'vscode'").all(),
   );
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   assert.deepEqual(hits, [{ node_id: 'node_1' }]);
 });
 

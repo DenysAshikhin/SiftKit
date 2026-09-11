@@ -3,10 +3,10 @@ import type { RuntimeDatabase } from '../state/database-handle.js';
 import { z } from '../lib/zod.js';
 import { ChatRuntimeOwnerSchema, type ChatRuntimeOwner } from '../state/chat-runtime-owner.js';
 import { ChatJournalIntegrityError, ChatRecoveryInvariantError, ChatJournalStore } from '../state/chat-journal.js';
-import type { ChatRun } from '../state/chat-journal-schema.js';
+import type { ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatRunRecorder } from './chat-run-recorder.js';
-import { buildRecoveredChatHistory, replayChatContext } from './chat-context-replay.js';
+import { buildRecoveredChatHistory, ChatContextReplay } from './chat-context-replay.js';
 import { reconcileChatRun, rebuildChatRun } from './chat-run-projection.js';
 import { buildUserContent } from '../llm-protocol/image-attachments.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
@@ -41,6 +41,28 @@ function assertRecoveryOwner(database: RuntimeDatabase, ownerEpoch: string): voi
 
 
 
+type QueuedMessage = Extract<ChatJournalEvent, { kind: 'queue_delivered' }>['message'];
+type OrphanScan = {
+  stopped: boolean; initialized: boolean; sawTool: boolean;
+  started: Extract<ChatJournalEvent, { kind: 'run_started' }> | null;
+  unresolvedApprovalIds: string[]; delivered: QueuedMessage[];
+};
+
+/** One bounded pass collecting the compact facts orphan closure needs; no event array is retained. */
+function scanOrphan(store: ChatJournalStore, operationId: string): OrphanScan {
+  const scan: OrphanScan = { stopped: false, initialized: false, sawTool: false, started: null, unresolvedApprovalIds: [], delivered: [] };
+  for (const { event } of store.readAll(operationId)) {
+    if (event.kind === 'stop_requested') scan.stopped = true;
+    else if (event.kind === 'context_initialized') scan.initialized = true;
+    else if (event.kind === 'run_started') scan.started = event;
+    else if (event.kind === 'queue_delivered') scan.delivered.push(event.message);
+    else if (event.kind === 'approval_requested') scan.unresolvedApprovalIds.push(event.approvalId);
+    else if (event.kind === 'approval_resolved') scan.unresolvedApprovalIds = scan.unresolvedApprovalIds.filter(id => id !== event.approvalId);
+    else if (event.kind.startsWith('tool_')) scan.sawTool = true;
+  }
+  return scan;
+}
+
 export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch: string): ChatRecoveryReport[] {
   assertRecoveryOwner(database, ownerEpoch);
   const store = new ChatJournalStore(database);
@@ -54,42 +76,36 @@ export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch
     database.transaction(() => {
       assertRecoveryOwner(database, ownerEpoch);
       database.prepare('UPDATE chat_runs SET owner_epoch=? WHERE operation_id=? AND terminal_cause IS NULL').run(ownerEpoch, orphan.operation_id);
-      const recorder = ChatRunRecorder.resume(database.name, orphan.operation_id, ownerEpoch);
-      let events = [...store.readAll(orphan.operation_id)];
-      const stopped = events.some(envelope => envelope.event.kind === 'stop_requested');
-      const resolved = new Set(events.flatMap(envelope => envelope.event.kind === 'approval_resolved' ? [envelope.event.approvalId] : []));
-      for (const envelope of events) {
-        if (envelope.event.kind === 'approval_requested' && !resolved.has(envelope.event.approvalId)) {
-          recorder.recordApprovalResolved({ approvalId: envelope.event.approvalId, outcome: stopped ? 'aborted' : 'interrupted', decision: null,
-            reason: stopped ? 'Stopped by user.' : 'The owning server stopped.', decidedAtUtc: new Date().toISOString() });
-        }
+      const recorder = ChatRunRecorder.resume(database, orphan.operation_id, ownerEpoch);
+      const scan = scanOrphan(store, orphan.operation_id);
+      const stopped = scan.stopped;
+      for (const approvalId of scan.unresolvedApprovalIds) {
+        recorder.recordApprovalResolved({ approvalId, outcome: stopped ? 'aborted' : 'interrupted', decision: null,
+          reason: stopped ? 'Stopped by user.' : 'The owning server stopped.', decidedAtUtc: new Date().toISOString() });
       }
-      if (!events.some(envelope => envelope.event.kind === 'context_initialized')) {
+      if (!scan.initialized) {
         const prior = buildRecoveredChatHistory(database, orphan.session_id, orphan.operation_id);
-        const started = events.find(envelope => envelope.event.kind === 'run_started')?.event;
-        if (prior.status === 'recovery_failed' || started?.kind !== 'run_started' || events.some(envelope => envelope.event.kind.startsWith('tool_'))) {
+        const started = scan.started;
+        if (prior.status === 'recovery_failed' || started === null || scan.sawTool) {
           throw new Error('Orphaned run has incomplete context evidence; continuation requires repair.');
         }
-        const delivered = events.flatMap(envelope => envelope.event.kind === 'queue_delivered' ? [envelope.event.message] : []);
         recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: prior.messages.length,
-          queueMessageIds: delivered.map(message => message.id),
+          queueMessageIds: scan.delivered.map(message => message.id),
           messages: [...prior.messages, { role: 'user', content: buildUserContent(started.content, started.images), chatMessageId: started.userMessageId },
-            ...delivered.filter(message => message.id !== started.userMessageId).map(message => ({ role: 'user' as const, content: buildUserContent(message.content, message.images), chatMessageId: message.id }))],
+            ...scan.delivered.filter(message => message.id !== started.userMessageId).map(message => ({ role: 'user' as const, content: buildUserContent(message.content, message.images), chatMessageId: message.id }))],
         });
       }
-      events = [...store.readAll(orphan.operation_id)];
-      const replayed = replayChatContext(events);
+      // A fresh bounded replay over the committed head, including the initialization just written.
+      const replay = new ChatContextReplay();
+      for (const envelope of store.readAll(orphan.operation_id)) replay.apply(envelope);
+      const contextLength = replay.rawContextLength;
+      const replayed = replay.finish();
       if (replayed.status === 'recovery_failed') throw new Error('Orphaned run has corrupt context evidence.');
-      let contextLength = 0;
-      for (const envelope of events) {
-        if (envelope.event.kind === 'context_initialized') contextLength = envelope.event.messages.length;
-        if (envelope.event.kind === 'context_spliced') contextLength += envelope.event.inserted.length - envelope.event.deleteCount;
-      }
       if (replayed.messages.length > contextLength) recorder.recordContextSpliced({
         expectedRevision: replayed.contextRevision, contextRevision: replayed.contextRevision + 1,
         startIndex: contextLength, deleteCount: 0, inserted: replayed.messages.slice(contextLength),
-        turnBoundary: replayed.turnBoundary, reason: 'interruption_closed',
-        queueMessageIds: events.flatMap(envelope => envelope.event.kind === 'queue_delivered' ? [envelope.event.message.id] : []),
+        turnBoundary: replayed.turnBoundary, reason: 'interruption_closed', coalescedToolCallIds: [],
+        queueMessageIds: scan.delivered.map(message => message.id),
       });
       recorder.finish({ terminalCause: stopped ? 'user_stop' : 'server_restart',
         detail: stopped ? 'Stopped by user.' : 'The owning server stopped.', usage: null, recoveryStatus: 'recovery_needed' });

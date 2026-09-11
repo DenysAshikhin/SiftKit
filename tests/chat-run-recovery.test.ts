@@ -20,8 +20,9 @@ import { getRuntimeRoot, getConfigPath } from '../src/status-server/paths.js';
 import { getChatSessionPath, readChatSessionFromPath } from '../src/state/chat-sessions.js';
 import { readConfig } from '../src/status-server/config-store.js';
 import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
-import { ChatOperationSnapshotSchema } from '@siftkit/contracts';
+import { ChatProjectionFrameSchema } from '@siftkit/contracts';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
+import { applyChatProjectionRecords, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
 
 test('a gap behind an intact projection is attributed to the earlier corrupt run', () => {
   const root = createManagedTempDir('chat-recovery-gap-owner-');
@@ -60,7 +61,7 @@ test('a durable Stop request survives a crash before terminal closure and aborts
     requestedAtUtc: new Date(now).toISOString(), expiresAtUtc: new Date(now + 600_000).toISOString() });
   recorder.requestUserStop();
   const databasePath = join(root, 'runtime.sqlite');
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'replacement');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
   const database = getRuntimeDatabase(databasePath);
   recoverInterruptedChatRuns(database, owner.ownerEpoch);
   const store = new ChatJournalStore(database);
@@ -88,7 +89,7 @@ test('startup retries projection and queue cleanup after the terminal event alre
     BEGIN SELECT RAISE(ABORT, 'queue projection blocked'); END;`);
   assert.throws(() => recorder.readSession(), /queue projection blocked/u);
   database.exec('DROP TRIGGER refuse_queue_projection');
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'replacement');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
   recoverInterruptedChatRuns(database, owner.ownerEpoch);
   assert.equal(queue.listDelivered(session.id, 'request').length, 0);
   assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'completed');
@@ -107,7 +108,7 @@ test('one corrupt orphan is reported without preventing healthy sessions from re
   const databasePath = join(root, 'runtime.sqlite');
   const database = getRuntimeDatabase(databasePath);
   database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='context_initialized'").run(broken.operationId);
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'replacement');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
   const reports = recoverInterruptedChatRuns(database, owner.ownerEpoch);
   assert.ok(reports.some(report => report.operationId === broken.operationId && report.status === 'recovery_failed'));
   assert.equal(new ChatJournalStore(database).readRun(healthy.operationId)?.terminalCause, 'server_restart');
@@ -124,7 +125,7 @@ test('server startup recovers an admitted orphan before serving its conversation
   assert.ok(session);
   const databasePath = getRuntimeDatabasePath();
   const owner = ChatRuntimeOwnerSchema.parse(getRuntimeDatabase(databasePath).prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get());
-  const recorder = ChatRunRecorder.begin(databasePath, {
+  const recorder = ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId, ownerEpoch: `${owner.owner_id}:${owner.epoch}`, operationKind: 'message',
     userMessageId: randomUUID(), content: 'accepted before the server stopped', images: [], imageMeta: [], retainedHistoryRevision: 0,
     settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()), operationKind: 'message', presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
@@ -146,12 +147,26 @@ test('server startup recovers an admitted orphan before serving its conversation
   const attached = await fetch(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/operation/stream`);
   assert.equal(attached.status, 200, 'A finished journal run can be attached without an in-memory lease.');
   const frames = new SseFrameParser().push(await attached.text());
-  const snapshot = frames.find(frame => frame.event === 'snapshot');
-  assert.ok(snapshot);
-  const view = ChatOperationSnapshotSchema.parse(JSON.parse(snapshot.data));
-  assert.equal(view.terminalCause, 'server_restart');
-  assert.ok(view.messages.some(message => message.content === 'committed partial answer'));
-  assert.equal(frames.at(-1)?.event, 'ended');
+  const projectionFrames = frames.filter(frame => frame.event === 'chat_projection')
+    .map(frame => ChatProjectionFrameSchema.parse(JSON.parse(frame.data)));
+  const byTransfer = new Map<string, typeof projectionFrames>();
+  for (const frame of projectionFrames) {
+    const transfer = byTransfer.get(frame.transferId) ?? [];
+    transfer.push(frame);
+    byTransfer.set(frame.transferId, transfer);
+  }
+  let view: ReturnType<typeof applyChatProjectionRecords> | null = null;
+  let terminalCause: string | null = null;
+  for (const [transferId, transfer] of byTransfer) {
+    const records = decodeChatProjectionFrames(transfer, transferId);
+    const first = records[0];
+    if (first?.kind === 'begin' && first.mode === 'snapshot') view = applyChatProjectionRecords(records, null);
+    const terminal = records.find(record => record.kind === 'terminal');
+    if (terminal?.kind === 'terminal') terminalCause = terminal.terminalCause;
+  }
+  assert.ok(view);
+  assert.equal(terminalCause, 'server_restart');
+  assert.ok(view.snapshot.messages.some(message => message.content === 'committed partial answer'));
 });
 
 test('startup closes an orphaned started tool as uncertain without losing its submission', () => {
@@ -164,7 +179,7 @@ test('startup closes an orphaned started tool as uncertain without losing its su
     activityKind: 'command', activitySubject: { kind: 'none' }, maxTurns: 2, promptTokenCount: 10, executionState: 'proposed' });
   recorder.recordToolStarted({ call, startedAtUtc: new Date().toISOString() });
   const databasePath = join(root, 'runtime.sqlite');
-  const owner = ChatRuntimeOwner.acquire(databasePath, 'new-process');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process');
   const database = getRuntimeDatabase(databasePath);
   recoverInterruptedChatRuns(database, owner.ownerEpoch);
   const store = new ChatJournalStore(database);

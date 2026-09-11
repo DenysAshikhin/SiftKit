@@ -18,7 +18,7 @@ import { assistantKeyFile } from '../../src/assistant/layout.js';
 import type { AssertionStore } from '../../src/assistant/storage/assertion-store.js';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
 import {
-  closeRuntimeDatabase, getRuntimeDatabase, type RuntimeDatabase,
+  closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase,
 } from '../../src/state/runtime-db.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
@@ -60,7 +60,7 @@ export function withAssistantContext<T>(body: (context: AssistantTestContext) =>
     });
     return body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 }
 
@@ -79,7 +79,7 @@ export async function withAssistantContextAsync<T>(
     });
     return await body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 }
 

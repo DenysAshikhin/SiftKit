@@ -7,7 +7,7 @@ import { FixedClock } from '../src/assistant/clock.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
@@ -117,7 +117,7 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
         .length >= 5,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     await removeDirectoryWithRetries(runtimeRoot);
   }
 });
@@ -149,7 +149,7 @@ test('Gate C: disabled service remains inert and unavailable desktop state never
     assert.equal(service.currentQuestion(), null);
     assert.equal((await service.retrieveMemoryContext('remember')).renderedBlock, '');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     await removeDirectoryWithRetries(runtimeRoot);
   }
 });

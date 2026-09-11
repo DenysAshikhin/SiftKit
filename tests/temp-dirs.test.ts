@@ -178,7 +178,7 @@ test('formatTempDirLeakReport names every survivor under one header', () => {
 });
 
 // The cached runtime DB handle is the one holder the sweep can release itself. Owning it here
-// is what keeps every test file from needing its own `after(() => closeRuntimeDatabase())`.
+// is what keeps every test file from needing its own `after(() => closeAllRuntimeDatabases())`.
 test('sweepManagedTempDirs releases the cached runtime database before removing', () => {
   const directory = createManagedTempDir('siftkit-registry-db-');
   const databasePath = path.join(directory, 'runtime.sqlite');

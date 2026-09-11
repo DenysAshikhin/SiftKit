@@ -35,7 +35,7 @@ import { assistantKeyFile, assistantRestoreUploadsDir } from '../src/assistant/l
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import {
-  closeRuntimeDatabase, getRuntimeDatabase, CURRENT_SCHEMA_VERSION, type RuntimeDatabase,
+  closeAllRuntimeDatabases, getRuntimeDatabase, CURRENT_SCHEMA_VERSION, type RuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
@@ -527,7 +527,7 @@ test('restore runs through the service maintenance path and refreshes the owner 
     assert.ok(restored !== null);
     assert.equal(service.ownerPersonNodeId, restored.id);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

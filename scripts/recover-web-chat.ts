@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { z } from '../src/lib/zod.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { readChatSessionFromDatabase } from '../src/state/chat-sessions.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
@@ -80,13 +80,14 @@ async function main(): Promise<void> {
       const integrity = z.array(z.object({ integrity_check: z.literal('ok') })).length(1).safeParse(verifiedBackup.prepare('PRAGMA integrity_check').all());
       if (!integrity.success || verifiedBackup.prepare('PRAGMA foreign_key_check').all().length > 0) throw new Error('Backup integrity validation failed.');
     } finally { verifiedBackup.close(); }
-    const owner = ChatRuntimeOwner.acquire(databasePath, `repair-${randomUUID()}`);
+    const database = getRuntimeDatabase(databasePath);
+    const owner = ChatRuntimeOwner.acquire(database, `repair-${randomUUID()}`);
     try {
-      const applied = applyChatHistoryRepair(getRuntimeDatabase(databasePath), prepared, expectedDigest, owner);
+      const applied = applyChatHistoryRepair(database, prepared, expectedDigest, owner);
       process.stdout.write(`${JSON.stringify({ mode: 'apply', changed: applied.changed, backupPath, ...applied.report }, null, 2)}\n`);
     } finally { owner.release(); }
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     rmSync(previewRoot, { recursive: true, force: true });
   }
 }

@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     );
     process.stdout.write(`seeded ${context.root} in ${formatSeconds(startedAtMs)}\n`);
   } finally {
-    closeRuntimeDatabase();
+    closeRuntimeDatabase(context.database.name);
   }
 }
 

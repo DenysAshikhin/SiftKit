@@ -164,8 +164,8 @@ export const ChatRecoveredToolSchema = z.strictObject({
 export type ChatRecoveredTool = z.infer<typeof ChatRecoveredToolSchema>;
 
 /**
- * The consistent view an attaching client starts from: the projected transcript at a known
- * sequence, plus the state that is not a message. Everything after `cursor` arrives as events.
+ * The assembled application view of one operation: the projected transcript at a known sequence,
+ * plus the state that is not a message. It travels only as bounded projection records.
  */
 export const ChatOperationSnapshotSchema = z.strictObject({
   sessionId: z.string().min(1),
@@ -179,7 +179,6 @@ export const ChatOperationSnapshotSchema = z.strictObject({
   terminalCause: ChatRunTerminalCauseSchema.nullable(),
   status: ChatRecoveryStatusSchema,
   cursor: ChatEventCursorSchema,
-  messageOffset: z.number().int().nonnegative(),
   messages: z.array(ChatTranscriptMessageSchema),
   tools: z.array(ChatRecoveredToolSchema),
   approval: DurableChatApprovalSchema.nullable(),
@@ -187,15 +186,5 @@ export const ChatOperationSnapshotSchema = z.strictObject({
   streamedCharsSinceBase: z.number().int().nonnegative(),
   warnings: z.array(z.string()),
   issues: z.array(ChatRecoveryIssueSchema),
-  /** False while more pages of `messages` remain; the client applies events only once complete. */
-  complete: z.boolean(),
 });
 export type ChatOperationSnapshot = z.infer<typeof ChatOperationSnapshotSchema>;
-
-/** A replacement patch over an explicitly named cursor range, including non-display events. */
-export const ChatOperationUpdateSchema = ChatOperationSnapshotSchema.omit({ messageOffset: true, complete: true }).extend({
-  afterSequence: z.number().int().nonnegative(),
-  /** Full ID order permits insertions/removals without re-sending unchanged message bodies. */
-  messageOrder: z.array(z.string().min(1)),
-});
-export type ChatOperationUpdate = z.infer<typeof ChatOperationUpdateSchema>;

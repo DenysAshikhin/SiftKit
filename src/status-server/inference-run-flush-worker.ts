@@ -48,7 +48,7 @@ parentPort?.on('message', (message: FlushWorkerRequest) => {
   // Close BEFORE responding — the main thread may terminate the worker as soon as it sees
   // the response, and terminating mid-close crashes better-sqlite3.
   try {
-    closeRuntimeDatabase();
+    closeRuntimeDatabase(message.databasePath);
   } catch (error) {
     // A close failure means the handle this worker was told to release is still open. It must
     // not eat the flush result, so report it on stderr (forwarded to the parent) and answer.

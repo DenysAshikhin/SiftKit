@@ -401,7 +401,7 @@ export async function condenseChatSession(
   recorder.recordContextSpliced({ expectedRevision: 0, contextRevision: 1, startIndex: 0, deleteCount: history.length,
     inserted: outcome.messages.map(message => message.role === 'assistant'
       ? { ...message, chatMessageId: buildChatMessageId(recorder.messageIdPrefix, { kind: 'summary', revision: 1 }) } : message),
-    turnBoundary: outcome.messages.length, reason: 'compacted', compressedMessageIds });
+    turnBoundary: outcome.messages.length, reason: 'compacted', compressedMessageIds, coalescedToolCallIds: [] });
   recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
   writePromptCacheEpochReset(logger, {
     taskId: session.id,

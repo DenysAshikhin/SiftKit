@@ -1,6 +1,6 @@
 import { toError } from '../lib/errors.js';
 import { finalizeChatRunTranscript, buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, ChatRecoveryIssueSchema, ChatRecoveryReportSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, PersistedChatTranscriptMessageSchema, reduceChatTranscript, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryReport, type ChatRecoveryStatus, type ChatRunTerminalCause, type ChatToolOutcome, type ChatTranscriptMessage, type ChatTranscriptMetadata, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
-import { stableStringify } from '../lib/json.js';
+import { stableStringify, writeStableJson } from '../lib/json.js';
 import { z } from '../lib/zod.js';
 import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
 import type { ChatJournalEnvelope, ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
@@ -15,13 +15,16 @@ import { buildCompactionSummaryRow } from './chat.js';
 import { applyChatDisplayRevisions, readChatCompactionRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 import { createHash } from 'node:crypto';
 
+/** Digest of the rows as stored, streamed so a large transcript never becomes one string. */
 function projectionDigest(messages: readonly PersistedChatTranscriptMessage[]): string {
-  return createHash('sha256').update(stableStringify([...messages])).digest('hex');
+  const hash = createHash('sha256');
+  writeStableJson([...messages], chunk => { hash.update(chunk); });
+  return hash.digest('hex');
 }
 
 
 /** What one run's evidence projects to, before any of it is written down. */
-type ProjectedRun = {
+export type ProjectedRun = {
   messages: PersistedChatTranscriptMessage[];
   toolCount: number;
   status: ChatRecoveryStatus;
@@ -43,42 +46,57 @@ function issue(
 }
 
 /**
- * Folds one run's committed events into display rows. Live frames supply the shape of a tool row;
- * the journal's own tool events supply the execution state and the complete result.
+ * Folds one run's committed events into display rows, one event at a time. Live frames supply the
+ * shape of a tool row; the journal's own tool events supply the execution state and the full result.
  */
-export function projectChatRunEvents(
-  events: readonly ChatJournalEnvelope[],
-  metadata: ChatTranscriptMetadata,
-  initialMessages: readonly ChatTranscriptMessage[] = [],
-  approvalEvidence: readonly ChatJournalEnvelope[] = [],
-): ProjectedRun {
-  let messages: ChatTranscriptMessage[] = [...initialMessages];
-  let terminalCause: ChatRunTerminalCause | null = null;
-  let terminalDetail: string | null = null;
-  const toolCallIds = new Set<string>();
-  const approvals = new Map<string, Extract<ChatJournalEvent, { kind: 'approval_requested' }>>();
-  for (const envelope of [...approvalEvidence, ...events]) {
-    if (envelope.event.kind === 'approval_requested') approvals.set(envelope.event.approvalId, envelope.event);
-  }
+export class ChatRunProjection {
+  private messages: ChatTranscriptMessage[];
+  private terminalCause: ChatRunTerminalCause | null = null;
+  private terminalDetail: string | null = null;
+  private cancelled = false;
+  private compactedValue = false;
+  private readonly toolCallIds = new Set<string>();
+  private readonly approvals = new Map<string, Extract<ChatJournalEvent, { kind: 'approval_requested' }>>();
+  private readonly retained: ReadonlySet<ChatTranscriptMessage>;
 
-  for (const envelope of events) {
-    messages = applyEvent(messages, envelope.event, metadata, toolCallIds, approvals);
-    if (envelope.event.kind === 'run_finished') {
-      terminalCause = envelope.event.terminalCause;
-      terminalDetail = envelope.event.detail;
+  /** Requests seen before this fold started seed the map an incremental pass resolves against. */
+  constructor(
+    private readonly metadata: ChatTranscriptMetadata,
+    initialMessages: readonly ChatTranscriptMessage[] = [],
+    approvalEvidence: readonly ChatJournalEnvelope[] = [],
+  ) {
+    this.messages = [...initialMessages];
+    this.retained = new Set(initialMessages);
+    for (const envelope of approvalEvidence) {
+      if (envelope.event.kind === 'approval_requested') this.approvals.set(envelope.event.approvalId, envelope.event);
     }
   }
 
-  const settled = terminalCause === null || events.some(envelope => envelope.event.kind === 'submission_cancelled')
-    ? messages : finalizeChatRunTranscript(messages, terminalCause, metadata, terminalDetail);
-  const retained = new Set(initialMessages);
+  /** Whether a compaction splice was folded; earlier rows then belong to the summary. */
+  get compacted(): boolean { return this.compactedValue; }
 
-  return {
-    messages: settled.map((message) => retained.has(message) ? message : PersistedChatTranscriptMessageSchema.parse(message)),
-    toolCount: toolCallIds.size,
-    status: recoveryStatus(settled),
-    terminalCause,
-  };
+  apply(envelope: ChatJournalEnvelope): void {
+    const event = envelope.event;
+    if (event.kind === 'approval_requested') this.approvals.set(event.approvalId, event);
+    if (event.kind === 'submission_cancelled') this.cancelled = true;
+    if (event.kind === 'context_spliced' && event.reason === 'compacted') this.compactedValue = true;
+    this.messages = applyEvent(this.messages, event, this.metadata, this.toolCallIds, this.approvals);
+    if (event.kind === 'run_finished') {
+      this.terminalCause = event.terminalCause;
+      this.terminalDetail = event.detail;
+    }
+  }
+
+  finish(): ProjectedRun {
+    const settled = this.terminalCause === null || this.cancelled
+      ? this.messages : finalizeChatRunTranscript(this.messages, this.terminalCause, this.metadata, this.terminalDetail);
+    return {
+      messages: settled.map((message) => this.retained.has(message) ? message : PersistedChatTranscriptMessageSchema.parse(message)),
+      toolCount: this.toolCallIds.size,
+      status: recoveryStatus(settled),
+      terminalCause: this.terminalCause,
+    };
+  }
 }
 
 /** A tool the run never proved finished (or started) is what makes projected rows need recovery. */
@@ -194,7 +212,8 @@ function applyEvent(
     }).map(message => message.id === messageId ? { ...message, images: event.images, imageMeta: event.imageMeta } : message);
   }
   if (event.kind === 'tool_result_finalized') {
-    const previous = messages.find(message => message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.call.displayToolCallId }));
+    const finalizedId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.call.displayToolCallId });
+    const previous = messages.find(message => message.id === finalizedId);
     return applyOutcome(messages, metadata, {
       toolCallId: event.call.displayToolCallId,
       executionState: previous?.kind === 'assistant_tool_call' ? previous.toolCallExecutionState : 'completed',
@@ -252,7 +271,8 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
   const earlierRun = compactions.some(compaction => compaction.runOrder > run.runOrder);
   const compressedIds = new Set(compactions.filter(compaction => compaction.operationId === operationId).flatMap(compaction => compaction.compressedMessageIds));
   if (before.some(message => !message.compressedIntoSummary && (earlierRun || compressedIds.has(message.id)))) force = true;
-  if (run.projectedDigest !== projectionDigest(before)) force = true;
+  const beforeDigest = projectionDigest(before);
+  if (run.projectedDigest !== beforeDigest) force = true;
   // Rows checkpointed at this revision count already carry every revision; a newer edit rebuilds.
   const revisions = readChatHistoryRevisions(database, run.sessionId);
   if (revisions.length !== run.projectedHistoryRevision) force = true;
@@ -260,12 +280,13 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
     return report(run, { messages: before, toolCount: before.filter(message => message.kind === 'assistant_tool_call').length, status: recoveryStatus(before), terminalCause: run.terminalCause }, false, []);
   }
 
-  const events = [...store.readAll(operationId, force ? 0 : run.projectedSequence)];
-  const projected = projectChatRunEvents(events, {
+  const projection = new ChatRunProjection({
     messageIdPrefix: buildChatRunMessageIdPrefix(operationId),
     sourceRunId: operationId,
     createdAtUtc: run.createdAtUtc,
   }, force ? [] : before, store.readApprovalRequests(operationId));
+  for (const envelope of store.readAll(operationId, force ? 0 : run.projectedSequence)) projection.apply(envelope);
+  const projected = projection.finish();
   // A revision names rows that existed when it was committed, so an incremental pass has nothing
   // new for it to touch and must not re-apply it to rows that already reflect it.
   if (force) projected.messages = applyChatDisplayRevisions(projected.messages, revisions).map(message => PersistedChatTranscriptMessageSchema.parse(message));
@@ -273,6 +294,7 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
 
   // Compared as stored on both sides, so "the rows already say this" is an exact answer rather
   // than a guess about which absent fields read back as NULL.
+  let afterDigest = beforeDigest;
   try {
     database.transaction(() => {
       const positionRow = z.object({ position: z.number().nullable() });
@@ -296,7 +318,7 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
           .run(run.sessionId, message.id);
       }
       const previous = new Map(before.map(message => [message.id, message]));
-      if (events.some(envelope => envelope.event.kind === 'context_spliced' && envelope.event.reason === 'compacted')) {
+      if (projection.compacted) {
         database.prepare('UPDATE chat_messages SET compressed_into_summary = 1 WHERE session_id = ? AND position < ?')
           .run(run.sessionId, start);
       }
@@ -305,15 +327,14 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
         if (old && stableStringify(old) === stableStringify({ ...old, ...message }) && before[index]?.id === message.id) continue;
         insertChatMessages(database, run.sessionId, [message], start + index, run.createdAtUtc);
       }
-      store.advanceProjection({ operationId, projectedSequence: run.latestSequence, projectedHistoryRevision: revisions.length,
-        projectedDigest: projectionDigest(readChatRunMessages(database, run.sessionId, operationId)) });
+      afterDigest = projectionDigest(readChatRunMessages(database, run.sessionId, operationId));
+      store.advanceProjection({ operationId, projectedSequence: run.latestSequence, projectedHistoryRevision: revisions.length, projectedDigest: afterDigest });
     })();
   } catch (error) {
     const detail = toError(error).message;
     return report(run, projected, false, [issue(operationId, 'projection_failed', detail)]);
   }
-  const after = readChatRunMessages(database, run.sessionId, operationId);
-  return report(run, projected, stableStringify(before) !== stableStringify(after), []);
+  return report(run, projected, beforeDigest !== afterDigest, []);
 }
 
 

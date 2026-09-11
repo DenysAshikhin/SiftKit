@@ -12,7 +12,7 @@ import {
   StatusServerIdleGate, evaluateIdleDecision, secondsSinceModelActivity,
 } from '../src/status-server/assistant-idle-gate.js';
 import { acquireModelRequest, releaseModelRequest } from '../src/status-server/server-ops.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
@@ -217,6 +217,6 @@ test('the status-server gate wires the heartbeat, config threshold, server start
       details: { secondsSinceModelActivity: 0, requiredIdleSeconds: threshold },
     });
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

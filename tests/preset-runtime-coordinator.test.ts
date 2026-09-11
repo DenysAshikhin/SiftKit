@@ -6,7 +6,7 @@ import test from 'node:test';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import type { ModelRequestLock } from '../src/status-server/server-types.js';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -67,7 +67,7 @@ function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLoc
 
 async function disposeCoordinator({ coordinator, configPath }: CoordinatorFixture): Promise<void> {
   await coordinator.shutdown();
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
 }
 

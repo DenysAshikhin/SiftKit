@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import type { IncomingMessage,ServerResponse } from 'node:http';
 
 import {
@@ -9,7 +8,6 @@ ApprovalModeSchema,
 ChatRepoAgentApprovalModeRequestSchema,
 ChatRepoAgentApprovalModeResponseSchema,
 ChatRepoAgentDecideResponseSchema,
-ChatStreamApprovalResolvedSchema,
 type RepoAgentDecision,
 } from '@siftkit/contracts';
 import type { SiftConfig } from '../../config/types.js';
@@ -29,11 +27,7 @@ import { readChatSessionFromPath } from '../../state/chat-sessions.js';
 import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
 import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
-import {
-toChatStreamApproval,
-type ChatRepoAgentDecisionRecord,
-type ChatRepoAgentRunBinding,
-} from '../chat-repo-agent-types.js';
+import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../chat-repo-agent-types.js';
 import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
@@ -64,7 +58,6 @@ type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
 import { requireChatOperationBroadcast } from './chat.js';
-import { buildChatSessionResponse } from '../chat-session-response.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
@@ -163,7 +156,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     const stream = requireChatOperationBroadcast(ctx, request);
     const sse = req && res ? new SseResponseWriter(req, res) : null;
     try {
-      const { updatedSession, failure } = await executeChatRepoAgentOperation({
+      const { failure } = await executeChatRepoAgentOperation({
         ctx,
         recorder: requireChatRunRecorder(request),
         sessionId: request.sessionId,
@@ -182,10 +175,9 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         lease: request.lease ?? undefined,
         queueOwner: ctx.chatMessageQueue,
       });
-      stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
       return { failure };
     } catch (error) {
-      stream.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      stream.fail(error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -239,11 +231,10 @@ export async function executeChatRepoAgentOperation(options: {
   }
   const binding: ChatRepoAgentRunBinding = { runId: started.runId, decisions: [] };
   options.ctx.chatRepoAgentRuns.set(options.sessionId, binding);
-  if (!options.queueStart?.queuedMessages) options.stream.writeEvent('submitted', { content: options.content, images: options.images });
   if (options.connection) {
     options.connection.open();
     const subscriber = new ChatOperationSseSubscriber(options.connection, { ctx: options.ctx, sessionId: options.sessionId,
-      operationId: options.recorder.operationId, databasePath: getRuntimeDatabasePath() });
+      operationId: options.recorder.operationId, database: options.ctx.runtimeDatabase });
     options.stream.attach(subscriber);
     subscriber.start();
   }
@@ -251,7 +242,7 @@ export async function executeChatRepoAgentOperation(options: {
     wantsLiveText: true,
     writeProgress: (event) => {
       if (event.kind === 'approval_request') {
-        options.stream.writeEvent('approval', toChatStreamApproval(started.runId, event));
+        options.stream.publish();
         return;
       }
       if (event.kind === 'lock_wait') return;
@@ -304,25 +295,7 @@ function recordChatRepoAgentDecision(
   return record;
 }
 
-/** Tells every reader of this session's stream that a parked approval is now decided. */
-function broadcastApprovalResolved(
-  ctx: ServerContext,
-  sessionId: string,
-  runId: string,
-  approval: RepoAgentApproval,
-  decision: RepoAgentDecision,
-  decidedAtUtc: string,
-): void {
-  const broadcast = ctx.chatSessionOperations.getBroadcast(sessionId);
-  if (!broadcast) {
-    return;
-  }
-  broadcast.writeEvent('approval_resolved', ChatStreamApprovalResolvedSchema.parse({
-    approval: toChatStreamApproval(runId, approval),
-    decision,
-    decidedAtUtc,
-  }));
-}
+
 
 export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
   async handle(
@@ -360,7 +333,8 @@ export class ChatRepoAgentDecideEndpoint implements RouteEndpoint {
       return;
     }
     const record = recordChatRepoAgentDecision(binding, parsed.data, approval);
-    broadcastApprovalResolved(ctx, sessionId, binding.runId, approval, parsed.data, record.decidedAtUtc);
+    // The gate journaled the resolution; readers re-read it from the journal.
+    ctx.chatSessionOperations.getBroadcast(sessionId)?.publish();
     sendJson(res, 200, ChatRepoAgentDecideResponseSchema.parse({
       ok: true, runId: binding.runId, decidedAtUtc: record.decidedAtUtc,
     }));
@@ -394,9 +368,7 @@ export class ChatRepoAgentApprovalModeEndpoint implements RouteEndpoint {
     const { binding, session } = active;
     const released = session.setApprovalMode(parsed.data.approval);
     const record = released ? recordChatRepoAgentDecision(binding, { decision: 'approve' }, released) : null;
-    if (released && record) {
-      broadcastApprovalResolved(ctx, sessionId, binding.runId, released, { decision: 'approve' }, record.decidedAtUtc);
-    }
+    if (record) ctx.chatSessionOperations.getBroadcast(sessionId)?.publish();
     sendJson(res, 200, ChatRepoAgentApprovalModeResponseSchema.parse({
       ok: true,
       runId: binding.runId,

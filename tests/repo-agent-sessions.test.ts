@@ -4,7 +4,7 @@ import path from 'node:path';
 import test, { after, type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { getAbortError } from '../src/lib/abort.js';
 import type { ProgressWriter } from '../src/lib/progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -459,7 +459,7 @@ class SessionTestHarness {
     } catch (error) {
       const cleanupErrors: Error[] = [];
       try {
-        closeRuntimeDatabase();
+        closeAllRuntimeDatabases();
       } catch (cleanupError) {
         cleanupErrors.push(errorFromThrown(cleanupError));
       }
@@ -610,7 +610,7 @@ class SessionTestHarness {
       }
     } finally {
       try {
-        closeRuntimeDatabase();
+        closeAllRuntimeDatabases();
       } catch (error) {
         errors.push(errorFromThrown(error));
       }

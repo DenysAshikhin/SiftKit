@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { PresetCatalog } from '../src/preset-catalog.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs/artifact-upserts.js';
 import { queryDashboardRunDetailFromDb } from '../src/status-server/dashboard-runs/queries.js';
 import { buildRunIdentity } from '../src/status-server/dashboard-runs/run-identity.js';
@@ -33,7 +33,7 @@ function withRuntimeRoot(prefix: string, callback: (dir: string) => void): void 
   try {
     callback(dir);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(previousCwd);
   }
 }

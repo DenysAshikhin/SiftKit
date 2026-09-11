@@ -89,15 +89,9 @@ export class ChatSessionOperationRegistry {
     this.latestCompletion.set(lease.sessionId, { operationId: lease.operationId, completion });
     delete lease.abort;
     this.activeBySessionId.delete(lease.sessionId);
-    // Every stream ends with a terminal frame, so an attached reader can always tell "the run
-    // failed" from "the run finished without a payload" from "the socket dropped".
-    if (!active.broadcast.hasTerminalFrame()) {
-      if (completion.kind === 'failed') {
-        active.broadcast.writeEvent('error', { error: completion.error });
-      } else {
-        active.broadcast.writeEvent('ended', {});
-      }
-    }
+    // Closing carries the failure, so an attached reader can always tell "the run failed" from
+    // "the run finished" from "the socket dropped".
+    if (completion.kind === 'failed') active.broadcast.fail(completion.error);
     active.broadcast.close();
     active.finish(completion);
     return true;

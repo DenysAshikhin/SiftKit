@@ -1,124 +1,109 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CHAT_STREAM_TERMINAL_EVENT_NAMES, ChatStreamTextDeltaSchema } from '@siftkit/contracts';
-
 import {
   ChatOperationBroadcast,
-  type ChatOperationFrame,
+  type ChatOperationClosure,
   type ChatOperationSubscriber,
 } from '../src/status-server/chat-operation-broadcast.js';
 
 class RecordingSubscriber implements ChatOperationSubscriber {
-  readonly frames: ChatOperationFrame[] = [];
-  closedCount = 0;
+  published = 0;
   revisions = 0;
+  readonly closures: ChatOperationClosure[] = [];
 
-  onFrame(frame: ChatOperationFrame): void {
-    this.frames.push(frame);
+  onPublished(): void {
+    this.published += 1;
   }
 
   onHistoryRevised(): void {
     this.revisions += 1;
   }
 
-  onClosed(): void {
-    this.closedCount += 1;
+  onClosed(closure: ChatOperationClosure): void {
+    this.closures.push(closure);
   }
 }
 
-test('a late subscriber receives only new publications; history belongs to the journal', () => {
+test('a late subscriber is woken only by new publications; history belongs to the journal', () => {
   const broadcast = new ChatOperationBroadcast();
-  broadcast.writeEvent('thinking', { turn: 0, offset: 0, text: 'a' });
-  broadcast.writeEvent('thinking', { turn: 0, offset: 1, text: 'b' });
+  broadcast.publish();
+  broadcast.publish();
   const subscriber = new RecordingSubscriber();
   broadcast.attach(subscriber);
-  assert.equal(subscriber.frames.length, 0);
-  broadcast.writeEvent('answer', { turn: 0, offset: 0, text: 'c' });
-  assert.deepEqual(subscriber.frames.map((frame) => frame.event), ['answer']);
+  assert.equal(subscriber.published, 0);
+  broadcast.publish();
+  assert.equal(subscriber.published, 1);
 });
 
-test('publications are serialized once and delivered identically to readers', () => {
+test('every attached subscriber is woken by each publication', () => {
   const broadcast = new ChatOperationBroadcast();
   const first = new RecordingSubscriber();
   const second = new RecordingSubscriber();
   broadcast.attach(first);
   broadcast.attach(second);
-  broadcast.writeEvent('progress', { turn: 2, text: 'reading', elapsedMs: 40 });
-  assert.deepEqual(first.frames, second.frames);
-  assert.deepEqual(first.frames[0], {
-    event: 'progress',
-    data: '{"turn":2,"text":"reading","elapsedMs":40}',
-  });
+  broadcast.publish();
+  broadcast.publish();
+  assert.equal(first.published, 2);
+  assert.equal(second.published, 2);
 });
 
-test('detaching stops delivery without disturbing other subscribers', () => {
+test('detaching stops wake-ups without disturbing other subscribers', () => {
   const broadcast = new ChatOperationBroadcast();
   const leaving = new RecordingSubscriber();
   const staying = new RecordingSubscriber();
   broadcast.attach(leaving);
   broadcast.attach(staying);
   broadcast.detach(leaving);
-  broadcast.writeEvent('warning', { warning: 'w' });
-  assert.equal(leaving.frames.length, 0);
-  assert.equal(staying.frames.length, 1);
+  broadcast.publish();
+  assert.equal(leaving.published, 0);
+  assert.equal(staying.published, 1);
 });
 
-test('closing notifies every subscriber exactly once and drops later writes', () => {
+test('closing notifies every subscriber exactly once and drops later publications', () => {
   const broadcast = new ChatOperationBroadcast();
   const subscriber = new RecordingSubscriber();
   broadcast.attach(subscriber);
   broadcast.close();
   broadcast.close();
-  broadcast.writeEvent('answer', { turn: 0, offset: 0, text: 'ignored' });
-  assert.equal(subscriber.closedCount, 1);
-  assert.equal(subscriber.frames.length, 0);
+  broadcast.publish();
+  broadcast.notifyHistoryRevised();
+  assert.deepEqual(subscriber.closures, [{ failure: null }]);
+  assert.equal(subscriber.published, 0);
+  assert.equal(subscriber.revisions, 0);
   assert.equal(broadcast.isClosed(), true);
 });
 
-test('attaching to a closed broadcast closes immediately without memory replay', () => {
+test('attaching to a closed broadcast closes immediately with the recorded closure', () => {
   const broadcast = new ChatOperationBroadcast();
-  broadcast.writeEvent('done', { ok: true });
+  broadcast.fail('provider exploded');
   broadcast.close();
   const subscriber = new RecordingSubscriber();
   broadcast.attach(subscriber);
-  assert.equal(subscriber.frames.length, 0);
-  assert.equal(subscriber.closedCount, 1);
+  assert.equal(subscriber.published, 0);
+  assert.deepEqual(subscriber.closures, [{ failure: 'provider exploded' }]);
 });
 
-test('every terminal frame name in the contract is remembered as terminal', () => {
-  assert.deepEqual([...CHAT_STREAM_TERMINAL_EVENT_NAMES], ['done', 'error', 'ended']);
-  for (const event of CHAT_STREAM_TERMINAL_EVENT_NAMES) {
-    const broadcast = new ChatOperationBroadcast();
-    broadcast.writeEvent('thinking', { turn: 0, offset: 0, text: 'a' });
-    assert.equal(broadcast.hasTerminalFrame(), false, event);
-    broadcast.writeEvent(event, event === 'error' ? { error: 'failed' } : {});
-    assert.equal(broadcast.hasTerminalFrame(), true, event);
-  }
-});
-
-test('oversized publications reach current readers and are never retained for late readers', () => {
+test('the first failure wins, wakes readers, and is carried by the closing notice', () => {
   const broadcast = new ChatOperationBroadcast();
-  const live = new RecordingSubscriber();
-  broadcast.attach(live);
-  const text = '界'.repeat(3 * 1024 * 1024);
-  broadcast.writeEvent('answer', { turn: 1, offset: 0, text });
-  const frame = live.frames[0];
-  assert.ok(frame);
-  assert.equal(ChatStreamTextDeltaSchema.parse(JSON.parse(frame.data)).text, text);
-  const late = new RecordingSubscriber();
-  broadcast.attach(late);
-  assert.equal(late.frames.length, 0);
+  const subscriber = new RecordingSubscriber();
+  broadcast.attach(subscriber);
+  assert.equal(broadcast.hasFailed(), false);
+  broadcast.fail('first');
+  broadcast.fail('second');
+  assert.equal(broadcast.hasFailed(), true);
+  assert.equal(subscriber.published, 2);
+  broadcast.close();
+  assert.deepEqual(subscriber.closures, [{ failure: 'first' }]);
+  broadcast.fail('after close');
+  assert.deepEqual(subscriber.closures, [{ failure: 'first' }]);
 });
 
-test('a history revision wakes attached subscribers without a frame and is ignored after close', () => {
+test('a history revision wakes attached subscribers separately from publications', () => {
   const broadcast = new ChatOperationBroadcast();
   const subscriber = new RecordingSubscriber();
   broadcast.attach(subscriber);
   broadcast.notifyHistoryRevised();
   assert.equal(subscriber.revisions, 1);
-  assert.deepEqual(subscriber.frames, []);
-  broadcast.close();
-  broadcast.notifyHistoryRevised();
-  assert.equal(subscriber.revisions, 1);
+  assert.equal(subscriber.published, 0);
 });

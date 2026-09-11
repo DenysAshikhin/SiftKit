@@ -16,7 +16,7 @@ import { ChatMessageQueue } from '../src/status-server/chat-message-queue.js';
 import { ChatSessionOperationRegistry } from '../src/status-server/chat-session-operation-registry.js';
 import { ChatMessageQueueStore, type ChatQueueEnqueueInput } from '../src/state/chat-message-queue.js';
 import { saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import type { ChatDeliveredMessage, ChatMessageQueueDelivery } from '../src/repo-search/engine/queue-delivery.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
@@ -101,7 +101,7 @@ test('initial queue delivery claims the fixed force snapshot only at the engine 
     assert.equal(store.state('session-1').force, null);
     assert.deepEqual(store.listPending('session-1').map((row) => row.content), ['arrived after force']);
     assert.throws(() => delivery.initial(), /cancelled/u);
-  } finally { closeRuntimeDatabase(); }
+  } finally { closeAllRuntimeDatabases(); }
 });
 
 class EventWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -198,7 +198,7 @@ test('queue delivery claims and appends one FIFO snapshot at a post-tool boundar
     assert.deepEqual(transcript.getMessages().slice(-2).map((entry) => entry.content), ['first', 'second']);
     assert.deepEqual(queue.store.listDelivered('session-1', 'request-1').map((entry) => entry.id), [firstId, secondId]);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

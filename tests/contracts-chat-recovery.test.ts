@@ -139,7 +139,6 @@ test('an operation snapshot carries its cursor and derived tool states', () => {
     cursor: { operationId: OPERATION_ID, sequence: 412 },
     runOrder: 1,
     controlOperationId: null,
-    messageOffset: 0,
     messages: [],
     tools: [{
       toolCallId: 'call-1',
@@ -149,7 +148,6 @@ test('an operation snapshot carries its cursor and derived tool states', () => {
     }],
     approval: null,
     issues: [],
-    complete: true,
     tokenTurns: [],
     streamedCharsSinceBase: 0,
     warnings: [],

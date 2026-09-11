@@ -23,7 +23,7 @@ import {
   type ChatJournalEnvelope,
   type ChatJournalEvent,
 } from '../state/chat-journal-schema.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import type { RuntimeDatabase } from '../state/database-handle.js';
 import { isStorageFailure } from '../state/database-handle.js';
 import { ChatMessageQueueStore, type ChatQueueClaimInput } from '../state/chat-message-queue.js';
 import { dirname } from 'node:path';
@@ -37,6 +37,7 @@ import { getGenerationTokensPerSecond, getPromptTokensPerSecond } from '../lib/t
 import { getAbortError, throwIfAborted } from '../lib/abort.js';
 import { admitChatImages } from '../llm-protocol/preset-image-admission.js';
 import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
+import { sanitizeChatContextImages } from '../state/chat-context-images.js';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
 export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
@@ -69,7 +70,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   private dispatched = false;
 
   get historyRevision(): number { return this.historyRevisionValue; }
-  readHistoryRevisions() { return readChatHistoryRevisions(getRuntimeDatabase(this.databasePath), this.sessionId); }
+  readHistoryRevisions() { return readChatHistoryRevisions(this.database, this.sessionId); }
   private deleted = false;
 
   get sessionDeleted(): boolean { return this.deleted; }
@@ -93,7 +94,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   private constructor(
-    private readonly databasePath: string,
+    private readonly database: RuntimeDatabase,
     readonly operationId: string,
     private readonly ownerEpoch: string,
     readonly sessionId: string,
@@ -101,15 +102,10 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     readonly settings: ChatRunEffectiveSettings,
   ) {
     this.latestSequence = 0;
+    this.store = new ChatJournalStore(database);
   }
 
-  /**
-   * Resolved per write, never held: a second runtime root in the same process closes the cached
-   * handle, and a run that lost its terminal write would block its session forever.
-   */
-  private get store(): ChatJournalStore {
-    return new ChatJournalStore(getRuntimeDatabase(this.databasePath));
-  }
+  private readonly store: ChatJournalStore;
 
   get userMessageId(): string {
     const first = this.store.readAfter(this.operationId, 0, 1)[0]?.event;
@@ -135,10 +131,10 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     this.finish({ terminalCause: 'user_stop', detail: 'Client disconnected before dispatch.', usage: null, recoveryStatus: 'ok' });
   }
 
-  static begin(databasePath: string, input: ChatRunRecorderStart): ChatRunRecorder {
+  static begin(database: RuntimeDatabase, input: ChatRunRecorderStart): ChatRunRecorder {
     const start = ChatRunRecorderStartSchema.parse(input);
-    const recorder = new ChatRunRecorder(databasePath, start.operationId, start.ownerEpoch, start.sessionId, start.settings);
-    return getRuntimeDatabase(databasePath).transaction(() => {
+    const recorder = new ChatRunRecorder(database, start.operationId, start.ownerEpoch, start.sessionId, start.settings);
+    return database.transaction(() => {
     const run = recorder.store.begin({
       operationId: start.operationId,
       sessionId: start.sessionId,
@@ -165,11 +161,11 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     })();
   }
 
-  static resume(databasePath: string, operationId: string, ownerEpoch: string): ChatRunRecorder {
-    const run = new ChatJournalStore(getRuntimeDatabase(databasePath)).readRun(operationId);
+  static resume(database: RuntimeDatabase, operationId: string, ownerEpoch: string): ChatRunRecorder {
+    const run = new ChatJournalStore(database).readRun(operationId);
     if (!run || run.ownerEpoch !== ownerEpoch) throw new Error('Cannot resume a chat recorder owned by another epoch.');
     if (run.settings === null) throw new Error('Only an execution run with admitted settings can be resumed.');
-    const recorder = new ChatRunRecorder(databasePath, operationId, ownerEpoch, run.sessionId, run.settings);
+    const recorder = new ChatRunRecorder(database, operationId, ownerEpoch, run.sessionId, run.settings);
     for (const envelope of recorder.store.readAll(operationId)) recorder.observeCommitted(envelope.event);
     recorder.latestSequence = run.latestSequence;
     return recorder;
@@ -180,7 +176,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     const binding = ChatRunEngineBindingSchema.parse(input);
     const sequence = this.latestSequence;
     try {
-      getRuntimeDatabase(this.databasePath).transaction(() => {
+      this.database.transaction(() => {
         const before = this.store.readRun(this.operationId);
         this.store.bindEngine({ ...binding, operationId: this.operationId, ownerEpoch: this.ownerEpoch });
         if (before?.requestId === binding.requestId) return;
@@ -192,8 +188,23 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     }
   }
 
-  recordContextInitialized(init: ChatContextInit): void {
-    this.commit({ kind: 'context_initialized', ...init });
+  recordContextInitialized(init: ChatContextInit): ChatContextInit {
+    return this.commitContext(() => {
+      const committed = { ...init, messages: sanitizeChatContextImages(this.database, this.sessionId, init.messages) };
+      this.commit({ kind: 'context_initialized', ...committed });
+      return committed;
+    });
+  }
+
+  /** One transaction around sanitize-then-append; a failed write restores the sequence cursor. */
+  private commitContext<T>(write: () => T): T {
+    const before = this.latestSequence;
+    try {
+      return this.database.transaction(write)();
+    } catch (error) {
+      this.latestSequence = before;
+      throw error;
+    }
   }
 
   recordDisplay(event: ChatTranscriptEvent): void {
@@ -209,18 +220,17 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   readSession(): ChatSession {
-    const database = getRuntimeDatabase(this.databasePath);
-    const report = reconcileChatRun(database, this.operationId);
+    const report = reconcileChatRun(this.database, this.operationId);
     if (report.status === 'recovery_failed') throw new Error(`Chat projection failed: ${report.issues.map(issue => issue.detail).join('; ')}`);
-    const session = readChatSessionFromPath(getChatSessionPath(dirname(this.databasePath), this.sessionId));
+    const session = readChatSessionFromPath(getChatSessionPath(dirname(this.database.name), this.sessionId));
     if (!session) throw new Error(`Chat session ${this.sessionId} is missing.`);
     const requestId = this.store.readRun(this.operationId)?.requestId;
-    if (requestId) new ChatMessageQueueStore(database).deleteIncorporated(this.sessionId, requestId);
+    if (requestId) new ChatMessageQueueStore(this.database).deleteIncorporated(this.sessionId, requestId);
     return session;
   }
 
   readHistory() {
-    const history = buildRecoveredChatHistory(getRuntimeDatabase(this.databasePath), this.sessionId, this.operationId);
+    const history = buildRecoveredChatHistory(this.database, this.sessionId, this.operationId);
     if (history.status === 'recovery_failed') throw new Error('Chat context recovery failed; repair the journal before continuing.');
     this.historyRevisionValue = this.readHistoryRevisions().length;
     return [...history.messages, ...history.interruptionNotices.map(content => ({ role: 'user' as const, content }))];
@@ -243,11 +253,11 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, modelPreset: ModelRuntimePreset, forceId?: string) {
     const before = this.latestSequence;
     try {
-      return getRuntimeDatabase(this.databasePath).transaction(() => {
+      return this.database.transaction(() => {
         const run = this.store.readRun(this.operationId);
         if (!run || run.sessionId !== sessionId) throw new Error('Queue delivery does not belong to this chat run.');
         if (run.requestId !== null && run.requestId !== input.requestId) throw new Error('Queue delivery has a different engine identity.');
-        const queue = new ChatMessageQueueStore(getRuntimeDatabase(this.databasePath));
+        const queue = new ChatMessageQueueStore(this.database);
         const force = forceId ? queue.state(sessionId).force : null;
         if (forceId && (!force || force.id !== forceId || force.phase === 'failed')) throw new Error('Queued continuation was cancelled.');
         const now = new Date().toISOString();
@@ -271,12 +281,14 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     }
   }
 
-  recordContextSpliced(splice: ChatContextSplice): void {
+  /** Commits the splice with deleted images filtered out and returns exactly what was written. */
+  recordContextSpliced(splice: ChatContextSplice): ChatContextSplice {
     this.progressWriter?.flushPending();
-    this.commit({ kind: 'context_spliced', ...splice });
-    this.store.advanceContextRevision({
-      operationId: this.operationId,
-      contextRevision: splice.contextRevision,
+    return this.commitContext(() => {
+      const committed = { ...splice, inserted: sanitizeChatContextImages(this.database, this.sessionId, splice.inserted) };
+      this.commit({ kind: 'context_spliced', ...committed });
+      this.store.advanceContextRevision({ operationId: this.operationId, contextRevision: committed.contextRevision });
+      return committed;
     });
   }
 
@@ -329,7 +341,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     const finishedAtUtc = new Date().toISOString();
     const before = this.latestSequence;
     try {
-      getRuntimeDatabase(this.databasePath).transaction(() => {
+      this.database.transaction(() => {
         if (this.store.readRun(this.operationId)?.terminalCause === null) {
           this.commit({ kind: 'run_finished', ...outcome, finishedAtUtc }, finishedAtUtc);
         }

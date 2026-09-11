@@ -13,7 +13,6 @@ import {
   scheduleIdleSummaryIfNeeded,
   writePublishedStatus,
 } from './server-ops.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { serverLogger } from './server-logger.js';
 import type { ServerContext, TerminalMetadataQueueItem } from './server-types.js';
 import type { ActiveRunState } from './status-run-registry.js';
@@ -32,7 +31,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
   const metadata = job.metadata;
   if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
     updateRunLogSpeculativeMetricsByRequestId({
-      database: getRuntimeDatabase(ctx.chatRuntimeOwner.databasePath),
+      database: ctx.runtimeDatabase,
       requestId: job.requestId,
       speculativeAcceptedTokens: metadata.speculativeAcceptedTokens,
       speculativeGeneratedTokens: metadata.speculativeGeneratedTokens,

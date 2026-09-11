@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -107,7 +107,7 @@ test('a long drain wait logs once on entry and once on resume', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];

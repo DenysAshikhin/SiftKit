@@ -165,3 +165,38 @@ test('writes a pre-serialized frame without re-encoding it', async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+test('a bounded frame is submitted whole before its drain wait and refuses an oversized frame', async () => {
+  const data = JSON.stringify({ text: 'y'.repeat(60 * 1024) });
+  const wire = `event: chat_projection\ndata: ${data}\n\n`;
+  let bufferedAtDrainWait = -1;
+  const oversized: Error[] = [];
+  const server = http.createServer((req, res) => {
+    const writer = new SseResponseWriter(req, res, { heartbeatMs: 60_000 });
+    writer.open();
+    // A 1-byte high-water mark forces the first write to report backpressure before anything drains.
+    res.socket?.setNoDelay(true);
+    Object.defineProperty(res, 'writableHighWaterMark', { value: 1 });
+    void (async () => {
+      try {
+        await writer.writeBoundedSerializedEventAndDrain('chat_projection', data, 4 * 1024);
+      } catch (error) {
+        oversized.push(error instanceof Error ? error : new Error(String(error)));
+      }
+      const pending = writer.writeBoundedSerializedEventAndDrain('chat_projection', data, 64 * 1024);
+      bufferedAtDrainWait = res.writableLength;
+      await pending;
+      writer.end();
+    })();
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const frames = await collectFrames(`http://127.0.0.1:${getAddressInfo(server).port}`);
+    assert.deepEqual(frames, [{ event: 'chat_projection', data }]);
+    assert.match(oversized[0]?.message ?? '', /exceeds its 4096-byte bound/u);
+    // Everything (plus chunked-encoding framing) was handed to the socket synchronously; only the drain was awaited.
+    assert.ok(bufferedAtDrainWait === 0 || bufferedAtDrainWait >= Buffer.byteLength(wire, 'utf8'), `buffered ${String(bufferedAtDrainWait)}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});

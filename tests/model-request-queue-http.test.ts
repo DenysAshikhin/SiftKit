@@ -116,7 +116,7 @@ test('ParallelSlots is one global FIFO limit across repo-search and dashboard ch
     assert.equal((await repoSearch).statusCode, 200);
     await harness.waitForActiveRequests('dashboard_chat_stream');
     harness.releaseChatResponse('chat completed');
-    assert.equal((await chat).events.some((event) => event.event === 'done'), true);
+    assert.equal((await chat).events.some((event) => event.event === 'chat_projection'), true);
     await harness.waitForModelQueueIdle();
   } finally {
     await harness.close();

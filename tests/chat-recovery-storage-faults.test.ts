@@ -32,7 +32,7 @@ function openSessionDatabase(prefix: string): { database: RuntimeDatabase; datab
 
 /** A run that has published text and proposed one command: the prefix a fault must not lose. */
 function beginProposedRun(databasePath: string): ChatRunRecorder {
-  const recorder = ChatRunRecorder.begin(databasePath, {
+  const recorder = ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId: SESSION_ID, ownerEpoch: OWNER_EPOCH, operationKind: 'repo-agent',
     userMessageId: 'user-1', content: 'exercise storage faults', images: [], imageMeta: [],
     settings: {

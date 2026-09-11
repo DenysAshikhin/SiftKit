@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readChatStreamViews } from './helpers/chat-stream-views.js';
+import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -1111,7 +1111,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       body: JSON.stringify({ ...planRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(planSse.statusCode, 200);
-    const planViews = readChatStreamViews(planSse);
+    const planViews = readChatStreamViews(planSse, sessionId);
     const planView = planViews.at(-1)?.snapshot;
     assert.ok(planView);
     assert.equal(planView.messages.filter(message => message.kind === 'assistant_thinking').length, 2);
@@ -1129,7 +1129,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.ok(planView.tools[0]?.toolCallId);
     assert.equal(planToolResult.toolCallExecutionState, 'completed');
     assert.equal(planView.messages.some(message => message.kind === 'assistant_answer' && /Planning step/u.test(message.content)), false);
-    const planDoneSession = asObject(d(planSse.events.find((event) => event.event === 'done')?.payload).session);
+    const planDoneSession = asObject((await readSettledChatSession(baseUrl, sessionId, planSse)).session);
     assert.equal(planDoneSession.presetId, 'plan');
     assert.equal(planDoneSession.mode, 'plan');
     const planDoneMessages = asObjectArray(planDoneSession.messages);
@@ -1147,10 +1147,6 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         toolCallCommand: message.toolCallCommand,
         toolCallOutput: message.toolCallOutput,
       })),
-    );
-    assert.deepEqual(
-      Object.keys(d(d(planSse.events.find((event) => event.event === 'done')?.payload).repoSearch)).sort(),
-      Object.keys(d(jsonPlan.body.repoSearch)).sort(),
     );
     const persistedPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.deepEqual(planDoneSession, d(persistedPlan.body.session));
@@ -1183,7 +1179,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       }),
     });
     assert.equal(repoSse.statusCode, 200);
-    const repoViews = readChatStreamViews(repoSse);
+    const repoViews = readChatStreamViews(repoSse, sessionId);
     const repoView = repoViews.at(-1)?.snapshot;
     assert.ok(repoView);
     assert.equal(repoView.messages.filter(message => message.kind === 'assistant_thinking').length, 2);
@@ -1210,7 +1206,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       Object.keys(repoToolResult).sort(),
       'plan and repo-search tool_result payloads must share identical key shape',
     );
-    const repoDoneSession = asObject(d(repoSse.events.find((event) => event.event === 'done')?.payload).session);
+    const repoDoneSession = asObject((await readSettledChatSession(baseUrl, sessionId, repoSse)).session);
     assert.equal(repoDoneSession.presetId, 'repo-search');
     assert.equal(repoDoneSession.mode, 'repo-search');
     const persistedRepoSearch = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
@@ -1298,7 +1294,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
       body: JSON.stringify({ ...imageRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(repoResponse.statusCode, 200);
-    const repoDoneSession = d(repoResponse.events.find((event) => event.event === 'done')?.payload).session;
+    const repoDoneSession = (await readSettledChatSession(baseUrl, repoSessionId, repoResponse)).session;
     assert.deepEqual(asObjectArray(d(repoDoneSession).messages).find((message) => message.kind === 'user_text')?.images, [PNG]);
     const reloadedRepo = await requestJson(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}`);
     assert.deepEqual(
@@ -1464,13 +1460,13 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
       }),
     });
     assert.equal(streamResponse.statusCode, 200, JSON.stringify(streamResponse.events));
-    assert.equal(streamResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(streamResponse.events));
+    assert.equal(readChatStream(streamResponse, sessionId).failure, null, JSON.stringify(streamResponse.events));
     const streamProviderBody = capturedBodies[capturedBodies.length - 1] ?? '';
     assert.ok(streamProviderBody.includes(jsonAdmittedImage), streamProviderBody);
     const streamAdmittedImage = extractLastUserImage(streamProviderBody);
     assert.notEqual(streamAdmittedImage, jsonAdmittedImage);
     assertAdmittedImage(streamAdmittedImage);
-    const doneSession = d(d(streamResponse.events.find((event) => event.event === 'done')?.payload).session);
+    const doneSession = d((await readSettledChatSession(baseUrl, sessionId, streamResponse)).session);
     const streamUserMessages = asObjectArray(doneSession.messages).filter((message) => message.kind === 'user_text');
     assert.deepEqual(streamUserMessages[streamUserMessages.length - 1]?.images, [streamAdmittedImage]);
     const reloadedStream = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
@@ -1647,12 +1643,12 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
       body: JSON.stringify({ ...requestBody, operationId: CHAT_STREAM_OPERATION_ID }),
     });
     assert.equal(repoResponse.statusCode, 200, JSON.stringify(repoResponse.events));
-    assert.equal(repoResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(repoResponse.events));
+    assert.equal(readChatStream(repoResponse, repoSessionId).failure, null, JSON.stringify(repoResponse.events));
     const repoProviderBody = capturedBodies[capturedBodies.length - 1] ?? '';
     assert.equal(repoProviderBody.includes(oversizedImage), false);
     const repoAdmittedImage = extractLastUserImage(repoProviderBody);
     assertAdmittedImage(repoAdmittedImage);
-    const repoDoneSession = d(d(repoResponse.events.find((event) => event.event === 'done')?.payload).session);
+    const repoDoneSession = d((await readSettledChatSession(baseUrl, repoSessionId, repoResponse)).session);
     assertPersistedImage(repoDoneSession, repoAdmittedImage);
     const reloadedRepo = await requestJson(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}`);
     assertPersistedImage(d(reloadedRepo.body.session), repoAdmittedImage);
@@ -1766,10 +1762,8 @@ test('plan stream endpoint rejects images when image retention is zero', async (
         mockResponses: [{ content: 'done' }],
       }),
     });
-    const errorEvent = response.events.find((event) => event.event === 'error');
-    assert.ok(errorEvent);
     assert.match(
-      String(errorEvent.payload?.error),
+      String(readChatStream(response, sessionId).failure?.error),
       /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
     );
     assert.deepEqual(new ChatJournalStore(getRuntimeDatabase()).listSessionRuns(sessionId), [], 'invalid images must not create an accepted run');
@@ -1922,8 +1916,8 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
     });
 
     assert.equal(sse.statusCode, 200);
-    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
-    const views = readChatStreamViews(sse);
+    assert.equal(readChatStream(sse, sessionId).failure, null, JSON.stringify(sse.events));
+    const views = readChatStreamViews(sse, sessionId);
     const finalView = views.at(-1)?.snapshot;
     assert.ok(finalView);
     const events = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath())).readAfter(finalView.operationId, 0, 500);
@@ -1959,7 +1953,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
     const narrationIndex = events.findIndex(envelope => envelope.event.kind === 'display' && envelope.event.event.kind === 'narration');
     const answerIndex = events.findIndex(envelope => envelope.event.kind === 'display' && envelope.event.event.kind === 'answer');
     assert.ok(narrationIndex < answerIndex);
-    assert.equal(sse.events.at(-1)?.event, 'done');
+    assert.equal(readChatStream(sse, sessionId).terminal?.terminalCause, 'completed');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -2024,9 +2018,9 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
 
     assert.equal(sse.statusCode, 200);
     assert.equal(errorLines.some((line) => line.includes('127.0.0.1:8097')), false);
-    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
-    assert.equal(readChatStreamViews(sse).some(view => view.snapshot.messages.some(message => message.kind === 'assistant_answer' && message.content === '4')), true);
-    const doneSession = asObject(d(sse.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(readChatStream(sse, sessionId).failure, null, JSON.stringify(sse.events));
+    assert.equal(readChatStreamViews(sse, sessionId).some(view => view.snapshot.messages.some(message => message.kind === 'assistant_answer' && message.content === '4')), true);
+    const doneSession = asObject((await readSettledChatSession(baseUrl, sessionId, sse)).session);
     const messages = asObjectArray(doneSession.messages);
     const answer = asObject(messages.find((message) => message.kind === 'assistant_answer'));
     assert.equal(answer.content, '4');
@@ -2107,12 +2101,12 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     });
 
     assert.equal(sse.statusCode, 200);
-    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
-    const views = readChatStreamViews(sse);
+    assert.equal(readChatStream(sse, sessionId).failure, null, JSON.stringify(sse.events));
+    const views = readChatStreamViews(sse, sessionId);
     assert.ok(views.some(view => view.snapshot.tools.length > 0));
     assert.ok(views.some(view => view.snapshot.tools.some(tool => tool.executionState === 'completed')));
     assert.ok(views.some(view => view.snapshot.messages.some(message => message.kind === 'assistant_answer')));
-    const doneSession = asObject(d(sse.events.find((event) => event.event === 'done')?.payload).session);
+    const doneSession = asObject((await readSettledChatSession(baseUrl, sessionId, sse)).session);
     const messages = asObjectArray(doneSession.messages);
     assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), true, 'persisted a tool-call step');
     const answer = asObject(messages.find((message) => message.kind === 'assistant_answer'));
@@ -2164,8 +2158,8 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     });
 
     assert.equal(repeated.statusCode, 200);
-    assert.equal(repeated.events.some((event) => event.event === 'error'), false, JSON.stringify(repeated.events));
-    const repeatedSession = asObject(d(repeated.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(readChatStream(repeated, sessionId).failure, null, JSON.stringify(repeated.events));
+    const repeatedSession = asObject((await readSettledChatSession(baseUrl, sessionId, repeated)).session);
     const repeatedMessages = asObjectArray(repeatedSession.messages);
     const duplicateSearchStep = repeatedMessages.find((message) =>
       message.kind === 'assistant_tool_call'
@@ -2247,8 +2241,8 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     });
 
     assert.equal(first.statusCode, 200);
-    assert.equal(first.events.some((event) => event.event === 'error'), false, JSON.stringify(first.events));
-    const firstSession = asObject(d(first.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(readChatStream(first, sessionId).failure, null, JSON.stringify(first.events));
+    const firstSession = asObject((await readSettledChatSession(baseUrl, sessionId, first)).session);
     const firstMessages = asObjectArray(firstSession.messages);
     const fetchStep = firstMessages.find((message) =>
       message.kind === 'assistant_tool_call'
@@ -2274,9 +2268,9 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     });
 
     assert.equal(second.statusCode, 200);
-    assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
-    assert.equal(readChatStreamViews(second).some(view => view.snapshot.tools.length > 0), false);
-    const secondSession = asObject(d(second.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(readChatStream(second, sessionId).failure, null, JSON.stringify(second.events));
+    assert.equal(readChatStreamViews(second, sessionId).some(view => view.snapshot.tools.length > 0), false);
+    const secondSession = asObject((await readSettledChatSession(baseUrl, sessionId, second)).session);
     const secondMessages = asObjectArray(secondSession.messages);
     const answers = asObjectArray(secondMessages.filter((message) => message.kind === 'assistant_answer'));
     const answer = answers.at(-1);
@@ -2347,7 +2341,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
       }),
     });
     assert.equal(first.statusCode, 200);
-    const firstSession = asObject(d(first.events.find((event) => event.event === 'done')?.payload).session);
+    const firstSession = asObject((await readSettledChatSession(baseUrl, sessionId, first)).session);
     const searchStep = (asObjectArray(firstSession.messages)).find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
@@ -2383,8 +2377,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
       }),
     });
     assert.equal(second.statusCode, 200);
-    assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
-    const secondSession = asObject(d(second.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(readChatStream(second, sessionId).failure, null, JSON.stringify(second.events));
+    const secondSession = asObject((await readSettledChatSession(baseUrl, sessionId, second)).session);
     const secondMessages = asObjectArray(secondSession.messages);
     assert.equal(secondMessages.some((message) => /already searched/u.test(String(message.toolCallOutput || ''))), false);
     const repeatedSearchStep = secondMessages.find((message) =>
@@ -3383,7 +3377,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       }),
     });
     assert.equal(repoMessage.statusCode, 200);
-    const repoDonePayload = d(repoMessage.events.find((event) => event.event === 'done')?.payload);
+    const repoDonePayload = await readSettledChatSession(baseUrl, sessionId, repoMessage);
     const repoSession = d(repoDonePayload.session);
     const toolMessage = (asObjectArray(repoSession.messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.equal(typeof toolMessage?.id, 'string');

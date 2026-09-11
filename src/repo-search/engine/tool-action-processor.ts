@@ -13,6 +13,7 @@ import type { ChatMessage } from '../planner-chat-message.js';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
 import type { AgentLoopToolAction } from '../../agent-loop/types.js';
+import type { JsonObject } from '../../lib/json-types.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
 import {
@@ -73,13 +74,16 @@ type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
 
 type ToolActionOutcome = 'next' | 'stop_batch';
 
+/** A batch outcome that keeps the identity it was recorded under; filtering never re-derives it. */
+type RecordedBatchOutcome = ToolBatchOutcome & { call: ChatToolCallIdentity };
+
 type TurnBatchState = {
   /** Identity of this turn's batch, so its calls can be regrouped from the journal alone. */
   batchId: string;
   batchIndex: number;
   toolCallIds: string[];
   pendingMessages: ChatMessage[];
-  batchOutcomes: Array<ToolBatchOutcome & { progressToolCallId: string }>;
+  batchOutcomes: RecordedBatchOutcome[];
   /** One entry per tool result that produced an image, in batch order. */
   pendingToolImages: Array<{ outcomeIndex: number; dataUrl: string; pathKey: string; metadata: ImageMetadata }>;
   pendingModeChangeUserMessages: string[];
@@ -243,11 +247,11 @@ export class ToolActionProcessor {
     if (notice !== null) {
       const lastOutcome = state.batchOutcomes[state.batchOutcomes.length - 1];
       if (lastOutcome !== undefined) {
-        const command = this.deps.commands.find((entry) => entry.toolCallId === lastOutcome.progressToolCallId);
-        if (!command) throw new Error(`Missing command for completed call ${lastOutcome.progressToolCallId}.`);
+        const command = this.deps.commands.find((entry) => entry.toolCallId === lastOutcome.call.displayToolCallId);
+        if (!command) throw new Error(`Missing command for completed call ${lastOutcome.call.displayToolCallId}.`);
         const finalized = TurnCommandResultFinalizedEventSchema.parse({
           kind: 'turn_command_result_finalized',
-          toolCallId: lastOutcome.progressToolCallId,
+          toolCallId: lastOutcome.call.displayToolCallId,
           turn,
           insertedResultText: `${lastOutcome.toolContent}\n\n${notice}`,
         });
@@ -255,13 +259,7 @@ export class ToolActionProcessor {
         // finalization records only the text actually appended once the batch has settled.
         this.deps.logger?.write({ ...finalized, taskId: this.deps.task.id });
         this.deps.evidenceRecorder?.recordToolResultFinalized({
-          call: {
-            toolCallId: lastOutcome.toolCallId,
-            displayToolCallId: lastOutcome.progressToolCallId,
-            batchId: state.batchId,
-            turn,
-            indexInBatch: state.batchOutcomes.length - 1,
-          },
+          call: lastOutcome.call,
           modelVisibleText: finalized.insertedResultText,
           contextRevision: transcript.contextRevision,
         });
@@ -574,7 +572,7 @@ export class ToolActionProcessor {
       rejectionKind: rejection.rejectionKind,
     });
     state.batchOutcomes.push({
-      progressToolCallId: rejection.progressToolCallId,
+      call: this.callIdentity(turn, state, rejection.progressToolCallId),
       action: buildRejectedTranscriptAction({
         toolName: rejection.toolName,
         rawArgs: rejection.rawArgs,
@@ -637,10 +635,41 @@ export class ToolActionProcessor {
     displayToolName: string,
     message: string,
   ): ToolActionOutcome {
+    const outcome = this.rejectInvalidCall(turn, this.callIdentity(turn, state, progressToolCallId), displayToolName, toolAction.args, message);
+    state.batchOutcomes.push(outcome);
+    return this.logInvalidAction(turn, toolAction, message);
+  }
+
+  /**
+   * A response the parser rejected: no sibling ran, and the model needs the same durable
+   * rejection a processor-level invalid call gets so the next turn can correct it.
+   */
+  recordInvalidResponse(turn: number, input: { callId: string; toolName: string; args: JsonObject; message: string; thinkingText: string }): ToolActionOutcome {
+    const { transcript } = this.deps;
+    const displayToolName = input.toolName.trim() || 'invalid_tool_call';
+    const call: ChatToolCallIdentity = {
+      toolCallId: input.callId, displayToolCallId: this.nextProgressToolCallId(), batchId: randomUUID(), turn, indexInBatch: 0,
+    };
+    const outcome = this.rejectInvalidCall(turn, call, displayToolName, input.args, input.message);
+    transcript.appendBatchExchange([outcome], input.thinkingText);
+    transcript.pruneThinking(this.deps.maintainPerStepThinking);
+    return this.logInvalidAction(turn, { kind: 'tool', callId: input.callId, toolName: displayToolName, args: input.args }, input.message);
+  }
+
+  /** Proposal, then rejected result, then command/log bookkeeping; the exchange is appended by the caller. */
+  private rejectInvalidCall(turn: number, call: ChatToolCallIdentity, displayToolName: string, args: JsonObject, message: string): RecordedBatchOutcome {
     const { counters, commands } = this.deps;
+    this.deps.evidenceRecorder?.recordToolProposed({
+      call, toolName: displayToolName, arguments: args, command: displayToolName, activityKind: 'command',
+      activitySubject: { kind: 'none' }, maxTurns: this.deps.maxTurns, promptTokenCount: 0, executionState: 'proposed',
+    });
+    this.deps.evidenceRecorder?.recordToolResult({
+      call, executionState: 'rejected', exitCode: null, output: message, images: [], imageMeta: [],
+      outputTokens: 0, outputTokensEstimated: true, promptTokenCount: 0, finishedAtUtc: new Date().toISOString(),
+    });
     counters.invalidResponses += 1;
     commands.push({
-      toolCallId: progressToolCallId,
+      toolCallId: call.displayToolCallId,
       command: displayToolName,
       activityKind: 'command',
       activitySubject: { kind: 'none' },
@@ -650,22 +679,16 @@ export class ToolActionProcessor {
       exitCode: null,
       output: message,
     });
-    state.batchOutcomes.push({
-      progressToolCallId,
-      action: { toolName: displayToolName, args: toolAction.args },
-      toolCallId: this.getToolCallId(state),
-      toolContent: message,
-    });
     this.logRejectedCommand({
       turn,
-      progressToolCallId,
+      progressToolCallId: call.displayToolCallId,
       toolName: displayToolName,
       command: displayToolName,
       reason: 'invalid action',
       output: message,
       rejectionKind: 'invalid',
     });
-    return this.logInvalidAction(turn, toolAction, message);
+    return { call, action: { toolName: displayToolName, args }, toolCallId: call.toolCallId, toolContent: message };
   }
 
   /**
@@ -799,10 +822,11 @@ export class ToolActionProcessor {
       rejectionKind: 'duplicate',
     });
     if (registration.activeReplayToolCallId !== null) {
-      transcript.replaceToolResult(registration.activeReplayToolCallId, duplicateMessage);
+      // The current call is durably rejected; its context representation is the replaced anchor result.
+      transcript.replaceToolResult(registration.activeReplayToolCallId, duplicateMessage, [context.progressToolCallId]);
     } else {
       state.batchOutcomes.push({
-        progressToolCallId: context.progressToolCallId,
+        call: this.callIdentity(turn, state, context.progressToolCallId),
         action: buildRejectedTranscriptAction({
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
@@ -1261,7 +1285,7 @@ export class ToolActionProcessor {
     }
     const toolCallId = this.getToolCallId(state);
     state.batchOutcomes.push({
-      progressToolCallId,
+      call: this.callIdentity(turn, state, progressToolCallId),
       action: buildEffectiveTranscriptAction({
         toolName: normalizedToolName,
         rawArgs: toolAction.args,

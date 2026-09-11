@@ -5,7 +5,7 @@ import type { TestContext } from 'node:test';
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import type { StatusEngineService } from '../../src/status-server/engine-service.js';
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
 import { getConfigPath } from '../../src/config/index.js';
 import { writeConfig } from '../../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './mock-config.js';
@@ -107,7 +107,7 @@ export async function startHarness(
     baseUrl: publishBaseUrl(),
     async restart() {
       await stopServer();
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       server = await startServer();
       harness.baseUrl = publishBaseUrl();
     },
@@ -119,7 +119,7 @@ export async function startHarness(
       closed = true;
       await stopServer();
       process.chdir(previousCwd);
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       for (const [key, value] of Object.entries(envBackup)) {
         if (value === undefined) {
           delete process.env[key];

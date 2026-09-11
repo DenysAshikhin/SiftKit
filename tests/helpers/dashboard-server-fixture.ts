@@ -108,6 +108,11 @@ export class DashboardTestServer {
     return metrics;
   }
 
+  /** Resolves when this server has drained its writers and closed only its own database. */
+  waitForShutdown(): Promise<void> {
+    return this.server.waitForShutdown();
+  }
+
   close(): Promise<void> {
     this.closePromise ??= this.closeOnce();
     return this.closePromise;

@@ -9,14 +9,14 @@ import { BackgroundWorkDecisionStore } from '../src/assistant/storage/background
 import { JobStore } from '../src/assistant/storage/job-store.js';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const START = '2026-08-31T12:00:00.000Z';
 
-afterEach(() => closeRuntimeDatabase());
+afterEach(() => closeAllRuntimeDatabases());
 
 function enqueuePendingJob(jobs: JobStore): void {
   jobs.enqueue(
@@ -42,7 +42,7 @@ test('background-work decisions persist across a database reopen', () => {
     reason: 'mouse_idle_below_threshold',
     details: { mouseIdleSeconds: 12, requiredIdleSeconds: 180 },
   });
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 
   const reopened = getRuntimeDatabase(databasePath);
   const items = new BackgroundWorkDecisionStore(reopened, clock).list(

@@ -18,6 +18,24 @@ export function parseJsonObjectText(text: string): JsonObject {
   return JsonObjectSchema.parse(JSON.parse(normalizeJsonText(text)));
 }
 
+/** Feeds exactly the bytes of stableStringify(value) to a sink without assembling the whole string. */
+export function writeStableJson(value: JsonValue, write: (chunk: string) => void): void {
+  if (value === null || typeof value !== 'object') { write(JSON.stringify(value)); return; }
+  if (Array.isArray(value)) {
+    write('[');
+    value.forEach((item, index) => { if (index > 0) write(','); writeStableJson(item, write); });
+    write(']');
+    return;
+  }
+  write('{');
+  Object.keys(value).sort().forEach((key, index) => {
+    if (index > 0) write(',');
+    write(`${JSON.stringify(key)}:`);
+    writeStableJson(value[key] ?? null, write);
+  });
+  write('}');
+}
+
 export function stableStringify(value: JsonValue): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;

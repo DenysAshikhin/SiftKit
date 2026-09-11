@@ -10,7 +10,7 @@ import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { z } from '../src/lib/zod.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function tempDbPath(prefix: string): string {
@@ -62,11 +62,11 @@ test('current config consumer rejects a persisted preset with missing IdleAction
     delete first.IdleAction;
     database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1')
       .run(JSON.stringify(presets));
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
 
     assert.throws(() => readConfig(dbPath), /IdleAction/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -82,8 +82,8 @@ test('current config consumer rejects removed residency actions without rewritin
     first.IdleAction = 'freeze';
     const stored = JSON.stringify(presets);
     database.prepare('UPDATE app_config SET server_model_presets_json = ? WHERE id = 1').run(stored);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     assert.throws(() => readConfig(dbPath), /IdleAction/u);
     assert.equal(PresetsRowSchema.parse(getRuntimeDatabase(dbPath).prepare('SELECT server_model_presets_json FROM app_config WHERE id = 1').get()).server_model_presets_json, stored);
-  } finally { closeRuntimeDatabase(); }
+  } finally { closeAllRuntimeDatabases(); }
 });

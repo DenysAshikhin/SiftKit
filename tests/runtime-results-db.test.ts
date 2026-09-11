@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
 } from '../src/state/runtime-db.js';
 import {
   persistBenchmarkRun,
@@ -27,7 +27,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
     fn(repoRoot);
   } finally {
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 }

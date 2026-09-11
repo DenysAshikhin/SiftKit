@@ -1,59 +1,17 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
 import { parseJsonValueText } from '../../../src/lib/json.js';
-import { z } from '../../../src/lib/zod.js';
 import {
-  ChatOperationSnapshotSchema,
-  ChatOperationUpdateSchema,
-  ChatStreamErrorSchema,
-  type ChatRecoveryIssue,
-  type ChatOperationSnapshot,
-  type ChatOperationUpdate,
+  CHAT_PROJECTION_MAX_FRAME_BYTES,
   ChatMessageQueueStateSchema,
-  ChatStreamQueuedUserMessageSchema,
+  ChatProjectionFrameSchema,
   type ChatMessageQueueState,
-  type ChatStreamQueuedUserMessage,
-  ChatSessionResponseSchema,
-  ChatStreamApprovalResolvedSchema,
-  ChatStreamApprovalSchema,
-  ChatStreamApprovalStateSchema,
-  ChatStreamProgressSchema,
-  ChatStreamPromptEventSchema,
-  ChatStreamTextDeltaSchema,
-  ChatStreamToolEventSchema,
-  ChatStreamSubmittedSchema,
-  ChatStreamUsageEventSchema,
-  type ChatSessionResponse,
-  type ChatStreamApproval,
-  type ChatStreamApprovalResolved,
-  type ChatStreamProgress,
-  type ChatStreamPromptEvent,
-  type ChatStreamTextDelta,
-  type ChatStreamToolEvent,
-  type ChatStreamUsageEvent,
+  type ChatProjectionFrame,
 } from '@siftkit/contracts';
 
-export type { ChatStreamToolEvent } from '@siftkit/contracts';
-
+/** What a chat SSE body carries: bounded projection frames, or queue state on the queue-only stream. */
 export type ChatStreamEvent =
-  | { kind: 'snapshot'; snapshot: ChatOperationSnapshot }
-  | { kind: 'projection'; update: ChatOperationUpdate }
-  | { kind: 'queue'; queue: ChatMessageQueueState }
-  | { kind: 'queued-user'; message: ChatStreamQueuedUserMessage }
-  | { kind: 'thinking'; delta: ChatStreamTextDelta }
-  | { kind: 'narration'; delta: ChatStreamTextDelta }
-  | { kind: 'warning'; text: string }
-  | { kind: 'tool'; tool: ChatStreamToolEvent }
-  | { kind: 'progress'; progress: ChatStreamProgress }
-  | { kind: 'approval'; approval: ChatStreamApproval }
-  | { kind: 'answer'; delta: ChatStreamTextDelta }
-  | { kind: 'done'; payload: ChatSessionResponse }
-  | { kind: 'usage'; usage: ChatStreamUsageEvent }
-  | { kind: 'prompt'; prompt: ChatStreamPromptEvent }
-  | { kind: 'submitted'; content: string; images: string[] }
-  | { kind: 'approval-state'; approval: ChatStreamApproval | null }
-  | { kind: 'approval-resolved'; resolution: ChatStreamApprovalResolved }
-  | { kind: 'ended' }
-  | { kind: 'error'; message: string; issue?: ChatRecoveryIssue };
+  | { kind: 'projection'; frame: ChatProjectionFrame }
+  | { kind: 'queue'; queue: ChatMessageQueueState };
 
 type ParsedPacket = { eventName: string; data: JsonValue } | null;
 
@@ -82,114 +40,75 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
   if (!isRecord(parsed.data)) return invalidFrame();
   const record = parsed.data;
   switch (parsed.eventName) {
-    case 'snapshot':
-      return { kind: 'snapshot', snapshot: ChatOperationSnapshotSchema.parse(record) };
-    case 'projection':
-      return { kind: 'projection', update: ChatOperationUpdateSchema.parse(record) };
+    case 'chat_projection': {
+      const result = ChatProjectionFrameSchema.safeParse(record);
+      return result.success ? { kind: 'projection', frame: result.data } : invalidFrame();
+    }
     case 'queue': {
       const result = ChatMessageQueueStateSchema.safeParse(record);
       return result.success ? { kind: 'queue', queue: result.data } : invalidFrame();
     }
-    case 'queued_user_message': {
-      const result = ChatStreamQueuedUserMessageSchema.safeParse(record);
-      return result.success ? { kind: 'queued-user', message: result.data } : invalidFrame();
-    }
-    case 'thinking': {
-      const result = ChatStreamTextDeltaSchema.safeParse(record);
-      return result.success ? { kind: 'thinking', delta: result.data } : invalidFrame();
-    }
-    case 'narration': {
-      const result = ChatStreamTextDeltaSchema.safeParse(record);
-      return result.success ? { kind: 'narration', delta: result.data } : invalidFrame();
-    }
-    case 'warning':
-      return { kind: 'warning', text: z.object({ warning: z.string() }).parse(record).warning };
-    case 'tool_start':
-    case 'tool_result': {
-      const result = ChatStreamToolEventSchema.safeParse({ kind: parsed.eventName, ...record });
-      return result.success ? { kind: 'tool', tool: result.data } : invalidFrame();
-    }
-    case 'progress': {
-      const result = ChatStreamProgressSchema.safeParse(record);
-      return result.success ? { kind: 'progress', progress: result.data } : invalidFrame();
-    }
-    case 'approval': {
-      const result = ChatStreamApprovalSchema.safeParse(record);
-      return result.success ? { kind: 'approval', approval: result.data } : invalidFrame();
-    }
-    case 'answer': {
-      const result = ChatStreamTextDeltaSchema.safeParse(record);
-      return result.success ? { kind: 'answer', delta: result.data } : invalidFrame();
-    }
-    case 'done': {
-      const result = ChatSessionResponseSchema.safeParse(record);
-      return result.success ? { kind: 'done', payload: result.data } : invalidFrame();
-    }
-    case 'error': {
-      const failure = ChatStreamErrorSchema.parse(record);
-      return { kind: 'error', message: failure.error, ...(failure.issue ? { issue: failure.issue } : {}) };
-    }
-    case 'usage': {
-      const result = ChatStreamUsageEventSchema.safeParse(record);
-      return result.success ? { kind: 'usage', usage: result.data } : invalidFrame();
-    }
-    case 'prompt': {
-      const result = ChatStreamPromptEventSchema.safeParse(record);
-      return result.success ? { kind: 'prompt', prompt: result.data } : invalidFrame();
-    }
-    case 'submitted': {
-      const result = ChatStreamSubmittedSchema.safeParse(record);
-      return result.success
-        ? { kind: 'submitted', content: result.data.content, images: result.data.images }
-        : invalidFrame();
-    }
-    case 'approval_state': {
-      const result = ChatStreamApprovalStateSchema.safeParse(record);
-      return result.success ? { kind: 'approval-state', approval: result.data.approval } : invalidFrame();
-    }
-    case 'approval_resolved': {
-      const result = ChatStreamApprovalResolvedSchema.safeParse(record);
-      return result.success ? { kind: 'approval-resolved', resolution: result.data } : invalidFrame();
-    }
-    case 'ended':
-      z.strictObject({}).parse(record);
-      return { kind: 'ended' };
     default:
       throw new Error(`Unsupported chat stream event: ${parsed.eventName}`);
   }
 }
 
+const PACKET_BOUNDARY = /\r?\n\r?\n/u;
+const utf8 = new TextEncoder();
+
+/**
+ * Splits a body into packets as bytes arrive. Invalid UTF-8 fails at once; a packet that outgrows
+ * `maxPacketBytes` fails before the remainder is buffered. The queue-only stream carries queued
+ * images and passes null: that endpoint keeps its unbounded contract.
+ */
 export class ChatStreamReader {
   private buffer = '';
   private readonly decoder = new TextDecoder('utf-8', { fatal: true });
 
-  constructor(private readonly reader: ReadableStreamDefaultReader<Uint8Array>) {}
+  constructor(
+    private readonly reader: ReadableStreamDefaultReader<Uint8Array>,
+    private readonly maxPacketBytes: number | null = CHAT_PROJECTION_MAX_FRAME_BYTES,
+  ) {}
 
   async *events(): AsyncGenerator<ChatStreamEvent> {
     try {
       for (;;) {
         const next = await this.reader.read();
-        if (next.done) {
-          break;
-        }
+        if (next.done) break;
         this.buffer += this.decoder.decode(next.value, { stream: true });
-        let boundary = /\r?\n\r?\n/u.exec(this.buffer);
-        while (boundary) {
-          const packet = this.buffer.slice(0, boundary.index);
-          this.buffer = this.buffer.slice(boundary.index + boundary[0].length);
-          const event = parseChatStreamPacket(packet);
-          if (event) yield event;
-          boundary = /\r?\n\r?\n/u.exec(this.buffer);
-        }
+        yield* this.drainPackets();
+        this.requireBounded(this.buffer);
       }
       this.buffer += this.decoder.decode();
+      yield* this.drainPackets();
       if (this.buffer.length > 0) {
-        const finalEvent = parseChatStreamPacket(this.buffer);
+        const finalEvent = this.parsePacket(this.buffer);
         this.buffer = '';
         if (finalEvent) yield finalEvent;
       }
     } finally {
       this.reader.releaseLock();
+    }
+  }
+
+  /** Every complete packet in the buffer, one at a time, however many one network chunk carried. */
+  private *drainPackets(): Generator<ChatStreamEvent> {
+    for (let boundary = PACKET_BOUNDARY.exec(this.buffer); boundary; boundary = PACKET_BOUNDARY.exec(this.buffer)) {
+      const packet = this.buffer.slice(0, boundary.index);
+      this.buffer = this.buffer.slice(boundary.index + boundary[0].length);
+      const event = this.parsePacket(packet);
+      if (event) yield event;
+    }
+  }
+
+  private parsePacket(packet: string): ChatStreamEvent | null {
+    this.requireBounded(packet);
+    return parseChatStreamPacket(packet);
+  }
+
+  private requireBounded(text: string): void {
+    if (this.maxPacketBytes !== null && utf8.encode(text).length > this.maxPacketBytes) {
+      throw new Error(`Chat stream packet exceeds ${String(this.maxPacketBytes)} bytes. Reconnect to recover the conversation.`);
     }
   }
 }

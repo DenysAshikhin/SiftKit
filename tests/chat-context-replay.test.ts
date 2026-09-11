@@ -20,8 +20,10 @@ import { findPlannerContextViolation } from '../src/repo-search/planner-chat-mes
 import { buildAssistantToolCallMessage, buildToolResultMessage } from '../src/tool-call-messages.js';
 import {
   buildRecoveredChatHistory,
+  ChatContextReplay,
   replayChatContext,
 } from '../src/status-server/chat-context-replay.js';
+import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 
@@ -30,6 +32,7 @@ const RECORDED_AT = '2026-09-10T11:04:54.755Z';
 const SESSION_ID = 'replay-session';
 const OWNER_EPOCH = 'owner-a:1';
 const PNG = 'data:image/png;base64,AAAA';
+const QUEUED_ID = '7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
 
 /** Turns the transcript's own mutations into the journal events a recovered run would read back. */
 class RecordingContextRecorder implements ChatContextRecorder {
@@ -48,12 +51,14 @@ class RecordingContextRecorder implements ChatContextRecorder {
   readHistoryRevisions() { return []; }
   readonly events: ChatJournalEvent[] = [];
 
-  recordContextInitialized(init: ChatContextInit): void {
+  recordContextInitialized(init: ChatContextInit): ChatContextInit {
     this.events.push({ kind: 'context_initialized', ...init });
+    return init;
   }
 
-  recordContextSpliced(splice: ChatContextSplice): void {
+  recordContextSpliced(splice: ChatContextSplice): ChatContextSplice {
     this.events.push({ kind: 'context_spliced', ...splice });
+    return splice;
   }
 }
 
@@ -158,7 +163,7 @@ test('two batches in one run keep distinct evidence when their native IDs repeat
   const recovered = replayChatContext(envelopes([
     { kind: 'context_initialized', contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'request' }] },
     proposed(0, 'call_a', 'first'), started(0, 'call_a'), result(0, 'call_a', 'first result'),
-    { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, inserted: firstExchange, turnBoundary: 0, reason: 'append' },
+    { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, inserted: firstExchange, turnBoundary: 0, reason: 'append', coalescedToolCallIds: [] },
     { ...proposed(0, 'call_a', 'second'), call: secondCall },
     { kind: 'tool_started', call: secondCall, startedAtUtc: RECORDED_AT },
   ]));
@@ -239,7 +244,7 @@ test('replay rejects events from different operations even when their sequence i
   const recovered = replayChatContext([
     envelope(1, { kind: 'context_initialized', messages: [{ role: 'user', content: 'question' }], contextRevision: 0, turnBoundary: 0 }),
     envelope(2, { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0,
-      inserted: [{ role: 'assistant', content: 'unrelated' }], turnBoundary: 0, reason: 'append' }, randomUUID()),
+      inserted: [{ role: 'assistant', content: 'unrelated' }], turnBoundary: 0, reason: 'append', coalescedToolCallIds: [] }, randomUUID()),
   ]);
   assert.equal(recovered.status, 'recovery_failed');
 });
@@ -249,7 +254,7 @@ for (const mutation of [{ contextRevision: 2, turnBoundary: 0 }, { contextRevisi
     const recovered = replayChatContext(envelopes([
       { kind: 'context_initialized', messages: [{ role: 'user', content: 'question' }], contextRevision: 0, turnBoundary: 0 },
       { kind: 'context_spliced', expectedRevision: 0, ...mutation, startIndex: 1, deleteCount: 0,
-        inserted: [{ role: 'assistant', content: 'answer' }], reason: 'append' },
+        inserted: [{ role: 'assistant', content: 'answer' }], reason: 'append', coalescedToolCallIds: [] },
     ]));
     assert.equal(recovered.status, 'recovery_failed');
   });
@@ -621,4 +626,135 @@ test('recovered history reports the integrity failure rather than a truncated co
   assert.equal(recovered.status, 'recovery_failed');
   assert.deepEqual(recovered.messages, []);
   assert.deepEqual(recovered.issues.map((issue) => issue.code), ['context_gap']);
+});
+
+/** A first batch answered in history, then a later duplicate call rejected against it. */
+function coalescingPrefix(): ChatJournalEvent[] {
+  const secondCall = { toolCallId: 'call_dup', displayToolCallId: 'tc_dup', batchId: 'batch-2', turn: 2, indexInBatch: 0 };
+  return [
+    { kind: 'context_initialized', contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'request' }] },
+    proposed(0, 'call_a', 'ls .'), started(0, 'call_a'), result(0, 'call_a', 'first listing'),
+    { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, turnBoundary: 0, reason: 'append', coalescedToolCallIds: [],
+      inserted: [buildAssistantToolCallMessage([{ action: { toolName: 'run_repo_cmd', args: { command: 'ls .' } }, toolCallId: 'call_a', toolContent: 'first listing' }]),
+        buildToolResultMessage('call_a', 'first listing')] },
+    { ...proposed(0, 'call_dup', 'ls .'), call: secondCall },
+    { kind: 'tool_result', call: secondCall, executionState: 'rejected', exitCode: null, output: 'Repeated ls (2 times).', images: [], imageMeta: [],
+      outputTokens: 0, outputTokensEstimated: true, promptTokenCount: 0, finishedAtUtc: RECORDED_AT },
+  ];
+}
+
+const COALESCING_SPLICE: ChatJournalEvent = {
+  kind: 'context_spliced', expectedRevision: 1, contextRevision: 2, startIndex: 2, deleteCount: 1, turnBoundary: 0, reason: 'tool_result_replaced',
+  coalescedToolCallIds: ['tc_dup'], inserted: [buildToolResultMessage('call_a', 'Repeated ls (2 times).')],
+};
+
+test('a crash after a duplicate rejection but before its replacement reconstructs the unanswered exchange', () => {
+  const recovered = replayChatContext(envelopes(coalescingPrefix()));
+  assert.equal(recovered.status, 'recovery_needed');
+  assert.equal(findPlannerContextViolation(recovered.messages), null);
+  const results = recovered.messages.filter(message => message.role === 'tool');
+  assert.deepEqual(results.map(message => [message.tool_call_id, message.content]), [['call_a', 'first listing'], ['call_dup', 'Repeated ls (2 times).']]);
+});
+
+test('a committed coalescing splice represents the rejected call without reopening it', () => {
+  const recovered = replayChatContext(envelopes([...coalescingPrefix(), COALESCING_SPLICE]));
+  assert.equal(recovered.status, 'ok');
+  assert.deepEqual(recovered.issues, []);
+  assert.equal(findPlannerContextViolation(recovered.messages), null);
+  const results = recovered.messages.filter(message => message.role === 'tool');
+  assert.deepEqual(results.map(message => [message.tool_call_id, message.content]), [['call_a', 'Repeated ls (2 times).']]);
+  assert.deepEqual(recovered.toolExecutions.find(execution => execution.toolCallId === 'call_dup')?.executionState, 'rejected');
+});
+
+for (const [name, splice] of [
+  ['an unknown call', { ...COALESCING_SPLICE, coalescedToolCallIds: ['tc_missing'] }],
+  ['a call whose result was not a rejection', { ...COALESCING_SPLICE, coalescedToolCallIds: ['tc_0'] }],
+  ['a duplicated id', { ...COALESCING_SPLICE, coalescedToolCallIds: ['tc_dup', 'tc_dup'] }],
+  ['an ordinary append', { ...COALESCING_SPLICE, reason: 'append', startIndex: 3, deleteCount: 0 }],
+  ['a replacement of a non-tool message', { ...COALESCING_SPLICE, startIndex: 0 }],
+] satisfies [string, ChatJournalEvent][]) test(`coalescing metadata naming ${name} fails integrity`, () => {
+  const recovered = replayChatContext(envelopes([...coalescingPrefix(), splice]));
+  assert.equal(recovered.status, 'recovery_failed');
+  assert.equal(recovered.issues[0]?.code, 'conflicting_event');
+});
+
+test('a call represented by coalescing cannot be coalesced a second time', () => {
+  const again: ChatJournalEvent = { ...COALESCING_SPLICE, expectedRevision: 2, contextRevision: 3 };
+  const recovered = replayChatContext(envelopes([...coalescingPrefix(), COALESCING_SPLICE, again]));
+  assert.equal(recovered.status, 'recovery_failed');
+});
+
+/** One run touching every mutation, a compaction, a reused native ID, a rejection, a queue and partial narration. */
+function singleUseFixture(): { events: ChatJournalEnvelope[]; prefixLength: number } {
+  const { recorder } = runLiveTranscript();
+  const live = replayChatContext(envelopes(recorder.events));
+  assert.equal(live.status, 'ok');
+  const revision = live.contextRevision;
+  const reused = { toolCallId: 'call_a', displayToolCallId: 'tc_reuse', batchId: 'batch-9', turn: 9, indexInBatch: 0 };
+  const invalid = { toolCallId: 'call_bad', displayToolCallId: 'tc_bad', batchId: 'batch-10', turn: 10, indexInBatch: 0 };
+  const compacted: ChatJournalEvent = {
+    kind: 'context_spliced', expectedRevision: revision, contextRevision: revision + 1, startIndex: 0, deleteCount: live.messages.length,
+    inserted: [{ role: 'system', content: 'SYSTEM' }, buildCompactionSummaryMessage('summary'), { role: 'user', content: 'describe this' }],
+    turnBoundary: 2, reason: 'compacted', compressedMessageIds: [], coalescedToolCallIds: [],
+  };
+  const events: ChatJournalEvent[] = [
+    ...recorder.events,
+    { kind: 'display', event: { kind: 'narration', delta: { turn: 8, offset: 0, text: 'dropped by compaction' } } },
+    compacted,
+    { ...proposed(0, 'call_a', 'rg -n reuse'), call: reused }, { kind: 'tool_started', call: reused, startedAtUtc: RECORDED_AT },
+    { kind: 'tool_result', call: reused, executionState: 'completed', exitCode: 0, output: 'reused result', images: [], imageMeta: [],
+      outputTokens: 4, outputTokensEstimated: true, promptTokenCount: 100, finishedAtUtc: RECORDED_AT },
+    { kind: 'context_spliced', expectedRevision: revision + 1, contextRevision: revision + 2, startIndex: 3, deleteCount: 0, turnBoundary: 2, reason: 'append', coalescedToolCallIds: [],
+      inserted: [buildAssistantToolCallMessage([{ action: { toolName: 'run_repo_cmd', args: { command: 'rg -n reuse' } }, toolCallId: 'call_a', toolContent: 'reused result' }]),
+        buildToolResultMessage('call_a', 'reused result')] },
+    { ...proposed(0, 'call_bad', 'ls'), call: invalid, toolName: 'ls', arguments: { path: 42 } },
+    { kind: 'tool_result', call: invalid, executionState: 'rejected', exitCode: null, output: 'invalid arguments', images: [], imageMeta: [],
+      outputTokens: 0, outputTokensEstimated: true, promptTokenCount: 0, finishedAtUtc: RECORDED_AT },
+    { kind: 'context_spliced', expectedRevision: revision + 2, contextRevision: revision + 3, startIndex: 5, deleteCount: 0, turnBoundary: 2, reason: 'append', coalescedToolCallIds: [],
+      inserted: [buildAssistantToolCallMessage([{ action: { toolName: 'ls', args: { path: 42 } }, toolCallId: 'call_bad', toolContent: 'invalid arguments' }]),
+        buildToolResultMessage('call_bad', 'invalid arguments')] },
+    { kind: 'queue_delivered', requestId: null, deliveredAtUtc: RECORDED_AT,
+      message: { id: QUEUED_ID, turn: 11, boundary: 'post_tool_batch', content: 'while you work', images: [], imageMeta: [] } },
+    { kind: 'display', event: { kind: 'narration', delta: { turn: 11, offset: 0, text: 'half an ' } } },
+    { kind: 'display', event: { kind: 'narration', delta: { turn: 11, offset: 8, text: 'answer' } } },
+  ];
+  return { events: envelopes(events), prefixLength: recorder.events.length };
+}
+
+test('replay folds a single-use iterable once, keeping context and partial narration in one pass', () => {
+  const fixture = singleUseFixture();
+  const expected = replayChatContext(fixture.events);
+  assert.equal(expected.status, 'recovery_needed');
+  assert.deepEqual(expected.issues, []);
+  assert.equal(findPlannerContextViolation(expected.messages), null);
+  assert.equal(expected.messages.at(-1)?.chatMessageId, QUEUED_ID);
+  assert.deepEqual(expected.toolExecutions.map(execution => [execution.toolCallId, execution.executionState]),
+    [['call_a', 'completed'], ['call_bad', 'rejected']]);
+
+  let iterations = 0;
+  const once = {
+    *[Symbol.iterator]() {
+      assert.equal(++iterations, 1);
+      yield* fixture.events;
+    },
+  };
+  const replay = new ChatContextReplay();
+  for (const envelope of once) replay.apply(envelope);
+  assert.equal(replay.rawContextLength, expected.messages.length - 1);
+  assert.deepEqual(replay.partialAssistantMessages, [{
+    role: 'assistant', content: '[interrupted] half an answer',
+    chatMessageId: buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'narration', turn: 11 }),
+  }]);
+  assert.deepEqual(replay.finish(), expected);
+  assert.deepEqual(replayChatContext({ *[Symbol.iterator]() { yield* fixture.events; } }), expected);
+});
+
+test('a batch answered in context releases its result payload while an unanswered call keeps it', () => {
+  const fixture = singleUseFixture();
+  const replay = new ChatContextReplay();
+  for (const envelope of fixture.events) replay.apply(envelope);
+  assert.deepEqual(replay.retainedToolPayloadIds(), []);
+  const open = new ChatContextReplay();
+  for (const envelope of envelopes(coalescingPrefix())) open.apply(envelope);
+  assert.deepEqual(open.retainedToolPayloadIds(), ['tc_dup']);
 });

@@ -750,32 +750,26 @@ export class TaskLoop {
 
   private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, turn, resolvedTokens.completionTokensEstimated);
-    this.counters.invalidResponses += 1;
-    const invalidActionMessage = error instanceof NativePlannerToolCallError
-      ? error.message
-      : `Previous response was invalid: ${error.message} Return content to finish or call one of the provided tools with valid arguments.`;
-    const invalidToolAction = error instanceof NativePlannerToolCallError
-      ? { toolName: error.toolName, args: error.args }
-      : null;
     if (error instanceof NativePlannerToolCallError) {
-      this.transcript.appendToolExchange(
-        { toolName: error.toolName, args: error.args },
-        error.callId,
-        invalidActionMessage,
-        String(response.thinkingText || '').trim(),
-      );
-    } else {
-      this.transcript.pushAssistant(buildAssistantReplayMessage(response));
-      this.transcript.pushUser(invalidActionMessage);
+      // A rejected native call is journalled like any other rejection, so the next turn can correct it.
+      const outcome = this.toolActions.recordInvalidResponse(turn, {
+        callId: error.callId, toolName: error.toolName, args: error.args, message: error.message,
+        thinkingText: String(response.thinkingText || '').trim(),
+      });
+      return outcome === 'stop_batch' ? 'stop' : 'continue';
     }
+    this.counters.invalidResponses += 1;
+    const invalidActionMessage = `Previous response was invalid: ${error.message} Return content to finish or call one of the provided tools with valid arguments.`;
+    this.transcript.pushAssistant(buildAssistantReplayMessage(response));
+    this.transcript.pushUser(invalidActionMessage);
     this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
     this.options.logger?.write({
       kind: 'turn_action_invalid',
       taskId: this.task.id,
       turn,
       invalidResponses: this.counters.invalidResponses,
-      error: error instanceof Error ? error.message : String(error),
-      toolAction: invalidToolAction,
+      error: error.message,
+      toolAction: null,
       toolResultText: invalidActionMessage,
     });
     if (this.counters.invalidResponses >= this.maxInvalidResponses) {

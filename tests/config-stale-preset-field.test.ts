@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfig, readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function tempDbPath(prefix: string): string {
@@ -29,7 +29,7 @@ test('a persisted preset carrying the removed PenaltyRange fails loud instead of
       /Unsupported model preset field PenaltyRange; it is not part of ModelPresetFieldSchema\./u,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -44,7 +44,7 @@ test('a persisted preset carrying an unknown field fails loud rather than resett
       /Unsupported model preset field NotAPresetField/u,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -58,6 +58,6 @@ test('a persisted preset list that is not valid JSON fails loud instead of reset
 
     assert.throws(() => readConfig(dbPath), /persisted configuration in .* is invalid/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

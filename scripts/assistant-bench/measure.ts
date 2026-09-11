@@ -152,7 +152,7 @@ async function main(): Promise<void> {
         : `MISSED: ${missed.map((row) => row.name).join(', ')}\n`,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeRuntimeDatabase(context.database.name);
   }
 }
 

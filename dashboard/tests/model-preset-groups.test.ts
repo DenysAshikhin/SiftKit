@@ -36,7 +36,7 @@ test('identity summary shows the model directory, management and endpoint', () =
 });
 
 test('memory summary reports context, chunk size and KV cache mode', () => {
-  assert.equal(summarizeMemory(preset({})), 'ctx 128k · chunk 512 · KV f16');
+  assert.equal(summarizeMemory(preset({})), 'ctx 128k · compaction reserve 1k · chunk 512 · KV f16');
 });
 
 test('sampling / reasoning / lifecycle summaries', () => {

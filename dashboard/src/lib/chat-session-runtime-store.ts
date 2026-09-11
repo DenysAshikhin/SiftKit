@@ -3,26 +3,21 @@ import {
   LIVE_USER_MESSAGE_ID,
   upsertLiveMessageInto,
 } from './chat-live-messages';
-import type { ChatStreamToolEvent } from './chat-stream-parser';
-import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
+import type { ChatMessage, ChatSessionOperationKind, ContextUsage } from '../types';
 import {
-  reduceChatTranscript,
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode,
   type ChatStreamApproval,
-  type ChatStreamProgress,
   type ChatStreamPromptEvent,
-  type ChatStreamTextDelta,
   type ChatStreamUsageEvent,
-  type ChatTranscriptEvent,
   type ChatMessageQueueState,
-  type ChatStreamQueuedUserMessage,
   type ChatOperationSnapshot,
+  type ChatProjectionTerminalRecord,
+  type ChatRecoveryIssue,
   type ChatRecoveryStatus,
   type ChatRecoveryReport,
 } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
-import type { RepoAgentDecision } from '../api';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }
@@ -30,11 +25,6 @@ export type ChatSessionActivity =
   | { kind: 'remote'; operationKind: ChatSessionOperationKind };
 
 export type SubmittedChatInput = { content: string; images: PendingImage[] };
-export type ResolvedRepoAgentApproval = {
-  approval: ChatStreamApproval;
-  decision: RepoAgentDecision;
-  decidedAtUtc: string;
-};
 
 export type ChatSessionRuntime = {
   journalSnapshot: ChatOperationSnapshot | null;
@@ -59,7 +49,6 @@ export type ChatSessionRuntime = {
   planRepoRootInput: string;
   planMaxTurnsInput: string;
   pendingApproval: ChatStreamApproval | null;
-  resolvedApproval: ResolvedRepoAgentApproval | null;
   repoAgentApprovalMode: ApprovalMode;
 };
 
@@ -72,30 +61,19 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'recovery'; sessionId: string; reports: ChatRecoveryReport[] }
   | { kind: 'snapshot'; sessionId: string; snapshot: ChatOperationSnapshot }
   | { kind: 'queue'; sessionId: string; queue: ChatMessageQueueState }
-  | { kind: 'queued-user'; sessionId: string; message: ChatStreamQueuedUserMessage }
   | { kind: 'queued-submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
   | { kind: 'attach'; sessionId: string; operationKind: ChatSessionOperationKind; operationId: string }
-  | { kind: 'user-turn'; sessionId: string; content: string; images: string[] }
   | { kind: 'detach'; sessionId: string }
   | { kind: 'remote-begin'; sessionId: string; operationKind: ChatSessionOperationKind }
   | { kind: 'remote-clear'; sessionId: string }
-  | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
-  | { kind: 'narration'; sessionId: string; delta: ChatStreamTextDelta }
-  | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
-  | { kind: 'progress'; sessionId: string; progress: ChatStreamProgress }
-  | { kind: 'approval'; sessionId: string; approval: ChatStreamApproval }
-  | { kind: 'approval-decision'; sessionId: string; resolution: ResolvedRepoAgentApproval }
   | { kind: 'approval-clear'; sessionId: string }
-  | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
-  | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
-  | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
-  | { kind: 'failure'; sessionId: string; message: string; issue?: import('@siftkit/contracts').ChatRecoveryIssue }
+  /** The run settled; the stored session is refreshed through REST, so the live view retires. */
+  | { kind: 'terminal'; sessionId: string; terminal: ChatProjectionTerminalRecord }
+  | { kind: 'failure'; sessionId: string; message: string; issue?: ChatRecoveryIssue }
   | { kind: 'control-error'; sessionId: string; message: ChatSessionRuntime['error'] }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
-  | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
-  | { kind: 'prompt'; sessionId: string; prompt: ChatStreamPromptEvent }
   | { kind: 'draft'; sessionId: string; draft: string }
   | { kind: 'images'; sessionId: string; images: PendingImage[] }
   | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
@@ -123,7 +101,6 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
     planRepoRootInput,
     planMaxTurnsInput: '',
     pendingApproval: null,
-    resolvedApproval: null,
     repoAgentApprovalMode: DEFAULT_APPROVAL_MODE,
   };
 }
@@ -131,7 +108,7 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
 /** The live view of a turn, which stops being true the moment a stream stops feeding this session. */
 function clearedLiveTurn(): Pick<
   ChatSessionRuntime,
-  'liveMessages' | 'tokenTurns' | 'submittedInput' | 'awaitingResponse' | 'pendingApproval' | 'resolvedApproval'
+  'liveMessages' | 'tokenTurns' | 'submittedInput' | 'awaitingResponse' | 'pendingApproval'
 > {
   return {
     liveMessages: [],
@@ -139,27 +116,7 @@ function clearedLiveTurn(): Pick<
     submittedInput: null,
     awaitingResponse: false,
     pendingApproval: null,
-    resolvedApproval: null,
   };
-}
-
-function applyTranscriptEvent(
-  runtime: ChatSessionRuntime,
-  event: ChatTranscriptEvent,
-): ChatSessionRuntime {
-  return {
-    ...runtime,
-    awaitingResponse: false,
-    liveMessages: reduceChatTranscript(runtime.liveMessages, event, {
-      messageIdPrefix: 'live',
-      sourceRunId: null,
-      createdAtUtc: new Date().toISOString(),
-    }),
-  };
-}
-
-function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
-  return applyTranscriptEvent(runtime, { kind: 'tool', tool: toolEvent });
 }
 
 function applyTransition(
@@ -175,7 +132,7 @@ function applyTransition(
     }
     case 'snapshot': {
       const snapshot = transition.snapshot;
-      if (snapshot.sessionId !== runtime.sessionId || !snapshot.complete) throw new Error('Invalid chat runtime snapshot.');
+      if (snapshot.sessionId !== runtime.sessionId) throw new Error('Invalid chat runtime snapshot.');
       const previous = runtime.journalSnapshot;
       if (previous && (snapshot.runOrder < previous.runOrder
         || snapshot.operationId === previous.operationId && snapshot.cursor.sequence < previous.cursor.sequence)) return runtime;
@@ -196,8 +153,6 @@ function applyTransition(
       if (transition.queue.sessionId !== runtime.sessionId) throw new Error('Queue session mismatch.');
       return runtime.queue && runtime.queue.revision > transition.queue.revision
         ? runtime : { ...runtime, queue: transition.queue };
-    case 'queued-user':
-      return applyTranscriptEvent(runtime, { kind: 'user_message', message: transition.message });
     case 'queued-submit':
       return {
         ...runtime,
@@ -236,17 +191,6 @@ function applyTransition(
         liveTokenBase: null,
         streamedCharsSinceBase: 0,
       };
-    // The server's copy of the prompt. Upserting by the shared live id keeps this idempotent for
-    // the client that already inserted the bubble on submit.
-    case 'user-turn':
-      return {
-        ...runtime,
-        awaitingResponse: true,
-        liveMessages: upsertLiveMessageInto(
-          runtime.liveMessages,
-          buildLiveUserMessage(transition.content, transition.images),
-        ),
-      };
     // This client is no longer reading a stream for the session: the operation ended without a
     // payload, or the reader was aborted. Either way the live view it built is no longer current.
     case 'detach':
@@ -258,25 +202,8 @@ function applyTransition(
       return runtime.activity.kind === 'remote'
         ? { ...runtime, activity: { kind: 'idle' }, error: null }
         : runtime;
-    // Every streamed character sizes the in-flight tail, whichever text channel carried it.
-    case 'thinking':
-    case 'narration':
-    case 'answer': {
-      const next = applyTranscriptEvent(runtime, { kind: transition.kind, delta: transition.delta });
-      return { ...next, streamedCharsSinceBase: next.streamedCharsSinceBase + transition.delta.text.length };
-    }
-    case 'tool':
-      return applyToolEvent(runtime, transition.toolEvent);
-    case 'progress':
-      return applyTranscriptEvent(runtime, { kind: 'progress', progress: transition.progress });
-    case 'approval':
-      return { ...runtime, awaitingResponse: false, pendingApproval: transition.approval };
-    case 'approval-decision':
-      return { ...runtime, pendingApproval: null, resolvedApproval: transition.resolution };
     case 'approval-clear':
-      return { ...runtime, pendingApproval: null, resolvedApproval: null };
-    case 'warning':
-      return { ...runtime, warnings: [...runtime.warnings, transition.text] };
+      return { ...runtime, pendingApproval: null };
     case 'submit':
       return {
         ...runtime,
@@ -286,19 +213,19 @@ function applyTransition(
         submittedInput: { content: transition.content, images: transition.images },
         awaitingResponse: true,
         pendingApproval: null,
-        resolvedApproval: null,
         liveMessages: upsertLiveMessageInto(
           runtime.liveMessages,
           buildLiveUserMessage(transition.content, transition.images.map((image) => image.dataUrl)),
         ),
       };
-    case 'done':
+    case 'terminal':
+      if (runtime.journalSnapshot && transition.terminal.cursor.operationId !== runtime.journalSnapshot.operationId) return runtime;
       return {
         ...runtime,
         ...clearedLiveTurn(),
         journalSnapshot: null,
         activity: { kind: 'idle' },
-        contextUsage: transition.response.contextUsage,
+        recoveryStatus: transition.terminal.issue ? 'recovery_failed' : runtime.recoveryStatus,
         error: null,
       };
     case 'failure':
@@ -318,24 +245,6 @@ function applyTransition(
       return { ...runtime, error: transition.message };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
-    case 'usage': {
-      const tokenTurns = new Map(runtime.tokenTurns);
-      tokenTurns.set(transition.usage.turn, {
-        prompt: tokenTurns.get(transition.usage.turn)?.prompt ?? null,
-        usage: transition.usage,
-      });
-      return applyTranscriptEvent({ ...runtime, tokenTurns }, { kind: 'usage', usage: transition.usage });
-    }
-    // The turn about to generate measured its own prompt, so the base moves and the tail that
-    // sized the previous base is now counted inside it.
-    case 'prompt': {
-      const tokenTurns = new Map(runtime.tokenTurns);
-      tokenTurns.set(transition.prompt.turn, {
-        prompt: transition.prompt,
-        usage: tokenTurns.get(transition.prompt.turn)?.usage ?? null,
-      });
-      return { ...runtime, tokenTurns, liveTokenBase: transition.prompt, streamedCharsSinceBase: 0 };
-    }
     case 'draft':
       return { ...runtime, draft: transition.draft };
     case 'images':

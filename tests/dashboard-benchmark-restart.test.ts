@@ -7,7 +7,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { restartManagedEngine } from '../src/status-server/dashboard-benchmark-runner.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -27,7 +27,7 @@ function createConfigPath(externalServerEnabled: boolean): string {
 }
 
 function cleanup(configPath: string): void {
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
 }
 

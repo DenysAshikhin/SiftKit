@@ -13,7 +13,7 @@ import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { createManagedTempDir, removeDirectorySync } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 
@@ -46,7 +46,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
     } else {
       process.env.USERPROFILE = previousUserProfile;
     }
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     if (!removeDirectorySync(repoRoot)) {
       process.stderr.write(`\nTEMP DIRECTORY LEFT BEHIND: ${repoRoot}\n`);
     }
@@ -95,7 +95,7 @@ test('runtime initialization preserves existing run token fields', () => {
       null,
     );
 
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     database = getRuntimeDatabase(databasePath);
 
     const row = asRow(database.prepare(`
@@ -106,7 +106,7 @@ test('runtime initialization preserves existing run token fields', () => {
     assert.equal(row.input_tokens, 123);
     assert.equal(row.prompt_eval_tokens, null);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -153,12 +153,12 @@ test('runtime initialization does not rewrite existing run rows', () => {
     );
 
     const before = asRows(database.prepare('SELECT * FROM run_logs').all());
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     database = getRuntimeDatabase(databasePath);
     assert.deepEqual(asRows(database.prepare('SELECT * FROM run_logs').all()), before);
     assert.equal(Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes), 0);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -195,7 +195,7 @@ test('runtime initialization creates indexes for request lookup and dashboard or
       true,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -294,7 +294,7 @@ test('runtime initialization preserves existing token totals and exposes inputOu
       45,
     );
 
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     database = getRuntimeDatabase(databasePath);
 
     const row = IdleSummarySnapshotDbRowSchema.parse(database.prepare('SELECT * FROM idle_summary_snapshots').get());
@@ -307,7 +307,7 @@ test('runtime initialization preserves existing token totals and exposes inputOu
     assert.equal(snapshot?.taskTotals.summary.promptEvalTokensTotal, 0);
     assert.equal(snapshot?.inputOutputRatio, 2.733);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -332,7 +332,7 @@ test('runtime initialization creates emitted-at ordering index', () => {
       true,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 

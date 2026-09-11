@@ -19,7 +19,7 @@ import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
@@ -167,7 +167,7 @@ function createCoordinatorFixture(options: FixtureOptions = {}) {
     async cleanup(): Promise<void> {
       controller.cancelForPresetChange();
       await coordinator.shutdown();
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       rmSync(dirname(configPath), { recursive: true, force: true });
     },
   };

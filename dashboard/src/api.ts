@@ -53,7 +53,6 @@ import {
   type WebSearchQuotaResponse,
   InferenceRuntimeDashboardStatusSchema,
   ImageCaptionResponseSchema,
-  isTerminalChatStreamEventName,
   ModelLifecycleResponseSchema,
   type InferenceRuntimeDashboardStatus,
   type ImageCaptionResponse,
@@ -448,7 +447,7 @@ export async function* streamChatQueue(sessionId: string, signal: AbortSignal) {
       if (response.status === 404) return;
       if (!response.ok) throw new Error(`Queue connection failed (${response.status}).`);
       if (!response.body) throw new Error('Queue response body was empty.');
-      for await (const event of new ChatStreamReader(response.body.getReader()).events()) {
+      for await (const event of new ChatStreamReader(response.body.getReader(), null).events()) {
         if (signal.aborted) return;
         if (event.kind === 'queue') yield { kind: 'queue' as const, queue: event.queue };
       }
@@ -603,20 +602,8 @@ async function* consumeChatStream(
   if (!response.body) {
     throw new Error('Streaming response body was empty.');
   }
-  let completed = false;
-  const reader = new ChatStreamReader(response.body.getReader());
-  for await (const event of reader.events()) {
-    if (event.kind === 'error') {
-      throw new Error(event.message);
-    }
-    if (isTerminalChatStreamEventName(event.kind)) {
-      completed = true;
-    }
-    yield event;
-  }
-  if (!completed) {
-    throw new Error('Missing final streaming payload.');
-  }
+  // Completeness is a protocol property: the projection assembler requires a terminal record.
+  yield* new ChatStreamReader(response.body.getReader()).events();
 }
 
 function postChatStream(

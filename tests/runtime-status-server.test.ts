@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { ActiveStatusRun } from '@siftkit/contracts';
 
 import { loadConfig, getConfigPath } from '../src/config/index.js';
-import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { getDefaultMetrics, writeMetrics } from '../src/status-server/metrics.js';
 
 const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
@@ -724,7 +724,7 @@ test('real status server resets metrics when metrics schema is outdated', async 
         10.0,
       );
     } finally {
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
     }
 
     await withRealStatusServer(async ({ statusUrl }) => {

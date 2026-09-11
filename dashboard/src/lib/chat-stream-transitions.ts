@@ -23,66 +23,31 @@ export async function* toRuntimeTransitions(
   if (start.kind === 'owned') {
     yield { kind: 'begin', sessionId, operationKind: start.operationKind, operationId: start.operationId };
   }
-  let completed = false;
+  let settled = false;
   const projection = new ChatOperationProjection(sessionId);
   try {
     for await (const event of stream) {
-      if (event.kind === 'snapshot' || event.kind === 'projection') {
-        const snapshot = event.kind === 'snapshot' ? projection.acceptSnapshotPage(event.snapshot) : projection.acceptUpdate(event.update);
-        if (snapshot) yield { kind: 'snapshot', sessionId, snapshot: thinkingEnabled ? snapshot
-          : { ...snapshot, messages: snapshot.messages.filter(message => message.kind !== 'assistant_thinking') } };
-      } else if (event.kind === 'error') {
-        yield { kind: 'failure', sessionId, message: event.message, ...(event.issue ? { issue: event.issue } : {}) };
-        return;
-      } else if (event.kind === 'queue') {
+      if (event.kind === 'queue') {
         if (event.queue.sessionId !== sessionId) throw new Error('Queue stream session mismatch.');
         yield { kind: 'queue', sessionId, queue: event.queue };
-      } else if (event.kind === 'queued-user') {
-        yield { kind: 'queued-user', sessionId, message: event.message };
-      } else if (event.kind === 'thinking') {
-        if (thinkingEnabled) {
-          yield { kind: 'thinking', sessionId, delta: event.delta };
-        }
-      } else if (event.kind === 'narration') {
-        yield { kind: 'narration', sessionId, delta: event.delta };
-      } else if (event.kind === 'warning') {
-        yield { kind: 'warning', sessionId, text: event.text };
-      } else if (event.kind === 'tool') {
-        yield { kind: 'tool', sessionId, toolEvent: event.tool };
-      } else if (event.kind === 'progress') {
-        yield { kind: 'progress', sessionId, progress: event.progress };
-      } else if (event.kind === 'approval') {
-        yield { kind: 'approval', sessionId, approval: event.approval };
-      } else if (event.kind === 'answer') {
-        yield { kind: 'answer', sessionId, delta: event.delta };
-      } else if (event.kind === 'usage') {
-        yield { kind: 'usage', sessionId, usage: event.usage };
-      } else if (event.kind === 'prompt') {
-        yield { kind: 'prompt', sessionId, prompt: event.prompt };
-      } else if (event.kind === 'submitted') {
-        yield { kind: 'user-turn', sessionId, content: event.content, images: event.images };
-      } else if (event.kind === 'approval-state') {
-        yield event.approval
-          ? { kind: 'approval', sessionId, approval: event.approval }
-          : { kind: 'approval-clear', sessionId };
-      } else if (event.kind === 'approval-resolved') {
-        yield { kind: 'approval-decision', sessionId, resolution: event.resolution };
-      } else if (event.kind === 'ended') {
-        yield { kind: 'detach', sessionId };
-        completed = true;
-      } else if (event.kind === 'done') {
-        if (event.payload.session.id !== sessionId) {
-          throw new Error(
-            `Chat stream session mismatch: expected "${sessionId}", received "${event.payload.session.id}"`,
-          );
-        }
-        yield { kind: 'done', sessionId, response: event.payload };
-        completed = true;
+        continue;
+      }
+      const delivery = projection.acceptFrame(event.frame);
+      if (delivery === null) continue;
+      if (delivery.kind === 'view') {
+        const snapshot = delivery.snapshot;
+        yield { kind: 'snapshot', sessionId, snapshot: thinkingEnabled ? snapshot
+          : { ...snapshot, messages: snapshot.messages.filter(message => message.kind !== 'assistant_thinking') } };
+        if (delivery.queue) yield { kind: 'queue', sessionId, queue: delivery.queue };
+      } else if (delivery.kind === 'terminal') {
+        yield { kind: 'terminal', sessionId, terminal: delivery.terminal };
+        settled = true;
+      } else {
+        yield { kind: 'failure', sessionId, message: delivery.failure.error, ...(delivery.failure.issue ? { issue: delivery.failure.issue } : {}) };
+        return;
       }
     }
-    if (!completed) {
-      throw new Error('Chat stream ended before the done event');
-    }
+    if (!settled) throw new Error('Chat stream ended before its terminal record');
   } catch (error) {
     // Idleness is not a failure: the caller falls back to the stored session.
     if (error instanceof ChatOperationIdleError) {

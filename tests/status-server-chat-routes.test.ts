@@ -232,7 +232,7 @@ class StaticCaptionEngineService extends StatusEngineService {
     if (this.compactionSummary) request.evidenceRecorder?.recordContextSpliced({
       expectedRevision: 0, contextRevision: 1, startIndex: 0, deleteCount: messages.length,
       inserted: [buildCompactionSummaryMessage(this.compactionSummary), { role: 'user', content: request.prompt }],
-      turnBoundary: 1, reason: 'compacted',
+      turnBoundary: 1, reason: 'compacted', coalescedToolCallIds: [],
     });
     return Promise.resolve(mockedCaptionExecution(this.finalOutput, this.compactionSummary));
   }
@@ -866,9 +866,12 @@ test('two sequential turns reusing one client operationId record two distinct ru
   }
 });
 
-class DatabaseClosingFailureEngineService extends StatusEngineService {
+class ForeignDatabaseFailureEngineService extends StatusEngineService {
   override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
-    closeRuntimeDatabase();
+    // Another root's database opens and closes mid-run; the admitted run keeps its own handle.
+    const foreignPath = path.join(createManagedTempDir('siftkit-caption-foreign-db-'), 'runtime.sqlite');
+    getRuntimeDatabase(foreignPath);
+    closeRuntimeDatabase(foreignPath);
     return Promise.reject(new Error('engine exploded'));
   }
 }
@@ -903,8 +906,8 @@ test('streaming and non-streaming message dispatch commit engine context to thei
   }
 });
 
-test('an engine failure survives a terminal write that lost its database handle', async () => {
-  const context = await withCaptionServer({}, new DatabaseClosingFailureEngineService());
+test('an engine failure records its terminal cause on the admitted database while a foreign root opens and closes', async () => {
+  const context = await withCaptionServer({}, new ForeignDatabaseFailureEngineService());
   try {
     const response = await requestJson(
       `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`,

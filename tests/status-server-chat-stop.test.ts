@@ -17,8 +17,10 @@ import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-se
 import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
-import { ChatOperationSnapshotSchema, ChatOperationUpdateSchema } from '@siftkit/contracts';
+import { ChatProjectionFrameSchema, type ChatOperationSnapshot } from '@siftkit/contracts';
 import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
+import { ChatOperationProjection } from '../dashboard/src/lib/chat-operation-projection.js';
+import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.js';
 
 test('HTTP stop retains completed thinking usage and partial answer usage with a separate terminal outcome', async (t) => {
   const engineService = new StoppedChatEngineService({
@@ -101,16 +103,20 @@ test('deleting an active session cancels its engine and cannot recreate the jour
   }
 });
 
-function readDoneOutcome(response: SseResponse) {
-  const done = response.events.find(event => event.event === 'done');
-  assert.ok(done?.payload, 'Expected a done event.');
-  return asObjectArray(asObject(done.payload.session).messages).at(-1)?.runTerminalCause;
+/** The cause the stream's terminal record reports; the persisted transcript is checked separately. */
+function readDoneOutcome(response: SseResponse, sessionId: string) {
+  const { terminal, failure } = readChatStream(response, sessionId);
+  assert.equal(failure, null, JSON.stringify(response.events));
+  return terminal?.terminalCause;
 }
 
-function readDoneAssistantContent(response: SseResponse): string {
-  const done = response.events.find((event) => event.event === 'done');
-  assert.ok(done?.payload, 'Expected a done event.');
-  const messages = asObjectArray(asObject(done.payload.session).messages);
+/** The persisted transcript once the stream's terminal record has closed it. */
+async function readDoneMessages(baseUrl: string, sessionId: string, response: SseResponse): Promise<Dict[]> {
+  return asObjectArray(asObject((await readSettledChatSession(baseUrl, sessionId, response)).session).messages);
+}
+
+async function readDoneAssistantContent(baseUrl: string, sessionId: string, response: SseResponse): Promise<string> {
+  const messages = await readDoneMessages(baseUrl, sessionId, response);
   const assistant = [...messages].reverse().find((message) => message.role === 'assistant');
   if (typeof assistant?.content !== 'string') {
     throw new Error('Expected persisted assistant content.');
@@ -191,7 +197,7 @@ test('another client cannot stop an operation it did not start', async () => {
     });
     assert.equal(rejected.statusCode, 409);
     harness.releaseChatResponse('still running');
-    assert.equal(readDoneAssistantContent(await stream), 'still running');
+    assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionId, await stream), 'still running');
     assert.deepEqual(await readActiveOperations(harness.getBaseUrl()), []);
   } finally {
     await harness.close();
@@ -222,13 +228,13 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
         method: 'POST', timeoutMs: 2000, body: JSON.stringify({ operationId: OPERATION_B }),
       });
       assert.equal(stopped.statusCode, 200);
-      assert.equal(readDoneOutcome(await queued), 'user_stop');
+      assert.equal(readDoneOutcome(await queued, queuedSession), 'user_stop');
       const run = new ChatJournalStore(getRuntimeDatabase()).listSessionRuns(queuedSession).at(-1);
       assert.equal(run?.terminalCause, 'user_stop');
       assert.equal(run?.requestId, null);
       await harness.waitForActiveRequests('dashboard_chat_stream', 1);
       harness.releaseChatResponse('holder unaffected');
-      assert.equal(readDoneAssistantContent(await held), 'holder unaffected');
+      assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), heldSession, await held), 'holder unaffected');
     } finally {
       harness.releaseChatResponse('cleanup');
       harness.releaseChatResponse('cleanup');
@@ -259,10 +265,9 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
       assert.equal(stopped.statusCode, 200);
       assert.equal(stopped.body.operationKind, streamCase.operationKind);
       const stoppedStream = await streamA;
-      assert.equal(readDoneOutcome(stoppedStream), 'user_stop');
-      const stoppedDone = stoppedStream.events.find((event) => event.event === 'done');
-      assert.ok(stoppedDone?.payload, 'Expected a done event for the stopped stream.');
-      const doneMessages = asObjectArray(asObject(asObject(stoppedDone.payload).session).messages);
+      assert.equal(readDoneOutcome(stoppedStream, sessionA), 'user_stop');
+      const doneMessages = await readDoneMessages(harness.getBaseUrl(), sessionA, stoppedStream);
+      assert.equal(doneMessages.at(-1)?.runTerminalCause, 'user_stop');
       const listed = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions`);
       const listedSessions = asObjectArray(listed.body.sessions);
       const stoppedSession = listedSessions.find((session) => session.id === sessionA);
@@ -273,7 +278,7 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
 
       await harness.waitForActiveRequests('dashboard_chat_stream', 1);
       harness.releaseChatResponse('queue advanced');
-      assert.equal(readDoneAssistantContent(await streamB), 'queue advanced');
+      assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionB, await streamB), 'queue advanced');
 
       const available = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/messages`, {
         method: 'POST', body: JSON.stringify({ content: 'after stop', assistantContent: 'available' }),
@@ -306,7 +311,7 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
   });
   assert.equal(stopped.statusCode, 200);
   assert.equal(stopped.body.operationKind, 'repo-agent');
-  assert.equal(readDoneOutcome(await stream), 'user_stop');
+  assert.equal(readDoneOutcome(await stream, sessionId), 'user_stop');
   assert.equal(readRepoAgentStatus(runId), 'aborted');
   const active = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`);
   assert.equal(active.statusCode, 404);
@@ -338,13 +343,12 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
   });
   assert.equal(stopped.statusCode, 200);
   const stoppedStream = await stream;
+  assert.equal(readDoneOutcome(stoppedStream, sessionId), 'user_stop');
   assert.equal(
-    readDoneAssistantContent(stoppedStream),
+    await readDoneAssistantContent(harness.baseUrl, sessionId, stoppedStream),
     'agent partial result',
   );
-  const done = stoppedStream.events.find((event) => event.event === 'done');
-  assert.ok(done?.payload, 'Expected a done event for the stopped repo-agent stream.');
-  const messages = asObjectArray(asObject(done.payload.session).messages);
+  const messages = await readDoneMessages(harness.baseUrl, sessionId, stoppedStream);
   assert.deepEqual(messages.slice(-3).map((message) => message.kind), [
     'assistant_thinking',
     'assistant_narration',
@@ -412,9 +416,8 @@ test('stopping a message stream persists the complete generated transcript in tu
     const immediateMessages = asObjectArray(asObject(immediate.body.session).messages);
     assert.equal(immediateMessages.at(-1)?.content, 'partial answer text');
     const done = await stream;
-    const doneEvent = done.events.find((event) => event.event === 'done');
-    assert.ok(doneEvent?.payload, 'Expected a done event.');
-    const doneMessages = asObjectArray(asObject(asObject(doneEvent.payload).session).messages);
+    assert.equal(readDoneOutcome(done, sessionId), 'user_stop');
+    const doneMessages = await readDoneMessages(harness.getBaseUrl(), sessionId, done);
     assert.deepEqual(doneMessages.map((message) => message.kind), [
       'user_text',
       'assistant_thinking',
@@ -509,9 +512,8 @@ test('stopping an empty answer preserves its content and records the outcome sep
     });
     assert.equal(stopped.statusCode, 200);
     const done = await stream;
-    const doneEvent = done.events.find((event) => event.event === 'done');
-    assert.ok(doneEvent?.payload, 'Expected a done event.');
-    const doneMessages = asObjectArray(asObject(asObject(doneEvent.payload).session).messages);
+    assert.equal(readDoneOutcome(done, sessionId), 'user_stop');
+    const doneMessages = await readDoneMessages(harness.getBaseUrl(), sessionId, done);
     assert.deepEqual(doneMessages.map((message) => message.kind), ['user_text', 'assistant_answer']);
     assert.deepEqual(doneMessages.map((message) => message.content), ['stop before anything streams', '']);
     assert.equal(doneMessages.at(-1)?.runTerminalCause, 'user_stop');
@@ -579,11 +581,8 @@ const SHARED_STOP_CASES: readonly SharedStopCase[] = [
   { operationKind: 'repo-search', segment: 'repo-search', holdCommand: GREP_HOLD_COMMAND, body: fileToolBody },
 ];
 
-function readToolRows(response: SseResponse): Dict[] {
-  const done = response.events.find((event) => event.event === 'done');
-  assert.ok(done?.payload, 'Expected a done event.');
-  return asObjectArray(asObject(done.payload.session).messages)
-    .filter((message) => message.kind === 'assistant_tool_call');
+async function readToolRows(baseUrl: string, sessionId: string, response: SseResponse): Promise<Dict[]> {
+  return (await readDoneMessages(baseUrl, sessionId, response)).filter((message) => message.kind === 'assistant_tool_call');
 }
 
 for (const stopCase of SHARED_STOP_CASES) {
@@ -602,7 +601,7 @@ for (const stopCase of SHARED_STOP_CASES) {
     });
     assert.equal(stopResponse.statusCode, 200);
 
-    const toolRows = readToolRows(await stopped);
+    const toolRows = await readToolRows(harness.baseUrl, sessionId, await stopped);
     assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
     const savedCompletedTool = toolRows[0];
     assert.ok(savedCompletedTool);
@@ -620,7 +619,7 @@ for (const stopCase of SHARED_STOP_CASES) {
       body: JSON.stringify(stopCase.body('continue after the restart', OPERATION_B, true)),
     });
     assert.equal(continued.statusCode, 200);
-    assert.equal(continued.events.some((event) => event.event === 'error'), false, JSON.stringify(continued.events));
+    assert.equal(readChatStream(continued, sessionId).failure, null, JSON.stringify(continued.events));
     const nextRequestToolMessages = (engineService.requireRequest('continue after the restart').history ?? [])
       .filter((message) => message.role === 'tool');
     // The completed result is exact; the held call gets an explicit interruption result.
@@ -662,7 +661,7 @@ test('a stopped turn whose completed tool has no canonical evidence fails persis
     });
     assert.equal(stopped.statusCode, 500);
     const streamed = await stream;
-    assert.equal(streamed.events.some((event) => event.event === 'done'), false);
+    assert.equal(readChatStream(streamed, sessionId).terminal, null, 'a failed stop must not settle the stream');
     const session = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
     const messages = asObjectArray(asObject(session.body.session).messages);
     assert.deepEqual(messages.map(message => message.content), ['stop without evidence']);
@@ -673,24 +672,30 @@ test('a stopped turn whose completed tool has no canonical evidence fails persis
   }
 });
 
-/** Reads SSE frames from a live response until `until` accepts one, then aborts the connection. */
-async function readLiveFrames(url: string, until: (frames: { event: string; data: string }[]) => boolean, timeoutMs: number) {
+/** Assembles committed views from a live attach until `until` accepts them, then aborts the connection. */
+async function readLiveViews(url: string, sessionId: string, until: (views: ChatOperationSnapshot[]) => boolean, timeoutMs: number) {
   const controller = new AbortController();
   const response = await fetch(url, { signal: controller.signal });
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Expected a streaming body.');
   const parser = new SseFrameParser();
-  const frames: { event: string; data: string }[] = [];
+  const projection = new ChatOperationProjection(sessionId);
+  const views: ChatOperationSnapshot[] = [];
   const deadline = Date.now() + timeoutMs;
   try {
     while (Date.now() < deadline) {
       const chunk = await Promise.race([reader.read(), delay(Math.max(1, deadline - Date.now())).then(() => null)]);
       if (chunk === null || chunk.done) break;
-      frames.push(...parser.push(Buffer.from(chunk.value).toString('utf8')));
-      if (until(frames)) break;
+      for (const frame of parser.push(Buffer.from(chunk.value).toString('utf8'))) {
+        if (frame.event !== 'chat_projection') continue;
+        const delivery = projection.acceptFrame(ChatProjectionFrameSchema.parse(JSON.parse(frame.data)));
+        if (delivery?.kind === 'view') views.push(delivery.snapshot);
+        else if (delivery) throw new Error(`Live attach settled unexpectedly: ${JSON.stringify(delivery)}`);
+      }
+      if (until(views)) break;
     }
   } finally { controller.abort(); }
-  return frames;
+  return views;
 }
 
 test('deleting a projected message wakes attached readers without waiting for another engine frame', { timeout: 15000 }, async t => {
@@ -705,23 +710,19 @@ test('deleting a projected message wakes attached readers without waiting for an
   });
   await engineService.waitUntilEntered();
   try {
-    // The coalesced answer text may land in the snapshot or in the projection update that follows it.
-    const projectedMessages = (frame: { event: string; data: string }) => frame.event === 'snapshot'
-      ? ChatOperationSnapshotSchema.parse(JSON.parse(frame.data)).messages
-      : frame.event === 'projection' ? ChatOperationUpdateSchema.parse(JSON.parse(frame.data)).messages : [];
-    const initial = await readLiveFrames(`${sessionUrl}/operation/stream`,
-      frames => frames.some(frame => projectedMessages(frame).some(message => message.content === 'partial before delete')), 5000);
-    assert.ok(initial.some(frame => frame.event === 'snapshot'), 'attached reader must receive the live snapshot');
-    const partial = initial.flatMap(projectedMessages).find(message => message.content === 'partial before delete');
-    assert.ok(partial);
-    const attached = readLiveFrames(`${sessionUrl}/operation/stream`, frames => frames.some(frame => frame.event === 'projection'), 3000);
+    // The coalesced answer text may land in the snapshot or in the update transfer that follows it.
+    const hasPartial = (view: ChatOperationSnapshot) => view.messages.some(message => message.content === 'partial before delete');
+    const initial = await readLiveViews(`${sessionUrl}/operation/stream`, sessionId, views => views.some(hasPartial), 5000);
+    const partial = initial.find(hasPartial)?.messages.find(message => message.content === 'partial before delete');
+    assert.ok(partial, 'attached reader must receive the live view');
+    const attached = readLiveViews(`${sessionUrl}/operation/stream`, sessionId,
+      views => views.length >= 2 && views.at(-1)?.messages.some(message => message.id === partial.id) === false, 3000);
     await delay(50);
     const deleted = await requestJson(`${sessionUrl}/messages/${partial.id}`, { method: 'DELETE' });
     assert.equal(deleted.statusCode, 200, JSON.stringify(deleted.body));
-    const frames = await attached;
-    const projection = frames.find(frame => frame.event === 'projection');
-    assert.ok(projection, 'a history edit must publish a projection update to attached readers');
-    assert.equal(ChatOperationUpdateSchema.parse(JSON.parse(projection.data)).messageOrder.includes(partial.id), false);
+    const views = await attached;
+    assert.ok(views.length >= 2, 'a history edit must publish a fresh view to attached readers');
+    assert.equal(views.at(-1)?.messages.some(message => message.id === partial.id), false);
   } finally {
     await requestJson(`${sessionUrl}/stop`, { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) });
     await stream;

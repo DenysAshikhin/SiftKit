@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 
 import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import {
@@ -168,7 +168,7 @@ test('status server stays responsive while repo-search is running', async () => 
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -244,7 +244,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -378,7 +378,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -470,7 +470,7 @@ test('managed engine readiness wait is serialized by the model request queue', a
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
@@ -540,7 +540,7 @@ test('health reports unavailable while managed engine bootstrap is still startin
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
@@ -655,7 +655,7 @@ test('status completion flushing does not block health responses', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -733,7 +733,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1013,7 +1013,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1118,7 +1118,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1235,7 +1235,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1318,7 +1318,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
       server.close((error) => (error ? reject(error) : resolve()));
     });
     process.chdir(previousCwd);
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];

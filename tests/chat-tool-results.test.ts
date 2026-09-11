@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   ChatToolResultsError,
   requireDurableToolResult,
@@ -19,7 +19,7 @@ const SENTINEL = 'sentinel-after-character-200';
 const LONG_OUTPUT = `${'x'.repeat(240)}\n${SENTINEL}\nline three`;
 
 function openDatabase(): RuntimeDatabase {
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
   return getRuntimeDatabase(path.join(createManagedTempDir('siftkit-chat-tool-results-'), 'runtime.sqlite'));
 }
 

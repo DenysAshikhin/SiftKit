@@ -1,5 +1,4 @@
 import type { OptionalJsonValue } from '../lib/json-types.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { getActiveModelPreset, readConfig } from './config-store.js';
 import {
   upsertRunLog,
@@ -85,7 +84,7 @@ export function persistStatusRunLog(
   }
   const identity = resolveStatusRunLogIdentity(taskKind);
   const activePreset = getActiveModelPreset(readConfig(ctx.configPath));
-  upsertRunLog(getRuntimeDatabase(ctx.chatRuntimeOwner.databasePath), {
+  upsertRunLog(ctx.runtimeDatabase, {
     runId: job.requestId,
     requestId: job.requestId,
     runKind: identity.runKind,

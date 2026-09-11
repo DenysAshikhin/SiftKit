@@ -3,9 +3,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-import { ChatJournalStore } from '../src/state/chat-journal.js';
-import type { ChatJournalAppend, ChatJournalEvent, ChatRunStart } from '../src/state/chat-journal-schema.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { ChatJournalStore, ChatJournalIntegrityError, CHAT_JOURNAL_READ_PAGE_BYTES, CHAT_JOURNAL_READ_PAGE_SIZE } from '../src/state/chat-journal.js';
+import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalAppend, type ChatJournalEvent, type ChatRunStart } from '../src/state/chat-journal-schema.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { RuntimeDatabase } from '../src/state/runtime-db.js';
 import { saveChatSession } from '../src/state/chat-sessions.js';
 import { z } from '../src/lib/zod.js';
@@ -164,7 +164,7 @@ test('a committed event survives reopening and an identical retry does not dupli
     assert.equal(store.readAfter(operationId, 0, 100).length, 1);
     assert.equal(store.readRun(operationId)?.latestSequence, 1);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 
   try {
@@ -175,7 +175,7 @@ test('a committed event survives reopening and an identical retry does not dupli
     assert.deepEqual(events[0]?.event, proposalEvent('Remove-Item physics.py'));
     assert.equal(reopened.readRun(operationId)?.latestSequence, 1);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -191,7 +191,7 @@ test('a different payload under an already-used event id is corruption, not a re
     );
     assert.equal(store.readAfter(start.operationId, 0, 100).length, 1);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -218,7 +218,7 @@ test('a stale sequence or a stale owner cannot append', () => {
     const accepted = store.append(appendInput(start.operationId, 1, proposalEvent('second'), { eventId: 'event-2' }));
     assert.equal(accepted.sequence, 2);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -235,7 +235,7 @@ test('appending to or binding an unknown run fails instead of creating one', () 
     }), /is unknown to the chat journal/u);
     assert.equal(store.readRun(missingId), null);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -270,7 +270,7 @@ test('an engine binding is allocated once and cannot be claimed by another run',
       repoAgentSessionId: null,
     }), /UNIQUE|already/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -291,7 +291,7 @@ test('a session admits one unfinished execution at a time and orders its runs', 
     );
     assert.equal(store.readRun(first.operationId)?.terminalCause, 'user_stop');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -301,10 +301,10 @@ test('a stored event whose version this build does not know fails loudly on read
   try {
     store.begin(start);
     store.append(appendInput(start.operationId, 0, proposalEvent('first')));
-    database.prepare('UPDATE chat_run_events SET version = 2 WHERE operation_id = ?').run(start.operationId);
+    database.prepare('UPDATE chat_run_events SET version = ? WHERE operation_id = ?').run(CHAT_JOURNAL_EVENT_VERSION + 1, start.operationId);
     assert.throws(() => store.readAfter(start.operationId, 0, 100), /version/u);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -318,7 +318,7 @@ test('a malformed stored body fails loudly instead of returning a partial event'
       .run('{"kind":"tool_proposed"}', start.operationId);
     assert.throws(() => store.readAfter(start.operationId, 0, 100));
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -347,7 +347,7 @@ test('reads are paged from a cursor rather than loading a whole conversation', (
     assert.equal(collected.length, 25);
     assert.deepEqual(collected, Array.from({ length: 25 }, (_value, index) => index + 1));
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -362,7 +362,7 @@ test('the journal connection stays fully durable across repeated runtime databas
       assert.equal(readSynchronous(getRuntimeDatabase(databasePath)), 2);
     }
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -388,6 +388,80 @@ test('a projection failure cannot roll back the source event', () => {
     assert.equal(advanced?.projectedDigest, 'digest-1');
     assert.equal(advanced?.projectedHistoryRevision, 2);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
+});
+
+/** Sums the decoded body characters each body fetch returned, as the store's own database sees it. */
+function observeBodyFetches(database: RuntimeDatabase): { rows: number; bytes: number }[] {
+  const fetches: { rows: number; bytes: number }[] = [];
+  const prepare = database.prepare.bind(database);
+  const FetchedRowsSchema = z.array(z.object({ body_json: z.string() }));
+  database.prepare = (sql: string) => {
+    const statement = prepare(sql);
+    if (!/body_json/u.test(sql) || !/FROM chat_run_events/u.test(sql)) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = (...parameters: Parameters<typeof all>) => {
+      const rows = all(...parameters);
+      const parsed = FetchedRowsSchema.safeParse(rows);
+      if (parsed.success) fetches.push({ rows: parsed.data.length, bytes: parsed.data.reduce((total, row) => total + row.body_json.length, 0) });
+      return rows;
+    };
+    return statement;
+  };
+  return fetches;
+}
+
+test('readThrough pages by row count and decoded body size, fetching one oversized event alone', () => {
+  const { store, database } = openFixture('chat-journal-byte-pages-');
+  const run = store.begin(runStart());
+  const oversized = 'x'.repeat(CHAT_JOURNAL_READ_PAGE_BYTES + 1024);
+  const medium = 'y'.repeat(300 * 1024);
+  const events: ChatJournalEvent[] = [
+    ...Array.from({ length: 600 }, () => proposalEvent('small')),
+    proposalEvent(medium), proposalEvent(medium), proposalEvent(medium), proposalEvent(medium),
+    proposalEvent(oversized),
+    proposalEvent('after'), proposalEvent('after'),
+  ];
+  database.transaction(() => {
+    for (const [index, event] of events.entries()) store.append(appendInput(run.operationId, index, event, { eventId: `event-${String(index)}` }));
+  })();
+  const fetches = observeBodyFetches(database);
+  const sequences = [...store.readThrough(run.operationId, 0, events.length)].map(envelope => envelope.sequence);
+  assert.deepEqual(sequences, Array.from({ length: events.length }, (_, index) => index + 1));
+  assert.ok(fetches.length >= 5, JSON.stringify(fetches));
+  for (const fetch of fetches) {
+    assert.ok(fetch.rows <= CHAT_JOURNAL_READ_PAGE_SIZE, JSON.stringify(fetch));
+    assert.ok(fetch.rows === 1 || fetch.bytes <= CHAT_JOURNAL_READ_PAGE_BYTES, JSON.stringify(fetch));
+  }
+  const single = fetches.find(fetch => fetch.bytes > CHAT_JOURNAL_READ_PAGE_BYTES);
+  assert.ok(single);
+  assert.equal(single.rows, 1);
+  assert.equal(fetches.reduce((total, fetch) => total + fetch.rows, 0), events.length);
+});
+
+test('readThrough stops at its captured head, rejects bad cursors, and anchors integrity failures', () => {
+  const { store, database } = openFixture('chat-journal-read-through-');
+  const run = store.begin(runStart());
+  for (let index = 0; index < 5; index += 1) store.append(appendInput(run.operationId, index, proposalEvent('read'), { eventId: `event-${String(index)}` }));
+  assert.deepEqual([...store.readThrough(run.operationId, 1, 3)].map(envelope => envelope.sequence), [2, 3]);
+  assert.deepEqual([...store.readThrough(run.operationId, 3, 3)], []);
+  assert.throws(() => [...store.readThrough(run.operationId, 3, 2)], /cursor/u);
+  assert.throws(() => [...store.readThrough(run.operationId, -1, 2)]);
+  assert.throws(() => [...store.readThrough(run.operationId, 0, 6)], /missing committed evidence/u);
+
+  // A head captured before a later append never yields the newer row.
+  const captured = store.readAll(run.operationId);
+  assert.equal(captured.next().value?.sequence, 1);
+  store.append(appendInput(run.operationId, 5, proposalEvent('late'), { eventId: 'event-late' }));
+  assert.deepEqual([...captured].map(envelope => envelope.sequence), [2, 3, 4, 5]);
+
+  database.prepare('UPDATE chat_run_events SET payload_digest=? WHERE operation_id=? AND sequence=4').run('0'.repeat(64), run.operationId);
+  assert.throws(() => [...store.readThrough(run.operationId, 0, 6)], (error) => error instanceof ChatJournalIntegrityError
+    && error.code === 'conflicting_event' && error.sequence === 4 && error.eventId === 'event-3');
+  database.prepare('UPDATE chat_run_events SET version=? WHERE operation_id=? AND sequence=2').run(CHAT_JOURNAL_EVENT_VERSION + 1, run.operationId);
+  assert.throws(() => [...store.readThrough(run.operationId, 0, 6)], (error) => error instanceof ChatJournalIntegrityError
+    && error.code === 'unknown_event_version' && error.sequence === 2);
+  database.prepare('DELETE FROM chat_run_events WHERE operation_id=? AND sequence=3').run(run.operationId);
+  assert.throws(() => [...store.readThrough(run.operationId, 2, 6)], /sequence gap/u);
 });

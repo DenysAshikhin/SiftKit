@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ChatOperationFrame } from '../src/status-server/chat-operation-broadcast.js';
+import type { ChatOperationClosure } from '../src/status-server/chat-operation-broadcast.js';
 
 import {
   ChatSessionOperationRegistry,
@@ -112,47 +112,44 @@ test('each active operation exposes a broadcast that closes when the lease finis
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
   assert.equal(broadcast.isClosed(), false);
-  broadcast.writeEvent('done', { ok: true });
+  broadcast.publish();
   registry.finish(lease, { kind: 'completed' });
   assert.equal(broadcast.isClosed(), true);
   assert.equal(registry.getBroadcast('session-a'), null);
 });
 
-test('a failed lease emits a terminal error frame when the run never sent one', () => {
+test('a failed lease closes its broadcast with the failure the run never reported itself', () => {
   const registry = new ChatSessionOperationRegistry();
   const lease = requireAcquired(registry.acquire('session-a', 'plan', OPERATION_A, 1_000));
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
-  const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
-  assert.equal(frames.length, 0);
+  const closures: ChatOperationClosure[] = [];
+  broadcast.attach({ onPublished: () => {}, onHistoryRevised: () => {}, onClosed: closure => closures.push(closure) });
   registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
-  assert.deepEqual(frames.map((frame) => frame.event), ['error']);
-  assert.equal(frames[0]?.data, '{"error":"engine exploded"}');
+  assert.deepEqual(closures, [{ failure: 'engine exploded' }]);
 });
 
-test('a completed lease without a stream payload emits an ended frame', () => {
+test('a completed lease closes its broadcast cleanly; the journal supplies the terminal record', () => {
   const registry = new ChatSessionOperationRegistry();
   const lease = requireAcquired(registry.acquire('session-a', 'condense', OPERATION_A, 1_000));
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
-  const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
+  const closures: ChatOperationClosure[] = [];
+  broadcast.attach({ onPublished: () => {}, onHistoryRevised: () => {}, onClosed: closure => closures.push(closure) });
   registry.finish(lease, { kind: 'completed' });
-  assert.deepEqual(frames.map((frame) => frame.event), ['ended']);
-  assert.equal(frames[0]?.data, '{}');
+  assert.deepEqual(closures, [{ failure: null }]);
 });
 
-test('finishing does not duplicate a terminal frame the run already sent', () => {
+test('a failure the run already reported is the one the closing notice carries', () => {
   const registry = new ChatSessionOperationRegistry();
   const lease = requireAcquired(registry.acquire('session-a', 'plan', OPERATION_A, 1_000));
   const broadcast = registry.getBroadcast('session-a');
   assert.ok(broadcast);
-  const frames: ChatOperationFrame[] = [];
-  broadcast.attach({ onFrame: frame => frames.push(frame), onHistoryRevised: () => {}, onClosed: () => {} });
-  broadcast.writeEvent('error', { error: 'already reported' });
+  const closures: ChatOperationClosure[] = [];
+  broadcast.attach({ onPublished: () => {}, onHistoryRevised: () => {}, onClosed: closure => closures.push(closure) });
+  broadcast.fail('already reported');
   registry.finish(lease, { kind: 'failed', error: 'engine exploded' });
-  assert.equal(frames.length, 1);
+  assert.deepEqual(closures, [{ failure: 'already reported' }]);
 });
 
 test('listActive returns every session that currently holds a lease', () => {

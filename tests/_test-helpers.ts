@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Writable } from 'node:stream';
 import { z } from '../src/lib/zod.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { normalizeModelRuntimePresetArray } from '../src/config/normalization.js';
@@ -539,7 +539,7 @@ export async function withTestEnvAndServer(
     await awaitRepoSearchRunPersistence();
     process.chdir(previousCwd);
     await stub.close();
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     envBackup.restore();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

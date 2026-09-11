@@ -119,13 +119,13 @@ test('guard fails a process that contacts the default status port despite a swal
 test('runtime database guard blocks a swallowed default-path open before creating a file', () => {
   const databaseUrl = pathToFileURL(path.join(repoRoot, 'dist', 'state', 'runtime-db.js')).href;
   const result = runGuardedChild([
-    `import { getRuntimeDatabase, closeRuntimeDatabase } from ${JSON.stringify(databaseUrl)};`,
+    `import { getRuntimeDatabase, closeAllRuntimeDatabases } from ${JSON.stringify(databaseUrl)};`,
     "import { resolve } from 'node:path';",
     "import { existsSync } from 'node:fs';",
     "const target = resolve('protected-runtime.sqlite');",
     'process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = target;',
     'try { getRuntimeDatabase(target); } catch {}',
-    'closeRuntimeDatabase();',
+    'closeAllRuntimeDatabases();',
     'if (existsSync(target)) process.stderr.write("PROTECTED_FILE_CREATED");',
   ].join('\n'));
   assertChildFinished(result);

@@ -1,5 +1,5 @@
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
-import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
 
 /** Isolates cwd-based SQLite storage for tests that execute requests in process. */
@@ -11,14 +11,14 @@ export class IsolatedRuntime {
     if (this.originalCwd !== null) throw new Error('Runtime isolation is already active.');
     this.originalCwd = process.cwd();
     this.tempRoot = createManagedTempDir('siftkit-isolated-runtime-');
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(this.tempRoot);
   }
 
   async close(): Promise<void> {
     if (this.originalCwd === null || this.tempRoot === null) throw new Error('Runtime isolation is not active.');
     await awaitRepoSearchRunPersistence();
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     process.chdir(this.originalCwd);
     const removed = await removeDirectoryWithRetries(this.tempRoot);
     if (!removed) {

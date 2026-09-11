@@ -31,7 +31,7 @@ import { ApprovalVerdictSchema } from '../repo-search/approval-verdict.js';
  * The only event format this build writes and the only one it accepts. A row stamped with a version
  * it does not know is a hard failure, not something to interpret optimistically.
  */
-export const CHAT_JOURNAL_EVENT_VERSION = 1;
+export const CHAT_JOURNAL_EVENT_VERSION = 2;
 export const ChatJournalEventVersionSchema = z.literal(CHAT_JOURNAL_EVENT_VERSION);
 
 /**

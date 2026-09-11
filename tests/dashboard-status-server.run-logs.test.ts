@@ -5,7 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { startStatusServer } from '../src/status-server/index.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import {
   requestJson,
@@ -164,7 +164,7 @@ function enterDashboardTestRepo(tempRoot: string): string {
 
 function restoreDashboardTestRepo(previousCwd: string): void {
   process.chdir(previousCwd);
-  closeRuntimeDatabase();
+  closeAllRuntimeDatabases();
 }
 
 test('dashboard initial runs load returns top 20 overall', async () => {

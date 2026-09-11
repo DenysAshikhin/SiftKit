@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, type RuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import test from 'node:test';
 
@@ -26,7 +26,7 @@ function withDatabase(callback: (database: DatabaseInstance) => void): void {
   try {
     callback(database);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 }
 

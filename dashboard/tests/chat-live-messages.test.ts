@@ -8,7 +8,8 @@ import {
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { groupMessagesIntoTurns, LIVE_THINKING_STACK_DEPTH } from '../src/lib/chatTurns';
 import type { ChatTurn } from '../src/lib/chatTurns';
-import type { ChatStreamToolEvent } from '../src/lib/chat-stream-parser';
+import type { ChatStreamToolEvent } from '@siftkit/contracts';
+import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-fixture.js';
 
 test('upsertLiveMessageInto appends a new entry when the id is unique', () => {
   const initial = createLiveMessage('a', 'assistant_answer', 'assistant', 'one');
@@ -48,12 +49,12 @@ function liveTurnFor(store: ChatSessionRuntimeStore, sessionId: string): ChatTur
 
 test('a live repo-agent turn renders the thinking stack above the recent-activity ring and keeps showRecentActivity true', () => {
   const sessionId = 'session-repo-agent';
-  let store = new ChatSessionRuntimeStore()
+  const steps: LiveTranscriptStep[] = [1, 2, 3, 4].map(turn => ({ kind: 'thinking', delta: { turn, offset: 0, text: `thinking turn ${String(turn)}` } }));
+  const seeded = new ChatSessionRuntimeStore()
     .ensureSession(sessionId, '')
     .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: REPO_AGENT_OPERATION_ID });
-  for (const turn of [1, 2, 3, 4]) {
-    store = store.apply({ kind: 'thinking', sessionId, delta: { turn, offset: 0, text: `thinking turn ${turn}` } });
-  }
+  const view = { operationKind: 'repo-agent' as const, controlOperationId: REPO_AGENT_OPERATION_ID };
+  let store = applyLiveTranscript(seeded, sessionId, steps, view);
 
   assert.deepEqual(store.get(sessionId).activity, {
     kind: 'local',
@@ -93,13 +94,15 @@ test('a live repo-agent turn renders the thinking stack above the recent-activit
     outputTokens: 32,
     outputTokensEstimated: false,
   };
-  store = store.apply({ kind: 'tool', sessionId, toolEvent: toolStart });
+  steps.push({ kind: 'tool', tool: toolStart });
+  store = applyLiveTranscript(seeded, sessionId, steps, view);
 
   live = liveTurnFor(store, sessionId);
   assert.equal(live.recentActivities.length, 1);
   assert.equal(live.recentActivities[0]?.state, 'active');
 
-  store = store.apply({ kind: 'tool', sessionId, toolEvent: toolResult });
+  steps.push({ kind: 'tool', tool: toolResult });
+  store = applyLiveTranscript(seeded, sessionId, steps, view);
 
   live = liveTurnFor(store, sessionId);
   assert.equal(live.showRecentActivity, true);

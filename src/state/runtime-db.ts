@@ -1,4 +1,5 @@
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
@@ -8,6 +9,7 @@ import { SystemClock } from '../assistant/clock.js';
 import { seedAssistantRegistries } from '../assistant/storage/schema.js';
 import { CHAT_PENDING_MESSAGES_SCHEMA_SQL, initializeRuntimeSchema } from './runtime-schema.js';
 import { retireRepoAgentHistoryRepairMarkers, upgradeChatProjectionCheckpoints, upgradeChatRecoverySchema } from './schema-upgrades/chat-recovery.js';
+import { upgradeChatJournalEventsToVersion2 } from './schema-upgrades/chat-replay-transport.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
@@ -18,7 +20,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 70;
+export const CURRENT_SCHEMA_VERSION = 71;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -32,6 +34,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 67, apply: upgradeChatRecoverySchema },
   { from: 68, apply: retireRepoAgentHistoryRepairMarkers },
   { from: 69, apply: upgradeChatProjectionCheckpoints },
+  { from: 70, apply: upgradeChatJournalEventsToVersion2 },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
@@ -44,8 +47,20 @@ function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
   return chain;
 }
 
-let cachedDatabasePath: string | null = null;
-let cachedDatabase: RuntimeDatabase | null = null;
+/** Open connections keyed by canonical path; opening one path never closes another. */
+const openDatabases = new Map<string, RuntimeDatabase>();
+
+/** Registry key: real parent directory where it exists, plus case folding on Windows. */
+function canonicalDatabaseKey(databasePath: string): string {
+  const resolvedPath = resolve(databasePath);
+  let canonicalPath = resolvedPath;
+  try {
+    canonicalPath = join(realpathSync.native(dirname(resolvedPath)), basename(resolvedPath));
+  } catch {
+    // The parent does not exist yet; the resolved path is the best canonical form available.
+  }
+  return process.platform === 'win32' ? canonicalPath.toLowerCase() : canonicalPath;
+}
 
 export function getSchemaVersion(database: RuntimeDatabase): number {
   try {
@@ -136,25 +151,18 @@ function closeFailedDatabaseHandle(database: RuntimeDatabase): void {
 export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath()): RuntimeDatabase {
   const resolvedPath = resolve(databasePath);
   const protectedPath = process.env.SIFTKIT_GUARD_RUNTIME_DATABASE;
-  if (protectedPath && (process.platform === 'win32'
-    ? resolve(protectedPath).toLowerCase() === resolvedPath.toLowerCase()
-    : resolve(protectedPath) === resolvedPath)) {
+  if (protectedPath && canonicalDatabaseKey(protectedPath) === canonicalDatabaseKey(resolvedPath)) {
     const error = new Error(`Test attempted to open the protected runtime database: ${resolvedPath}`);
     // As with the HTTP live-instance guard, swallowed background errors must still fail the file.
     process.exitCode = 1;
     process.stderr.write(`${error.stack}\n`);
     throw error;
   }
-  if (cachedDatabase && cachedDatabasePath === resolvedPath) {
-    return cachedDatabase;
-  }
-  if (cachedDatabase) {
-    closeRuntimeDatabaseHandle(cachedDatabase);
-    cachedDatabase = null;
-    cachedDatabasePath = null;
-  }
-
   ensureDirectory(dirname(resolvedPath));
+  const key = canonicalDatabaseKey(resolvedPath);
+  const existing = openDatabases.get(key);
+  if (existing) return existing;
+
   const database = new Database(resolvedPath);
   try {
     const state = inspectRuntimeDatabase(database, resolvedPath);
@@ -179,18 +187,24 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
     throw error;
   }
 
-  cachedDatabase = database;
-  cachedDatabasePath = resolvedPath;
+  openDatabases.set(key, database);
   return database;
 }
 
-export function closeRuntimeDatabase(): void {
-  if (!cachedDatabase) {
-    return;
-  }
-  closeRuntimeDatabaseHandle(cachedDatabase);
-  cachedDatabase = null;
-  cachedDatabasePath = null;
+/** Closes exactly this path's connection, if open. Other open paths are untouched. */
+export function closeRuntimeDatabase(databasePath: string): void {
+  const key = canonicalDatabaseKey(databasePath);
+  const database = openDatabases.get(key);
+  if (!database) return;
+  openDatabases.delete(key);
+  closeRuntimeDatabaseHandle(database);
+}
+
+/** Process-exit and test-file teardown only; scoped owners close their own captured path. */
+export function closeAllRuntimeDatabases(): void {
+  const databases = [...openDatabases.values()];
+  openDatabases.clear();
+  for (const database of databases) closeRuntimeDatabaseHandle(database);
 }
 
 export function getRuntimeMetadataValue(

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { stableStringify } from '../lib/json.js';
-import { JsonValueSchema } from '../lib/json-types.js';
+import { writeStableJson } from '../lib/json.js';
+import { JsonValueSchema, type JsonValue } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 import {
   ChatEngineBindingSchema,
@@ -57,6 +57,9 @@ const EventRowsSchema = z.array(EventRowSchema);
 const MaxRunOrderRowSchema = z.object({ next_order: z.number().int() });
 
 export const CHAT_JOURNAL_READ_PAGE_SIZE = 500;
+/** Decoded body characters one page targets; a single larger event is fetched on its own. */
+export const CHAT_JOURNAL_READ_PAGE_BYTES = 1024 * 1024;
+const PageRowsSchema = z.array(z.object({ sequence: z.number().int(), body_chars: z.number().int() }));
 
 export class ChatJournalIntegrityError extends Error {
   constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, readonly eventId: string,
@@ -99,8 +102,14 @@ export type ChatContextCheckpoint = z.infer<typeof ChatContextCheckpointSchema>;
  * id can be reported as corruption instead of silently replacing what is already committed.
  */
 export function digestChatJournalEvent(event: ChatJournalEvent): string {
-  const canonical = JsonValueSchema.parse(JSON.parse(JSON.stringify(event)));
-  return createHash('sha256').update(stableStringify(canonical)).digest('hex');
+  return digestJsonBody(JsonValueSchema.parse(JSON.parse(JSON.stringify(event))));
+}
+
+/** The same digest over an already-decoded body, so a read never re-serializes what it just parsed. */
+function digestJsonBody(decoded: JsonValue): string {
+  const hash = createHash('sha256');
+  writeStableJson(decoded, chunk => { hash.update(chunk); });
+  return hash.digest('hex');
 }
 
 function parseJsonColumn<Schema extends z.ZodType>(schema: Schema, raw: string | null): z.infer<Schema> | null {
@@ -136,10 +145,13 @@ function toEnvelope(row: z.infer<typeof EventRowSchema>): ChatJournalEnvelope {
     throw new ChatJournalIntegrityError('unknown_event_version', row.operation_id, row.event_id, row.sequence,
       `unsupported version ${String(row.version)}; this build reads version ${String(CHAT_JOURNAL_EVENT_VERSION)}.`);
   }
+  let decoded: JsonValue;
   let event: ChatJournalEvent;
-  try { event = ChatJournalEventSchema.parse(JSON.parse(row.body_json)); }
-  catch { throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence, 'malformed event payload.'); }
-  if (digestChatJournalEvent(event) !== row.payload_digest) {
+  try {
+    decoded = JsonValueSchema.parse(JSON.parse(row.body_json));
+    event = ChatJournalEventSchema.parse(decoded);
+  } catch { throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence, 'malformed event payload.'); }
+  if (digestJsonBody(decoded) !== row.payload_digest) {
     throw new ChatJournalIntegrityError('conflicting_event', row.operation_id, row.event_id, row.sequence, 'corrupt payload digest.');
   }
   return ChatJournalEnvelopeSchema.parse({
@@ -326,18 +338,44 @@ export class ChatJournalStore {
   }
 
   /** Iterate a committed head in bounded pages, rejecting incomplete evidence. */
-  *readAll(operationId: string, afterSequence = 0): Generator<ChatJournalEnvelope> {
-    let cursor = z.number().int().nonnegative().parse(afterSequence);
+  readAll(operationId: string, afterSequence = 0): Generator<ChatJournalEnvelope> {
+    const cursor = z.number().int().nonnegative().parse(afterSequence);
     const run = this.readRun(operationId);
     if (!run) throw new ChatRecoveryInvariantError('missing_run', operationId, 'Chat run does not exist.');
     if (cursor > run.latestSequence) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal cursor exceeds its committed head.');
-    while (cursor < run.latestSequence) {
-      const page = this.readAfter(operationId, cursor, Math.min(CHAT_JOURNAL_READ_PAGE_SIZE, run.latestSequence - cursor));
-      if (page.length === 0) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal is missing committed evidence.');
-      for (const envelope of page) {
-        if (envelope.sequence !== cursor + 1) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal contains a sequence gap.');
-        cursor = envelope.sequence;
-        yield envelope;
+    return this.readThrough(operationId, cursor, run.latestSequence);
+  }
+
+  /** Rows in (afterSequence, throughSequence], paged by row count and decoded body size. */
+  *readThrough(operationId: string, afterSequence: number, throughSequence: number): Generator<ChatJournalEnvelope> {
+    const id = z.string().uuid().parse(operationId);
+    let cursor = z.number().int().nonnegative().parse(afterSequence);
+    const head = z.number().int().nonnegative().parse(throughSequence);
+    if (cursor > head) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal cursor exceeds its captured head.');
+    while (cursor < head) {
+      // Row metadata decides the page; only the chosen bodies are fetched afterwards.
+      const candidates = PageRowsSchema.parse(this.database.prepare(`
+        SELECT sequence, length(body_json) AS body_chars FROM chat_run_events
+        WHERE operation_id = ? AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT ?
+      `).all(id, cursor, head, Math.min(CHAT_JOURNAL_READ_PAGE_SIZE, head - cursor)));
+      const first = candidates[0];
+      if (first === undefined) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal is missing committed evidence.');
+      let last = first.sequence;
+      let chars = first.body_chars;
+      for (const row of candidates.slice(1)) {
+        if (chars + row.body_chars > CHAT_JOURNAL_READ_PAGE_BYTES) break;
+        chars += row.body_chars;
+        last = row.sequence;
+      }
+      const page = EventRowsSchema.parse(this.database.prepare(`
+        SELECT operation_id, sequence, event_id, version, recorded_at_utc, body_json, payload_digest
+        FROM chat_run_events WHERE operation_id = ? AND sequence > ? AND sequence <= ? ORDER BY sequence
+      `).all(id, cursor, last));
+      if (page.length === 0) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal is missing committed evidence.');
+      for (const row of page) {
+        if (row.sequence !== cursor + 1) throw new ChatRecoveryInvariantError('sequence_gap', id, 'Chat journal contains a sequence gap.');
+        cursor = row.sequence;
+        yield toEnvelope(row);
       }
     }
   }

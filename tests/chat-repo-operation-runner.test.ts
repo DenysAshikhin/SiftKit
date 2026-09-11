@@ -18,7 +18,7 @@ import {
 } from '../src/status-server/chat-repo-operation-runner.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
-  closeRuntimeDatabase,
+  closeAllRuntimeDatabases,
 } from '../src/state/runtime-db.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
 import { buildMockScorecard } from './_test-helpers.js';
@@ -339,7 +339,7 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
         ['context_warning', 'thinking', 'tool_start', 'tool_result'],
       );
     } finally {
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       fs.rmSync(runtimeRoot, { force: true, recursive: true });
     }
   }
@@ -380,7 +380,7 @@ test('chat repo operations inherit the chat conversation history without a syste
       assert.ok(!contents.some((content) => content.includes('pre-compaction question')));
       assert.equal('systemPrompt' in engineRequest, false);
     } finally {
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       fs.rmSync(runtimeRoot, { force: true, recursive: true });
     }
   }
@@ -400,7 +400,7 @@ test('chat repo operation runner propagates engine failures while retaining the 
     assert.ok(run);
     assert.equal(journal.readAfter(run.operationId, 0, 1)[0]?.event.kind, 'run_started');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });
   }
 });
@@ -423,7 +423,7 @@ test('chat repo operation runner keeps text-only GPU OOMs unlabelled as image en
       },
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });
   }
 });
@@ -465,7 +465,7 @@ test('chat repo operation runner admits oversized images before engine and persi
       assert.deepEqual(persisted?.images, [admittedUrl]);
       assert.notDeepEqual(persisted?.images, request.images);
     } finally {
-      closeRuntimeDatabase();
+      closeAllRuntimeDatabases();
       fs.rmSync(runtimeRoot, { force: true, recursive: true });
     }
   }
@@ -492,7 +492,7 @@ test('chat repo operation runner rejects repo-search images when the selected mo
     );
     assert.equal(engineService.request, null);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });
   }
 });
@@ -519,7 +519,7 @@ test('chat repo operation runner rejects plan images when image retention is zer
     );
     assert.equal(engineService.request, null);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });
   }
 });
@@ -542,7 +542,7 @@ test('chat repo operation runner passes the session model-preset identity to the
     assert.equal(engineRequest.modelPresetId, 'session-snapshot');
     assert.deepEqual(engineRequest.modelPreset, request.session.modelPreset);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });
   }
 });

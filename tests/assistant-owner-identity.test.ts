@@ -7,7 +7,7 @@ import { CandidatePromoter } from '../src/assistant/ingestion/candidate-promoter
 import { SecretScanner } from '../src/assistant/domain/secrets.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import {
   buildAssistantService, proposePersonUses,
 } from './helpers/assistant-fixture.js';
@@ -61,7 +61,7 @@ test('claiming a person node moves its facts onto the owner', async () => {
       'the claimed spelling becomes an owner alias so it never splits again',
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -79,7 +79,7 @@ test('a later statement using the claimed spelling resolves to the owner', async
 
     assert.equal(resolved.kind === 'resolved' && resolved.nodeId, ownerNodeId);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -93,7 +93,7 @@ test('claiming the owner node itself is refused', async () => {
       /already the owner/iu,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -110,7 +110,7 @@ test('claiming a node that is not a person is refused', async () => {
       /person/iu,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -133,7 +133,7 @@ test('a claim is reversible through the merge log', async () => {
       service.ownerPersonNodeId,
     );
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -179,7 +179,7 @@ test('a claim reports duplicate facts as retired, not moved', async () => {
     assert.equal(graph.assertions.requireAssertion(duplicateVite).subject_node_id, ownerNodeId);
     assert.equal(graph.assertions.requireAssertion(duplicateTauri).status, 'superseded');
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -203,7 +203,7 @@ test('a claim queues a projection recompile', async () => {
 
     assert.equal(queuedRecompiles(service), 1);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -216,7 +216,7 @@ test('a refused claim queues nothing', async () => {
 
     assert.equal(queuedRecompiles(service), 0);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });
 
@@ -251,6 +251,6 @@ test('an identity answer uses the projection priority from the latest config', (
     assert.equal(recompiles.length, 1);
     assert.equal(recompiles[0]?.priority, 123);
   } finally {
-    closeRuntimeDatabase();
+    closeAllRuntimeDatabases();
   }
 });

@@ -470,16 +470,6 @@ export function ChatTab({
                   />
                 );
               })}
-              {selectedRuntime?.resolvedApproval ? (
-                <RepoAgentApprovalRow
-                  decision={selectedRuntime.resolvedApproval.decision.decision}
-                  command={selectedRuntime.resolvedApproval.approval.command}
-                  reason={selectedRuntime.resolvedApproval.decision.decision === 'deny'
-                    ? selectedRuntime.resolvedApproval.decision.reason
-                    : null}
-                  decidedAtUtc={selectedRuntime.resolvedApproval.decidedAtUtc}
-                />
-              ) : null}
               {selectedRuntime?.journalSnapshot?.approval?.actionable ? (
                 <RepoAgentApprovalCard
                   key={selectedRuntime.journalSnapshot.approval.approvalId}

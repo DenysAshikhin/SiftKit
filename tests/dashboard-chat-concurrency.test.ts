@@ -4,33 +4,26 @@ import { randomUUID } from 'node:crypto';
 
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { asObject, asObjectArray, fireAndAbortJsonRequest, requestJson, type SseResponse } from './helpers/dashboard-http.js';
+import { readChatStream, readSettledChatSession } from './helpers/chat-stream-views.js';
 
-function readDoneSessionId(response: SseResponse): string {
-  for (const event of response.events) {
-    if (event.event !== 'done') {
-      continue;
-    }
-    const session = asObject(asObject(event.payload).session);
-    if (typeof session.id === 'string' && session.id) {
-      return session.id;
-    }
-  }
-  throw new Error('Expected SSE done event containing a session id.');
+/** The stream's views name the session it belongs to; the settled transcript is read back over REST. */
+function readStreamSessionId(response: SseResponse, sessionId: string): string {
+  const { views, terminal } = readChatStream(response, sessionId);
+  assert.ok(terminal, 'Expected the stream to settle with a terminal record.');
+  const streamed = views.at(-1)?.snapshot.sessionId;
+  if (!streamed) throw new Error('Expected a committed view naming the session.');
+  return streamed;
 }
 
-function readDoneAssistantContent(response: SseResponse): string {
-  for (const event of response.events) {
-    if (event.event !== 'done') continue;
-    const session = asObject(asObject(event.payload).session);
-    const messages = asObjectArray(session.messages);
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role === 'assistant' && typeof message.content === 'string') {
-        return message.content;
-      }
+async function readDoneAssistantContent(baseUrl: string, sessionId: string, response: SseResponse): Promise<string> {
+  const messages = asObjectArray(asObject((await readSettledChatSession(baseUrl, sessionId, response)).session).messages);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'assistant' && typeof message.content === 'string') {
+      return message.content;
     }
   }
-  throw new Error('Expected SSE done event containing assistant content.');
+  throw new Error('Expected persisted assistant content.');
 }
 
 test('exl3 streams different chat sessions concurrently without mixing results', async () => {
@@ -46,10 +39,10 @@ test('exl3 streams different chat sessions concurrently without mixing results',
     harness.releaseChatResponse('answer-a');
     harness.releaseChatResponse('answer-b');
     const [resultA, resultB] = await Promise.all([streamA, streamB]);
-    assert.equal(readDoneSessionId(resultA), sessionA);
-    assert.equal(readDoneSessionId(resultB), sessionB);
-    assert.equal(readDoneAssistantContent(resultA), 'answer-a');
-    assert.equal(readDoneAssistantContent(resultB), 'answer-b');
+    assert.equal(readStreamSessionId(resultA, sessionA), sessionA);
+    assert.equal(readStreamSessionId(resultB, sessionB), sessionB);
+    assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionA, resultA), 'answer-a');
+    assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionB, resultB), 'answer-b');
   } finally {
     await harness.close();
   }
@@ -67,13 +60,13 @@ test('inference requests serialize fifo and keep session status independent', as
     await harness.waitForQueuedRequest('dashboard_chat_stream');
     harness.releaseChatResponse('answer-a');
     const resultA = await streamA;
-    assert.equal(readDoneSessionId(resultA), sessionA);
-    assert.equal(readDoneAssistantContent(resultA), 'answer-a');
+    assert.equal(readStreamSessionId(resultA, sessionA), sessionA);
+    assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionA, resultA), 'answer-a');
     await harness.waitForActiveRequests('dashboard_chat_stream', 1);
     harness.releaseChatResponse('answer-b');
     const resultB = await streamB;
-    assert.equal(readDoneSessionId(resultB), sessionB);
-    assert.equal(readDoneAssistantContent(resultB), 'answer-b');
+    assert.equal(readStreamSessionId(resultB, sessionB), sessionB);
+    assert.equal(await readDoneAssistantContent(harness.getBaseUrl(), sessionB, resultB), 'answer-b');
   } finally {
     await harness.close();
   }
@@ -97,11 +90,12 @@ test('aborting one concurrent session releases only that session lease', async (
     assert.equal(busySession.statusCode, 409);
     harness.releaseChatResponse('answer-b');
     const resultB = await streamB;
-    assert.equal(readDoneSessionId(resultB), sessionB);
+    assert.equal(readStreamSessionId(resultB, sessionB), sessionB);
     try {
       const resultA = await streamA;
-      assert.equal(resultA.events.some((event) => event.event === 'done'), false);
-      assert.equal(resultA.events.some((event) => event.event === 'error'), true);
+      const outcome = readChatStream(resultA, sessionA);
+      assert.equal(outcome.terminal, null);
+      assert.ok(outcome.failure);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       assert.match(message, /aborted|hang up|econnreset|socket/iu);

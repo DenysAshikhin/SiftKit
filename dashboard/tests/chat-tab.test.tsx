@@ -17,6 +17,7 @@ import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, 
 import type { PendingImage } from '../src/lib/downscale-image';
 import { buildUsageFrame } from './usage-frame';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-fixture.js';
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
@@ -52,31 +53,38 @@ test('recovery failure keeps the conversation readable and disables only continu
 });
 
 test('active token badges grow before usage and settle without losing late text accounting', () => {
-  let store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'prompt', sessionId: 'session-b', prompt: { turn: 1, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } });
+  const live = { operationKind: 'message', controlOperationId: OPERATION_ID } as const;
+  const prompt: LiveTranscriptStep = { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 50, charsPerToken: 4 } };
+  let store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID });
   const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
   try {
     for (const length of [400, 800]) {
-      store = store.apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 0, text: 'x'.repeat(length) } });
+      store = applyLiveTranscript(store, 'session-b', [prompt, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(length) } }], live);
       view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
       assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, `~${length / 4} tokens`);
       assert.equal(store.get('session-b').liveMessages[0]?.thinkingTokens, 0);
     }
-    store = store.apply({ kind: 'usage', sessionId: 'session-b', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) })
-      .apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 800, text: 'tail' } });
+    const settled: LiveTranscriptStep[] = [
+      prompt, { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'x'.repeat(800) } },
+      { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) },
+      { kind: 'thinking', delta: { turn: 1, offset: 800, text: 'tail' } },
+    ];
+    store = applyLiveTranscript(store, 'session-b', settled, live);
     view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '187 tokens');
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '187 run tokens');
-    store = store.apply({ kind: 'usage', sessionId: 'session-b', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) });
+    store = applyLiveTranscript(store, 'session-b', [...settled,
+      { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187, thinkingTokensEstimated: true } }) }], live);
     view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, '~187 run tokens');
-    store = store.apply({ kind: 'attach', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID })
-      .apply({ kind: 'thinking', sessionId: 'session-b', delta: { turn: 1, offset: 0, text: 'truncated replay' } });
+    store = applyLiveTranscript(store.apply({ kind: 'attach', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID }),
+      'session-b', [{ kind: 'thinking', delta: { turn: 1, offset: 0, text: 'truncated replay' } }], live);
     view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, 'tokens unavailable');
     assert.equal(view.container.querySelector('.msg.turn > .who .msg-tokens')?.textContent, 'tokens unavailable');
   } finally { view.unmount(); }
 });
+
 import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
 import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
 import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
@@ -102,7 +110,7 @@ async function* readHttpChat(url: string, signal: AbortSignal, body?: Record<str
 async function readThrough(
   stream: AsyncGenerator<ChatSessionRuntimeTransition>,
   store: ChatSessionRuntimeStore,
-  kind: 'prompt' | 'thinking' | 'done',
+  kind: 'prompt' | 'thinking' | 'terminal',
   thinkingTurn?: number,
 ) {
   const before = store;
@@ -112,7 +120,7 @@ async function readThrough(
     assert.ok(next.value);
     store = store.apply(next.value);
     if (next.value.kind === 'failure') throw new Error(next.value.message);
-    if (kind === 'done' && next.value.kind === 'done') return { store, transition: next.value };
+    if (kind === 'terminal' && next.value.kind === 'terminal') return { store, transition: next.value };
     if (next.value.kind !== 'snapshot') continue;
     const prior = before.get(next.value.sessionId);
     const snapshot = next.value.snapshot;
@@ -178,6 +186,7 @@ for (const queued of [false, true]) {
           }
         }
       }
+      let terminalCause: string | null = null;
       if (queued) {
         backend.write(first, { tool_calls: [{ index: 0, id: 'read-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'package.json' }) } }] });
         backend.finish(first);
@@ -201,23 +210,24 @@ for (const queued of [false, true]) {
         store = originalStore;
         backend.write(second, { content: 'finished' });
         backend.finish(second);
-        const replayDone = readThrough(replay, replayNext.store, 'done');
-        const completed = await readThrough(stream, store, 'done');
+        const replayDone = readThrough(replay, replayNext.store, 'terminal');
+        const completed = await readThrough(stream, store, 'terminal');
         await replayDone;
         store = completed.store;
-        assert.equal(completed.transition.kind, 'done');
-        if (completed.transition.kind === 'done') session = completed.transition.response.session;
+        if (completed.transition.kind !== 'terminal') throw new Error('Expected completion terminal.');
+        terminalCause = completed.transition.terminal.terminalCause;
       } else {
         backend.write(first, { content: 'finished' });
         backend.finish(first);
-        const completed = await readThrough(stream, store, 'done');
+        const completed = await readThrough(stream, store, 'terminal');
         store = completed.store;
-        assert.equal(completed.transition.kind, 'done');
-        if (completed.transition.kind === 'done') session = completed.transition.response.session;
+        if (completed.transition.kind !== 'terminal') throw new Error('Expected completion terminal.');
+        terminalCause = completed.transition.terminal.terminalCause;
       }
-      view.rerender(<ChatTab {...props()} />);
       const persisted = ChatSessionResponseSchema.parse((await requestJson(url)).body);
-      assert.deepEqual(session.messages, persisted.session.messages);
+      session = persisted.session;
+      view.rerender(<ChatTab {...props()} />);
+      assert.equal(terminalCause, 'completed');
       assert.equal(store.get(sessionId).tokenTurns.size, 0);
       const expectedLabels = groupMessagesIntoTurns(persisted.session.messages, new Set())
         .filter((turn) => turn.messages.some((message) => message.role === 'assistant'))
@@ -272,14 +282,16 @@ for (const force of [false, true]) {
         backend.write(provider, { content: 'first finished' });
         backend.finish(provider);
       }
-      const done = await readThrough(stream, store, 'done');
+      const done = await readThrough(stream, store, 'terminal');
       store = done.store;
       assert.equal(store.get(sessionId).tokenTurns.size, 0);
-      assert.equal(done.transition.kind, 'done');
-      if (done.transition.kind !== 'done') throw new Error('Expected completion');
-      const saved = done.transition.response.session;
+      assert.equal(done.transition.kind, 'terminal');
+      const saved = ChatSessionResponseSchema.parse((await requestJson(url)).body).session;
       assert.equal(saved.messages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
-      if (force) assert.equal(saved.messages.at(-1)?.runTerminalCause, 'user_stop');
+      if (force) {
+        if (done.transition.kind !== 'terminal') throw new Error('Expected stop terminal.');
+        assert.equal(done.transition.terminal.terminalCause, 'user_stop');
+      }
       const successorProvider = await backend.nextRequest();
       const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
       t.after(async () => { await successor.return(); });
@@ -292,7 +304,7 @@ for (const force of [false, true]) {
       assert.equal([...view.container.querySelectorAll('.assistant_thinking .msg-tokens')].at(-1)?.textContent, '~100 tokens');
       backend.write(successorProvider, { content: 'successor finished' });
       backend.finish(successorProvider);
-      store = (await readThrough(successor, store, 'done')).store;
+      store = (await readThrough(successor, store, 'terminal')).store;
       assert.equal(store.get(sessionId).tokenTurns.size, 0);
     } finally {
       view.unmount();
@@ -655,9 +667,10 @@ function configureChatScroll(element: HTMLElement): { setScrollHeight(value: num
 }
 
 test('streaming follows only while the user is pinned to the bottom', async () => {
-  const initialStore = buildDefaultStore(SESSION_A.id)
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID })
-    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'first' } });
+  const streamed = (base: ChatSessionRuntimeStore, text: string): ChatSessionRuntimeStore =>
+    applyLiveTranscript(base, SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text } }]);
+  const initialStore = streamed(buildDefaultStore(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID }), 'first');
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
@@ -670,9 +683,7 @@ test('streaming follows only while the user is pinned to the bottom', async () =
 
   chatLog.scrollTop = 200;
   fireEvent.scroll(chatLog);
-  const secondStore = initialStore.apply({
-    kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 5, text: ' update' },
-  });
+  const secondStore = streamed(initialStore, 'first update');
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -687,9 +698,7 @@ test('streaming follows only while the user is pinned to the bottom', async () =
   fireEvent.scroll(chatLog);
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
   scroll.setScrollHeight(1_200);
-  const thirdStore = secondStore.apply({
-    kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 12, text: ' again' },
-  });
+  const thirdStore = streamed(secondStore, 'first update again');
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -708,9 +717,7 @@ test('streaming follows only while the user is pinned to the bottom', async () =
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
 
   scroll.setScrollHeight(1_400);
-  const fourthStore = thirdStore.apply({
-    kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 18, text: ' final' },
-  });
+  const fourthStore = streamed(thirdStore, 'first update again final');
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -740,13 +747,15 @@ test('switching sessions resets pinned scrolling and hides the jump control', as
 });
 
 test('each distinct repo-agent approval forces one scroll to the bottom', async () => {
-  const approval = {
+  const approval = DurableChatApprovalSchema.parse({
     runId: OPERATION_ID,
     approvalId: '4f9c1f9a-0000-4000-8000-000000000010',
     toolName: 'bash',
     command: 'npm test',
     reviewPayload: null,
-  };
+    toolCallId: 'native-call', mode: 'interactive', requestedAtUtc: '2026-09-08T12:00:00.000Z',
+    expiresAtUtc: '2026-09-08T12:10:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
+  });
   const baseStore = buildDefaultStore(SESSION_A.id);
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
@@ -760,7 +769,7 @@ test('each distinct repo-agent approval forces one scroll to the bottom', async 
   chatLog.scrollTop = 200;
   fireEvent.scroll(chatLog);
 
-  const firstApprovalStore = baseStore.apply({ kind: 'approval', sessionId: SESSION_A.id, approval });
+  const firstApprovalStore = applyLiveTranscript(baseStore, SESSION_A.id, [], { approval });
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -773,9 +782,8 @@ test('each distinct repo-agent approval forces one scroll to the bottom', async 
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
 
   scroll.setScrollHeight(1_200);
-  const streamedApprovalStore = firstApprovalStore.apply({
-    kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'working' },
-  });
+  const streamedApprovalStore = applyLiveTranscript(firstApprovalStore, SESSION_A.id,
+    [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }], { approval });
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -809,11 +817,9 @@ test('each distinct repo-agent approval forces one scroll to the bottom', async 
   });
   assert.equal(chatLog.scrollTop, 200);
 
-  const secondApprovalStore = clearedStore.apply({
-    kind: 'approval',
-    sessionId: SESSION_A.id,
-    approval: { ...approval, approvalId: '4f9c1f9a-0000-4000-8000-000000000011' },
-  });
+  const secondApprovalStore = applyLiveTranscript(clearedStore, SESSION_A.id,
+    [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'working' } }],
+    { approval: { ...approval, approvalId: '4f9c1f9a-0000-4000-8000-000000000011' } });
   await act(async () => {
     view.rerender(<ChatTab {...buildProps({
       chatMode: 'repo-agent',
@@ -826,26 +832,20 @@ test('each distinct repo-agent approval forces one scroll to the bottom', async 
   assert.equal(screen.queryByRole('button', { name: 'Jump to bottom' }), null);
 });
 
-test('resolved and persisted repo-agent approvals render compact audit rows', () => {
-  const approval = {
-    runId: '4f9c1f9a-0000-4000-8000-000000000000',
-    approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
-    toolName: 'bash',
-    command: 'npm test',
-    reviewPayload: null,
-  };
-  const store = buildDefaultStore(SESSION_A.id).apply({
-    kind: 'approval-decision',
-    sessionId: SESSION_A.id,
-    resolution: { approval, decision: { decision: 'deny', reason: 'wrong file' }, decidedAtUtc: '2026-07-19T00:00:00Z' },
-  });
+test('persisted repo-agent approvals render compact audit rows', () => {
+  const store = buildDefaultStore(SESSION_A.id);
   const persistedSession: ChatSession = {
     ...SESSION_A,
     messages: [{
       id: 'approval-row', role: 'user', kind: 'repo_agent_approval', content: 'approve bash: npm test',
       inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
-      createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: approval.runId,
+      createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: OPERATION_ID,
       approvalDecision: 'approve', approvalToolName: 'bash', approvalCommand: 'npm test', approvalReason: null,
+    }, {
+      id: 'denied-row', role: 'user', kind: 'repo_agent_approval', content: 'deny bash: npm test',
+      inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
+      createdAtUtc: '2026-07-19T00:00:01Z', sourceRunId: OPERATION_ID,
+      approvalDecision: 'deny', approvalToolName: 'bash', approvalCommand: 'npm test', approvalReason: 'wrong file',
     }],
   };
   const markup = render({
@@ -1101,7 +1101,7 @@ test('selected busy A disables mutable controls except Stop', () => {
 
 test('selected session alone supplies errors and warnings', () => {
   const store = buildDefaultStore('session-b')
-    .apply({ kind: 'warning', sessionId: 'session-a', text: 'warning-a' })
+    .apply({ kind: 'snapshot', sessionId: 'session-a', snapshot: chatSnapshot({ sessionId: 'session-a', warnings: ['warning-a'] }) })
     .apply({ kind: 'failure', sessionId: 'session-a', message: 'error-a' });
   const selectedB = render({
     selectedSessionId: 'session-b',
@@ -1123,18 +1123,20 @@ test('switching away from queued work keeps token badges and queue state in thei
     sessionId: SESSION_A.id, revision: 1, paused: false, force: null, activeOperationId: OPERATION_ID,
     messages: [{ id: QUEUE_ONE_ID, position: 0, preview: 'queued for A', contentChars: 12, imageCount: 0, revision: 1, state: 'pending', createdAtUtc: '2026-09-10T00:00:00.000Z' }],
   } }).queue;
-  let store = buildDefaultStore(SESSION_A.id)
+  const steps: LiveTranscriptStep[] = [
+    { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 4 } },
+    { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'A'.repeat(400) } },
+  ];
+  let store = applyLiveTranscript(buildDefaultStore(SESSION_A.id)
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'queue', sessionId: SESSION_A.id, queue })
-    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 4 } })
-    .apply({ kind: 'thinking', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'A'.repeat(400) } });
+    .apply({ kind: 'queue', sessionId: SESSION_A.id, queue }), SESSION_A.id, steps, { operationKind: 'message' });
   const view = renderComponent(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
   try {
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~100 tokens');
     view.rerender(<ChatTab {...buildProps({ selectedSessionId: SESSION_B.id, selectedRuntime: store.get(SESSION_B.id), sessionRuntimes: store.getAll() })} />);
     assert.equal(view.container.querySelector('.assistant_thinking'), null);
     assert.doesNotMatch(view.container.textContent ?? '', /queued for A/u);
-    store = store.apply({ kind: 'thinking', sessionId: SESSION_A.id, delta: { turn: 1, offset: 400, text: 'A'.repeat(400) } });
+    store = applyLiveTranscript(store, SESSION_A.id, [...steps, { kind: 'thinking', delta: { turn: 1, offset: 400, text: 'A'.repeat(400) } }], { operationKind: 'message' });
     view.rerender(<ChatTab {...buildProps({ selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll() })} />);
     assert.equal(view.container.querySelector('.assistant_thinking .msg-tokens')?.textContent, '~200 tokens');
     assert.equal(store.get(SESSION_A.id).queue, queue);
@@ -1144,12 +1146,11 @@ test('switching away from queued work keeps token badges and queue state in thei
 });
 
 test('a running tool message renders a neutral friendly activity row', () => {
-  const store = buildDefaultStore('session-a')
-    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: {
+  const store = applyLiveTranscript(buildDefaultStore('session-a')
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID }), 'session-a', [{ kind: 'tool', tool: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
-    } });
+    } }], { operationKind: 'message' });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   const recentActivity = /<section class="recent-activity"[\s\S]*?<\/section>/u.exec(markup)?.[0] ?? '';
   assert.match(markup, /tool-activity-row tool-activity-neutral/u);
@@ -1159,12 +1160,10 @@ test('a running tool message renders a neutral friendly activity row', () => {
 });
 
 test('live recent activity renders only the newest three tools with latest turn progress', () => {
-  let store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_RING' });
-  for (const [index, toolCallId] of ['t1', 't2', 't3', 't4'].entries()) {
-    store = store.apply({
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_RING' },
+    ['t1', 't2', 't3', 't4'].map((toolCallId, index): LiveTranscriptStep => ({
       kind: 'tool',
-      sessionId: SESSION_B.id,
-      toolEvent: index === 3
+      tool: index === 3
         ? {
             kind: 'tool_start', toolCallId, turn: index + 1, maxTurns: 45,
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
@@ -1174,8 +1173,7 @@ test('live recent activity renders only the newest three tools with latest turn 
             activityKind: 'search', activitySubject: { kind: 'none' }, command: `rg marker-${index}`, promptTokenCount: 0,
             exitCode: 0, outputSnippet: `result-${index}`, outputTokens: 0, outputTokensEstimated: false,
           },
-    });
-  }
+    })));
   const markup = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1189,10 +1187,7 @@ test('live recent activity renders only the newest three tools with latest turn 
 });
 
 test('selected context usage renders the warning context bar', () => {
-  const responseStore = buildDefaultStore('session-a').apply({ kind: 'done', sessionId: 'session-a', response: {
-    session: SESSION_A,
-    contextUsage: CONTEXT_USAGE,
-  }});
+  const responseStore = buildDefaultStore('session-a').apply({ kind: 'context-usage', sessionId: 'session-a', contextUsage: CONTEXT_USAGE });
   const markup = render({ selectedRuntime: responseStore.get('session-a'), sessionRuntimes: responseStore.getAll() });
   assert.match(markup, /class="ctx warn"/);
 });
@@ -1281,26 +1276,27 @@ test('a submitted message renders as a pending bubble instead of staying in the 
   assert.match(markup, /Recent activity/u, 'the activity shell starts with the request, before model output');
 });
 
-test('the pending bubble survives a warning that arrives before the stream', () => {
+test('the pending bubble survives a control error that arrives before the stream', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
     .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
-    .apply({ kind: 'warning', sessionId: SESSION_A.id, text: 'repo root is dirty' });
+    .apply({ kind: 'control-error', sessionId: SESSION_A.id, message: 'repo root is dirty' });
   const markup = render({
     selectedRuntime: store.get(SESSION_A.id),
     sessionRuntimes: store.getAll(),
   });
 
   assert.match(markup, /sending…/u);
+  assert.match(markup, /repo root is dirty/u);
 });
 
 test('the pending bubble clears once the assistant starts streaming', () => {
-  const store = new ChatSessionRuntimeStore()
+  const pending = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
-    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'here it is' } });
+    .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] });
+  const store = applyLiveTranscript(pending, SESSION_A.id, [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'here it is' } }], { operationKind: 'message' });
   const markup = render({
     selectedRuntime: store.get(SESSION_A.id),
     sessionRuntimes: store.getAll(),
@@ -1470,9 +1466,11 @@ test('a real compacting stream persists and immediately renders one boundary', a
       },
     );
     assert.equal(stream.statusCode, 200);
-    const doneEvent = stream.events.find((event) => event.event === 'done');
-    assert.ok(doneEvent?.payload, JSON.stringify(stream.events));
-    const terminal = ChatSessionResponseSchema.parse(doneEvent.payload);
+    const lastFrame = stream.events.at(-1)?.payload?.['data'];
+    assert.ok(typeof lastFrame === 'string' && lastFrame.includes('"kind":"terminal"'), JSON.stringify(stream.events.at(-1)));
+    const terminal = ChatSessionResponseSchema.parse((await requestJson(
+      `${server.baseUrl}/dashboard/chat/sessions/${encodeURIComponent(created.session.id)}`,
+    )).body);
     const activeSummaries = terminal.session.messages.filter(
       (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
     );
@@ -1488,7 +1486,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
 
     const responseStore = new ChatSessionRuntimeStore()
       .ensureSession(terminal.session.id, '')
-      .apply({ kind: 'done', sessionId: terminal.session.id, response: terminal });
+      .apply({ kind: 'context-usage', sessionId: terminal.session.id, contextUsage: terminal.contextUsage });
     const markup = render({
       sessions: [terminal.session],
       selectedSessionId: terminal.session.id,
@@ -1565,19 +1563,23 @@ test('the condensed summary panel is gone', () => {
   assert.doesNotMatch(markup, /Condensed Summary/u);
 });
 
+/** A submitted run whose journal has streamed `marker` as thinking, then `steps`. */
 function buildThinkingStore(options: {
   content: string;
   images: PendingImage[];
   operationKind: ChatSessionOperationKind;
   marker: string;
-}): ChatSessionRuntimeStore {
-  return new ChatSessionRuntimeStore()
+}, steps: readonly LiveTranscriptStep[] = []): ChatSessionRuntimeStore {
+  const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_B.id, '')
     .apply({ kind: 'submit', sessionId: SESSION_B.id, content: options.content, images: options.images })
     .apply({
       kind: 'begin', sessionId: SESSION_B.id, operationKind: options.operationKind, operationId: OPERATION_ID,
-    })
-    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: options.marker } });
+    });
+  return applyLiveTranscript(store, SESSION_B.id, [
+    { kind: 'submission', message: { id: 'submitted', content: options.content, images: options.images.map((image) => image.dataUrl), imageMeta: [] } },
+    { kind: 'thinking', delta: { turn: 1, offset: 0, text: options.marker } }, ...steps,
+  ], { operationKind: options.operationKind });
 }
 
 test('a live turn that has only streamed thinking renders the thinking text', () => {
@@ -1608,8 +1610,8 @@ test('a live turn that has only streamed thinking renders no empty Internal Logi
 });
 
 test('once the answer streams, thinking moves into a lazy disclosure', () => {
-  const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' })
-    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } });
+  const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' },
+    [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } }]);
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1622,16 +1624,10 @@ test('once the answer streams, thinking moves into a lazy disclosure', () => {
 
 test('the outer turn badge sums the live bubble counters once and labels them run tokens', () => {
   // Live rows hold no self-derived estimate; the usage frame is what gives them their counts.
-  const store = buildThinkingStore({ content: '12345678', images: [], operationKind: 'repo-agent', marker: '12345678' })
-    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: '12345678' } })
-    .apply({
-      kind: 'usage',
-      sessionId: SESSION_B.id,
-      usage: buildUsageFrame({
-        turn: 1,
-        record: { promptTokens: 100, thinkingTokens: 2, outputTokens: 2, generatedChars: 16 },
-      }),
-    });
+  const store = buildThinkingStore({ content: '12345678', images: [], operationKind: 'repo-agent', marker: '12345678' }, [
+    { kind: 'answer', delta: { turn: 1, offset: 0, text: '12345678' } },
+    { kind: 'usage', usage: buildUsageFrame({ turn: 1, record: { promptTokens: 100, thinkingTokens: 2, outputTokens: 2, generatedChars: 16 } }) },
+  ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1648,15 +1644,13 @@ test('the outer turn badge sums the live bubble counters once and labels them ru
 });
 
 test('a live turn with a running tool call renders recent activity and the thinking that led to it', () => {
-  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_TOOL' })
-    .apply({
-      kind: 'tool',
-      sessionId: SESSION_B.id,
-      toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
-      },
-    });
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_TOOL' }, [{
+    kind: 'tool',
+    tool: {
+      kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+      activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
+    },
+  }]);
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1670,16 +1664,13 @@ test('a live turn with a running tool call renders recent activity and the think
 });
 
 test('the activity ring disappears into Internal Logic when final answer streaming begins', () => {
-  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_ANSWER' })
-    .apply({
-      kind: 'tool',
-      sessionId: SESSION_B.id,
-      toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
-      },
-    })
-    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 2, offset: 0, text: 'FINAL_ANSWER_MARKER' } });
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_ANSWER' }, [
+    { kind: 'tool', tool: {
+      kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+      activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER_ANSWER', promptTokenCount: 0,
+    } },
+    { kind: 'answer', delta: { turn: 2, offset: 0, text: 'FINAL_ANSWER_MARKER' } },
+  ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1696,17 +1687,14 @@ test('the activity ring disappears into Internal Logic when final answer streami
 });
 
 test('raw streamed model progress renders only inside closed Internal Logic', () => {
-  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_PROGRESS' })
-    .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 1, text: 'PROGRESS_MARKER_ONE', elapsedMs: 500 } })
-    .apply({
-      kind: 'tool',
-      sessionId: SESSION_B.id,
-      toolEvent: {
-        kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
-        activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
-      },
-    })
-    .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } });
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_PROGRESS' }, [
+    { kind: 'progress', progress: { turn: 1, text: 'PROGRESS_MARKER_ONE', elapsedMs: 500 } },
+    { kind: 'tool', tool: {
+      kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
+      activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
+    } },
+    { kind: 'progress', progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } },
+  ]);
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -1728,22 +1716,19 @@ const QUEUE_ONE_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 const SEGMENT_TWO_THINKING = 'SEGMENT_TWO_THINKING';
 
 /** A live run whose four thinking turns are interrupted by one delivered queued message. */
-function buildSplitSegmentStore(sessionId: string): ChatSessionRuntimeStore {
-  let store = buildDefaultStore(sessionId)
+function buildSplitSegmentStore(sessionId: string, steps: readonly LiveTranscriptStep[] = []): ChatSessionRuntimeStore {
+  const store = buildDefaultStore(sessionId)
     .apply({ kind: 'begin', sessionId, operationKind: 'repo-agent', operationId: OPERATION_ID });
-  for (const turn of [1, 2, 3, 4]) {
-    store = store
-      .apply({ kind: 'prompt', sessionId, prompt: { turn, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } })
-      .apply({ kind: 'thinking', sessionId, delta: { turn, offset: 0, text: `SEGMENT_ONE_THINKING_${turn}` } });
-  }
-  return store
-    .apply({
-      kind: 'queued-user',
-      sessionId,
-      message: { id: QUEUE_ONE_ID, turn: 4, boundary: 'post_tool_batch', content: 'QUEUED_ONE', images: [] },
-    })
-    .apply({ kind: 'prompt', sessionId, prompt: { turn: 5, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } })
-    .apply({ kind: 'thinking', sessionId, delta: { turn: 5, offset: 0, text: SEGMENT_TWO_THINKING } });
+  return applyLiveTranscript(store, sessionId, [
+    ...[1, 2, 3, 4].flatMap((turn): LiveTranscriptStep[] => [
+      { kind: 'prompt', prompt: { turn, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } },
+      { kind: 'thinking', delta: { turn, offset: 0, text: `SEGMENT_ONE_THINKING_${turn}` } },
+    ]),
+    { kind: 'user_message', message: { id: QUEUE_ONE_ID, turn: 4, boundary: 'post_tool_batch', content: 'QUEUED_ONE', images: [], imageMeta: [] } },
+    { kind: 'prompt', prompt: { turn: 5, maxTurns: 20, promptTokens: 40, charsPerToken: 4 } },
+    { kind: 'thinking', delta: { turn: 5, offset: 0, text: SEGMENT_TWO_THINKING } },
+    ...steps,
+  ]);
 }
 
 test('a delivered queued message gives the two assistant segments independent React identities', async (t) => {
@@ -1773,11 +1758,7 @@ test('a delivered queued message gives the two assistant segments independent Re
       `~${SEGMENT_TWO_THINKING.length / 4} tokens`,
     );
 
-    store = store.apply({
-      kind: 'thinking',
-      sessionId: SESSION_B.id,
-      delta: { turn: 5, offset: SEGMENT_TWO_THINKING.length, text: ' keeps streaming' },
-    });
+    store = buildSplitSegmentStore(SESSION_B.id, [{ kind: 'thinking', delta: { turn: 5, offset: SEGMENT_TWO_THINKING.length, text: ' keeps streaming' } }]);
     await act(async () => { view.rerender(<ChatTab {...propsFor(store)} />); });
 
     assert.equal(turnBubbles()[0], first, 'the earlier segment must not remount');
@@ -1869,12 +1850,11 @@ test('the context bar and label grow with the calibrated streaming tail while a 
   assert.equal(idleView.container.querySelector('.ctx-label')?.textContent, '40 / 100');
   idleView.unmount();
 
-  const streaming = idle
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID })
-    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: {
-      turn: 1, maxTurns: 20, promptTokens: 60, charsPerToken: 4,
-    } })
-    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 2, offset: 0, text: 'x'.repeat(40) } });
+  const streaming = applyLiveTranscript(idle
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message', operationId: OPERATION_ID }), SESSION_A.id, [
+    { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 60, charsPerToken: 4 } },
+    { kind: 'answer', delta: { turn: 2, offset: 0, text: 'x'.repeat(40) } },
+  ], { operationKind: 'message' });
   const view = renderComponent(<ChatTab {...buildProps({
     selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
   })} />);
@@ -1889,17 +1869,17 @@ test('the context bar follows the measured prompt count of the latest turn while
   const store = new ChatSessionRuntimeStore()
     .ensureSession(SESSION_A.id, '')
     .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: { ...CONTEXT_USAGE, totalUsedTokens: 40 } })
-    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID })
-    .apply({ kind: 'tool', sessionId: SESSION_A.id, toolEvent: {
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'repo-agent', operationId: OPERATION_ID });
+  const streaming = applyLiveTranscript(store, SESSION_A.id, [
+    { kind: 'tool', tool: {
       kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 88,
-    } })
-    .apply({ kind: 'prompt', sessionId: SESSION_A.id, prompt: {
-      turn: 1, maxTurns: 2, promptTokens: 88, charsPerToken: 4,
-    } });
+    } },
+    { kind: 'prompt', prompt: { turn: 1, maxTurns: 2, promptTokens: 88, charsPerToken: 4 } },
+  ]);
   const view = renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent', isRepoToolMode: true, isDirectChatMode: false,
-    selectedRuntime: store.get(SESSION_A.id), sessionRuntimes: store.getAll(),
+    selectedRuntime: streaming.get(SESSION_A.id), sessionRuntimes: streaming.getAll(),
   })} />);
   const bar = view.container.querySelector('.ctx');
   assert.ok(bar instanceof HTMLElement);
