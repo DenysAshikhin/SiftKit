@@ -22,27 +22,26 @@ class RecordingSubscriber implements ChatOperationSubscriber {
   }
 }
 
-test('a late subscriber replays every frame in order and then receives live frames', () => {
+test('a late subscriber receives only new publications; history belongs to the journal', () => {
   const broadcast = new ChatOperationBroadcast();
   broadcast.writeEvent('thinking', { turn: 0, offset: 0, text: 'a' });
   broadcast.writeEvent('thinking', { turn: 0, offset: 1, text: 'b' });
   const subscriber = new RecordingSubscriber();
-  const replay = broadcast.attach(subscriber);
-  assert.deepEqual(
-    replay.frames.map((frame) => ChatStreamTextDeltaSchema.parse(JSON.parse(frame.data)).text),
-    ['a', 'b'],
-  );
-  assert.equal(replay.truncated, false);
+  broadcast.attach(subscriber);
   assert.equal(subscriber.frames.length, 0);
   broadcast.writeEvent('answer', { turn: 0, offset: 0, text: 'c' });
   assert.deepEqual(subscriber.frames.map((frame) => frame.event), ['answer']);
 });
 
-test('frames are serialized once and replayed byte-identically', () => {
+test('publications are serialized once and delivered identically to readers', () => {
   const broadcast = new ChatOperationBroadcast();
+  const first = new RecordingSubscriber();
+  const second = new RecordingSubscriber();
+  broadcast.attach(first);
+  broadcast.attach(second);
   broadcast.writeEvent('progress', { turn: 2, text: 'reading', elapsedMs: 40 });
-  const replay = broadcast.attach(new RecordingSubscriber());
-  assert.deepEqual(replay.frames[0], {
+  assert.deepEqual(first.frames, second.frames);
+  assert.deepEqual(first.frames[0], {
     event: 'progress',
     data: '{"turn":2,"text":"reading","elapsedMs":40}',
   });
@@ -72,13 +71,13 @@ test('closing notifies every subscriber exactly once and drops later writes', ()
   assert.equal(broadcast.isClosed(), true);
 });
 
-test('attaching to a closed broadcast replays the buffer and closes immediately', () => {
+test('attaching to a closed broadcast closes immediately without memory replay', () => {
   const broadcast = new ChatOperationBroadcast();
   broadcast.writeEvent('done', { ok: true });
   broadcast.close();
   const subscriber = new RecordingSubscriber();
-  const replay = broadcast.attach(subscriber);
-  assert.equal(replay.frames.length, 1);
+  broadcast.attach(subscriber);
+  assert.equal(subscriber.frames.length, 0);
   assert.equal(subscriber.closedCount, 1);
 });
 
@@ -93,26 +92,16 @@ test('every terminal frame name in the contract is remembered as terminal', () =
   }
 });
 
-test('the buffer drops the oldest frames past the byte ceiling and reports truncation', () => {
-  const broadcast = new ChatOperationBroadcast(100);
-  broadcast.writeEvent('answer', { turn: 0, offset: 0, text: 'first-frame-padding' });
-  broadcast.writeEvent('answer', { turn: 0, offset: 1, text: 'second-frame-padding' });
-  broadcast.writeEvent('answer', { turn: 0, offset: 2, text: 'third-frame-padding' });
-  const replay = broadcast.attach(new RecordingSubscriber());
-  assert.equal(replay.truncated, true);
-  assert.ok(replay.frames.length < 3);
-  assert.ok(replay.frames[replay.frames.length - 1]?.data.includes('third-frame-padding'));
-});
-
-test('replay enforces its byte ceiling even for one oversized multibyte frame and zero capacity', () => {
-  for (const limit of [0, 64]) {
-    const broadcast = new ChatOperationBroadcast(limit);
-    const live = new RecordingSubscriber();
-    broadcast.attach(live);
-    broadcast.writeEvent('answer', { turn: 1, offset: 0, text: '界'.repeat(30) });
-    assert.equal(live.frames.length, 1);
-    const replay = broadcast.attach(new RecordingSubscriber());
-    assert.equal(replay.frames.length, 0);
-    assert.equal(replay.truncated, true);
-  }
+test('oversized publications reach current readers and are never retained for late readers', () => {
+  const broadcast = new ChatOperationBroadcast();
+  const live = new RecordingSubscriber();
+  broadcast.attach(live);
+  const text = '界'.repeat(3 * 1024 * 1024);
+  broadcast.writeEvent('answer', { turn: 1, offset: 0, text });
+  const frame = live.frames[0];
+  assert.ok(frame);
+  assert.equal(ChatStreamTextDeltaSchema.parse(JSON.parse(frame.data)).text, text);
+  const late = new RecordingSubscriber();
+  broadcast.attach(late);
+  assert.equal(late.frames.length, 0);
 });

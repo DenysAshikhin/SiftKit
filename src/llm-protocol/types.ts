@@ -20,10 +20,8 @@ export const InferenceContentPartSchema = z.object({
 });
 export type InferenceContentPart = z.infer<typeof InferenceContentPartSchema>;
 
-export type InferenceReasoningPart = {
-  type?: string;
-  text?: string;
-};
+export const InferenceReasoningPartSchema = z.object({ type: z.string().optional(), text: z.string().optional() });
+export type InferenceReasoningPart = z.infer<typeof InferenceReasoningPartSchema>;
 
 export const InferenceToolCallSchema = z.object({
   id: z.string(),
@@ -35,13 +33,14 @@ export const InferenceToolCallSchema = z.object({
 });
 export type InferenceToolCall = z.infer<typeof InferenceToolCallSchema>;
 
-export type InferenceChatMessage = {
-  role: InferenceChatRole;
-  content: string | InferenceContentPart[] | null;
-  reasoning_content?: string | InferenceReasoningPart[] | null;
-  tool_call_id?: string;
-  tool_calls?: InferenceToolCall[];
-};
+export const InferenceChatMessageSchema = z.strictObject({
+  role: InferenceChatRoleSchema,
+  content: z.union([z.string(), z.array(InferenceContentPartSchema)]).nullable(),
+  reasoning_content: z.union([z.string(), z.array(InferenceReasoningPartSchema)]).nullable().optional(),
+  tool_call_id: z.string().optional(),
+  tool_calls: z.array(InferenceToolCallSchema).optional(),
+});
+export type InferenceChatMessage = z.infer<typeof InferenceChatMessageSchema>;
 
 export const InferenceToolDefinitionSchema = z.object({
   type: z.literal('function'),

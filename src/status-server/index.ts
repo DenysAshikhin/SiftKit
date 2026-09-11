@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatMessageQueue } from './chat-message-queue.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
-import { recoverInterruptedChatQueue } from './chat-queue-recovery.js';
+import { recoverInterruptedChatRuns, renewChatRuntimeOwner } from './chat-run-recovery.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 /**
  * Status server entry point: creates the server context, wires together the
@@ -57,6 +57,7 @@ import {
   publishStatus,
   clearIdleSummaryTimer,
   getIdleSummaryDatabase,
+  flushDeferredArtifacts,
   DEFAULT_IDLE_SUMMARY_DELAY_MS,
 } from './server-ops.js';
 import { StatusEngineService } from './engine-service.js';
@@ -278,6 +279,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,
     terminalMetadata: {
+      pendingDirectJobs: 0,
       queue: [],
       drainScheduled: false,
       drainRunning: false,
@@ -300,13 +302,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
-  recoverInterruptedChatQueue(getRuntimeRoot());
+  recoverInterruptedChatRuns(getRuntimeDatabase(getRuntimeDatabasePath()), chatRuntimeOwner.ownerEpoch);
   const chatOwnerHeartbeat = setInterval(() => {
-    try { chatRuntimeOwner.renew(); }
-    catch {
-      clearInterval(chatOwnerHeartbeat);
-      for (const operation of ctx.chatSessionOperations.listActive()) operation.abort?.();
-    }
+    if (!renewChatRuntimeOwner(chatRuntimeOwner, ctx.chatSessionOperations)) clearInterval(chatOwnerHeartbeat);
   }, CHAT_OWNER_HEARTBEAT_MS);
   chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
@@ -366,15 +364,23 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   );
 
   const handleRequest = createRequestHandler(ctx);
+  const pendingRequests = new Set<Promise<void>>();
 
   const server = Object.assign(
     createServer(async (req, res) => {
-      await handleRequest(req, res);
+      const pending = handleRequest(req, res);
+      pendingRequests.add(pending);
+      try { await pending; }
+      finally { pendingRequests.delete(pending); }
     }),
     {
-      waitForTerminalMetadataIdle: (timeoutMs = 10_000, minimumCompletedRequestCount?: number) => (
-        waitForTerminalMetadataIdle(ctx, timeoutMs, minimumCompletedRequestCount)
-      ),
+      async waitForRequestsIdle(): Promise<void> {
+        while (pendingRequests.size > 0) await Promise.allSettled([...pendingRequests]);
+      },
+      async waitForTerminalMetadataIdle(timeoutMs = 10_000, minimumCompletedRequestCount?: number): Promise<void> {
+        await waitForTerminalMetadataIdle(ctx, timeoutMs, minimumCompletedRequestCount);
+        await flushDeferredArtifacts(ctx);
+      },
       shutdownEngineForProcessExitSync: (): void => {
         ctx.engineBootstrap.inProgress = false;
         managedTabbyRuntime.stopForProcessExitSync();
@@ -416,10 +422,17 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   // Override close to ensure the managed engine shuts down first.
   const originalClose = server.close.bind(server);
   let closeRequested = false;
+  let backgroundShutdown = Promise.resolve();
   server.close = (callback?: (err?: Error) => void) => {
     const finalCallback = typeof callback === 'function' ? callback : undefined;
+    const afterClose = (error?: Error): void => {
+      void backgroundShutdown.then(() => finalCallback?.(error), failure => {
+        if (finalCallback) finalCallback(toError(failure));
+        else process.stderr.write(`[siftKitStatus] Shutdown failed: ${toError(failure).message}\n`);
+      });
+    };
     if (closeRequested) {
-      originalClose(finalCallback);
+      originalClose(afterClose);
       return server;
     }
     closeRequested = true;
@@ -427,7 +440,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     void presetRuntimeCoordinator.shutdown().catch((error) => {
       process.stderr.write(`[siftKitStatus] Failed to stop inference runtime: ${error instanceof Error ? error.message : String(error)}\n`);
     }).finally(() => {
-      originalClose(finalCallback);
+      originalClose(afterClose);
     });
     return server;
   };
@@ -484,8 +497,13 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       ctx.idleSummary.database.close();
       ctx.idleSummary.database = null;
     }
-    void ctx.inferenceRunFlushQueue.close();
-    closeRuntimeDatabase();
+    backgroundShutdown = (async () => {
+      await server.waitForRequestsIdle();
+      await server.waitForTerminalMetadataIdle();
+      clearIdleSummaryTimer(ctx);
+      await ctx.inferenceRunFlushQueue.close();
+      closeRuntimeDatabase();
+    })();
   });
   return server;
 }

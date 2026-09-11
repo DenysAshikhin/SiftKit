@@ -2,6 +2,18 @@ import { z } from 'zod';
 import { ModelRuntimePresetSchema } from './config.js';
 import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 
+/** How a run ended. These stay distinct: a stop is not a failure and a restart is not a completion. */
+export const ChatRunTerminalCauseSchema = z.enum([
+  'completed',
+  'user_stop',
+  'approval_timeout',
+  'provider_failure',
+  'execution_failure',
+  'storage_failure',
+  'server_restart',
+]);
+export type ChatRunTerminalCause = z.infer<typeof ChatRunTerminalCauseSchema>;
+
 export const ToolActivityKindSchema = z.enum([
   'read',
   'search',
@@ -159,10 +171,13 @@ const ChatMessageBaseSchema = z.object({
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: ToolCallStatusSchema.optional(),
   toolCallExecutionState: ChatToolExecutionStateSchema.optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
-  createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
+  createdAtUtc: z.string(), sourceRunId: z.string().nullable().optional(), sourceRequestId: z.string().nullable().optional(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
   imageMeta: z.array(ImageMetadataSchema).optional(),
   removedImageCount: z.number().int().nonnegative().optional(),
+  /** Derived from the owning journal run; never part of generated answer text. */
+  runTerminalCause: ChatRunTerminalCauseSchema.optional(),
+  runTerminalDetail: z.string().nullable().optional(),
 });
 
 const ChatToolCallFields = {
@@ -177,7 +192,7 @@ const ChatToolCallFields = {
 } as const;
 
 export const ChatAnswerCompletionSchema = ChatMessageBaseSchema.omit({
-  id: true, role: true, createdAtUtc: true, sourceRunId: true,
+  id: true, role: true, createdAtUtc: true, sourceRunId: true, sourceRequestId: true,
 }).partial().required({ content: true });
 export type ChatAnswerCompletion = z.infer<typeof ChatAnswerCompletionSchema>;
 
@@ -275,10 +290,6 @@ export const ContextUsageSchema = z.object({
 });
 export type ContextUsage = z.infer<typeof ContextUsageSchema>;
 
-export const ChatSessionResponseSchema = z.object({ session: ChatSessionSchema, contextUsage: ContextUsageSchema });
-export type ChatSessionResponse = z.infer<typeof ChatSessionResponseSchema>;
-export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSchema) });
-export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
 
 export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'repo-agent', 'condense']);
 export type ChatSessionOperationKind = z.infer<typeof ChatSessionOperationKindSchema>;
@@ -373,13 +384,16 @@ export const ChatQueueEnqueueRequestSchema = z.strictObject({
 export type ChatQueueEnqueueRequest = z.infer<typeof ChatQueueEnqueueRequestSchema>;
 
 /** Selected pending message only: full text for editing without enlarging status frames. */
+export const ChatQueueEditableMessageSchema = z.strictObject({
+  id: ChatQueuedMessageIdSchema,
+  content: z.string().max(CHAT_QUEUE_MAX_CONTENT_CHARS),
+  revision: z.number().int().positive(),
+  imageCount: z.number().int().nonnegative(),
+});
+export type ChatQueueEditableMessage = z.infer<typeof ChatQueueEditableMessageSchema>;
+
 export const ChatQueueMessageResponseSchema = z.strictObject({
-  message: z.strictObject({
-    id: ChatQueuedMessageIdSchema,
-    content: z.string().max(CHAT_QUEUE_MAX_CONTENT_CHARS),
-    revision: z.number().int().positive(),
-    imageCount: z.number().int().nonnegative(),
-  }),
+  message: ChatQueueEditableMessageSchema,
 });
 export type ChatQueueMessageResponse = z.infer<typeof ChatQueueMessageResponseSchema>;
 
@@ -455,6 +469,8 @@ export type ChatStreamQueuedUserMessage = z.infer<typeof ChatStreamQueuedUserMes
 
 /** Every SSE frame name a chat stream can carry. The wire contract, so no caller spells one out. */
 export const ChatStreamEventNameSchema = z.enum([
+  'snapshot',
+  'projection',
   'thinking',
   'narration',
   'answer',
@@ -467,7 +483,6 @@ export const ChatStreamEventNameSchema = z.enum([
   'approval',
   'approval_state',
   'approval_resolved',
-  'attached',
   'submitted',
   'queue',
   'queued_user_message',
@@ -520,16 +535,6 @@ export const ChatStreamApprovalSchema = z.object({
   reviewPayload: z.string().nullable(),
 });
 export type ChatStreamApproval = z.infer<typeof ChatStreamApprovalSchema>;
-
-/** The first frame an attaching client receives; identifies the run it just latched onto. */
-export const ChatOperationAttachedEventSchema = z.strictObject({
-  operationKind: ChatSessionOperationKindSchema,
-  operationId: ChatOperationIdSchema,
-  startedAtUtc: z.string().datetime(),
-  /** True when the replay buffer dropped older frames, so the replayed transcript starts mid-run. */
-  replayTruncated: z.boolean(),
-});
-export type ChatOperationAttachedEvent = z.infer<typeof ChatOperationAttachedEventSchema>;
 
 /**
  * The prompt that started the run. Persisted only when the turn ends, so without this frame a

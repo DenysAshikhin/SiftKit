@@ -30,6 +30,12 @@ import { ChatOperationPresetSelector } from '../src/status-server/chat-operation
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { admitImagesForPreset } from '../src/llm-protocol/preset-image-admission.js';
+import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
+import { ChatOperationBroadcast } from '../src/status-server/chat-operation-broadcast.js';
+import { CompositeRepoSearchProgressWriter } from '../src/status-server/operation-progress-writers.js';
+import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 
 class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
@@ -56,8 +62,15 @@ class StubStatusEngineService extends StatusEngineService {
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     assert.ok(request.evidenceRecorder, 'repository Web operations require their admitted recorder');
     this.request = request;
+    const transcript = new TranscriptManager({ systemPromptContent: 'system', historyMessages: request.history ?? [],
+      initialUserContent: request.prompt, initialUserImages: request.initialUserImages ?? [], liveImagePathKeys: new Set(), contextRecorder: request.evidenceRecorder });
+    const call = { toolCallId: 'native-1', displayToolCallId: 'tool-1', batchId: 'batch-1', turn: 1, indexInBatch: 0 };
     request.progressWriter?.write({ kind: 'context_warning', warningText: 'autoload skipped', elapsedMs: 0 });
-    request.progressWriter?.write({ kind: 'thinking', thinkingText: 'inspect files', turn: 1, maxTurns: 7 });
+    request.progressWriter?.write({ kind: 'thinking', thinkingText: this.result.scorecard.tasks[0]?.turnThinking?.[1] ?? '', turn: 1, maxTurns: 7 });
+    request.evidenceRecorder.recordToolProposed({ call, toolName: 'grep', arguments: { pattern: 'target', path: 'src' },
+      command: 'rg -n "target" src', activityKind: 'search', activitySubject: { kind: 'none' }, maxTurns: 7,
+      promptTokenCount: 1200, executionState: 'proposed' });
+    request.evidenceRecorder.recordToolStarted({ call, startedAtUtc: new Date().toISOString() });
     request.progressWriter?.write({
       kind: 'tool_start',
       toolCallId: 'tool-1',
@@ -70,6 +83,8 @@ class StubStatusEngineService extends StatusEngineService {
       thinkingTokenCount: 0,
       elapsedMs: 10,
     });
+    request.evidenceRecorder.recordToolResult({ call, executionState: 'completed', exitCode: 0, output: 'src/main.ts:4:target',
+      images: [], imageMeta: [], outputTokens: 8, outputTokensEstimated: false, promptTokenCount: 1200, finishedAtUtc: new Date().toISOString() });
     request.progressWriter?.write({
       kind: 'tool_result',
       toolCallId: 'tool-1',
@@ -89,6 +104,9 @@ class StubStatusEngineService extends StatusEngineService {
     if (this.failure) {
       throw this.failure;
     }
+    transcript.appendBatchExchange([{ action: { toolName: 'grep', args: { pattern: 'target', path: 'src' } }, toolCallId: 'native-1', toolContent: 'src/main.ts:4:target' }], '');
+    transcript.beginTurn(2);
+    transcript.pushAssistant({ role: 'assistant', content: this.result.scorecard.tasks[0]?.finalOutput ?? '' });
     return this.result;
   }
 }
@@ -184,7 +202,7 @@ function createRequest(
   runtimeRoot: string,
   engineService: StatusEngineService,
   progressWriter: ProgressWriter<RepoSearchProgressEvent>,
-): ChatRepoOperationRequest {
+): Omit<ChatRepoOperationRequest, 'recorder'> {
   const config = getDefaultConfigObject();
   const activeModelPreset = config.Server.ModelPresets.Presets.find(
     (preset) => preset.id === config.Server.ModelPresets.ActivePresetId,
@@ -198,7 +216,6 @@ function createRequest(
   return {
     runtimeRoot,
     session,
-    recorder: createTestChatRunRecorder(runtimeRoot, session, config),
     config,
     content: 'find target',
     images: [],
@@ -213,6 +230,16 @@ function createRequest(
     mockResponses: [{ content: "done" }],
     mockCommandResults: {},
   };
+}
+
+function admitRequest(request: Omit<ChatRepoOperationRequest, 'recorder'>, operation: 'plan' | 'repo-search'): ChatRepoOperationRequest {
+  const selected = new ChatOperationPresetSelector(request.config.Presets).select(request.session, operation);
+  const admitted = admitImagesForPreset(getActiveModelPreset(resolveChatSessionConfig(request.config, selected.session)), request.images);
+  const recorder = createTestChatRunRecorder(request.runtimeRoot, request.session, request.config, {
+    operationKind: operation, content: request.content, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata),
+  });
+  return { ...request, recorder, progressWriter: new CompositeRepoSearchProgressWriter(
+    new ChatStreamProgressWriter(new ChatOperationBroadcast(), null, true, recorder), request.progressWriter) };
 }
 
 test('chat repo operation runner executes and persists equivalent plan and repo-search data', async () => {
@@ -245,8 +272,8 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
         request.session.webSearchEnabled = true;
       }
       const result = operation === 'plan'
-        ? await runner.runPlan(request)
-        : await runner.runRepoSearch(request);
+        ? await runner.run('plan', admitRequest(request, 'plan'))
+        : await runner.run('repo-search', admitRequest(request, 'repo-search'));
       const engineRequest = engineService.request;
       if (!engineRequest) {
         throw new Error('Expected the engine request to be captured.');
@@ -327,9 +354,9 @@ test('chat repo operations inherit the chat conversation history without a syste
         chatFixtureMessage({ id: 'a1', kind: 'assistant_answer', content: 'post-compaction answer' }),
       ];
       if (operation === 'plan') {
-        await runner.runPlan(request);
+        await runner.run('plan', admitRequest(request, 'plan'));
       } else {
-        await runner.runRepoSearch(request);
+        await runner.run('repo-search', admitRequest(request, 'repo-search'));
       }
       const engineRequest = engineService.request;
       if (!engineRequest) {
@@ -360,7 +387,7 @@ test('chat repo operation runner propagates engine failures while retaining the 
   try {
     const runner = new ChatRepoOperationRunner();
     await assert.rejects(
-      runner.runPlan(createRequest(runtimeRoot, engineService, new RecordingProgressWriter())),
+      runner.run('plan', admitRequest(createRequest(runtimeRoot, engineService, new RecordingProgressWriter()), 'plan')),
       /engine failed/u,
     );
     const journal = new ChatJournalStore(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')));
@@ -383,7 +410,7 @@ test('chat repo operation runner keeps text-only GPU OOMs unlabelled as image en
     const request = createRequest(runtimeRoot, engineService, new RecordingProgressWriter());
 
     await assert.rejects(
-      () => new ChatRepoOperationRunner().runPlan(request),
+      () => new ChatRepoOperationRunner().run('plan', admitRequest(request, 'plan')),
       (error: Error) => {
         assert.equal(error.message, 'cudaMalloc failed: out of memory');
         assert.doesNotMatch(error.message, /encoding an image/u);
@@ -414,8 +441,8 @@ test('chat repo operation runner admits oversized images before engine and persi
       activePreset.VisionMaxImagePixels = 500_000;
       request.images = [oversizedUrl];
       const result = operation === 'plan'
-        ? await new ChatRepoOperationRunner().runPlan(request)
-        : await new ChatRepoOperationRunner().runRepoSearch(request);
+        ? await new ChatRepoOperationRunner().run('plan', admitRequest(request, 'plan'))
+        : await new ChatRepoOperationRunner().run('repo-search', admitRequest(request, 'repo-search'));
       const engineRequest = engineService.request;
       if (!engineRequest) {
         throw new Error('Expected the engine request to be captured.');
@@ -455,7 +482,7 @@ test('chat repo operation runner rejects repo-search images when the selected mo
     request.images = ['data:image/png;base64,AAAA'];
 
     await assert.rejects(
-      () => new ChatRepoOperationRunner().runRepoSearch(request),
+      async () => new ChatRepoOperationRunner().run('repo-search', admitRequest(request, 'repo-search')),
       /Vision is not enabled for this preset/u,
     );
     assert.equal(engineService.request, null);
@@ -482,7 +509,7 @@ test('chat repo operation runner rejects plan images when image retention is zer
     request.images = ['data:image/png;base64,AAAA'];
 
     await assert.rejects(
-      () => new ChatRepoOperationRunner().runPlan(request),
+      async () => new ChatRepoOperationRunner().run('plan', admitRequest(request, 'plan')),
       /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
     );
     assert.equal(engineService.request, null);
@@ -501,7 +528,7 @@ test('chat repo operation runner passes the session model-preset identity to the
     request.session.modelPreset = mockModelPreset({ id: 'session-snapshot', Model: 'session-model', NumCtx: 4096 });
     assert.notEqual(request.session.modelPresetId, request.config.Server.ModelPresets.ActivePresetId);
 
-    await new ChatRepoOperationRunner().runRepoSearch(request);
+    await new ChatRepoOperationRunner().run('repo-search', admitRequest(request, 'repo-search'));
 
     const engineRequest = engineService.request;
     if (!engineRequest) {

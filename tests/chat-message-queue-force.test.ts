@@ -16,6 +16,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { RepoSearchExecutionRequest } from '../src/repo-search/types.js';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { z } from '../src/lib/zod.js';
+import { readChatStreamViews } from './helpers/chat-stream-views.js';
 
 class FailAfterExecutionService extends HoldingCaptureEngineService {
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<never> {
@@ -79,7 +80,9 @@ for (const fail of [false, true]) test(`normal queued delivery retains safe chro
   const ids = [randomUUID(), randomUUID()];
   for (const [index, id] of ids.entries()) assert.equal((await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id, content: `steering ${index}`, images: [], options: { operationKind: 'repo-search' } }) })).statusCode, 200);
   const response = await original;
-  assert.deepEqual(response.events.filter((event) => event.event === 'queued_user_message').map((event) => event.payload?.id), ids);
+  const streamed = readChatStreamViews(response).at(-1)?.snapshot.messages;
+  assert.ok(streamed);
+  assert.deepEqual(streamed.filter(message => ids.some(id => id === message.id)).map(message => message.id), ids);
   const messages = asObjectArray(asObject((await requestJson(url)).body.session).messages);
   assert.deepEqual(messages.filter((row) => row.role === 'user').map((row) => row.content), ['original task', 'steering 0', 'steering 1']);
   const toolIndex = messages.findIndex((row) => row.kind === 'assistant_tool_call');
@@ -89,7 +92,9 @@ for (const fail of [false, true]) test(`normal queued delivery retains safe chro
   assert.equal(asObjectArray(state.messages).length, 0);
   if (fail) {
     assert.equal(state.paused, true);
-    assert.match(String(messages.at(-1)?.content), /provider failed after delivery/u);
+    assert.equal(messages.at(-1)?.runTerminalCause, 'execution_failure');
+    assert.match(String(messages.at(-1)?.runTerminalDetail), /provider failed after delivery/u);
+    assert.doesNotMatch(String(messages.at(-1)?.content), /provider failed after delivery/u);
   }
 });
 
@@ -184,7 +189,10 @@ for (const cancel of [false, true]) test(`Force now ${cancel ? 'is superseded by
   const forcing = requestJson(`${url}/queue/force`, { method: 'POST', body: JSON.stringify(force), timeoutMs: 15000 });
   await service.waitUntilUnwound();
   assert.equal(service.requests.length, 1);
-  assert.equal(asObjectArray(asObject((await requestJson(url)).body.session).messages).length, 0);
+  const committedPrefix = asObjectArray(asObject((await requestJson(url)).body.session).messages);
+  assert.deepEqual(committedPrefix.filter(message => message.role === 'user').map(message => message.content), ['original task']);
+  assert.ok(committedPrefix.some(message => String(message.toolCallOutput).includes('FULL_RESULT_SENTINEL')));
+  assert.equal(committedPrefix.some(message => ids.some(id => id === message.id)), false);
   assert.equal((await requestJson(`${url}/queue/force`, { method: 'POST', body: JSON.stringify(force) })).statusCode, 200);
   assert.equal((await requestJson(`${url}/queue/force`, { method: 'POST', body: JSON.stringify({ id: randomUUID(), operationId: randomUUID() }) })).statusCode, 409);
   if (cancel) {

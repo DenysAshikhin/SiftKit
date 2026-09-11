@@ -159,7 +159,7 @@ test('replaceToolResult finds the answer after inserted images shifted its index
     '',
   );
   // The engine inserts the read image directly after its own tool result, which moves call_b's.
-  transcript.insertUserAfter(5, 'image a', ['data:image/png;base64,AAAA'], 'a.png');
+  transcript.insertUserAfter(5, 'image a', ['data:image/png;base64,AAAA'], 'a.png', 'call_a');
 
   transcript.replaceToolResult('call_b', 'duplicate command requested x2');
 
@@ -240,14 +240,22 @@ test('render produces transcripts and tolerates malformed input', () => {
 });
 
 class SpyRecorder implements ChatContextRecorder {
+  readonly userMessageId = 'spy-user';
+  readonly messageIdPrefix = 'spy';
+  readonly historyRevision = 0;
+  resolveAssistantMessageId(turn: number): string { return `spy-narration-${turn}`; }
+  resolveToolMessageId(toolCallId: string): string | null { return `spy-tool-${toolCallId}`; }
+  readHistoryRevisions() { return []; }
   readonly initialized: ChatContextInit[] = [];
   readonly splices: ChatContextSplice[] = [];
+  constructor(private readonly refuseSplices = false) {}
 
   recordContextInitialized(init: ChatContextInit): void {
     this.initialized.push(init);
   }
 
   recordContextSpliced(splice: ChatContextSplice): void {
+    if (this.refuseSplices) throw new Error('journal write failed');
     this.splices.push(splice);
   }
 }
@@ -282,7 +290,7 @@ test('every named mutation is recorded as one splice against the revision it ame
     [{ action: { toolName: 'grep', args: { pattern: 'x' } }, toolCallId: 'call_1', toolContent: 'hit' }],
     'thinking',
   );
-  transcript.insertUserAfter(3, 'image', ['data:image/png;base64,AAAA'], 'a.png');
+  transcript.insertUserAfter(3, 'image', ['data:image/png;base64,AAAA'], 'a.png', 'call_1');
   transcript.replaceToolResult('call_1', 'duplicate command requested x2');
   transcript.upsertForcedFinishCountdown('countdown 1');
   transcript.pushAssistant({ role: 'assistant', content: 'final', reasoning_content: 'final think' });
@@ -306,14 +314,7 @@ test('every named mutation is recorded as one splice against the revision it ame
 });
 
 test('a mutation the recorder refuses never reaches the history the model reads', () => {
-  const recorder = new SpyRecorder();
-  const failing: ChatContextRecorder = {
-    recordContextInitialized: (init) => recorder.recordContextInitialized(init),
-    recordContextSpliced: () => {
-      throw new Error('journal write failed');
-    },
-  };
-  const transcript = makeRecordedTranscript(failing);
+  const transcript = makeRecordedTranscript(new SpyRecorder(true));
   const before = [...transcript.getMessages()];
 
   assert.throws(() => transcript.pushUser('never committed'), /journal write failed/u);

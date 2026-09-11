@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { chatSnapshotFrame } from './chat-snapshot-fixture.js';
 import assert from 'node:assert/strict';
 import type { ChatSessionResponse } from '../src/types';
 import { CHAT_SESSION_RESPONSE } from './fixtures.js';
@@ -16,13 +17,33 @@ test('queue status reconnects after EOF and abort cancels further connections', 
   };
   try {
     const stream = streamChatQueue('s1', controller.signal);
-    assert.equal((await stream.next()).value?.revision, 1);
+    assert.deepEqual((await stream.next()).value, { kind: 'queue', queue: { sessionId: 's1', revision: 1, paused: false, force: null, messages: [] } });
+    assert.deepEqual((await stream.next()).value, { kind: 'error', error: 'Queue connection ended; reconnecting.' });
     const second = await stream.next();
     assert.equal(second.done, false);
-    assert.equal(second.value?.revision, 2);
+    assert.deepEqual(second.value, { kind: 'queue', queue: { sessionId: 's1', revision: 2, paused: false, force: null, messages: [] } });
     controller.abort();
     assert.equal((await stream.next()).done, true);
     assert.equal(requests, 2);
+  } finally { controller.abort(); globalThis.fetch = originalFetch; }
+});
+
+test('queue transport failures are visible before reconnect and a later queue snapshot still arrives', async () => {
+  const { streamChatQueue } = await import('../src/api');
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return requests === 1 ? new Response('unavailable', { status: 500 })
+      : new Response(`event: queue\ndata: ${JSON.stringify({ sessionId: 's1', revision: 2, paused: false, force: null, messages: [] })}\n\n`);
+  };
+  try {
+    const stream = streamChatQueue('s1', controller.signal);
+    assert.deepEqual((await stream.next()).value, { kind: 'error', error: 'Queue connection failed (500).' });
+    assert.deepEqual((await stream.next()).value, { kind: 'queue', queue: { sessionId: 's1', revision: 2, paused: false, force: null, messages: [] } });
+    controller.abort();
+    assert.equal((await stream.next()).done, true);
   } finally { controller.abort(); globalThis.fetch = originalFetch; }
 });
 
@@ -298,9 +319,7 @@ test('attachChatOperationStream yields the attach preamble as parsed events', as
     requestedUrls.push(String(input));
     assert.equal(init?.method, 'GET');
     return new Response(
-      'event: attached\ndata: {"operationKind":"repo-agent",'
-        + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
-        + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n'
+      chatSnapshotFrame()
         + 'event: submitted\ndata: {"content":"do it","images":[]}\n\n'
         + 'event: answer\ndata: {"turn":0,"offset":0,"text":"hi"}\n\n'
         + 'event: approval_state\ndata: {"approval":null}\n\n'
@@ -313,7 +332,7 @@ test('attachChatOperationStream yields the attach preamble as parsed events', as
     for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
       kinds.push(event.kind);
     }
-    assert.deepEqual(kinds, ['attached', 'submitted', 'answer', 'approval-state', 'done']);
+    assert.deepEqual(kinds, ['snapshot', 'submitted', 'answer', 'approval-state', 'done']);
     assert.deepEqual(requestedUrls, ['/dashboard/chat/sessions/s1/operation/stream']);
   } finally {
     globalThis.fetch = originalFetch;
@@ -323,9 +342,7 @@ test('attachChatOperationStream yields the attach preamble as parsed events', as
 test('an ended frame completes an attached stream without a done payload', async () => {
   const { attachChatOperationStream } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
-    'event: attached\ndata: {"operationKind":"condense",'
-      + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
-      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n',
+    chatSnapshotFrame({ operationKind: 'condense' }),
     'event: approval_state\ndata: {"approval":null}\n\n',
     'event: ended\ndata: {}\n\n',
   ]);
@@ -334,7 +351,7 @@ test('an ended frame completes an attached stream without a done payload', async
     for await (const event of attachChatOperationStream('s1', new AbortController().signal)) {
       kinds.push(event.kind);
     }
-    assert.deepEqual(kinds, ['attached', 'approval-state', 'ended']);
+    assert.deepEqual(kinds, ['snapshot', 'approval-state', 'ended']);
   } finally {
     restoreFetch();
   }

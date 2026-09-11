@@ -41,6 +41,15 @@ test('running tool details use present tense and keep diagnostics collapsed', ()
   assert.doesNotMatch(markup, /web_fetch url=|PRIVATE_OUTPUT/u);
 });
 
+test('uncertain tools explain that effects need verification before retrying', () => {
+  const markup = renderToStaticMarkup(<ToolCallCard message={msg({ toolCallExecutionState: 'uncertain', toolCallStatus: 'stopped' })} />);
+  assert.match(markup, /may have run/u);
+  assert.match(markup, /Verify its effects before retrying/u);
+  const notStarted = renderToStaticMarkup(<ToolCallCard message={msg({ toolCallExecutionState: 'not_started', toolCallStatus: 'stopped' })} />);
+  assert.match(notStarted, /did not start/u);
+  assert.doesNotMatch(notStarted, /may have run/u);
+});
+
 test('completed tool details use completed wording without an active ellipsis', () => {
   const markup = renderToStaticMarkup(
     <ToolCallCard message={msg({

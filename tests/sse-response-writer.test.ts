@@ -6,6 +6,52 @@ import { SseFrameParser, type SseFrame } from '../src/lib/sse-frame-parser.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 
+test('large snapshot frames drain in bounded chunks without heartbeats corrupting their data', async () => {
+  const data = JSON.stringify({ text: '🧭'.repeat(3 * 1024 * 1024) });
+  let peakBufferedBytes = 0;
+  const server = http.createServer((req, res) => {
+    const writer = new SseResponseWriter(req, res, { heartbeatMs: 1 });
+    const sample = setInterval(() => { peakBufferedBytes = Math.max(peakBufferedBytes, res.writableLength); }, 1);
+    writer.open();
+    void writer.writeSerializedEventAndDrain('snapshot', data).then(() => writer.end()).finally(() => clearInterval(sample));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const frames = await collectFrames(`http://127.0.0.1:${getAddressInfo(server).port}`);
+    assert.deepEqual(frames, [{ event: 'snapshot', data }]);
+    assert.ok(peakBufferedBytes <= 256 * 1024, `Buffered ${peakBufferedBytes} bytes`);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('disconnect during a draining snapshot settles the writer', { timeout: 3000 }, async () => {
+  const writes: Promise<boolean>[] = [];
+  const server = http.createServer((req, res) => {
+    const writer = new SseResponseWriter(req, res);
+    writer.open();
+    writes.push(writer.writeSerializedEventAndDrain('snapshot', JSON.stringify({ text: 'x'.repeat(16 * 1024 * 1024) }))
+      .finally(() => writer.end()));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = http.request(`http://127.0.0.1:${getAddressInfo(server).port}/`, { agent: testHttpAgent }, response => {
+        response.once('data', () => { request.destroy(); resolve(); });
+      });
+      request.on('error', reject);
+      request.end();
+    });
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    const pending = writes[0];
+    assert.ok(pending);
+    assert.equal(await pending, false);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
 function collectFrames(baseUrl: string): Promise<SseFrame[]> {
   return new Promise((resolve, reject) => {
     const frames: SseFrame[] = [];

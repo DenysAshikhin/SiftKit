@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 
 import { getRuntimeDatabase, closeRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
-import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatToolMessageId } from '@siftkit/contracts';
+import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import {
   ChatToolResultsError,
   hydrateChatToolMessages,
@@ -364,7 +364,7 @@ test('a historical transcript never hydrates a live turn, whatever the row ids a
   }]));
   const canonical = readChatToolResults(database, 'req-legacy-hydrate');
   const messages = [PersistedChatTranscriptMessageSchema.parse({
-    id: buildChatToolMessageId(buildChatRunMessageIdPrefix('req-legacy-hydrate'), 'tc_0'),
+    id: buildChatMessageId(buildChatRunMessageIdPrefix('req-legacy-hydrate'), { kind: 'tool', toolCallId: 'tc_0' }),
     role: 'assistant',
     kind: 'assistant_tool_call',
     content: 'read path="a.ts"',
@@ -394,7 +394,7 @@ function runStartEvent(fields: TranscriptEvent = {}): TranscriptEvent {
 
 function doneToolRow(requestId: string, toolCallId: string, command: string, turn: number, snippet: string) {
   return PersistedChatTranscriptMessageSchema.parse({
-    id: buildChatToolMessageId(buildChatRunMessageIdPrefix(requestId), toolCallId),
+    id: buildChatMessageId(buildChatRunMessageIdPrefix(requestId), { kind: 'tool', toolCallId: toolCallId }),
     role: 'assistant',
     kind: 'assistant_tool_call',
     content: command,

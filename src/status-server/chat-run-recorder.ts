@@ -8,18 +8,7 @@ import type {
   ChatApprovalResolvedEvidence,
 } from '../repo-search/engine/chat-run-evidence.js';
 import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.js';
-import {
-  ChatAnswerCompletionSchema,
-  type ChatAnswerCompletion,
-  ChatRunEffectiveSettingsSchema,
-  type ApprovalMode,
-  type ChatRunEffectiveSettings,
-  type ChatRunTerminalCause,
-  type ChatSessionOperationKind,
-  type ChatRecoveryStatus,
-  type ChatStreamUsageEvent,
-  type ChatTranscriptEvent,
-} from '@siftkit/contracts';
+import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { getChatSessionPath, readChatSessionFromPath, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
 import type { SiftConfig } from '../config/types.js';
@@ -38,6 +27,9 @@ import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.js
 import { getScorecardTotal } from './chat.js';
 import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.js';
 import { buildRecoveredChatHistory } from './chat-context-replay.js';
+import { getGenerationTokensPerSecond, getPromptTokensPerSecond } from '../lib/telemetry-metrics.js';
+import { getAbortError, throwIfAborted } from '../lib/abort.js';
+import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
 export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
@@ -62,9 +54,37 @@ export type ChatRunEngineBinding = z.infer<typeof ChatRunEngineBindingSchema>;
 export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   private latestSequence: number;
   private readonly storageAbort = new AbortController();
+  private readonly userStop = new AbortController();
+  private readonly executionSignal = AbortSignal.any([this.storageAbort.signal, this.userStop.signal]);
   private progressWriter: ChatStreamProgressWriter | null = null;
+  private answerMessageId: string | undefined;
+  private readonly narratedTurns = new Set<number>();
+  private readonly toolMessageIds = new Map<string, string>();
+  private historyRevisionValue = 0;
+  private dispatched = false;
 
-  get abortSignal(): AbortSignal { return this.storageAbort.signal; }
+  get historyRevision(): number { return this.historyRevisionValue; }
+  readHistoryRevisions() { return readChatHistoryRevisions(getRuntimeDatabase(this.databasePath), this.sessionId); }
+  private deleted = false;
+
+  get sessionDeleted(): boolean { return this.deleted; }
+  markSessionDeleted(): void {
+    this.deleted = true;
+    this.storageAbort.abort(new Error('Chat session was deleted.'));
+  }
+
+  get abortSignal(): AbortSignal { return this.executionSignal; }
+  get stopRequested(): boolean { return this.userStop.signal.aborted; }
+  requestUserStop(): void {
+    if (this.stopRequested || this.terminalCause !== null) return;
+    try {
+      this.commit({ kind: 'stop_requested', requestedAtUtc: new Date().toISOString() });
+      this.userStop.abort(new Error('Stopped by user.'));
+    } catch (error) {
+      this.abortForStorageFailure(error instanceof Error ? error : new Error('Stop could not be recorded.'));
+      throw error;
+    }
+  }
   abortForStorageFailure(error: Error): void { this.storageAbort.abort(error); }
 
   attachProgress(writer: ChatStreamProgressWriter): void {
@@ -87,6 +107,30 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
    */
   private get store(): ChatJournalStore {
     return new ChatJournalStore(getRuntimeDatabase(this.databasePath));
+  }
+
+  get userMessageId(): string {
+    const first = this.store.readAfter(this.operationId, 0, 1)[0]?.event;
+    if (first?.kind !== 'run_started') throw new Error('Chat execution is missing its accepted submission.');
+    return first.userMessageId;
+  }
+
+  get messageIdPrefix(): string { return buildChatRunMessageIdPrefix(this.operationId); }
+
+  resolveAssistantMessageId(turn: number): string {
+    this.progressWriter?.flushPending();
+    return buildChatMessageId(this.messageIdPrefix, { kind: this.narratedTurns.has(turn) ? 'narration' : 'answer', turn: turn });
+  }
+
+  resolveToolMessageId(toolCallId: string): string | null { return this.toolMessageIds.get(toolCallId) ?? null; }
+
+  cancelUndispatchedSubmission(): void {
+    const run = this.store.readRun(this.operationId);
+    if (!run || run.requestId !== null || this.dispatched) {
+      throw new Error('Only an undispatched submission can be cancelled.');
+    }
+    this.commit({ kind: 'submission_cancelled', userMessageId: this.userMessageId, reason: 'client_disconnected_before_dispatch' });
+    this.finish({ terminalCause: 'user_stop', detail: 'Client disconnected before dispatch.', usage: null, recoveryStatus: 'ok' });
   }
 
   static begin(databasePath: string, input: ChatRunRecorderStart): ChatRunRecorder {
@@ -123,6 +167,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     const run = new ChatJournalStore(getRuntimeDatabase(databasePath)).readRun(operationId);
     if (!run || run.ownerEpoch !== ownerEpoch) throw new Error('Cannot resume a chat recorder owned by another epoch.');
     const recorder = new ChatRunRecorder(databasePath, operationId, ownerEpoch, run.sessionId);
+    for (const envelope of recorder.store.readAll(operationId)) recorder.observeCommitted(envelope.event);
     recorder.latestSequence = run.latestSequence;
     return recorder;
   }
@@ -130,10 +175,18 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   /** Names the engine identities this run is found by. Repeating the same binding is a no-op. */
   bindEngine(input: ChatRunEngineBinding): void {
     const binding = ChatRunEngineBindingSchema.parse(input);
-    const before = this.store.readRun(this.operationId);
-    this.store.bindEngine({ ...binding, operationId: this.operationId, ownerEpoch: this.ownerEpoch });
-    if (before?.requestId === binding.requestId) return;
-    this.commit({ kind: 'engine_bound', ...binding });
+    const sequence = this.latestSequence;
+    try {
+      getRuntimeDatabase(this.databasePath).transaction(() => {
+        const before = this.store.readRun(this.operationId);
+        this.store.bindEngine({ ...binding, operationId: this.operationId, ownerEpoch: this.ownerEpoch });
+        if (before?.requestId === binding.requestId) return;
+        this.commit({ kind: 'engine_bound', ...binding });
+      })();
+    } catch (error) {
+      this.latestSequence = sequence;
+      throw error;
+    }
   }
 
   recordContextInitialized(init: ChatContextInit): void {
@@ -143,6 +196,8 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   recordDisplay(event: ChatTranscriptEvent): void {
     this.commit({ kind: 'display', event });
   }
+
+  recordPresentation(event: ChatRunPresentationEvent): void { this.commit({ kind: 'presentation', event }); }
 
   get terminalCause(): ChatRunTerminalCause | null {
     const run = this.store.readRun(this.operationId);
@@ -164,22 +219,21 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   readHistory() {
     const history = buildRecoveredChatHistory(getRuntimeDatabase(this.databasePath), this.sessionId, this.operationId);
     if (history.status === 'recovery_failed') throw new Error('Chat context recovery failed; repair the journal before continuing.');
+    this.historyRevisionValue = this.readHistoryRevisions().length;
     return [...history.messages, ...history.interruptionNotices.map(content => ({ role: 'user' as const, content }))];
   }
 
   completeAnswer(answer: ChatAnswerCompletion, terminalCause: ChatRunTerminalCause = 'completed', detail: string | null = null): ChatSession {
     this.progressWriter?.flushPending();
-    this.recordDisplay({ kind: 'answer_completed', answer: ChatAnswerCompletionSchema.parse(answer) });
+    this.recordDisplay({ kind: 'answer_completed', answer: ChatAnswerCompletionSchema.parse(answer), messageId: this.answerMessageId });
     this.finish({ terminalCause, detail, usage: null, recoveryStatus: terminalCause === 'completed' ? 'ok' : 'recovery_needed' });
     return this.readSession();
   }
 
-  stop(terminalCause: ChatRunTerminalCause, marker: string): ChatSession {
+  stop(terminalCause: ChatRunTerminalCause, detail: string | null): ChatSession {
     this.progressWriter?.flushPending();
-    const previous = [...(this.readSession().messages ?? [])].reverse()
-      .find(message => message.sourceRunId === this.operationId && message.kind === 'assistant_answer');
-    return this.completeAnswer({ content: previous?.content ? `${previous.content}\n\n${marker}` : marker }, terminalCause,
-      terminalCause === 'user_stop' ? null : marker);
+    this.finish({ terminalCause, detail, usage: null, recoveryStatus: 'recovery_needed' });
+    return this.readSession();
   }
 
   claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, forceId?: string) {
@@ -213,6 +267,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   recordContextSpliced(splice: ChatContextSplice): void {
+    this.progressWriter?.flushPending();
     this.commit({ kind: 'context_spliced', ...splice });
     this.store.advanceContextRevision({
       operationId: this.operationId,
@@ -221,18 +276,20 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   }
 
   recordToolProposed(evidence: ChatToolProposedEvidence): void {
+    this.progressWriter?.flushPending();
     this.commit({ kind: 'tool_proposed', ...evidence });
   }
 
   recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void {
-    this.commit({ kind: 'approval_requested', ...evidence });
+    this.commit({ kind: 'approval_requested', ...evidence }, evidence.requestedAtUtc, `approval_requested:${evidence.approvalId}`);
   }
 
   recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void {
-    this.commit({ kind: 'approval_resolved', ...evidence });
+    this.commit({ kind: 'approval_resolved', ...evidence }, evidence.decidedAtUtc, `approval_resolved:${evidence.approvalId}`);
   }
 
   recordToolStarted(evidence: ChatToolStartedEvidence): void {
+    throwIfAborted(this.abortSignal);
     this.commit({ kind: 'tool_started', ...evidence });
   }
 
@@ -254,7 +311,12 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     usage: ChatStreamUsageEvent | null;
     recoveryStatus: ChatRecoveryStatus;
   }): void {
-    this.progressWriter?.flushPending();
+    if (this.deleted) throw new Error('Chat session deletion owns this operation; no terminal write is permitted.');
+    if (this.storageAbort.signal.aborted) {
+      outcome = { ...outcome, terminalCause: 'storage_failure', detail: getAbortError(this.storageAbort.signal).message, recoveryStatus: 'recovery_needed' };
+    } else {
+      this.progressWriter?.flushPending();
+    }
     const finishedAtUtc = new Date().toISOString();
     const before = this.latestSequence;
     try {
@@ -275,16 +337,36 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     }
   }
 
-  private commit(event: ChatJournalEvent, occurredAtUtc = new Date().toISOString()): void {
+  private observeCommitted(event: ChatJournalEvent): void {
+    if (event.kind === 'run_started') this.historyRevisionValue = event.retainedHistoryRevision;
+    if (event.kind === 'context_initialized') {
+      this.dispatched = true;
+      this.answerMessageId = event.messages.slice(event.turnBoundary).reverse()
+        .find(message => message.role === 'assistant' && !message.tool_calls)?.chatMessageId;
+    }
+    if (event.kind === 'context_spliced') {
+      const assistant = [...event.inserted].reverse().find(message => message.role === 'assistant' && !message.tool_calls);
+      if (assistant) this.answerMessageId = assistant.chatMessageId;
+    }
+    if (event.kind === 'display' && event.event.kind === 'narration') this.narratedTurns.add(event.event.delta.turn);
+    if (event.kind === 'tool_proposed') this.toolMessageIds.set(event.call.toolCallId,
+      buildChatMessageId(this.messageIdPrefix, { kind: 'tool', toolCallId: event.call.displayToolCallId }));
+    if (event.kind === 'stop_requested') this.userStop.abort(new Error('Stopped by user.'));
+  }
+
+  private commit(event: ChatJournalEvent, occurredAtUtc = new Date().toISOString(), eventId = `${this.operationId}:${String(this.latestSequence + 1)}`): void {
+    if (this.deleted) throw new Error('Chat session was deleted; its execution cannot write further evidence.');
+    if (event.kind !== 'run_finished') throwIfAborted(this.storageAbort.signal);
     const envelope = this.store.append({
       operationId: this.operationId,
       ownerEpoch: this.ownerEpoch,
       expectedSequence: this.latestSequence,
-      eventId: `${this.operationId}:${String(this.latestSequence + 1)}`,
+      eventId,
       occurredAtUtc,
       event,
     });
-    this.latestSequence = envelope.sequence;
+    this.latestSequence = Math.max(this.latestSequence, envelope.sequence);
+    this.observeCommitted(envelope.event);
   }
 }
 
@@ -322,6 +404,8 @@ export function buildChatAnswerCompletion(result: RepoSearchExecutionResult, con
     promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
     promptEvalDurationMs: getScorecardTotal(result.scorecard, 'promptEvalDurationMs'),
     generationDurationMs: getScorecardTotal(result.scorecard, 'generationDurationMs'),
+    promptTokensPerSecond: getPromptTokensPerSecond(getScorecardTotal(result.scorecard, 'promptEvalTokens'), getScorecardTotal(result.scorecard, 'promptEvalDurationMs')),
+    generationTokensPerSecond: getGenerationTokensPerSecond(totals?.outputTokens ?? 0, totals?.thinkingTokens ?? 0, getScorecardTotal(result.scorecard, 'generationDurationMs')),
     speculativeAcceptedTokens: getScorecardTotal(result.scorecard, 'speculativeAcceptedTokens'),
     speculativeGeneratedTokens: getScorecardTotal(result.scorecard, 'speculativeGeneratedTokens'),
   });

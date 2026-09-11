@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { buildChatRunMessageIdPrefix, buildChatToolMessageId, type RunOperationType } from '@siftkit/contracts';
+import { buildChatRunMessageIdPrefix, buildChatMessageId, type RunOperationType } from '@siftkit/contracts';
 
 import { closeRuntimeDatabase, getRuntimeDatabase, type RuntimeDatabase } from '../src/state/runtime-db.js';
 import { migrateRepoAgentHistory, repairRepoAgentHistory } from '../src/status-server/repo-agent-history-repair.js';
@@ -75,7 +75,7 @@ function insertIdentifiedRow(database: RuntimeDatabase, runId: string, toolCallI
   output: string;
   exitCode?: number;
 }): string {
-  const id = buildChatToolMessageId(buildChatRunMessageIdPrefix(runId), toolCallId);
+  const id = buildChatMessageId(buildChatRunMessageIdPrefix(runId), { kind: 'tool', toolCallId: toolCallId });
   insertToolRow(database, { id, sourceRunId: runId, command: options.command, turn: options.turn, exitCode: options.exitCode ?? 0, output: options.output });
   return id;
 }
@@ -333,11 +333,11 @@ test('stopped, compacted and run-less rows are never selected for repair', () =>
   const database = openDatabase();
   const prefix = buildChatRunMessageIdPrefix(RUN_ID);
   insertToolRow(database, {
-    id: buildChatToolMessageId(prefix, 'tc_0'), sourceRunId: RUN_ID, command: 'run command="held"',
+    id: buildChatMessageId(prefix, { kind: 'tool', toolCallId: 'tc_0' }), sourceRunId: RUN_ID, command: 'run command="held"',
     turn: 1, exitCode: null, output: 'partial', status: 'stopped',
   });
   insertToolRow(database, {
-    id: buildChatToolMessageId(prefix, 'tc_1'), sourceRunId: RUN_ID, command: 'read path="summarised.ts"',
+    id: buildChatMessageId(prefix, { kind: 'tool', toolCallId: 'tc_1' }), sourceRunId: RUN_ID, command: 'read path="summarised.ts"',
     turn: 1, exitCode: 0, output: 'summarised away', compressed: true,
   });
   insertToolRow(database, { id: 'ordinary-chat-tool', sourceRunId: null, command: 'read path="ordinary.ts"', turn: 1, exitCode: 0, output: 'ordinary chat output' });
@@ -345,8 +345,8 @@ test('stopped, compacted and run-less rows are never selected for repair', () =>
 
   const report = repairRepoAgentHistory(database, SESSION_ID, 'apply');
   assert.deepEqual(report.rows, []);
-  assert.equal(readStoredOutput(database, buildChatToolMessageId(prefix, 'tc_0')), 'partial');
-  assert.equal(readStoredOutput(database, buildChatToolMessageId(prefix, 'tc_1')), 'summarised away');
+  assert.equal(readStoredOutput(database, buildChatMessageId(prefix, { kind: 'tool', toolCallId: 'tc_0' })), 'partial');
+  assert.equal(readStoredOutput(database, buildChatMessageId(prefix, { kind: 'tool', toolCallId: 'tc_1' })), 'summarised away');
   assert.equal(readStoredOutput(database, 'ordinary-chat-tool'), 'ordinary chat output');
 });
 

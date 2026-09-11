@@ -35,7 +35,10 @@ export function rebuildChatMessagesTable(database: RuntimeDatabase): void {
     throw new Error('Cannot rebuild chat_messages: the table is missing from this database.');
   }
   const canonical = new Set<string>(CHAT_MESSAGES_COLUMNS);
-  const unexpected = existing.filter((column) => !canonical.has(column));
+  // The v55 rename added max_turns without removing tool_call_limit on existing databases.
+  // Resolve that documented historical column during migration, never in runtime reads.
+  const hasHistoricalLimit = existing.includes('tool_call_limit');
+  const unexpected = existing.filter((column) => !canonical.has(column) && column !== 'tool_call_limit');
   const added = new Set<string>(CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY);
   const missing = CHAT_MESSAGES_COLUMNS.filter(
     (column) => !existing.includes(column) && !added.has(column),
@@ -48,12 +51,24 @@ export function rebuildChatMessagesTable(database: RuntimeDatabase): void {
     );
   }
 
+  if (hasHistoricalLimit) {
+    const conflict = database.prepare(`SELECT id FROM chat_messages
+      WHERE tool_call_limit IS NOT NULL AND tool_call_max_turns IS NOT NULL
+      AND tool_call_limit != tool_call_max_turns LIMIT 1`).get();
+    if (conflict !== undefined) {
+      throw new Error('Cannot rebuild chat_messages: conflicting historical and current tool limits.');
+    }
+  }
+
   // Columns this upgrade adds have no source to copy from; every other column is copied by name.
-  const columnList = CHAT_MESSAGES_COLUMNS.filter((column) => existing.includes(column)).join(', ');
+  const copiedColumns = CHAT_MESSAGES_COLUMNS.filter((column) => existing.includes(column));
+  const columnList = copiedColumns.join(', ');
+  const sourceList = copiedColumns.map(column => column === 'tool_call_max_turns' && hasHistoricalLimit
+    ? 'COALESCE(tool_call_max_turns, tool_call_limit)' : column).join(', ');
   database.exec(`ALTER TABLE chat_messages RENAME TO ${LEGACY_CHAT_MESSAGES_TABLE};`);
   database.exec(CHAT_MESSAGES_SCHEMA_SQL);
   database.exec(
-    `INSERT INTO chat_messages (${columnList}) SELECT ${columnList} FROM ${LEGACY_CHAT_MESSAGES_TABLE};`,
+    `INSERT INTO chat_messages (${columnList}) SELECT ${sourceList} FROM ${LEGACY_CHAT_MESSAGES_TABLE};`,
   );
   database.exec(`DROP TABLE ${LEGACY_CHAT_MESSAGES_TABLE};`);
 

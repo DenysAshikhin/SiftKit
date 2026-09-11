@@ -116,6 +116,24 @@ test('guard fails a process that contacts the default status port despite a swal
   assert.match(result.stderr, new RegExp(`live SiftKit status server on port ${SIFT_DEFAULT_STATUS_PORT}`, 'u'));
 });
 
+test('runtime database guard blocks a swallowed default-path open before creating a file', () => {
+  const databaseUrl = pathToFileURL(path.join(repoRoot, 'dist', 'state', 'runtime-db.js')).href;
+  const result = runGuardedChild([
+    `import { getRuntimeDatabase, closeRuntimeDatabase } from ${JSON.stringify(databaseUrl)};`,
+    "import { resolve } from 'node:path';",
+    "import { existsSync } from 'node:fs';",
+    "const target = resolve('protected-runtime.sqlite');",
+    'process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = target;',
+    'try { getRuntimeDatabase(target); } catch {}',
+    'closeRuntimeDatabase();',
+    'if (existsSync(target)) process.stderr.write("PROTECTED_FILE_CREATED");',
+  ].join('\n'));
+  assertChildFinished(result);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /protected runtime database/iu);
+  assert.doesNotMatch(result.stderr, /PROTECTED_FILE_CREATED/u);
+});
+
 test('guard fails a process that contacts the default inference port', () => {
   const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_ENGINE_PORT, 'http'), { preloadGuard: true });
 

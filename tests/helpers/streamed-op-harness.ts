@@ -93,10 +93,14 @@ export async function startHarness(
     // fires while one is held. Awaiting it first would hang teardown on exactly the stuck
     // stream teardown exists to clean up.
     server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await server.waitForRequestsIdle();
     // Deferred run-log writes land after the operation resolves; let them finish before the
     // database closes, or the late write reopens runtime.sqlite inside the temp root.
     await awaitRepoSearchRunPersistence();
+    // close() waits for HTTP requests, but their deferred metadata can still be queued.
+    // Drain it before restoring cwd so no callback resolves a different runtime database.
+    await server.waitForTerminalMetadataIdle();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   };
   let closed = false;
   const harness: StreamedOperationHarness = {

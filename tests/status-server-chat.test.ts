@@ -16,7 +16,7 @@ import {
   resolveChatSessionConfig,
   sessionUsesActiveModelPreset,
 } from '../src/status-server/chat.js';
-import { buildChatSessionResponse } from '../src/status-server/routes/chat.js';
+import { buildChatSessionResponse } from '../src/status-server/chat-session-response.js';
 import {
   getActiveModelPreset,
   getConfiguredEngineNumCtx,
@@ -748,6 +748,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
 test('buildContextUsage sums stored session token fields instead of provider prompt telemetry', () => {
   const session: ChatSession = {
     id: 'session-usage',
+    title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 75000 }),
     planRepoRoot: 'C:/repo',
@@ -962,7 +963,7 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
     ],
   });
   assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
-    { role: 'user', content: 'What did the page say?' },
+    { role: 'user', chatMessageId: 'u1', content: 'What did the page say?' },
     {
       role: 'assistant',
       content: '',
@@ -977,10 +978,11 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
     },
     {
       role: 'tool',
+      chatMessageId: 'tool-1',
       tool_call_id: 'chat_tool_tool-1',
       content: 'Title: Example Page\nThe page says iron bars are used in quests.',
     },
-    { role: 'assistant', content: 'It says iron bars are used in quests.' },
+    { role: 'assistant', chatMessageId: 'a1', content: 'It says iron bars are used in quests.' },
   ]);
 });
 
@@ -1005,8 +1007,8 @@ test('buildChatHistoryMessages excludes stopped-stream display rows and stopped 
   });
 
   assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
-    { role: 'user', content: 'Inspect it.' },
-    { role: 'assistant', content: 'Partial\n\n*Stopped by user.*' },
+    { role: 'user', chatMessageId: 'u1', content: 'Inspect it.' },
+    { role: 'assistant', chatMessageId: 'a1', content: 'Partial\n\n*Stopped by user.*' },
   ]);
 });
 
@@ -1038,9 +1040,9 @@ test('buildChatHistoryMessages composes the removal notice from the stored count
   });
 
   assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
-    { role: 'user', content: 'compare these\n[2 images removed]' },
-    { role: 'user', content: '[1 image removed]' },
-    { role: 'user', content: 'no attachments here' },
+    { role: 'user', chatMessageId: 'u1', content: 'compare these\n[2 images removed]' },
+    { role: 'user', chatMessageId: 'u2', content: '[1 image removed]' },
+    { role: 'user', chatMessageId: 'u3', content: 'no attachments here' },
   ]);
 });
 
@@ -1063,6 +1065,7 @@ test('buildChatHistoryMessages carries the removal notice into a tool image repl
   assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
     {
       role: 'user',
+      chatMessageId: 't1',
       content: [
         { type: 'text', text: 'read output\n[1 image removed]' },
         { type: 'image_url', image_url: { url: imageUrl } },
@@ -1101,6 +1104,7 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
     },
     {
       role: 'tool',
+      chatMessageId: 'tool-2',
       tool_call_id: 'chat_tool_tool-2',
       content: 'src/status-server/chat.ts:181:export function buildChatHistoryMessages',
     },
@@ -1110,6 +1114,7 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
 test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
   const session: ChatSession = {
     id: 'session-replay-usage',
+    title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
     modelPresetId: 'historical-preset',
     modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 250_000 }),
     planRepoRoot: 'C:/repo',
@@ -1237,12 +1242,13 @@ test('buildChatHistoryMessages replays retained thinking when preserve thinking 
   });
 
   assert.deepEqual(buildChatHistoryMessages(createConfig(), session), [
-    { role: 'user', content: 'What did the page say?' },
-    { role: 'assistant', content: 'It says iron bars are used in quests.', reasoning_content: 'private reasoning' },
+    { role: 'user', chatMessageId: 'u1', content: 'What did the page say?' },
+    { role: 'assistant', chatMessageId: 'a1', content: 'It says iron bars are used in quests.', reasoning_content: 'private reasoning', thinkingMessageId: 'think-1' },
     {
       role: 'assistant',
       content: '',
       reasoning_content: 'tool reasoning',
+      thinkingMessageId: 'think-2',
       tool_calls: [{
         id: 'chat_tool_tool-1',
         type: 'function',
@@ -1254,6 +1260,7 @@ test('buildChatHistoryMessages replays retained thinking when preserve thinking 
     },
     {
       role: 'tool',
+      chatMessageId: 'tool-1',
       tool_call_id: 'chat_tool_tool-1',
       content: 'Title: Example Page',
     },
@@ -1286,7 +1293,7 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
   });
 
   assert.deepEqual(buildChatHistoryMessages(config, session), [
-    { role: 'assistant', content: 'It says iron bars are used in quests.' },
+    { role: 'assistant', chatMessageId: 'a1', content: 'It says iron bars are used in quests.' },
   ]);
 });
 

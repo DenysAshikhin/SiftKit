@@ -1,5 +1,6 @@
 import {
   buildLiveUserMessage,
+  LIVE_USER_MESSAGE_ID,
   upsertLiveMessageInto,
 } from './chat-live-messages';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
@@ -16,6 +17,9 @@ import {
   type ChatTranscriptEvent,
   type ChatMessageQueueState,
   type ChatStreamQueuedUserMessage,
+  type ChatOperationSnapshot,
+  type ChatRecoveryStatus,
+  type ChatRecoveryReport,
 } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 import type { RepoAgentDecision } from '../api';
@@ -33,6 +37,8 @@ export type ResolvedRepoAgentApproval = {
 };
 
 export type ChatSessionRuntime = {
+  journalSnapshot: ChatOperationSnapshot | null;
+  recoveryStatus: ChatRecoveryStatus;
   tokenTurns: ReadonlyMap<number, LiveTokenTurn>;
   queue: ChatMessageQueueState | null;
   sessionId: string;
@@ -63,6 +69,8 @@ type LiveTokenTurn = {
 };
 
 export type ChatSessionRuntimeTransition =
+  | { kind: 'recovery'; sessionId: string; reports: ChatRecoveryReport[] }
+  | { kind: 'snapshot'; sessionId: string; snapshot: ChatOperationSnapshot }
   | { kind: 'queue'; sessionId: string; queue: ChatMessageQueueState }
   | { kind: 'queued-user'; sessionId: string; message: ChatStreamQueuedUserMessage }
   | { kind: 'queued-submit'; sessionId: string; content: string; images: PendingImage[] }
@@ -83,7 +91,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
-  | { kind: 'failure'; sessionId: string; message: string }
+  | { kind: 'failure'; sessionId: string; message: string; issue?: import('@siftkit/contracts').ChatRecoveryIssue }
   | { kind: 'control-error'; sessionId: string; message: ChatSessionRuntime['error'] }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'usage'; sessionId: string; usage: ChatStreamUsageEvent }
@@ -97,6 +105,8 @@ export type ChatSessionRuntimeTransition =
 function createChatSessionRuntime(sessionId: string, planRepoRootInput: string): ChatSessionRuntime {
   return {
     sessionId,
+    journalSnapshot: null,
+    recoveryStatus: 'ok',
     queue: null,
     activity: { kind: 'idle' },
     liveMessages: [],
@@ -157,6 +167,31 @@ function applyTransition(
   transition: ChatSessionRuntimeTransition,
 ): ChatSessionRuntime {
   switch (transition.kind) {
+    case 'recovery': {
+      if (transition.reports.some(report => report.sessionId !== runtime.sessionId)) throw new Error('Chat recovery report session mismatch.');
+      const recoveryStatus = transition.reports.some(report => report.status === 'recovery_failed') ? 'recovery_failed'
+        : transition.reports.some(report => report.status === 'recovery_needed') ? 'recovery_needed' : 'ok';
+      return { ...runtime, recoveryStatus };
+    }
+    case 'snapshot': {
+      const snapshot = transition.snapshot;
+      if (snapshot.sessionId !== runtime.sessionId || !snapshot.complete) throw new Error('Invalid chat runtime snapshot.');
+      const previous = runtime.journalSnapshot;
+      if (previous && (snapshot.runOrder < previous.runOrder
+        || snapshot.operationId === previous.operationId && snapshot.cursor.sequence < previous.cursor.sequence)) return runtime;
+      if (runtime.activity.kind === 'local' && previous && previous.controlOperationId !== runtime.activity.operationId
+        && snapshot.operationId === previous.operationId) return runtime;
+      const activity: ChatSessionActivity = snapshot.terminalCause !== null ? { kind: 'idle' }
+        : snapshot.controlOperationId !== null ? { kind: 'local', operationKind: snapshot.operationKind, operationId: snapshot.controlOperationId }
+          : { kind: 'remote', operationKind: snapshot.operationKind };
+      return { ...runtime, journalSnapshot: snapshot, recoveryStatus: snapshot.status, activity, liveMessages: snapshot.messages,
+        awaitingResponse: false, submittedInput: null,
+        pendingApproval: snapshot.approval?.actionable ? snapshot.approval : null,
+        tokenTurns: new Map(snapshot.tokenTurns.map(turn => [turn.turn, { prompt: turn.prompt, usage: turn.usage }])),
+        liveTokenBase: [...snapshot.tokenTurns].reverse().find(turn => turn.prompt !== null)?.prompt ?? null,
+        streamedCharsSinceBase: snapshot.streamedCharsSinceBase, warnings: snapshot.warnings,
+        error: snapshot.status === 'recovery_failed' ? 'Chat recovery requires repair before continuing.' : null };
+    }
     case 'queue':
       if (transition.queue.sessionId !== runtime.sessionId) throw new Error('Queue session mismatch.');
       return runtime.queue && runtime.queue.revision > transition.queue.revision
@@ -215,7 +250,8 @@ function applyTransition(
     // This client is no longer reading a stream for the session: the operation ended without a
     // payload, or the reader was aborted. Either way the live view it built is no longer current.
     case 'detach':
-      return { ...runtime, ...clearedLiveTurn(), activity: { kind: 'idle' }, error: null };
+      return { ...runtime, liveMessages: runtime.liveMessages.filter(message => message.id !== LIVE_USER_MESSAGE_ID),
+        activity: { kind: 'idle' }, awaitingResponse: false, pendingApproval: null, error: null };
     case 'remote-begin':
       return { ...runtime, activity: { kind: 'remote', operationKind: transition.operationKind } };
     case 'remote-clear':
@@ -260,6 +296,7 @@ function applyTransition(
       return {
         ...runtime,
         ...clearedLiveTurn(),
+        journalSnapshot: null,
         activity: { kind: 'idle' },
         contextUsage: transition.response.contextUsage,
         error: null,
@@ -267,7 +304,11 @@ function applyTransition(
     case 'failure':
       return {
         ...runtime,
-        ...clearedLiveTurn(),
+        recoveryStatus: transition.issue ? 'recovery_failed' : runtime.recoveryStatus,
+        liveMessages: runtime.liveMessages.filter(message => message.id !== LIVE_USER_MESSAGE_ID),
+        submittedInput: null,
+        awaitingResponse: false,
+        pendingApproval: null,
         activity: { kind: 'idle' },
         error: transition.message,
         draft: runtime.draft || runtime.submittedInput?.content || '',

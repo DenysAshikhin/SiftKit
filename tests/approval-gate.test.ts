@@ -75,6 +75,17 @@ test('unknown or already-resolved approvalId returns false', async () => {
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), false);
 });
 
+test('a decision at the persisted deadline is rejected even before the timeout callback runs', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-10T00:00:00.000Z') });
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;
+  const pending = gate.request({ turn: 1, toolName: 'write', command: 'write file', reviewPayload: null });
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS);
+  const accepted = gate.submit(writer.approvals[0].approvalId, { kind: 'approve' });
+  assert.equal(accepted, false);
+  assert.deepEqual(await pending, { kind: 'abort', reason: buildApprovalTimeoutMessage(DEFAULT_DECISION_TIMEOUT_MS) });
+});
+
 test('pending approval remains live until an explicit decision', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGateHarness(writer, { mode: 'interactive' }).gate;

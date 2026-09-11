@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -10,7 +11,7 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
-import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatToolMessageId } from '@siftkit/contracts';
+import { PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import {
   appendChatMessagesWithUsage,
   appendChatStoppedTurn,
@@ -714,14 +715,14 @@ test('manual condense reports the summarizer retry through the logger it is give
     const logged: Array<Record<string, JsonSerializable>> = [];
 
     const updated = await condenseChatSession(
-      runtimeRoot,
+      createTestChatRunRecorder(runtimeRoot, session, mockOfflineSiftConfig(), { operationKind: 'condense', content: '', images: [], imageMeta: [] }),
       mockOfflineSiftConfig(),
       session,
       [{ content: '' }, { content: 'RECOVERED SUMMARY' }],
       { path: 'memory', write: (event) => { logged.push(event); } },
     );
 
-    const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');
+    const summaryRow = updated.messages?.find((message) => message.kind === 'compaction_summary');
     assert.equal(summaryRow?.content, 'RECOVERED SUMMARY');
     const retry = logged.find((event) => event.kind === 'turn_compaction_summary_retry');
     assert.ok(retry);
@@ -846,7 +847,7 @@ test('stopped transcript segments round-trip through the chat database', () => {
 
 function completedToolRow(requestId: string, toolCallId: string, options: { output?: string; snippet: string; createdAtUtc: string }): ChatMessage {
   return PersistedChatTranscriptMessageSchema.parse({
-    id: buildChatToolMessageId(buildChatRunMessageIdPrefix(requestId), toolCallId),
+    id: buildChatMessageId(buildChatRunMessageIdPrefix(requestId), { kind: 'tool', toolCallId: toolCallId }),
     role: 'assistant', kind: 'assistant_tool_call', content: 'read path="doc.txt"',
     inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
     toolCallCommand: 'read path="doc.txt"', toolCallActivityKind: 'read',

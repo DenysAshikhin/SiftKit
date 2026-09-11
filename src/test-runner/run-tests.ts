@@ -51,6 +51,7 @@ const child = spawn(process.execPath, ['--test', ...testArgs], {
     // from the same constants src uses so there is nothing to keep in sync.
     SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
     SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
+    SIFTKIT_GUARD_RUNTIME_DATABASE: path.resolve(repoRoot, '.siftkit', 'runtime.sqlite'),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

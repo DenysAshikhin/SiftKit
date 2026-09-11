@@ -1,3 +1,4 @@
+import { toError } from '../lib/errors.js';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
@@ -10,7 +11,7 @@ import type { ChatQueuedMessage } from '../state/chat-message-queue.js';
 import { getRuntimeRoot } from './paths.js';
 import type { ServerContext } from './server-types.js';
 import type { ChatSessionOperation } from './chat-session-operation-registry.js';
-import { StreamChatMessageEndpoint, StreamChatPlanEndpoint, StreamRepoSearchEndpoint, admitSelectedChatImages } from './routes/chat.js';
+import { StreamChatMessageEndpoint, StreamChatRepoOperationEndpoint, admitSelectedChatImages } from './routes/chat.js';
 import { readConfig } from './config-store.js';
 import { StreamChatRepoAgentEndpoint } from './routes/chat-repo-agent.js';
 import { awaitRepoSearchRunPersistence } from '../repo-search/execute.js';
@@ -26,7 +27,7 @@ export class ChatQueueSuccessorRunner {
     const intent = this.ctx.chatMessageQueue.store.beginForce(sessionId, { id: randomUUID(), operationId: null }, randomUUID());
     if (intent.kind !== 'started') return;
     try { await this.start(sessionId, intent.force); }
-    catch (error) { this.fail(sessionId, intent.force, error instanceof Error ? error.message : String(error)); }
+    catch (error) { this.fail(sessionId, intent.force, toError(error).message); }
   }
 
   private fail(sessionId: string, force: ChatMessageQueueForceState, error: string): void {
@@ -52,7 +53,7 @@ export class ChatQueueSuccessorRunner {
     const lease = acquired.lease;
     this.ctx.chatMessageQueue.publish(sessionId);
     void this.execute(lease, force, queuedMessages).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toError(error).message;
       this.ctx.chatSessionOperations.finish(lease, { kind: 'failed', error: message });
       this.fail(sessionId, force, message);
     });
@@ -82,8 +83,7 @@ export class ChatQueueSuccessorRunner {
             mockCommandResults: options.mockCommandResults ? z.record(z.string(), RepoSearchMockCommandResultSchema).parse(options.mockCommandResults) : undefined,
           },
         });
-      } else if (operationKind === 'plan') await new StreamChatPlanEndpoint().executeDetached(this.ctx, { ...request, value });
-      else await new StreamRepoSearchEndpoint().executeDetached(this.ctx, { ...request, value });
+      } else await new StreamChatRepoOperationEndpoint(operationKind).executeDetached(this.ctx, { ...request, value });
     }
     await awaitRepoSearchRunPersistence();
     this.ctx.chatSessionOperations.finish(lease, { kind: 'completed' });

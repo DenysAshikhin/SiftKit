@@ -16,6 +16,7 @@ import {
   ToolActivitySubjectSchema,
   ChatApprovalOutcomeSchema,
   ChatRecoveryStatusSchema,
+  ChatRunPresentationEventSchema,
 } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
@@ -56,16 +57,18 @@ export const ChatHistoryRevisionSchema = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('message_deleted'),
     messageIds: z.array(z.string().min(1)).min(1),
-    toolCallIds: z.array(z.string().min(1)).optional(),
   }),
   z.strictObject({
     action: z.literal('image_removed'),
+    payloadDigest: z.string().length(64),
+    originalImageIndex: z.number().int().nonnegative(),
     messageId: z.string().min(1),
     imageIndex: z.number().int().nonnegative(),
     imagePathKey: z.string().nullable(),
   }),
   z.strictObject({
     action: z.literal('image_caption_updated'),
+    originalImageIndex: z.number().int().nonnegative(),
     messageId: z.string().min(1),
     imageIndex: z.number().int().nonnegative(),
     caption: z.string(),
@@ -79,12 +82,15 @@ export const ChatHistoryRevisionSchema = z.discriminatedUnion('action', [
 export type ChatHistoryRevision = z.infer<typeof ChatHistoryRevisionSchema>;
 
 /** Where imported evidence came from, kept immutable so a re-import can prove it is the same. */
-export const ChatImportProvenanceSchema = z.strictObject({
+const ChatImportSourceSchema = z.strictObject({
   importerVersion: z.number().int().positive(),
-  sourceKind: z.enum(['saved_chat', 'run_archive', 'repo_agent_state']),
   sourceId: z.string().min(1),
   sourceDigest: z.string().min(1),
 });
+export const ChatImportProvenanceSchema = z.discriminatedUnion('sourceKind', [
+  ChatImportSourceSchema.extend({ sourceKind: z.enum(['saved_chat', 'repo_agent_state']) }),
+  ChatImportSourceSchema.extend({ sourceKind: z.literal('run_archive'), repairDigest: z.string().length(64) }),
+]);
 export type ChatImportProvenance = z.infer<typeof ChatImportProvenanceSchema>;
 
 /**
@@ -107,6 +113,9 @@ export const ChatRunStartedEventSchema = z.strictObject({
 });
 
 export const ChatJournalEventSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('stop_requested'), requestedAtUtc: z.string().datetime() }),
+  z.strictObject({ kind: z.literal('presentation'), event: ChatRunPresentationEventSchema }),
+  z.strictObject({ kind: z.literal('submission_cancelled'), userMessageId: z.string().min(1), reason: z.literal('client_disconnected_before_dispatch') }),
   ChatRunStartedEventSchema,
   z.strictObject({
     kind: z.literal('engine_bound'),

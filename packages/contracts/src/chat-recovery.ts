@@ -1,10 +1,15 @@
 import { z } from 'zod';
 import {
   ApprovalModeSchema,
+  ChatRunTerminalCauseSchema,
   ChatOperationIdSchema,
   ChatSessionModeSchema,
   ChatSessionOperationKindSchema,
   ChatStreamApprovalSchema,
+  ChatStreamPromptEventSchema,
+  ChatStreamUsageEventSchema,
+  ChatSessionSchema,
+  ContextUsageSchema,
   ChatToolExecutionStateSchema,
   ChatTranscriptMessageSchema,
   ToolCallStatusSchema,
@@ -25,17 +30,7 @@ export const CHAT_APPROVAL_TIMEOUT_MS = 600_000;
 export const ChatRunRecordKindSchema = z.enum(['execution', 'baseline', 'history_revision']);
 export type ChatRunRecordKind = z.infer<typeof ChatRunRecordKindSchema>;
 
-/** How a run ended. These stay distinct: a stop is not a failure and a restart is not a completion. */
-export const ChatRunTerminalCauseSchema = z.enum([
-  'completed',
-  'user_stop',
-  'approval_timeout',
-  'provider_failure',
-  'execution_failure',
-  'storage_failure',
-  'server_restart',
-]);
-export type ChatRunTerminalCause = z.infer<typeof ChatRunTerminalCauseSchema>;
+
 
 /**
  * The settings a run actually executed under, kept for audit. A continuation uses the currently
@@ -95,6 +90,9 @@ export const ChatRecoveryIssueSchema = z.strictObject({
 });
 export type ChatRecoveryIssue = z.infer<typeof ChatRecoveryIssueSchema>;
 
+export const ChatStreamErrorSchema = z.object({ error: z.string(), issue: ChatRecoveryIssueSchema.optional() });
+export type ChatStreamError = z.infer<typeof ChatStreamErrorSchema>;
+
 export const ChatRecoveryReportSchema = z.strictObject({
   sessionId: z.string().min(1),
   operationId: ChatOperationIdSchema,
@@ -109,6 +107,12 @@ export const ChatRecoveryReportSchema = z.strictObject({
   issues: z.array(ChatRecoveryIssueSchema),
 });
 export type ChatRecoveryReport = z.infer<typeof ChatRecoveryReportSchema>;
+
+export const ChatSessionResponseSchema = z.object({ session: ChatSessionSchema, contextUsage: ContextUsageSchema,
+  recovery: z.array(ChatRecoveryReportSchema).optional() });
+export type ChatSessionResponse = z.infer<typeof ChatSessionResponseSchema>;
+export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSchema), recovery: z.array(ChatRecoveryReportSchema).optional() });
+export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
 
 export const ChatApprovalOutcomeSchema = z.enum([
   'approved',
@@ -135,6 +139,19 @@ export const DurableChatApprovalSchema = ChatStreamApprovalSchema.extend({
 });
 export type DurableChatApproval = z.infer<typeof DurableChatApprovalSchema>;
 
+export const ChatRunPresentationEventSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('prompt'), prompt: ChatStreamPromptEventSchema }),
+  z.strictObject({ kind: z.literal('warning'), warning: z.string() }),
+]);
+export type ChatRunPresentationEvent = z.infer<typeof ChatRunPresentationEventSchema>;
+
+export const ChatSnapshotTokenTurnSchema = z.strictObject({
+  turn: z.number().int().nonnegative(),
+  prompt: ChatStreamPromptEventSchema.nullable(),
+  usage: ChatStreamUsageEventSchema.nullable(),
+});
+export type ChatSnapshotTokenTurn = z.infer<typeof ChatSnapshotTokenTurnSchema>;
+
 /** One projected tool call, carrying the execution state its display status is derived from. */
 export const ChatRecoveredToolSchema = z.strictObject({
   toolCallId: z.string().trim().min(1),
@@ -151,17 +168,32 @@ export type ChatRecoveredTool = z.infer<typeof ChatRecoveredToolSchema>;
 export const ChatOperationSnapshotSchema = z.strictObject({
   sessionId: z.string().min(1),
   operationId: ChatOperationIdSchema,
+  runOrder: z.number().int().positive(),
+  /** The current client lease's Stop/queue key; it is distinct from the server-minted journal ID. */
+  controlOperationId: ChatOperationIdSchema.nullable(),
   operationKind: ChatSessionOperationKindSchema,
   recordKind: ChatRunRecordKindSchema,
   startedAtUtc: z.string().datetime(),
   terminalCause: ChatRunTerminalCauseSchema.nullable(),
   status: ChatRecoveryStatusSchema,
   cursor: ChatEventCursorSchema,
+  messageOffset: z.number().int().nonnegative(),
   messages: z.array(ChatTranscriptMessageSchema),
   tools: z.array(ChatRecoveredToolSchema),
   approval: DurableChatApprovalSchema.nullable(),
+  tokenTurns: z.array(ChatSnapshotTokenTurnSchema),
+  streamedCharsSinceBase: z.number().int().nonnegative(),
+  warnings: z.array(z.string()),
   issues: z.array(ChatRecoveryIssueSchema),
   /** False while more pages of `messages` remain; the client applies events only once complete. */
   complete: z.boolean(),
 });
 export type ChatOperationSnapshot = z.infer<typeof ChatOperationSnapshotSchema>;
+
+/** A replacement patch over an explicitly named cursor range, including non-display events. */
+export const ChatOperationUpdateSchema = ChatOperationSnapshotSchema.omit({ messageOffset: true, complete: true }).extend({
+  afterSequence: z.number().int().nonnegative(),
+  /** Full ID order permits insertions/removals without re-sending unchanged message bodies. */
+  messageOrder: z.array(z.string().min(1)),
+});
+export type ChatOperationUpdate = z.infer<typeof ChatOperationUpdateSchema>;

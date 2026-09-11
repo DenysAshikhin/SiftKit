@@ -136,6 +136,9 @@ test('an operation snapshot carries its cursor and derived tool states', () => {
     terminalCause: 'approval_timeout',
     status: 'ok',
     cursor: { operationId: OPERATION_ID, sequence: 412 },
+    runOrder: 1,
+    controlOperationId: null,
+    messageOffset: 0,
     messages: [],
     tools: [{
       toolCallId: 'call-1',
@@ -146,6 +149,9 @@ test('an operation snapshot carries its cursor and derived tool states', () => {
     approval: null,
     issues: [],
     complete: true,
+    tokenTurns: [],
+    streamedCharsSinceBase: 0,
+    warnings: [],
   });
   assert.equal(snapshot.cursor.sequence, 412);
   assert.equal(snapshot.tools[0]?.toolCallStatus, 'stopped');

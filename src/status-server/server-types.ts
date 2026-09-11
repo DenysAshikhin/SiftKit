@@ -31,7 +31,7 @@ export type ModelRequestLock = {
   /** Fires the hold ceiling that force-releases a holder which never releases on its own. */
   holdTimeoutHandle: NodeJS.Timeout | null;
 };
-export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null };
+export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null; abortSignal?: AbortSignal };
 export type ModelRequestWaiter = {
   queueToken: string;
   kind: string;
@@ -54,6 +54,7 @@ export type TerminalMetadataQueueItem = {
 
 export type TerminalMetadataState = {
   queue: TerminalMetadataQueueItem[];
+  pendingDirectJobs: number;
   drainScheduled: boolean;
   drainRunning: boolean;
   lastModelRequestFinishedAtMs: number | null;
@@ -82,6 +83,7 @@ export type EngineBootstrapState = {
 export type ExtendedServer = Server & {
   shutdownEngineForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;
+  waitForRequestsIdle(): Promise<void>;
   waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
 };
 

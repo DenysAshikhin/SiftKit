@@ -12,6 +12,8 @@ import {
   type ChatToolExecutionState,
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
+  ChatSessionSchema,
+  ChatRunTerminalCauseSchema,
 } from '@siftkit/contracts';
 import type { ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
@@ -22,11 +24,11 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import { CHAT_PROJECTION_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.js';
 import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
-import { recordChatHistoryRevision } from './chat-history-revisions.js';
+import { recordChatHistoryRevision, removeChatImageEvidence, resolveOriginalChatImageIndex } from './chat-history-revisions.js';
 import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import { parseJsonValueText } from '../lib/json.js';
-import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
 export type ChatMessageRole = PersistedChatTranscriptMessage['role'];
@@ -42,22 +44,15 @@ export class ChatMessageImageNotFoundError extends Error {
 
 export type ChatMessage = PersistedChatTranscriptMessage;
 
-export type ChatSession = {
-  id: string;
-  title?: string;
-  modelPresetId: string;
+export const StoredChatSessionSchema = ChatSessionSchema.pick({
+  id: true, title: true, modelPresetId: true, thinkingEnabled: true, webSearchEnabled: true,
+  presetId: true, mode: true, planRepoRoot: true, promptContext: true,
+  createdAtUtc: true, updatedAtUtc: true, messages: true,
+}).extend({
   /** Full request-shaping preset captured when the session was created. */
-  modelPreset: ModelRuntimePreset;
-  thinkingEnabled?: boolean;
-  webSearchEnabled?: boolean;
-  presetId?: string;
-  mode?: ChatSessionMode;
-  planRepoRoot: string;
-  promptContext?: ChatPromptContext;
-  createdAtUtc?: string;
-  updatedAtUtc?: string;
-  messages?: ChatMessage[];
-};
+  modelPreset: ModelRuntimePresetSchema,
+});
+export type ChatSession = z.infer<typeof StoredChatSessionSchema>;
 
 const SessionIdRowSchema = z.object({ id: z.string().nullable() });
 
@@ -119,6 +114,7 @@ const MessageRowSchema = z.object({
   approval_reason: z.string().nullable(),
   created_at_utc: z.string(),
   source_run_id: z.string().nullable(),
+  source_request_id: z.string().nullable().optional(),
   compressed_into_summary: z.number(),
   grounding_status: z.string().nullable(),
   images: z.string().nullable(),
@@ -266,6 +262,7 @@ function mapMessageRow(row: MessageRow): ChatMessage {
       : undefined,
     createdAtUtc: row.created_at_utc,
     sourceRunId: row.source_run_id,
+    ...(row.source_request_id ? { sourceRequestId: row.source_request_id } : {}),
     compressedIntoSummary: row.compressed_into_summary === 1,
     groundingStatus: normalizeGroundingStatus(row.grounding_status),
     images: row.images === null ? [] : parseImageDataUrls(parseJsonValueText(row.images)),
@@ -372,7 +369,11 @@ const CHAT_MESSAGE_SELECT_COLUMNS = [
   'position',
 ].join(', ');
 function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | null {
-  const database = getSessionDatabase(runtimeRoot);
+  return readChatSessionFromDatabase(getSessionDatabase(runtimeRoot), sessionId);
+}
+
+/** Reads an already-open, current-schema database without opening or migrating another file. */
+export function readChatSessionFromDatabase(database: ReturnType<typeof getRuntimeDatabase>, sessionId: string): ChatSession | null {
   const row = database.prepare(`
     SELECT
       id,
@@ -395,7 +396,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
   const session = SessionRowSchema.parse(row);
 
   const messageRows = database.prepare(`
-    SELECT ${CHAT_MESSAGE_SELECT_COLUMNS}
+    SELECT ${CHAT_MESSAGE_SELECT_COLUMNS},
+      (SELECT request_id FROM chat_runs WHERE operation_id = chat_messages.source_run_id) AS source_request_id
     FROM chat_messages
     WHERE session_id = ?
     ORDER BY position ASC
@@ -414,7 +416,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     planRepoRoot: session.plan_repo_root,
     createdAtUtc: session.created_at_utc,
     updatedAtUtc: session.updated_at_utc,
-    messages: messages.map((message) => mapMessageRow(message)),
+    messages: attachRunOutcomes(database, sessionId, messages.map((message) => mapMessageRow(message))),
   };
 }
 
@@ -451,9 +453,10 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   }
   const database = getSessionDatabase(runtimeRoot);
   return database.transaction(() => {
+    database.prepare('DELETE FROM runtime_metadata WHERE key IN (SELECT ? || operation_id FROM chat_runs WHERE session_id=?)').run(CHAT_PROJECTION_METADATA_PREFIX, normalizedId);
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
-    database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`chat_queue:${normalizedId}`);
-    const receiptPrefix = `chat_queue_receipt:${normalizedId}:`;
+    database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(chatMetadataKey.queue(normalizedId));
+    const receiptPrefix = chatMetadataKey.receiptPrefix(normalizedId);
     database.prepare('DELETE FROM runtime_metadata WHERE substr(key, 1, ?) = ?').run(receiptPrefix.length, receiptPrefix);
     const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId);
     return Number(result.changes || 0) > 0;
@@ -466,6 +469,8 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   if (!normalizedSessionId || !normalizedMessageId) {
     return null;
   }
+  const database = getSessionDatabase(runtimeRoot);
+  return database.transaction(() => {
   const current = readSessionById(runtimeRoot, normalizedSessionId);
   if (!current || !Array.isArray(current.messages)) {
     return null;
@@ -474,7 +479,12 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   if (!deletedMessage) {
     return null;
   }
-  recordChatHistoryRevision(getSessionDatabase(runtimeRoot), normalizedSessionId, { action: 'message_deleted', messageIds: [normalizedMessageId] });
+  for (let imageIndex = (deletedMessage.images?.length ?? 0) - 1; imageIndex >= 0; imageIndex -= 1) {
+    const payload = deletedMessage.images?.[imageIndex];
+    if (payload === undefined) throw new Error('Deleted image lost its payload.');
+    removeChatImageEvidence(database, normalizedSessionId, normalizedMessageId, imageIndex, payload);
+  }
+  recordChatHistoryRevision(database, normalizedSessionId, { action: 'message_deleted', messageIds: [normalizedMessageId] });
   const updatedSession: ChatSession = {
     ...current,
     updatedAtUtc: new Date().toISOString(),
@@ -482,6 +492,7 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   };
   saveChatSession(runtimeRoot, updatedSession);
   return { session: updatedSession, deletedMessage };
+  })();
 }
 
 export function updateChatMessageImageCaption(
@@ -530,6 +541,8 @@ export function updateChatMessageImageCaption(
     index === imageIndex ? { ...entry, caption: normalizedCaption } : entry
   ));
   const parsedUpdatedImageMeta = z.array(ImageMetadataSchema).parse(updatedImageMeta);
+  recordChatHistoryRevision(database, normalizedSessionId, { action: 'image_caption_updated', messageId: normalizedMessageId,
+    imageIndex, originalImageIndex: resolveOriginalChatImageIndex(database, normalizedSessionId, normalizedMessageId, imageIndex), caption: normalizedCaption });
   const result = database.prepare(`
     UPDATE chat_messages
     SET image_meta = ?
@@ -568,6 +581,7 @@ export function deleteChatMessageImage(
   }
 
   const database = getSessionDatabase(runtimeRoot);
+  database.transaction(() => {
   const rowValue = database.prepare(`
     SELECT id, images, image_meta, removed_image_count
     FROM chat_messages
@@ -586,6 +600,7 @@ export function deleteChatMessageImage(
     : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta));
   const remainingImages = images.filter((_, index) => index !== imageIndex);
   const remainingImageMeta = imageMeta.filter((_, index) => index !== imageIndex);
+  removeChatImageEvidence(database, normalizedSessionId, normalizedMessageId, imageIndex, images[imageIndex]);
   const result = database.prepare(`
     UPDATE chat_messages
     SET images = ?, image_meta = ?, removed_image_count = ?
@@ -601,9 +616,21 @@ export function deleteChatMessageImage(
     throw new ChatMessageImageNotFoundError();
   }
   touchChatSession(runtimeRoot, normalizedSessionId);
+  })();
 }
 
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
+  const messages = z.array(PersistedChatTranscriptMessageSchema).parse(session.messages ?? []);
+  const database = getSessionDatabase(runtimeRoot);
+  database.transaction(() => {
+    saveChatSessionMetadata(runtimeRoot, session);
+    database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(session.id.trim());
+    insertChatMessages(database, session.id.trim(), messages, 0, new Date().toISOString());
+  })();
+}
+
+/** Session preferences have no authority over journal-derived message rows. */
+export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSession): void {
   const sessionId = String(session.id || '').trim();
   if (!sessionId) {
     throw new Error('Session id is required.');
@@ -613,7 +640,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   const modelPresetJson = JSON.stringify(ModelRuntimePresetSchema.parse(session.modelPreset));
   const mode = normalizeMode(session.mode);
   const presetId = requirePresetId(session.presetId);
-  const messages = z.array(PersistedChatTranscriptMessageSchema).parse(session.messages ?? []);
 
   const database = getSessionDatabase(runtimeRoot);
   database.transaction(() => {
@@ -654,10 +680,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );
-
-    database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(sessionId);
-
-    insertChatMessages(database, sessionId, messages, 0, now);
 
   })();
 }
@@ -815,7 +837,26 @@ export function readChatRunMessages(
     WHERE session_id = ? AND source_run_id = ?
     ORDER BY position ASC
   `).all(sessionId, sourceRunId));
-  return rows.map((row) => PersistedChatTranscriptMessageSchema.parse(mapMessageRow(row)));
+  return attachRunOutcomes(database, sessionId, rows.map((row) => PersistedChatTranscriptMessageSchema.parse(mapMessageRow(row))));
+}
+
+/** Like sourceRequestId, outcome is derived from the journal owner rather than stored in message content. */
+function attachRunOutcomes(database: ReturnType<typeof getRuntimeDatabase>, sessionId: string, messages: ChatMessage[]): ChatMessage[] {
+  const rows = z.array(z.object({ operation_id: z.string(), terminal_cause: ChatRunTerminalCauseSchema, detail: z.string().nullable() })).parse(database.prepare(`
+    SELECT operation_id, terminal_cause,
+      (SELECT CASE WHEN json_valid(body_json) THEN CASE WHEN json_type(body_json, '$.detail') = 'text'
+        THEN json_extract(body_json, '$.detail') END END
+        FROM chat_run_events WHERE operation_id=chat_runs.operation_id AND kind='run_finished' ORDER BY sequence DESC LIMIT 1) AS detail
+    FROM chat_runs WHERE session_id=? AND terminal_cause IS NOT NULL AND terminal_cause!='completed'
+  `).all(sessionId));
+  const outcomes = new Map(rows.map(row => [row.operation_id, row]));
+  const lastIndex = new Map<string, number>();
+  messages.forEach((message, index) => { if (message.sourceRunId) lastIndex.set(message.sourceRunId, index); });
+  return messages.map((message, index) => {
+    const outcome = message.sourceRunId ? outcomes.get(message.sourceRunId) : undefined;
+    return outcome && message.sourceRunId && lastIndex.get(message.sourceRunId) === index
+      ? { ...message, runTerminalCause: outcome.terminal_cause, runTerminalDetail: outcome.detail } : message;
+  });
 }
 
 /** The position a new run's rows start at: after everything already written for the session. */

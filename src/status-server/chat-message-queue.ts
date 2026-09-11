@@ -42,7 +42,7 @@ export class ChatMessageQueue {
   attach(sessionId: string, subscriber: ChatOperationSubscriber): void {
     let channel = this.channels.get(sessionId);
     if (!channel) {
-      channel = { broadcast: new ChatOperationBroadcast(0), subscribers: new Set() };
+      channel = { broadcast: new ChatOperationBroadcast(), subscribers: new Set() };
       this.channels.set(sessionId, channel);
     }
     channel.subscribers.add(subscriber);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readChatStreamViews } from './helpers/chat-stream-views.js';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import fs from 'node:fs';
@@ -8,12 +9,8 @@ import {
   ActiveChatRepoAgentResponseSchema,
   ChatRepoAgentApprovalModeResponseSchema,
   ChatSessionResponseSchema,
-  ChatStreamApprovalResolvedSchema,
-  ChatStreamApprovalSchema,
-  ChatStreamTextDeltaSchema,
 } from '@siftkit/contracts';
 
-import { applyChatStreamTextDelta } from '@siftkit/contracts';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
@@ -315,9 +312,9 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
 
   const response = await stream;
   assert.equal(response.statusCode, 200);
-  const approvalEvent = response.events.find((event) => event.event === 'approval');
-  assert.ok(approvalEvent?.payload);
-  assert.equal(ChatStreamApprovalSchema.parse(approvalEvent.payload).runId, runId);
+  const approvalEvent = readChatStreamViews(response).find(view => view.snapshot.approval !== null)?.snapshot.approval;
+  assert.ok(approvalEvent);
+  assert.equal(approvalEvent.runId, runId);
   const completed = readDoneResponse(response);
   const messages = completed.session.messages;
   assert.deepEqual(messages.filter(message => message.kind !== 'assistant_narration' && message.kind !== 'assistant_progress').slice(-4).map((message) => message.kind), [
@@ -334,18 +331,18 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
   }
   const chatAgentRequest = engineService.requests.find((request) => request.taskKind === 'repo-agent');
   assert.ok(chatAgentRequest);
-  // Every row of the turn carries the engine request id: that is what the run's transcript, its
-  // run log and its tool-row identities are keyed on, so the turn groups and joins as one unit.
+  // Every row groups by journal identity; that record binds the engine request explicitly.
   const sourceRunIds = [...new Set(messages.slice(-3).map(message => message.sourceRunId))];
   assert.equal(sourceRunIds.length, 1);
   const sourceRunId = sourceRunIds[0];
   assert.ok(sourceRunId);
   assert.equal(new ChatJournalStore(getRuntimeDatabase()).readRun(sourceRunId)?.requestId, chatAgentRequest.requestId);
   assert.equal(chatAgentRequest.prompt, 'write a file');
-  assert.deepEqual(chatAgentRequest.history, [
+  assert.deepEqual(chatAgentRequest.history?.map(message => ({ role: message.role, content: message.content })), [
     { role: 'user', content: 'prior question' },
     { role: 'assistant', content: 'prior answer' },
   ]);
+  assert.equal(chatAgentRequest.history?.every(message => typeof message.chatMessageId === 'string'), true);
   assert.equal('systemPrompt' in chatAgentRequest, false);
 
   const inactive = await requestJson(
@@ -580,7 +577,8 @@ test('chat repo-agent persists deny reasons and abort outcomes', async (t) => {
       assert.equal(approval.approvalDecision, scenario.decision);
       assert.equal(approval.approvalReason, scenario.reason);
     }
-    assert.equal(messages.at(-1)?.content, scenario.expected);
+    if (scenario.decision === 'abort') assert.equal(messages.at(-1)?.runTerminalCause, 'user_stop');
+    else assert.equal(messages.at(-1)?.content, scenario.expected);
     await harness.close();
   }
 });
@@ -605,22 +603,18 @@ test('chat repo-agent streams thinking deltas', async (t) => {
     },
   );
   assert.equal(response.statusCode, 200);
-  const thinkingFrames = response.events.filter((event) => event.event === 'thinking');
+  const thinkingFrames = readChatStreamViews(response).flatMap(view => view.snapshot.messages.filter(message => message.kind === 'assistant_thinking'));
   assert.ok(
     thinkingFrames.length >= 1,
     `expected at least one thinking frame, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
   );
-  let assembled = '';
-  for (const frame of thinkingFrames) {
-    assert.ok(frame.payload, 'thinking frames must carry a payload');
-    assembled = applyChatStreamTextDelta(assembled, ChatStreamTextDeltaSchema.parse(frame.payload));
-  }
+  const assembled = thinkingFrames.map(message => message.content).join('\n');
   assert.ok(
     assembled.includes('inspecting the cipher'),
     `reassembled thinking text must contain the mock thinking, got: ${assembled}`,
   );
   assert.ok(
-    response.events.some((event) => event.event === 'tool_start'),
+    readChatStreamViews(response).some(view => view.snapshot.tools.length > 0),
     `tool_start frames must still arrive, got events: ${JSON.stringify(response.events.map((event) => event.event))}`,
   );
   readDoneResponse(response);
@@ -764,7 +758,7 @@ test('switching a parked chat run to off approves the pending command and skips 
   const response = await stream;
   assert.equal(response.statusCode, 200);
   // Exactly one approval frame: the second write ran under `off` without parking.
-  assert.equal(response.events.filter((event) => event.event === 'approval').length, 1);
+  assert.equal(new Set(readChatStreamViews(response).flatMap(view => view.snapshot.approval ? [view.snapshot.approval.approvalId] : [])).size, 1);
   const completed = readDoneResponse(response);
   const approvals = completed.session.messages.filter((message) => message.kind === 'repo_agent_approval');
   assert.equal(approvals.length, 1);
@@ -844,7 +838,7 @@ test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame 
   assert.equal(decide.statusCode, 200);
   const response = await stream;
   assert.equal(response.statusCode, 200);
-  assert.equal(response.events.some((event) => event.event === 'approval'), true);
+  assert.equal(readChatStreamViews(response).some(view => view.snapshot.approval !== null), true);
   assert.equal(response.events.some((event) => event.event === 'error'), false);
   assert.equal(readDoneResponse(response).session.messages.at(-1)?.content.includes('escalated and approved'), true);
 });
@@ -865,12 +859,13 @@ test('deciding an approval broadcasts an approval_resolved frame to attached rea
   assert.equal(decide.statusCode, 200);
   await run;
   const frames = await attached;
-  const resolved = frames.events.filter((event) => event.event === 'approval_resolved');
-  assert.equal(resolved.length, 1);
-  const parsed = ChatStreamApprovalResolvedSchema.parse(resolved[0]?.payload);
-  assert.equal(parsed.decision.decision, 'approve');
-  assert.equal(frames.events.some((event) => event.event === 'attached'), true);
-  assert.equal(frames.events.some((event) => event.event === 'approval'), false);
+  const views = readChatStreamViews(frames);
+  const resolved = views.at(-1)?.snapshot.approval;
+  assert.ok(resolved);
+  assert.equal(resolved.outcome, 'approved');
+  assert.equal(resolved.actionable, false);
+  assert.equal(frames.events.some((event) => event.event === 'snapshot'), true);
+  assert.equal(views.at(-1)?.snapshot.messages.filter(message => message.kind === 'repo_agent_approval').length, 1);
 });
 
 const READ_SENTINEL = 'sentinel-after-character-200';
@@ -956,10 +951,12 @@ test('a stopped repo-agent turn persists and replays the whole tool result, not 
   assert.equal(continued.statusCode, 200);
   const continuation = getCapturedRepoAgentRequest(engineService, 'continue');
   const replayedToolMessages = (continuation.history ?? []).filter((message) => message.role === 'tool');
-  // One completed execution replays; the tool that never returned a result is not invented.
-  assert.equal(replayedToolMessages.length, 1);
+  // Preserve the real result and close the unanswered call with explicit uncertainty.
+  assert.equal(replayedToolMessages.length, 2);
   assert.equal(replayedToolMessages[0]?.content, fullOutput);
   assert.equal(String(replayedToolMessages[0]?.content).includes(READ_SENTINEL), true);
+  assert.match(String(replayedToolMessages[1]?.content), /Outcome uncertain/iu);
+  assert.equal(String(replayedToolMessages[1]?.content).includes('never observed'), false);
 });
 
 test('a completed repo-agent turn persists every tool result in full and replays them exactly', async (t) => {
@@ -1025,7 +1022,7 @@ test('a completed repo-agent turn persists every tool result in full and replays
   );
 });
 
-test('stopping at an approval keeps the finished read whole and leaves the parked tool unreplayed', async (t) => {
+test('stopping at an approval keeps the finished read whole and records the parked tool as never started', async (t) => {
   const engineService = new HoldingCaptureEngineService('never-matched');
   const harness = await startHarness('siftkit-chat-repo-agent-approval-stop-', t, { engineService });
   const sessionId = await createSession(harness, 'Approval stop');
@@ -1059,8 +1056,9 @@ test('stopping at an approval keeps the finished read whole and leaves the parke
   assert.equal(stopResponse.statusCode, 200);
 
   const toolRows = readToolRows(readDoneResponse(await stopped).session.messages);
-  // The parked write never started executing, so it produced no row at all.
-  assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done']);
+  assert.deepEqual(toolRows.map((row) => row.toolCallStatus), ['done', 'stopped']);
+  assert.equal(toolRows[1]?.toolCallExecutionState, 'not_started');
+  assert.equal(toolRows[1]?.toolCallOutput, null);
   assert.equal(String(toolRows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
 
   const continued = await requestSse(
@@ -1081,8 +1079,9 @@ test('stopping at an approval keeps the finished read whole and leaves the parke
   assert.equal(continued.statusCode, 200);
   const replayed = (getCapturedRepoAgentRequest(engineService, 'carry on').history ?? [])
     .filter((message) => message.role === 'tool');
-  assert.equal(replayed.length, 1);
+  assert.equal(replayed.length, 2);
   assert.equal(String(replayed[0]?.content).includes(READ_SENTINEL), true);
+  assert.match(String(replayed[1]?.content), /never started/iu);
 });
 
 test('a continuation cannot start until the stopped turn is durably saved', async (t) => {
@@ -1222,7 +1221,7 @@ test('a continuation survives artifact cleanup while the archived transcript rem
   assert.equal(String(replayed[0]?.content).includes(READ_SENTINEL), true);
 });
 
-test('unmigrated historical evidence without a canonical source blocks continuation', async (t) => {
+test('corrupt canonical journal evidence blocks continuation while its display prefix remains readable', async (t) => {
   const engineService = new HoldingCaptureEngineService('never-matched');
   const harness = await startHarness('siftkit-chat-repo-agent-no-source-', t, { engineService });
   const sessionId = await createSession(harness, 'No source');
@@ -1232,8 +1231,10 @@ test('unmigrated historical evidence without a canonical source blocks continuat
   await awaitRepoSearchRunPersistence();
 
   const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  const sourceRunId = readToolRows(readDoneResponse(first).session.messages)[0]?.sourceRunId;
+  assert.equal(typeof sourceRunId, 'string');
   database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ?').run(sessionId);
-  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
+  database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='tool_result'").run(sourceRunId);
   database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript'").run();
   database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL').run();
 
@@ -1252,9 +1253,9 @@ test('unmigrated historical evidence without a canonical source blocks continuat
     },
   );
   assert.equal(blocked.statusCode, 409);
-  const sourceRunId = getCapturedRepoAgentRequest(engineService, 'read the document').requestId;
   assert.equal(String(blocked.body.error).includes(String(sourceRunId)), true);
   assert.equal(engineService.requests.some((entry) => entry.prompt === 'continue without evidence'), false);
+  assert.equal(new ChatJournalStore(database).listSessionRuns(sessionId).length, 1, 'blocked continuation must not create another accepted run');
 
   // The chat itself stays readable; only the continuation is refused.
   const session = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
@@ -1309,16 +1310,20 @@ class FailAfterReadProgressWriter extends ProgressWriter<RepoSearchProgressEvent
   }
 }
 
-test('a migrated session never replays a preview when a full result is missing', async (t) => {
+test('a missing display result is rebuilt from the journal before continuation', async (t) => {
   const engineService = new HoldingCaptureEngineService('never-matched');
   const harness = await startHarness('siftkit-chat-missing-full-result-', t, { engineService });
   const sessionId = await createSession(harness, 'Missing full result');
   writeSentinelDocument();
-  await runReadTurn(harness, sessionId, 'read before corruption', OPERATION_A);
+  const first = await runReadTurn(harness, sessionId, 'read before corruption', OPERATION_A);
+  const original = readToolRows(readDoneResponse(first).session.messages)[0];
+  assert.ok(original);
   getRuntimeDatabase().prepare('UPDATE chat_messages SET tool_call_output = NULL WHERE session_id = ?').run(sessionId);
   const response = await runReadTurn(harness, sessionId, 'do not replay preview', OPERATION_B);
-  assert.equal(response.statusCode, 409);
-  assert.equal(engineService.requests.some((request) => request.prompt === 'do not replay preview'), false);
+  assert.equal(response.statusCode, 200);
+  const history = engineService.requireRequest('do not replay preview').history ?? [];
+  assert.equal(history.find(message => message.role === 'tool')?.content, original.toolCallOutput);
+  assert.equal(readToolRows(readDoneResponse(response).session.messages)[0]?.toolCallOutput, original.toolCallOutput);
 });
 
 class FailAfterReadEngineService extends StatusEngineService {
@@ -1342,7 +1347,8 @@ test('a provider failure preserves completed tools and replays them on continuat
   const rows = readToolRows(saved.messages);
   assert.equal(rows.length, 1, 'a completed read must survive a provider failure');
   assert.equal(String(rows[0]?.toolCallOutput).includes(READ_SENTINEL), true);
-  assert.equal(saved.messages.some((message) => message.content.includes('Provider failed after completed read')), true);
+  assert.equal(saved.messages.at(-1)?.runTerminalCause, 'execution_failure');
+  assert.match(saved.messages.at(-1)?.runTerminalDetail ?? '', /Provider failed after completed read/u);
   assert.equal(saved.messages.some((message) => message.content.includes('stopped by user')), false);
   const continued = await runReadTurn(harness, sessionId, 'continue failed history', OPERATION_B);
   assert.equal(continued.statusCode, 200);
@@ -1371,9 +1377,10 @@ test('each repo-agent tool invocation prints exactly one command line, whoever i
   assert.equal(first.statusCode, 200);
   await attached;
 
-  // One start and one result reach the client; only the start reaches the console.
-  assert.equal(first.events.filter((event) => event.event === 'tool_start').length, 1);
-  assert.equal(first.events.filter((event) => event.event === 'tool_result').length, 1);
+  // One stable tool identity reaches the client; only its actual start reaches the console.
+  const views = readChatStreamViews(first);
+  assert.equal(new Set(views.flatMap(view => view.snapshot.tools.map(tool => tool.toolCallId))).size, 1);
+  assert.equal(views.at(-1)?.snapshot.tools.filter(tool => tool.executionState === 'completed').length, 1);
   assert.equal(countConsoleLines(capture, 'command', 'read path="doc.txt"'), 1);
 
   // A second browser reader must not double the console, and a genuine repeat must still print.
@@ -1460,9 +1467,9 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
   const agentRunId = engineService.requireRequest('now use the agent').requestId;
   await awaitRepoSearchRunPersistence();
 
-  // Now the repo-agent turn itself looks like pre-fix history with no evidence left: blocked, by name.
+  // Corrupt this run's authoritative evidence; the unrelated search remains valid.
   database.prepare('UPDATE chat_messages SET tool_call_output = tool_call_output_snippet WHERE session_id = ? AND id = ?').run(sessionId, agentRow.id);
-  database.prepare('DELETE FROM runtime_metadata WHERE key = ?').run(`repo-agent-history-v1:${sessionId}`);
+  database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='tool_result'").run(agentRow.sourceRunId);
   database.prepare("DELETE FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' AND request_id = ?").run(agentRunId);
   database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = NULL WHERE request_id = ?').run(agentRunId);
   const blocked = await requestJson(
@@ -1480,7 +1487,7 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
     },
   );
   assert.equal(blocked.statusCode, 409);
-  assert.equal(String(blocked.body.error).includes(String(agentRunId)), true);
+  assert.equal(String(blocked.body.error).includes(String(agentRow.sourceRunId)), true);
   assert.equal(String(blocked.body.error).includes(String(searchRunId)), false);
   assert.equal(engineService.requests.some((entry) => entry.prompt === 'blocked continuation'), false);
 });

@@ -32,7 +32,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
   const metadata = job.metadata;
   if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
     updateRunLogSpeculativeMetricsByRequestId({
-      database: getRuntimeDatabase(),
+      database: getRuntimeDatabase(ctx.chatRuntimeOwner.databasePath),
       requestId: job.requestId,
       speculativeAcceptedTokens: metadata.speculativeAcceptedTokens,
       speculativeGeneratedTokens: metadata.speculativeGeneratedTokens,
@@ -155,8 +155,10 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
 }
 
 export function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminalMetadataJob): void {
+  ctx.terminalMetadata.pendingDirectJobs += 1;
   const timer = setTimeout(() => {
-    applyDeferredTerminalMetadata(ctx, job);
+    try { applyDeferredTerminalMetadata(ctx, job); }
+    finally { ctx.terminalMetadata.pendingDirectJobs -= 1; }
   }, 25);
   if (typeof timer.unref === 'function') {
     timer.unref();
@@ -361,6 +363,7 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
 
 function isTerminalMetadataIdle(ctx: ServerContext, minimumCompletedRequestCount: number): boolean {
   return ctx.terminalMetadata.queue.length === 0
+    && ctx.terminalMetadata.pendingDirectJobs === 0
     && !ctx.terminalMetadata.drainScheduled
     && !ctx.terminalMetadata.drainRunning
     && ctx.metrics.completedRequestCount >= minimumCompletedRequestCount;
@@ -381,7 +384,7 @@ export async function waitForTerminalMetadataIdle(
       const nextRequestId = ctx.terminalMetadata.queue[0]?.requestId ?? 'none';
       throw new Error(
         `Timed out waiting for terminal metadata after ${normalizedTimeoutMs}ms: `
-        + `queue=${ctx.terminalMetadata.queue.length} scheduled=${ctx.terminalMetadata.drainScheduled} `
+        + `queue=${ctx.terminalMetadata.queue.length} direct=${ctx.terminalMetadata.pendingDirectJobs} scheduled=${ctx.terminalMetadata.drainScheduled} `
         + `running=${ctx.terminalMetadata.drainRunning} request=${nextRequestId} `
         + `completed=${ctx.metrics.completedRequestCount} expected=${normalizedMinimumCount}`,
       );

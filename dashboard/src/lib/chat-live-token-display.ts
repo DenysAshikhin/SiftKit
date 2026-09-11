@@ -1,4 +1,4 @@
-import { buildChatTextMessageId } from '@siftkit/contracts';
+import { buildChatMessageId, buildChatRunMessageIdPrefix } from '@siftkit/contracts';
 import type { ChatSessionRuntime } from './chat-session-runtime-store';
 import { getLiveMessageTokenDisplay, type TokenDisplay } from './format';
 
@@ -15,9 +15,7 @@ export function buildLiveTokenDisplays(runtime: ChatSessionRuntime): ReadonlyMap
   let precedingOutput = 0;
   for (const [turn, { prompt, usage }] of [...runtime.tokenTurns].sort(([a], [b]) => a - b)) {
     for (const kind of ['thinking', 'narration', 'answer'] as const) {
-      const id = buildChatTextMessageId(kind, turn, {
-        messageIdPrefix: 'live',
-      });
+      const id = buildChatMessageId(runtime.journalSnapshot ? buildChatRunMessageIdPrefix(runtime.journalSnapshot.operationId) : 'live', { kind: kind, turn: turn });
       const message = messages.get(id);
       if (!message || (message.kind !== 'assistant_thinking' && message.kind !== 'assistant_answer')) continue;
       const thinking = message.kind === 'assistant_thinking';

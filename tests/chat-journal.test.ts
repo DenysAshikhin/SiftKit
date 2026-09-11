@@ -97,6 +97,52 @@ function appendInput(
   };
 }
 
+test('a terminal run accepts an identical retry but rejects new evidence', () => {
+  const { store } = openFixture('chat-journal-terminal-fence-');
+  const run = store.begin(runStart());
+  const input = appendInput(run.operationId, 0, proposalEvent('read file'));
+  const saved = store.append(input);
+  store.finish({ operationId: run.operationId, ownerEpoch: OWNER_EPOCH, terminalCause: 'user_stop', updatedAtUtc: CREATED_AT });
+  assert.deepEqual(store.append(input), saved);
+  assert.throws(() => store.append({ ...input, eventId: 'late', expectedSequence: 1 }), /terminal|finished/u);
+  assert.equal(store.readRun(run.operationId)?.latestSequence, 1);
+});
+
+test('journal reads reject altered event bodies even when the altered shape is valid', () => {
+  const { store, database } = openFixture('chat-journal-digest-');
+  const run = store.begin(runStart());
+  store.append(appendInput(run.operationId, 0, proposalEvent('original')));
+  database.prepare('UPDATE chat_run_events SET body_json=? WHERE operation_id=?').run(JSON.stringify(proposalEvent('altered')), run.operationId);
+  assert.throws(() => store.readAfter(run.operationId, 0, 100), /digest|corrupt/u);
+});
+
+test('journal iteration crosses page boundaries and respects its starting cursor', () => {
+  const { store, database } = openFixture('chat-journal-pages-');
+  const run = store.begin(runStart());
+  database.transaction(() => {
+    for (let index = 0; index < 503; index += 1) {
+      store.append(appendInput(run.operationId, index, proposalEvent('read'), { eventId: `event-${index}` }));
+    }
+  })();
+  assert.deepEqual([...store.readAll(run.operationId)].map(event => event.sequence), Array.from({ length: 503 }, (_, index) => index + 1));
+  assert.deepEqual([...store.readAll(run.operationId, 500)].map(event => event.sequence), [501, 502, 503]);
+  assert.deepEqual([...store.readAll(run.operationId, 503)], []);
+});
+
+test('journal iteration rejects missing runs, gaps, and cursors beyond the committed head', () => {
+  const { store, database } = openFixture('chat-journal-page-gaps-');
+  assert.throws(() => [...store.readAll(randomUUID())], /does not exist/u);
+  const run = store.begin(runStart());
+  for (let index = 0; index < 3; index += 1) {
+    store.append(appendInput(run.operationId, index, proposalEvent('read'), { eventId: `event-${index}` }));
+  }
+  assert.throws(() => [...store.readAll(run.operationId, 4)], /cursor/u);
+  database.prepare('DELETE FROM chat_run_events WHERE operation_id=? AND sequence=2').run(run.operationId);
+  assert.throws(() => [...store.readAll(run.operationId)], /sequence gap/u);
+  database.prepare('DELETE FROM chat_run_events WHERE operation_id=? AND sequence=3').run(run.operationId);
+  assert.throws(() => [...store.readAll(run.operationId)], /missing committed evidence/u);
+});
+
 test('a committed event survives reopening and an identical retry does not duplicate it', () => {
   const { store, databasePath } = openFixture('siftkit-chat-journal-commit-');
   const start = runStart();

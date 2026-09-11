@@ -217,20 +217,24 @@ export function ChatTab({
   const streamedCharsSinceBase = selectedRuntime?.streamedCharsSinceBase ?? 0;
   const liveMessages = selectedRuntime?.liveMessages ?? [];
   const liveTokenDisplays = React.useMemo(() => selectedRuntime ? buildLiveTokenDisplays(selectedRuntime) : new Map<string, TokenDisplay>(), [selectedRuntime]);
-  const chatError = selectedRuntime?.error ?? null;
+  const recoveryBlocked = selectedRuntime?.recoveryStatus === 'recovery_failed';
+  const chatError = selectedRuntime?.error ?? (recoveryBlocked ? 'Conversation recovery needs repair before you can continue. Saved messages remain available.' : null);
   const warnings = selectedRuntime?.warnings ?? [];
   const draft = selectedRuntime?.draft ?? '';
   const pendingImages = selectedRuntime?.pendingImages ?? [];
   const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
-  const persistedMessages = selectedSession ? selectedSession.messages : [];
+  const snapshot = selectedRuntime?.journalSnapshot;
+  const savedMessages = selectedSession ? selectedSession.messages : [];
+  const persistedMessages = snapshot ? savedMessages.filter(message => message.sourceRunId !== snapshot.operationId) : savedMessages;
+  const retainedIds = new Set(persistedMessages.map(message => message.id));
+  const currentMessages = [...persistedMessages, ...liveMessages.filter(message => !retainedIds.has(message.id))];
   // The persisted flag is the boundary, exactly as it is for the history the model
   // replays: a flagged row is compacted history wherever it sits in the session.
-  const compactedMessages = persistedMessages.filter((message) => message.compressedIntoSummary === true);
-  const liveHistory = persistedMessages.filter((message) => message.compressedIntoSummary !== true);
+  const compactedMessages = currentMessages.filter((message) => message.compressedIntoSummary === true);
+  const liveHistory = currentMessages.filter((message) => message.compressedIntoSummary !== true);
   const compactionSummaryMessage = liveHistory.find((message) => message.kind === 'compaction_summary') ?? null;
   const conversationMessages = liveHistory.filter((message) => message.kind !== 'compaction_summary');
-  const persistedIds = new Set(conversationMessages.map((message) => message.id));
-  const visibleMessages = [...conversationMessages, ...liveMessages.filter((message) => !persistedIds.has(message.id))];
+  const visibleMessages = conversationMessages;
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
@@ -297,7 +301,7 @@ export function ChatTab({
   }
 
   function dispatchSend(): void {
-    if (invalidRepoAgentTurns) {
+    if (invalidRepoAgentTurns || recoveryBlocked) {
       return;
     }
     if (chatMode === 'plan') { void onSendPlan(); return; }
@@ -426,13 +430,15 @@ export function ChatTab({
                   if (!message) { return null; }
                   if (message.kind === 'repo_agent_approval') {
                     return (
+                      <React.Fragment key={message.id}>
                       <RepoAgentApprovalRow
-                        key={message.id}
                         decision={message.approvalDecision}
                         command={message.approvalCommand}
                         reason={message.approvalReason}
                         decidedAtUtc={message.createdAtUtc}
                       />
+                      <RunOutcomeNotice cause={message.runTerminalCause} detail={message.runTerminalDetail} />
+                      </React.Fragment>
                     );
                   }
                   return (
@@ -474,9 +480,10 @@ export function ChatTab({
                   decidedAtUtc={selectedRuntime.resolvedApproval.decidedAtUtc}
                 />
               ) : null}
-              {selectedRuntime?.pendingApproval ? (
+              {selectedRuntime?.journalSnapshot?.approval?.actionable ? (
                 <RepoAgentApprovalCard
-                  approval={selectedRuntime.pendingApproval}
+                  key={selectedRuntime.journalSnapshot.approval.approvalId}
+                  approval={selectedRuntime.journalSnapshot.approval}
                   onDecide={(decision) => { void onSubmitRepoAgentDecision(decision); }}
                 />
               ) : null}
@@ -499,7 +506,7 @@ export function ChatTab({
             {chatError ? (
               <div className="err-banner">
                 <span>{chatError}</span>
-                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
+                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={recoveryBlocked || selectedSessionBusy || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
                 <a className="mini-btn" href="?tab=runs">Open logs</a>
               </div>
             ) : null}
@@ -617,7 +624,7 @@ export function ChatTab({
                     type="button"
                     className="send"
                     onClick={dispatchSend}
-                    disabled={invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
+                    disabled={recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
                   >
                     {queueMode ? 'Queue' : getSendLabel(chatMode)}
                   </button>
@@ -833,7 +840,7 @@ function renderMessageBody(
     return images;
   }
   if (message.kind === 'assistant_tool_call') {
-    return <ToolCallCard message={message} />;
+    return <><ToolCallCard message={message} />{images}</>;
   }
   if (message.kind === 'assistant_thinking') {
     return <ThinkingBody message={message} isLive={isLive} />;
@@ -849,7 +856,17 @@ function renderMessageBody(
   );
 }
 
-function MessageBubble({ message, tokenDisplay, sessionId, isLive, isPending, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, extraClass }: {
+function RunOutcomeNotice({ cause, detail }: { cause: ChatMessage['runTerminalCause']; detail: ChatMessage['runTerminalDetail'] }) {
+  if (cause === undefined || cause === 'completed') return null;
+  const labels = {
+    user_stop: 'Stopped by user.', approval_timeout: 'Approval expired before this run could continue.',
+    provider_failure: 'The model provider failed.', execution_failure: 'The run failed.',
+    storage_failure: 'The run stopped because its evidence could not be saved.', server_restart: 'Interrupted by server restart.',
+  };
+  return <p className="muted" role="status" aria-label="Run outcome">{labels[cause]}{detail ? ` ${detail}` : ''}</p>;
+}
+
+function MessageBubble({ message, tokenDisplay, sessionId, isLive, isPending, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, extraClass, showRunOutcome = true }: {
   message: ChatMessage;
   tokenDisplay: TokenDisplay | null;
   sessionId: string;
@@ -860,6 +877,7 @@ function MessageBubble({ message, tokenDisplay, sessionId, isLive, isPending, is
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   extraClass?: string | undefined;
+  showRunOutcome?: boolean;
 }) {
   const messageKind = message.kind;
   const tone = message.role === 'user' ? 'user' : 'ai';
@@ -867,6 +885,7 @@ function MessageBubble({ message, tokenDisplay, sessionId, isLive, isPending, is
     <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}${isPending ? ' pending' : ''}`}>
       <MessageHeader message={message} tokenDisplay={tokenDisplay} isLive={isLive} isPending={isPending} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
       {renderMessageBody(message, sessionId, isDirectChatMode, isLive, chatBusy, onDeleteMessageImage)}
+      {showRunOutcome ? <RunOutcomeNotice cause={message.runTerminalCause} detail={message.runTerminalDetail} /> : null}
     </article>
   );
 }
@@ -882,6 +901,7 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
   const aggregateTokens = getTurnTokenDisplay(turn, tokenDisplays);
+  const terminalMessage = turn.messages.find(message => message.runTerminalCause !== undefined);
   const [expandedLogic, setExpandedLogic] = React.useState(false);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   const tokenLabel = aggregateTokens.tokenCount === null || aggregateTokens.exact
@@ -906,6 +926,7 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
       onDeleteMessage={onDeleteMessage}
       onDeleteMessageImage={onDeleteMessageImage}
       extraClass={extraClass}
+      showRunOutcome={false}
     />
   );
   return (
@@ -953,6 +974,7 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
         </section>
       ) : null}
       {turn.main ? renderTurnMessage(turn.main, 'turn-main') : null}
+      <RunOutcomeNotice cause={terminalMessage?.runTerminalCause} detail={terminalMessage?.runTerminalDetail} />
     </article>
   );
 }

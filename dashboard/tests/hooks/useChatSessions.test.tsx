@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { chatSnapshotFrame } from '../chat-snapshot-fixture.js';
+import { createLiveMessage } from '../../src/lib/chat-live-messages';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -26,9 +28,7 @@ const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const RUN_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 const APPROVAL_ID = '4f9c1f9a-0000-4000-8000-000000000002';
 
-const ATTACHED_FRAME = 'event: attached\ndata: {"operationKind":"repo-agent",'
-  + `"operationId":"${OPERATION_ID}",`
-  + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n';
+const ATTACHED_FRAME = chatSnapshotFrame({ operationId: OPERATION_ID });
 
 const PENDING_APPROVAL_STATE_FRAME = 'event: approval_state\ndata: {"approval":{'
   + `"runId":"${RUN_ID}","approvalId":"${APPROVAL_ID}",`
@@ -186,6 +186,26 @@ type ChatFixtureResponse = {
   contextUsage: typeof CONTEXT_USAGE;
 };
 
+test('a broken attach refetches and reconnects without resubmitting the user turn', async () => {
+  const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    operationStreams: [
+      chatSnapshotFrame({ messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'partial')] })
+        + 'event: snapshot\ndata: {not-json}\n\n',
+      chatSnapshotFrame({ terminalCause: 'completed', controlOperationId: null,
+        messages: [createLiveMessage('answer', 'assistant_answer', 'assistant', 'recovered answer')] }) + 'event: ended\ndata: {}\n\n',
+    ],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(hook.result.current.runtimeStore.get('s1').liveMessages[0]?.content, 'recovered answer'), { timeout: 3000 });
+    assert.equal(fixture.attachRequestCount, 2);
+    assert.equal(fixture.streamRequestCount, 0);
+    assert.ok(fixture.detailRequestCount >= 2);
+  } finally { fixture.restore(); }
+});
+
 class ChatFetchFixture {
   readonly queuedBodies: ChatQueueEnqueueRequest[] = [];
   readonly forcedBodies: string[] = [];
@@ -193,6 +213,7 @@ class ChatFetchFixture {
   readonly sentBodies: string[] = [];
   detailRequestCount = 0;
   streamRequestCount = 0;
+  attachRequestCount = 0;
   conflictCount = 0;
   stopRequestCount = 0;
   private streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
@@ -209,6 +230,7 @@ class ChatFetchFixture {
     activeRun?: ActiveChatRepoAgentResponse;
     activeOperations?: ActiveChatOperation[];
     operationStream?: string;
+    operationStreams?: string[];
     holdOperationStream?: boolean;
     /** Rejects the first submitted turn as another client's, the way a live server would. */
     conflictOperationKind?: ActiveChatOperation['operationKind'];
@@ -271,11 +293,12 @@ class ChatFetchFixture {
           : new Response(JSON.stringify({ error: 'No active run' }), { status: 404 });
       }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/operation/stream`) {
+        const attempt = this.attachRequestCount++;
         // Until the conflict is served there is nothing to latch onto, so the run this client
         // ends up attaching to is unambiguously the one that rejected its turn.
         const frames = this.options.conflictOperationKind && this.conflictCount === 0
           ? undefined
-          : this.options.operationStream;
+          : this.options.operationStreams?.[attempt] ?? this.options.operationStream;
         if (frames === undefined) {
           return new Response(JSON.stringify({ error: 'No active operation for this session.' }), { status: 404 });
         }
@@ -704,9 +727,7 @@ test('an attached stream that ends without a payload refreshes the session and i
     session: SESSION,
     detailResponse: response,
     streamResponse: response,
-    operationStream: 'event: attached\ndata: {"operationKind":"condense",'
-      + `"operationId":"${OPERATION_ID}",`
-      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":false}\n\n'
+    operationStream: chatSnapshotFrame({ operationKind: 'condense', operationId: OPERATION_ID })
       + 'event: approval_state\ndata: {"approval":null}\n\n'
       + 'event: ended\ndata: {}\n\n',
   });

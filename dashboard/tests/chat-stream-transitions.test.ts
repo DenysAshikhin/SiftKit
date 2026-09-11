@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import { createLiveMessage } from '../src/lib/chat-live-messages';
 import assert from 'node:assert/strict';
 
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
@@ -12,17 +15,18 @@ import { buildLiveTokenDisplays } from '../src/lib/chat-live-token-display';
 import { buildUsageFrame } from './usage-frame';
 
 for (const thinking of [true, false]) {
-  test(`replayed token metadata stays session scoped, respects thinking=${thinking}, and clears on failure and successor`, async () => {
+  test(`recovered token metadata stays session scoped, respects thinking=${thinking}, and survives failure until its successor`, async () => {
     const drain = new StoreDrain();
     const gate = new Gate();
-    const frames = [
-      ['attached', { operationKind: 'message', operationId: OPERATION_ID, startedAtUtc: '2026-09-10T00:00:00.000Z', replayTruncated: true }],
-      ['thinking', { turn: 1, offset: 0, text: 'x'.repeat(400) }],
-      ['usage', buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } })],
-      ['queued_user_message', { id: OPERATION_ID, turn: 1, boundary: 'post_tool_batch', content: 'queued', images: [] }],
-      ['prompt', { turn: 2, maxTurns: 20, promptTokens: 100, charsPerToken: 8 }],
-      ['thinking', { turn: 2, offset: 0, text: 'y'.repeat(400) }],
-    ] as const;
+    const firstId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'thinking', turn: 1 });
+    const secondId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'thinking', turn: 2 });
+    const frames = [['snapshot', chatSnapshot({ sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID,
+      messages: [createLiveMessage(firstId, 'assistant_thinking', 'assistant', 'x'.repeat(400)),
+        createLiveMessage('queued', 'user_text', 'user', 'queued'),
+        createLiveMessage(secondId, 'assistant_thinking', 'assistant', 'y'.repeat(400))],
+      tokenTurns: [{ turn: 1, prompt: null, usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 187 } }) },
+        { turn: 2, prompt: { turn: 2, maxTurns: 20, promptTokens: 100, charsPerToken: 8 }, usage: null }],
+    })]] as const;
     async function* replay(): AsyncGenerator<ChatStreamEvent> {
       for (const [event, data] of frames) {
         const parsed = parseChatStreamPacket(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -37,26 +41,29 @@ for (const thinking of [true, false]) {
     await Promise.race([gate.waiting, completion.then(() => { throw new Error('Replay ended before its gate'); })]);
     const runtime = drain.store.get('session-a');
     const displays = buildLiveTokenDisplays(runtime);
-    assert.equal(displays.get('live-thinking-1')?.tokenCount, thinking ? 187 : undefined);
-    assert.equal(displays.get('live-thinking-2')?.tokenCount, thinking ? 50 : undefined);
+    assert.equal(displays.get(firstId)?.tokenCount, thinking ? 187 : undefined);
+    assert.equal(displays.get(secondId)?.tokenCount, thinking ? 50 : undefined);
     assert.equal(runtime.liveMessages.filter((message) => message.kind === 'assistant_thinking').length, thinking ? 2 : 0);
     assert.equal(runtime.tokenTurns.size, 2);
     assert.equal(drain.store.get('session-b').tokenTurns.size, 0);
     gate.open();
     await completion;
-    assert.equal(drain.store.get('session-a').tokenTurns.size, 0);
+    assert.equal(drain.store.get('session-a').tokenTurns.size, 2);
     assert.equal(drain.store.get('session-a').error, 'provider failure after text');
     const successorGate = new Gate();
+    const successorId = '4f9c1f9a-0000-4000-8000-000000000003';
+    const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(successorId), { kind: 'answer', turn: 1 });
     async function* successor(): AsyncGenerator<ChatStreamEvent> {
-      yield { kind: 'prompt', prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 } };
-      yield { kind: 'answer', delta: { turn: 1, offset: 0, text: 'z'.repeat(400) } };
+      yield { kind: 'snapshot', snapshot: chatSnapshot({ sessionId: 'session-a', operationId: successorId, runOrder: 2,
+        controlOperationId: OPERATION_ID, messages: [createLiveMessage(answerId, 'assistant_answer', 'assistant', 'z'.repeat(400))],
+        tokenTurns: [{ turn: 1, prompt: { turn: 1, maxTurns: 20, promptTokens: 10, charsPerToken: 8 }, usage: null }] }) };
       successorGate.markWaiting();
       await successorGate.promise;
       yield { kind: 'done', payload: response('session-a') };
     }
     const successorDone = drain.drain(successor(), 'session-a', thinking);
     await successorGate.waiting;
-    assert.equal(buildLiveTokenDisplays(drain.store.get('session-a')).get('live-answer-1')?.tokenCount, 50);
+    assert.equal(buildLiveTokenDisplays(drain.store.get('session-a')).get(answerId)?.tokenCount, 50);
     assert.equal(drain.store.get('session-a').tokenTurns.size, 1);
     successorGate.open();
     await successorDone;
@@ -65,6 +72,23 @@ for (const thinking of [true, false]) {
 }
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
+test('a structured recovery failure blocks continuation immediately and preserves the readable prefix', async () => {
+  const drain = new StoreDrain();
+  async function* stream(): AsyncGenerator<ChatStreamEvent> {
+    yield { kind: 'snapshot', snapshot: chatSnapshot({ sessionId: 'session-a', operationId: OPERATION_ID,
+      messages: [createLiveMessage('saved-prefix', 'assistant_narration', 'assistant', 'readable prefix')] }) };
+    const parsed = parseChatStreamPacket(`event: error\ndata: ${JSON.stringify({ error: 'Source has a sequence gap.',
+      issue: { code: 'sequence_gap', operationId: OPERATION_ID, eventId: null, sequence: 3, detail: 'Source has a sequence gap.' } })}\n\n`);
+    assert.ok(parsed);
+    yield parsed;
+  }
+  await drain.drain(stream(), 'session-a', true);
+  const runtime = drain.store.get('session-a');
+  assert.equal(runtime.recoveryStatus, 'recovery_failed');
+  assert.equal(runtime.liveMessages[0]?.content, 'readable prefix');
+  assert.equal(runtime.error, 'Source has a sequence gap.');
+});
 
 const SESSION: ChatSession = {
   id: 's1',

@@ -1,11 +1,6 @@
 import type Database from 'better-sqlite3';
 
-import {
-  RunOperationTypeSchema,
-  buildChatRunMessageIdPrefix,
-  buildChatToolMessageId,
-  type RunOperationType,
-} from '@siftkit/contracts';
+import { RunOperationTypeSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type RunOperationType } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
 import { getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.js';
@@ -187,7 +182,7 @@ function findIdentifiedMatch(row: ToolRow, canonical: ChatToolResults): RowMatch
   const prefix = buildChatRunMessageIdPrefix(row.source_run_id);
   const identified = canonical.outcomes.find(
     (outcome) => outcome.toolCallId !== null
-      && buildChatToolMessageId(prefix, outcome.toolCallId) === row.id
+      && buildChatMessageId(prefix, { kind: 'tool', toolCallId: outcome.toolCallId }) === row.id
       && outcome.effectiveCommand === (row.tool_call_command ?? '')
       && outcome.turn === row.tool_call_turn
       && outcome.exitCode === row.tool_call_exit_code,
@@ -328,7 +323,7 @@ export function repairRepoAgentHistory(
   // The marker means "eligible repo-agent history is converted"; excluded and unclassified rows are
   // reported, not verified. Conflicting provenance is an integrity failure, not unknown origin.
   if (parsedMode === 'apply' && !report.rows.some(isBlockingHistoryRow)) {
-    setRuntimeMetadataValue(historyMigrationKey(normalizedSessionId), 'complete', database.name);
+    setRuntimeMetadataValue(database, historyMigrationKey(normalizedSessionId), 'complete');
   }
   return report;
 }

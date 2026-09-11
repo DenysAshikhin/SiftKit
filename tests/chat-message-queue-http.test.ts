@@ -37,3 +37,15 @@ test('force requests require a stable idempotency key and explicit operation ide
   assert.equal(ChatQueueForceRequestSchema.safeParse({ id: randomUUID(), operationId: randomUUID() }).success, true);
 });
 
+test('queue routes reject malformed encoded session identities as bad requests', async () => {
+  const harness = new DashboardModelQueueHarness('chat-queue-invalid-session-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    for (const suffix of ['', '/stream', '/force']) {
+      const response = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/%/queue${suffix}`,
+        suffix === '/force' ? { method: 'POST', body: '{}' } : undefined);
+      assert.equal(response.statusCode, 400, suffix);
+    }
+  } finally { await harness.close(); }
+});
+

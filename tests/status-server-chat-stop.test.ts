@@ -18,7 +18,7 @@ import { buildUsageFrame } from '../dashboard/tests/usage-frame.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 
-test('HTTP stop retains completed thinking usage and partial answer usage after appending the marker', async (t) => {
+test('HTTP stop retains completed thinking usage and partial answer usage with a separate terminal outcome', async (t) => {
   const engineService = new StoppedChatEngineService({
     prompt: 'stop measured transcript',
     progressEvents: [
@@ -48,11 +48,62 @@ test('HTTP stop retains completed thinking usage and partial answer usage after 
   assert.equal(thinking?.thinkingTokensEstimated, true);
   assert.equal(messages.at(-1)?.outputTokensEstimate, 60);
   assert.equal(messages.at(-1)?.outputTokensEstimated, false);
-  assert.equal(messages.at(-1)?.content, 'partial answer\n\n*Stopped by user.*');
+  assert.equal(messages.at(-1)?.content, 'partial answer');
+  assert.equal(messages.at(-1)?.runTerminalCause, 'user_stop');
 });
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
+
+test('Stop cancels a JSON chat operation through the same durable terminal owner', { timeout: 10000 }, async t => {
+  const engineService = new StoppedChatEngineService({ prompt: 'stop JSON', progressEvents: [] });
+  const harness = await startHarness('chat-json-stop-', t, { engineService });
+  const sessionId = await createSession(harness, 'JSON Stop');
+  const pending = requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+    method: 'POST', timeoutMs: 5000, body: JSON.stringify({ content: 'stop JSON' }),
+  });
+  await Promise.race([engineService.waitUntilEntered(), pending.then(() => { throw new Error('JSON engine returned before its abortable wait.'); })]);
+  const active = (await readActiveOperations(harness.baseUrl)).find(operation => operation.sessionId === sessionId);
+  assert.ok(active);
+  const stopped = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
+    method: 'POST', body: JSON.stringify({ operationId: active.operationId }),
+  });
+  assert.equal(stopped.statusCode, 200);
+  const response = await pending;
+  assert.equal(response.statusCode, 200);
+  assert.equal(asObjectArray(asObject(response.body.session).messages).at(-1)?.runTerminalCause, 'user_stop');
+  assert.equal(new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath())).listSessionRuns(sessionId).at(-1)?.terminalCause, 'user_stop');
+});
+
+test('deleting an active session cancels its engine and cannot recreate the journal', async t => {
+  const engineService = new StoppedChatEngineService({ prompt: 'delete active session', progressEvents: [
+    { kind: 'answer', turn: 1, maxTurns: 2, answerText: 'partial' },
+  ] });
+  const harness = await startHarness('chat-delete-active-', t, { engineService });
+  const sessionId = await createSession(harness, 'delete active');
+  const stream = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+    method: 'POST', body: JSON.stringify({ content: 'delete active session', operationId: OPERATION_A }),
+  });
+  await engineService.waitUntilEntered();
+  try {
+    const deleted = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`, { method: 'DELETE' });
+    assert.equal(deleted.statusCode, 200);
+    const aborted = await Promise.race([engineService.waitUntilAborted().then(() => true), delay(500).then(() => false)]);
+    assert.equal(aborted, true, 'session deletion must cancel active execution');
+    await stream;
+    assert.deepEqual(new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath())).listSessionRuns(sessionId), []);
+    assert.equal((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`)).statusCode, 404);
+  } finally {
+    await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, { method: 'POST', body: JSON.stringify({ operationId: OPERATION_A }) });
+    await stream;
+  }
+});
+
+function readDoneOutcome(response: SseResponse) {
+  const done = response.events.find(event => event.event === 'done');
+  assert.ok(done?.payload, 'Expected a done event.');
+  return asObjectArray(asObject(done.payload.session).messages).at(-1)?.runTerminalCause;
+}
 
 function readDoneAssistantContent(response: SseResponse): string {
   const done = response.events.find((event) => event.event === 'done');
@@ -152,6 +203,38 @@ const STOPPABLE_STREAM_CASES = [
 ] as const;
 
 for (const streamCase of STOPPABLE_STREAM_CASES) {
+  test(`Stop cancels a queued ${streamCase.operationKind} before model admission`, async () => {
+    const harness = new DashboardModelQueueHarness(`chat-stop-queued-${streamCase.operationKind}-`, { parallelSlots: 1 });
+    await harness.start();
+    const streams: Promise<SseResponse>[] = [];
+    try {
+      const heldSession = await harness.createChatSession('Held', 'model-a');
+      const queuedSession = await harness.createChatSession('Queued', 'model-a');
+      const held = harness.startChatStream(heldSession, 'hold this model', OPERATION_A);
+      streams.push(held);
+      await harness.waitForActiveRequests('dashboard_chat_stream', 1);
+      const queued = harness.startChatOperationStream(streamCase.operationKind, queuedSession, 'cancel before admission', OPERATION_B);
+      streams.push(queued);
+      await harness.waitForQueuedRequest(streamCase.requestKind);
+      const stopped = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${queuedSession}/stop`, {
+        method: 'POST', timeoutMs: 2000, body: JSON.stringify({ operationId: OPERATION_B }),
+      });
+      assert.equal(stopped.statusCode, 200);
+      assert.equal(readDoneOutcome(await queued), 'user_stop');
+      const run = new ChatJournalStore(getRuntimeDatabase()).listSessionRuns(queuedSession).at(-1);
+      assert.equal(run?.terminalCause, 'user_stop');
+      assert.equal(run?.requestId, null);
+      await harness.waitForActiveRequests('dashboard_chat_stream', 1);
+      harness.releaseChatResponse('holder unaffected');
+      assert.equal(readDoneAssistantContent(await held), 'holder unaffected');
+    } finally {
+      harness.releaseChatResponse('cleanup');
+      harness.releaseChatResponse('cleanup');
+      await Promise.allSettled(streams);
+      await harness.close();
+    }
+  });
+
   test(`stopping a ${streamCase.operationKind} stream persists the marker, releases its lease, and advances the queue`, async () => {
     const harness = new DashboardModelQueueHarness(`siftkit-chat-stop-${streamCase.operationKind}-`, { parallelSlots: 1 });
     await harness.start();
@@ -174,7 +257,7 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
       assert.equal(stopped.statusCode, 200);
       assert.equal(stopped.body.operationKind, streamCase.operationKind);
       const stoppedStream = await streamA;
-      assert.match(readDoneAssistantContent(stoppedStream), /Stopped by user\./u);
+      assert.equal(readDoneOutcome(stoppedStream), 'user_stop');
       const stoppedDone = stoppedStream.events.find((event) => event.event === 'done');
       assert.ok(stoppedDone?.payload, 'Expected a done event for the stopped stream.');
       const doneMessages = asObjectArray(asObject(asObject(stoppedDone.payload).session).messages);
@@ -221,7 +304,7 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
   });
   assert.equal(stopped.statusCode, 200);
   assert.equal(stopped.body.operationKind, 'repo-agent');
-  assert.equal(readDoneAssistantContent(await stream), 'Repo-agent run stopped by user.');
+  assert.equal(readDoneOutcome(await stream), 'user_stop');
   assert.equal(readRepoAgentStatus(runId), 'aborted');
   const active = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`);
   assert.equal(active.statusCode, 404);
@@ -255,7 +338,7 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
   const stoppedStream = await stream;
   assert.equal(
     readDoneAssistantContent(stoppedStream),
-    'agent partial result\n\nRepo-agent run stopped by user.',
+    'agent partial result',
   );
   const done = stoppedStream.events.find((event) => event.event === 'done');
   assert.ok(done?.payload, 'Expected a done event for the stopped repo-agent stream.');
@@ -268,7 +351,7 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
   assert.deepEqual(messages.slice(-3).map((message) => message.content), [
     'agent partial thought',
     'Agent inspecting files.',
-    'agent partial result\n\nRepo-agent run stopped by user.',
+    'agent partial result',
   ]);
   assert.equal(readRepoAgentStatus(runId), 'aborted');
   const active = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/active`);
@@ -325,7 +408,7 @@ test('stopping a message stream persists the complete generated transcript in tu
     const immediate = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(immediate.statusCode, 200);
     const immediateMessages = asObjectArray(asObject(immediate.body.session).messages);
-    assert.equal(immediateMessages.at(-1)?.content, 'partial answer text\n\n*Stopped by user.*');
+    assert.equal(immediateMessages.at(-1)?.content, 'partial answer text');
     const done = await stream;
     const doneEvent = done.events.find((event) => event.event === 'done');
     assert.ok(doneEvent?.payload, 'Expected a done event.');
@@ -348,7 +431,7 @@ test('stopping a message stream persists the complete generated transcript in tu
       'search query="transcript"',
       'second thought',
       'Step 2 of 5',
-      'partial answer text\n\n*Stopped by user.*',
+      'partial answer text',
     ]);
     const doneTools = doneMessages.filter((message) => message.kind === 'assistant_tool_call');
     assert.deepEqual(doneTools.map((message) => message.toolCallStatus), ['stopped', 'done']);
@@ -401,7 +484,7 @@ test('Stop reports persistence failure instead of claiming success', async () =>
   }
 });
 
-test('stopping a message stream with no generated segments persists only the marker', async () => {
+test('stopping an empty answer preserves its content and records the outcome separately', async () => {
   const engineService = new StoppedChatEngineService({
     prompt: 'stop before anything streams',
     progressEvents: [
@@ -428,10 +511,8 @@ test('stopping a message stream with no generated segments persists only the mar
     assert.ok(doneEvent?.payload, 'Expected a done event.');
     const doneMessages = asObjectArray(asObject(asObject(doneEvent.payload).session).messages);
     assert.deepEqual(doneMessages.map((message) => message.kind), ['user_text', 'assistant_answer']);
-    assert.deepEqual(doneMessages.map((message) => message.content), [
-      'stop before anything streams',
-      '*Stopped by user.*',
-    ]);
+    assert.deepEqual(doneMessages.map((message) => message.content), ['stop before anything streams', '']);
+    assert.equal(doneMessages.at(-1)?.runTerminalCause, 'user_stop');
   } finally {
     await harness.close();
   }
@@ -540,10 +621,12 @@ for (const stopCase of SHARED_STOP_CASES) {
     assert.equal(continued.events.some((event) => event.event === 'error'), false, JSON.stringify(continued.events));
     const nextRequestToolMessages = (engineService.requireRequest('continue after the restart').history ?? [])
       .filter((message) => message.role === 'tool');
-    // One completed execution replays, exactly as saved; the held tool is not invented.
-    assert.equal(nextRequestToolMessages.length, 1);
+    // The completed result is exact; the held call gets an explicit interruption result.
+    assert.equal(nextRequestToolMessages.length, 2);
     assert.equal(nextRequestToolMessages[0]?.content, fullOutput);
     assert.equal(String(nextRequestToolMessages[0]?.content).includes(READ_SENTINEL), true);
+    assert.match(String(nextRequestToolMessages[1]?.content), /interrupted|Outcome uncertain/iu);
+    assert.equal(String(nextRequestToolMessages[1]?.content).includes('never observed'), false);
   });
 }
 
@@ -579,7 +662,10 @@ test('a stopped turn whose completed tool has no canonical evidence fails persis
     const streamed = await stream;
     assert.equal(streamed.events.some((event) => event.event === 'done'), false);
     const session = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
-    assert.deepEqual(asObjectArray(asObject(session.body.session).messages), []);
+    const messages = asObjectArray(asObject(session.body.session).messages);
+    assert.deepEqual(messages.map(message => message.content), ['stop without evidence']);
+    assert.equal(messages.some(message => message.kind === 'assistant_tool_call'), false);
+    assert.ok(asObjectArray(session.body.recovery).some(report => report.status === 'recovery_failed'));
   } finally {
     await harness.close();
   }

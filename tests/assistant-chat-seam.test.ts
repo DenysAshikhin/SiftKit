@@ -14,6 +14,8 @@ const optedIn = { ...basePreset, id: 'in', assistantMemory: true };
 const optedOut = { ...basePreset, id: 'out', assistantMemory: false };
 const SESSION: ChatSession = {
   id: 'chat_1',
+    title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
+    messages: [],
   modelPresetId: 'default',
   modelPreset: mockModelPreset({ id: 'default' }),
   planRepoRoot: 'C:/repo',

@@ -1,8 +1,12 @@
 import { renderTaskTranscript } from '../planner-protocol.js';
+import { buildChatMessageId } from '@siftkit/contracts';
+import { applyLiveChatContextRevisions } from '../../state/chat-history-revisions.js';
+import { COMPACTION_SUMMARY_MARKER } from './transcript-compactor.js';
 import {
   ChatContextInitSchema,
   ChatContextSpliceSchema,
   type ChatContextSpliceReason,
+  type ChatContextSplice,
   type ChatMessage,
 } from '../planner-chat-message.js';
 import type { ChatContextRecorder } from './chat-run-evidence.js';
@@ -30,6 +34,10 @@ export class TranscriptManager {
   private contextRevisionValue = 0;
   private currentTurnStartIndexValue: number;
   private forcedFinishCountdownIndex = -1;
+  private modelTurn = 1;
+  private appliedHistoryRevision = 0;
+
+  beginTurn(turn: number): void { this.modelTurn = turn; }
 
   /** Incremented by every applied mutation; a splice names the revision it expects to amend. */
   get contextRevision(): number {
@@ -56,19 +64,24 @@ export class TranscriptManager {
   }) {
     this.liveImagePathKeys = options.liveImagePathKeys;
     this.recorder = options.contextRecorder ?? null;
-    this.messages = [
+    const initialMessages: ChatMessage[] = [
       { role: 'system', content: options.systemPromptContent },
       ...options.historyMessages,
-      { role: 'user', content: buildUserContent(options.initialUserContent, options.initialUserImages) },
+      { role: 'user', content: buildUserContent(options.initialUserContent, options.initialUserImages),
+        ...(this.recorder === null ? {} : { chatMessageId: this.recorder.userMessageId }) },
       ...(options.initialFollowupMessages ?? []),
     ];
-    this.currentTurnStartIndexValue = 1 + options.historyMessages.length;
+    const revisions = this.recorder?.readHistoryRevisions() ?? [];
+    const pending = revisions.slice(this.recorder?.historyRevision ?? 0);
+    this.messages = applyLiveChatContextRevisions(initialMessages, pending);
+    this.currentTurnStartIndexValue = applyLiveChatContextRevisions(initialMessages.slice(0, 1 + options.historyMessages.length), pending).length;
     this.recorder?.recordContextInitialized(ChatContextInitSchema.parse({
       ...(options.initialQueueMessageIds ? { queueMessageIds: options.initialQueueMessageIds } : {}),
       messages: this.messages,
       contextRevision: 0,
       turnBoundary: this.currentTurnStartIndexValue,
     }));
+    this.appliedHistoryRevision = revisions.length;
   }
 
   get length(): number {
@@ -98,14 +111,20 @@ export class TranscriptManager {
         `TranscriptManager: invalid current turn start index ${String(currentTurnStartIndex)} for a ${compactedMessages.length}-message replacement`,
       );
     }
+    const replacement = compactedMessages.map(message => this.recorder !== null
+      && message.role === 'assistant' && typeof message.content === 'string' && message.content.startsWith(COMPACTION_SUMMARY_MARKER)
+      ? { ...message, chatMessageId: buildChatMessageId(this.recorder.messageIdPrefix, { kind: 'summary', revision: this.contextRevisionValue + 1 }) } : message);
+    const retainedIds = new Set(replacement.flatMap(chatDisplayMessageIds));
+    const compressedMessageIds = this.messages.flatMap(chatDisplayMessageIds).filter(id => !retainedIds.has(id));
     // No retained turn (manual compaction): the sentinel sits past the end, so any later
     // chat-boundary read sees an out-of-range index instead of a borrowed live turn.
     this.applySplice(
       0,
       this.messages.length,
-      compactedMessages,
+      replacement,
       'compacted',
       currentTurnStartIndex ?? compactedMessages.length,
+      { compressedMessageIds },
     );
     this.lastLoggedMessageCount = 0;
     // Compaction rebuilds the array, so any index an earlier turn remembered is meaningless.
@@ -133,14 +152,16 @@ export class TranscriptManager {
   }
 
   pushQueuedUser(id: string, content: string, images: readonly string[]): void {
-    this.applySplice(this.messages.length, 0, [buildUserMessage(content, images)], 'append', this.currentTurnStartIndexValue, [id]);
+    this.applySplice(this.messages.length, 0, [{ ...buildUserMessage(content, images), chatMessageId: id }], 'append', this.currentTurnStartIndexValue, { queueMessageIds: [id] });
   }
 
-  insertUserAfter(index: number, content: string, images: readonly string[], imagePathKey?: string): void {
+  insertUserAfter(index: number, content: string, images: readonly string[], imagePathKey: string, toolCallId: string): void {
+    const messageId = this.recorder?.resolveToolMessageId(toolCallId);
+    if (messageId === null) throw new Error('A recorded tool image requires its display identity.');
     this.applySplice(
       index + 1,
       0,
-      [buildUserMessage(content, images, imagePathKey)],
+      [{ ...buildUserMessage(content, images, imagePathKey), ...(messageId === undefined ? {} : { chatMessageId: messageId }) }],
       'insert',
       this.currentTurnStartIndexValue,
     );
@@ -162,16 +183,18 @@ export class TranscriptManager {
     this.applySplice(
       index,
       1,
-      [{ role: 'tool', tool_call_id: toolCallId, content }],
+      [{ ...this.messages[index], content }],
       'tool_result_replaced',
       this.currentTurnStartIndexValue,
     );
   }
 
   private findToolResultIndex(toolCallId: string): number {
-    return this.messages.findIndex(
-      (message) => message.role === 'tool' && message.tool_call_id === toolCallId,
-    );
+    for (let index = this.messages.length - 1; index >= 0; index--) {
+      const message = this.messages[index];
+      if (message.role === 'tool' && message.tool_call_id === toolCallId) return index;
+    }
+    return -1;
   }
 
   /** The single trailing countdown message, rewritten in place while it is still the last one. */
@@ -195,12 +218,24 @@ export class TranscriptManager {
 
   /** Ages images out of the retention window and releases the re-read guards they held. */
   pruneImages(retention: number): void {
+    this.reconcileHistory();
     const outcome = new ImageRetentionPolicy(retention).prune(this.messages);
     if (outcome.messages === this.messages) return;
     this.applySplice(0, this.messages.length, outcome.messages, 'images_pruned', this.currentTurnStartIndexValue);
     for (const droppedPathKey of outcome.droppedPathKeys) {
       this.liveImagePathKeys.delete(droppedPathKey);
     }
+  }
+
+  reconcileHistory(): void {
+    const revisions = this.recorder?.readHistoryRevisions() ?? [];
+    const pending = revisions.slice(this.appliedHistoryRevision);
+    if (pending.length === 0) return;
+    const messages = applyLiveChatContextRevisions(this.messages, pending);
+    const boundary = applyLiveChatContextRevisions(this.messages.slice(0, this.currentTurnStartIndexValue), pending).length;
+    this.applySplice(0, this.messages.length, messages, 'history_revised', boundary);
+    this.appliedHistoryRevision = revisions.length;
+    this.releaseDroppedImageGuards();
   }
 
   private append(inserted: readonly ChatMessage[]): void {
@@ -219,15 +254,29 @@ export class TranscriptManager {
     inserted: readonly ChatMessage[],
     reason: ChatContextSpliceReason,
     turnBoundary: number,
-    queueMessageIds?: string[],
+    metadata?: Pick<ChatContextSplice, 'queueMessageIds' | 'compressedMessageIds'>,
   ): void {
     const splice = ChatContextSpliceSchema.parse({
-      ...(queueMessageIds ? { queueMessageIds } : {}),
+      ...metadata,
       expectedRevision: this.contextRevisionValue,
       contextRevision: this.contextRevisionValue + 1,
       startIndex,
       deleteCount,
-      inserted,
+      inserted: inserted.map(message => {
+        if (this.recorder === null) return message;
+        if (reason === 'append' && message.role === 'tool' && message.tool_call_id !== undefined && message.chatMessageId === undefined) {
+          const id = this.recorder.resolveToolMessageId(message.tool_call_id);
+          if (id === null) throw new Error('A recorded tool result requires its display identity.');
+          return { ...message, chatMessageId: id };
+        }
+        if (reason !== 'append' || message.role !== 'assistant') return message;
+        const metadata = { messageIdPrefix: this.recorder.messageIdPrefix };
+        const messageId = this.recorder.resolveAssistantMessageId(this.modelTurn);
+        return { ...message,
+          chatMessageId: message.chatMessageId ?? messageId,
+          thinkingMessageId: message.thinkingMessageId ?? buildChatMessageId(metadata.messageIdPrefix, { kind: 'thinking', turn: this.modelTurn }),
+        };
+      }),
       turnBoundary,
       reason,
     });
@@ -252,6 +301,10 @@ export class TranscriptManager {
       if (!survivingPathKeys.has(pathKey)) this.liveImagePathKeys.delete(pathKey);
     }
   }
+}
+
+function chatDisplayMessageIds(message: ChatMessage): string[] {
+  return [message.chatMessageId, message.thinkingMessageId].filter((id): id is string => id !== undefined);
 }
 
 function buildUserMessage(content: string, images: readonly string[], imagePathKey?: string): ChatMessage {

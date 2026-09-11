@@ -1,27 +1,8 @@
-import {
-  buildChatRunMessageIdPrefix,
-  buildChatToolMessageId,
-  ChatRepoAgentApprovalMessageSchema,
-  ChatRecoveryIssueSchema,
-  ChatRecoveryReportSchema,
-  ChatTranscriptMessageSchema,
-  CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS,
-  toolCallStatusForExecutionState,
-  PersistedChatTranscriptMessageSchema,
-  reduceChatTranscript,
-  type ChatRecoveryIssue,
-  type ChatRecoveryIssueCode,
-  type ChatRecoveryReport,
-  type ChatRecoveryStatus,
-  type ChatRunTerminalCause,
-  type ChatToolExecutionState,
-  type ChatTranscriptMessage,
-  type ChatTranscriptMetadata,
-  type PersistedChatTranscriptMessage,
-} from '@siftkit/contracts';
+import { toError } from '../lib/errors.js';
+import { finalizeChatRunTranscript, buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, ChatRecoveryIssueSchema, ChatRecoveryReportSchema, CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, PersistedChatTranscriptMessageSchema, reduceChatTranscript, type ChatRecoveryIssue, type ChatRecoveryIssueCode, type ChatRecoveryReport, type ChatRecoveryStatus, type ChatRunTerminalCause, type ChatToolExecutionState, type ChatTranscriptMessage, type ChatTranscriptMetadata, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { stableStringify } from '../lib/json.js';
 import { z } from '../lib/zod.js';
-import { ChatJournalStore } from '../state/chat-journal.js';
+import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
 import type { ChatJournalEnvelope, ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
 import {
   insertChatMessages,
@@ -31,9 +12,15 @@ import {
 import type { RuntimeDatabase } from '../state/database-handle.js';
 import { COMPACTION_SUMMARY_MARKER } from '../repo-search/engine/transcript-compactor.js';
 import { buildCompactionSummaryRow } from './chat.js';
-import { applyChatDisplayRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.js';
+import { applyChatDisplayRevisions, readChatCompactionRevisions, readChatHistoryRevisions } from '../state/chat-history-revisions.js';
+import { createHash } from 'node:crypto';
+import { setRuntimeMetadataValue } from '../state/runtime-db.js';
+import { chatMetadataKey } from '../state/chat-metadata-keys.js';
 
-const EVENT_PAGE_SIZE = 500;
+function projectionDigest(messages: readonly PersistedChatTranscriptMessage[]): string {
+  return createHash('sha256').update(stableStringify([...messages])).digest('hex');
+}
+
 
 /** What one run's evidence projects to, before any of it is written down. */
 type ProjectedRun = {
@@ -58,15 +45,6 @@ function issue(
 }
 
 /**
- * How an unfinished call reads once its run is over. A call that never started is safe to retry;
- * one that started and never reported is not, and the two must not be flattened together.
- */
-function settleInterruptedState(state: ChatToolExecutionState): ChatToolExecutionState {
-  if (state === 'proposed' || state === 'pending_approval') return 'not_started';
-  return state === 'executing' ? 'uncertain' : state;
-}
-
-/**
  * Folds one run's committed events into display rows. Live frames supply the shape of a tool row;
  * the journal's own tool events supply the execution state and the complete result.
  */
@@ -78,6 +56,7 @@ export function projectChatRunEvents(
 ): ProjectedRun {
   let messages: ChatTranscriptMessage[] = [...initialMessages];
   let terminalCause: ChatRunTerminalCause | null = null;
+  let terminalDetail: string | null = null;
   const toolCallIds = new Set<string>();
   const approvals = new Map<string, Extract<ChatJournalEvent, { kind: 'approval_requested' }>>();
   for (const envelope of [...approvalEvidence, ...events]) {
@@ -86,40 +65,29 @@ export function projectChatRunEvents(
 
   for (const envelope of events) {
     messages = applyEvent(messages, envelope.event, metadata, toolCallIds, approvals);
-    if (envelope.event.kind === 'run_finished') terminalCause = envelope.event.terminalCause;
+    if (envelope.event.kind === 'run_finished') {
+      terminalCause = envelope.event.terminalCause;
+      terminalDetail = envelope.event.detail;
+    }
   }
 
-  const settled = terminalCause !== null
-    ? messages.map((message) => (
-      message.kind === 'assistant_tool_call'
-        ? withExecutionState(message, settleInterruptedState(message.toolCallExecutionState))
-        : message
-    ))
-    : messages;
+  const settled = terminalCause === null || events.some(envelope => envelope.event.kind === 'submission_cancelled')
+    ? messages : finalizeChatRunTranscript(messages, terminalCause, metadata, terminalDetail);
   const interrupted = settled.some((message) => (
     message.kind === 'assistant_tool_call'
     && (message.toolCallExecutionState === 'not_started' || message.toolCallExecutionState === 'uncertain')
   ));
+  const retained = new Set(initialMessages);
 
   return {
-    messages: settled.map((message) => PersistedChatTranscriptMessageSchema.parse(message)),
+    messages: settled.map((message) => retained.has(message) ? message : PersistedChatTranscriptMessageSchema.parse(message)),
     toolCount: toolCallIds.size,
     status: interrupted ? 'recovery_needed' : 'ok',
     terminalCause,
   };
 }
 
-function withExecutionState(
-  message: Extract<ChatTranscriptMessage, { kind: 'assistant_tool_call' }>,
-  executionState: ChatToolExecutionState,
-): ChatTranscriptMessage {
-  if (message.toolCallExecutionState === executionState) return message;
-  return ChatTranscriptMessageSchema.parse({
-    ...message,
-    toolCallExecutionState: executionState,
-    toolCallStatus: toolCallStatusForExecutionState(executionState),
-  });
-}
+
 
 function applyEvent(
   messages: readonly ChatTranscriptMessage[],
@@ -128,6 +96,8 @@ function applyEvent(
   toolCallIds: Set<string>,
   approvals: ReadonlyMap<string, Extract<ChatJournalEvent, { kind: 'approval_requested' }>>,
 ): ChatTranscriptMessage[] {
+  if (event.kind === 'run_finished' && event.terminalCause === 'completed') return reduceChatTranscript(messages, { kind: 'completed' }, metadata);
+  if (event.kind === 'submission_cancelled') return messages.filter(message => message.id !== event.userMessageId);
   if (event.kind === 'baseline_imported') {
     return event.messages.map(message => ({ ...message, sourceRunId: metadata.sourceRunId }));
   }
@@ -137,7 +107,7 @@ function applyEvent(
     const reason = event.decision.decision === 'deny' ? event.decision.reason : null;
     const content = `${event.decision.decision} ${approval.toolName}: ${approval.command}${reason ? ` — ${reason}` : ''}`;
     return [...messages, ChatRepoAgentApprovalMessageSchema.parse({
-      id: `${metadata.messageIdPrefix}-approval-${event.approvalId}`, role: 'user', kind: 'repo_agent_approval', content,
+      id: buildChatMessageId(metadata.messageIdPrefix, { kind: 'approval', approvalId: event.approvalId }), role: 'user', kind: 'repo_agent_approval', content,
       inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
       inputTokensEstimated: false, outputTokensEstimated: false, thinkingTokensEstimated: false,
       createdAtUtc: event.decidedAtUtc, sourceRunId: metadata.sourceRunId,
@@ -145,6 +115,7 @@ function applyEvent(
     })];
   }
   if (event.kind === 'run_started') {
+    if (event.operationKind === 'condense') return [...messages];
     return reduceChatTranscript(messages, {
       kind: 'submission',
       message: { id: event.userMessageId, content: event.content, images: event.images },
@@ -155,10 +126,20 @@ function applyEvent(
       && message.content.startsWith(COMPACTION_SUMMARY_MARKER));
     if (!summary || typeof summary.content !== 'string') throw new Error('Compacted context has no typed compaction summary.');
     const row = { ...buildCompactionSummaryRow(summary.content.slice(COMPACTION_SUMMARY_MARKER.length).trim(), metadata.createdAtUtc),
-      id: `${metadata.messageIdPrefix}-summary-${event.contextRevision}`, sourceRunId: metadata.sourceRunId };
-    return [row, ...messages.map(message => message.kind === 'compaction_summary' ? { ...message, compressedIntoSummary: true } : message)];
+      id: buildChatMessageId(metadata.messageIdPrefix, { kind: 'summary', revision: event.contextRevision }), sourceRunId: metadata.sourceRunId };
+    const compressed = new Set(event.compressedMessageIds ?? []);
+    const previous = messages.map(message => message.kind === 'compaction_summary' ? { ...message, compressedIntoSummary: true } : message);
+    const insertionIndex = previous.reduce((last, message, index) => compressed.has(message.id) ? index + 1 : last, 0);
+    return [...previous.slice(0, insertionIndex), row, ...previous.slice(insertionIndex)];
   }
   if (event.kind === 'display') {
+    if (event.event.kind === 'tool' && event.event.tool.kind === 'tool_result') {
+      const id = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.event.tool.toolCallId });
+      const recorded = messages.find(message => message.id === id);
+      if (recorded?.kind !== 'assistant_tool_call' || recorded.toolCallOutput === null || recorded.toolCallOutput === undefined) {
+        throw new Error(`Tool ${event.event.tool.toolCallId} has no committed full result.`);
+      }
+    }
     return reduceChatTranscript(messages, event.event, metadata);
   }
   if (event.kind === 'queue_delivered') {
@@ -199,6 +180,7 @@ function applyEvent(
     });
   }
   if (event.kind === 'tool_result') {
+    const messageId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.call.displayToolCallId });
     return applyOutcome(messages, metadata, {
       toolCallId: event.call.displayToolCallId,
       executionState: event.executionState,
@@ -206,10 +188,10 @@ function applyEvent(
       output: event.output,
       outputTokens: event.outputTokens,
       outputTokensEstimated: event.outputTokensEstimated,
-    });
+    }).map(message => message.id === messageId ? { ...message, images: event.images, imageMeta: event.imageMeta } : message);
   }
   if (event.kind === 'tool_result_finalized') {
-    const previous = messages.find(message => message.id === buildChatToolMessageId(metadata.messageIdPrefix, event.call.displayToolCallId));
+    const previous = messages.find(message => message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.call.displayToolCallId }));
     return applyOutcome(messages, metadata, {
       toolCallId: event.call.displayToolCallId,
       executionState: previous?.kind === 'assistant_tool_call' ? previous.toolCallExecutionState : 'completed',
@@ -257,31 +239,9 @@ function report(
   });
 }
 
-function readEvents(store: ChatJournalStore, operationId: string, afterSequence: number): ChatJournalEnvelope[] {
-  const events: ChatJournalEnvelope[] = [];
-  let cursor = afterSequence;
-  for (;;) {
-    const page = store.readAfter(operationId, cursor, EVENT_PAGE_SIZE);
-    if (page.length === 0) return events;
-    events.push(...page);
-    cursor = page[page.length - 1].sequence;
-  }
-}
 
-function missingRunReport(operationId: string): ChatRecoveryReport {
-  return ChatRecoveryReportSchema.parse({
-    sessionId: 'unknown',
-    operationId,
-    status: 'recovery_failed',
-    terminalCause: null,
-    appliedSequence: 0,
-    eventCount: 0,
-    messageCount: 0,
-    toolCount: 0,
-    changed: false,
-    issues: [issue(operationId, 'missing_run', 'the run is unknown to the chat journal')],
-  });
-}
+
+
 
 /**
  * Projects one run's evidence onto its display rows, replacing exactly the rows that run owns.
@@ -290,21 +250,28 @@ function missingRunReport(operationId: string): ChatRecoveryReport {
 function projectRun(database: RuntimeDatabase, operationId: string, force: boolean): ChatRecoveryReport {
   const store = new ChatJournalStore(database);
   const run = store.readRun(operationId);
-  if (run === null) return missingRunReport(operationId);
+  if (run === null) throw new ChatRecoveryInvariantError('missing_run', operationId, 'Chat projection run does not exist.');
+  const before = readChatRunMessages(database, run.sessionId, operationId);
+  const compactions = readChatCompactionRevisions(database, run.sessionId);
+  const earlierRun = compactions.some(compaction => compaction.runOrder > run.runOrder);
+  const compressedIds = new Set(compactions.filter(compaction => compaction.operationId === operationId).flatMap(compaction => compaction.compressedMessageIds));
+  if (before.some(message => !message.compressedIntoSummary && (earlierRun || compressedIds.has(message.id)))) force = true;
+  const digestRow = z.object({ value: z.string() }).optional().parse(database.prepare('SELECT value FROM runtime_metadata WHERE key=?').get(chatMetadataKey.projection(operationId)));
+  if (digestRow?.value !== projectionDigest(before)) force = true;
   const revisions = readChatHistoryRevisions(database, run.sessionId);
   if (revisions.length > 0) force = true;
   if (!force && run.projectedSequence === run.latestSequence) {
-    return report(run, { messages: [], toolCount: 0, status: 'ok', terminalCause: run.terminalCause }, false, []);
+    return report(run, { messages: before, toolCount: before.filter(message => message.kind === 'assistant_tool_call').length, status: 'ok', terminalCause: run.terminalCause }, false, []);
   }
 
-  const before = readChatRunMessages(database, run.sessionId, operationId);
-  const events = readEvents(store, operationId, force ? 0 : run.projectedSequence);
+  const events = [...store.readAll(operationId, force ? 0 : run.projectedSequence)];
   const projected = projectChatRunEvents(events, {
     messageIdPrefix: buildChatRunMessageIdPrefix(operationId),
     sourceRunId: operationId,
     createdAtUtc: run.createdAtUtc,
   }, force ? [] : before, store.readApprovalRequests(operationId));
   projected.messages = applyChatDisplayRevisions(projected.messages, revisions).map(message => PersistedChatTranscriptMessageSchema.parse(message));
+  projected.messages = projected.messages.map(message => earlierRun || compressedIds.has(message.id) ? { ...message, compressedIntoSummary: true } : message);
 
   // Compared as stored on both sides, so "the rows already say this" is an exact answer rather
   // than a guess about which absent fields read back as NULL.
@@ -341,9 +308,10 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
         insertChatMessages(database, run.sessionId, [message], start + index, run.createdAtUtc);
       }
       store.advanceProjection({ operationId, projectedSequence: run.latestSequence });
+      setRuntimeMetadataValue(database, chatMetadataKey.projection(operationId), projectionDigest(readChatRunMessages(database, run.sessionId, operationId)));
     })();
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = toError(error).message;
     return report(run, projected, false, [issue(operationId, 'projection_failed', detail)]);
   }
   const after = readChatRunMessages(database, run.sessionId, operationId);

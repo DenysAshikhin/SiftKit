@@ -11,10 +11,18 @@ import { rebuildChatRun, reconcileChatRun } from '../src/status-server/chat-run-
 import type { RuntimeDatabase } from '../src/state/database-handle.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+import { ChatRecoveryInvariantError } from '../src/state/chat-journal.js';
 
 const SESSION_ID = 'projection-session';
 const OWNER_EPOCH = 'owner-a:1';
 const AT = '2026-09-10T11:04:54.755Z';
+
+test('a missing projection run fails with its actual operation identity and no fabricated session', () => {
+  const { database } = openSession('chat-projection-missing-');
+  const operationId = randomUUID();
+  assert.throws(() => reconcileChatRun(database, operationId), error => error instanceof ChatRecoveryInvariantError
+    && error.code === 'missing_run' && error.operationId === operationId);
+});
 
 function openSession(prefix: string): { runtimeRoot: string; database: RuntimeDatabase } {
   const runtimeRoot = createManagedTempDir(prefix);
@@ -166,6 +174,28 @@ test('a run projects its committed evidence into display rows carrying complete 
   assert.equal(messages[3].content, 'It lives in research/physics.py.');
 });
 
+test('late display frames cannot erase a finalized full tool result or regress its state', () => {
+  const { runtimeRoot, database } = openSession('chat-projection-late-preview-');
+  const operationId = writeRun(database, [
+    ...runEvents(),
+    { kind: 'tool_result_finalized', call: call(0, 'call_a'), modelVisibleText: 'complete finalized output', contextRevision: 1 },
+    { kind: 'display', event: { kind: 'tool', tool: {
+      kind: 'tool_start', toolCallId: 'tc_0', turn: 1, maxTurns: 120, command: 'rg -n physics',
+      activityKind: 'command', activitySubject: { kind: 'file', value: 'research/physics.py' }, promptTokenCount: 120,
+    } } },
+    { kind: 'display', event: { kind: 'tool', tool: {
+      kind: 'tool_result', toolCallId: 'tc_0', turn: 1, maxTurns: 120, command: 'rg -n physics',
+      activityKind: 'command', activitySubject: { kind: 'file', value: 'research/physics.py' }, promptTokenCount: 120,
+      exitCode: 0, outputSnippet: 'short preview', outputTokens: 12, outputTokensEstimated: true,
+    } } },
+  ]);
+  reconcileChatRun(database, operationId);
+  const tool = projectedMessages(runtimeRoot).find(message => message.kind === 'assistant_tool_call');
+  assert.equal(tool?.toolCallOutput, 'complete finalized output');
+  assert.equal(tool?.toolCallExecutionState, 'completed');
+  assert.equal(tool?.toolCallOutputSnippet, 'short preview');
+});
+
 test('reconciling an already projected run changes nothing', () => {
   const { runtimeRoot, database } = openSession('chat-run-projection-idempotent-');
   const operationId = writeRun(database, runEvents());
@@ -176,6 +206,16 @@ test('reconciling an already projected run changes nothing', () => {
 
   assert.equal(second.changed, false);
   assert.deepEqual(projectedMessages(runtimeRoot), first);
+});
+
+test('reconciliation repairs altered rows even when their sequence checkpoint survived', () => {
+  const { runtimeRoot, database } = openSession('chat-projection-integrity-');
+  const operationId = writeRun(database, runEvents());
+  reconcileChatRun(database, operationId);
+  const expected = projectedMessages(runtimeRoot);
+  database.prepare("UPDATE chat_messages SET tool_call_output='preview only' WHERE source_run_id=? AND kind='assistant_tool_call'").run(operationId);
+  reconcileChatRun(database, operationId);
+  assert.deepEqual(projectedMessages(runtimeRoot), expected);
 });
 
 test('a rebuild after the projection rows are destroyed reproduces the fault-free rows', () => {

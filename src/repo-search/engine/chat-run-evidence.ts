@@ -1,4 +1,4 @@
-import type { ChatJournalEvent } from '../../state/chat-journal-schema.js';
+import type { ChatHistoryRevision, ChatJournalEvent } from '../../state/chat-journal-schema.js';
 import type { ChatContextInit, ChatContextSplice } from '../planner-chat-message.js';
 
 /** One journal event family without the discriminator, which the recorder stamps on itself. */
@@ -16,6 +16,12 @@ export type ChatApprovalResolvedEvidence = EvidenceBody<'approval_resolved'>;
  * one; a terminal run does not, and then the transcript is the only record there is.
  */
 export interface ChatContextRecorder {
+  readonly userMessageId: string;
+  readonly messageIdPrefix: string;
+  resolveAssistantMessageId(turn: number): string;
+  resolveToolMessageId(toolCallId: string): string | null;
+  readonly historyRevision: number;
+  readHistoryRevisions(): ChatHistoryRevision[];
   recordContextInitialized(init: ChatContextInit): void;
   recordContextSpliced(splice: ChatContextSplice): void;
 }
@@ -25,6 +31,7 @@ export interface ChatContextRecorder {
  * failed write: unrecorded evidence must stop the run rather than let it act unrecorded.
  */
 export interface ChatRunEvidenceRecorder extends ChatContextRecorder {
+  readonly abortSignal: AbortSignal;
   recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void;
   recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void;
   recordToolProposed(evidence: ChatToolProposedEvidence): void;

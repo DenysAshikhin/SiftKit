@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatSessionResponseSchema } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, DurableChatApprovalSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import { ChatStreamReader } from '../src/lib/chat-stream-parser';
@@ -16,8 +16,40 @@ import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
 import { buildUsageFrame } from './usage-frame';
+import { chatSnapshot } from './chat-snapshot-fixture.js';
+import { createLiveMessage } from '../src/lib/chat-live-messages';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+
+for (const grouped of [false, true]) test(`Stop outcome is visible once outside generated text (grouped=${grouped})`, () => {
+  const answer = { ...createLiveMessage('partial', 'assistant_answer', 'assistant', 'Original partial answer'), runTerminalCause: 'user_stop' as const };
+  const messages = grouped ? [createLiveMessage('thinking', 'assistant_thinking', 'assistant', 'Reasoning'), answer] : [answer];
+  const snapshot = chatSnapshot({ sessionId: 'session-b', operationKind: 'message', terminalCause: 'user_stop', messages });
+  const store = buildDefaultStore('session-b').apply({ kind: 'snapshot', sessionId: 'session-b', snapshot });
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  try {
+    assert.match(view.container.textContent ?? '', /Original partial answer/u);
+    assert.equal(view.container.querySelectorAll('[aria-label="Run outcome"]').length, 1);
+    assert.equal(view.container.querySelector('[aria-label="Run outcome"]')?.textContent, 'Stopped by user.');
+    assert.equal(answer.content, 'Original partial answer');
+  } finally { view.unmount(); }
+});
+
+test('recovery failure keeps the conversation readable and disables only continuation', () => {
+  const snapshot = chatSnapshot({ sessionId: 'session-b', operationKind: 'message', status: 'recovery_failed', terminalCause: 'provider_failure',
+    messages: [createLiveMessage('retained', 'assistant_answer', 'assistant', 'Readable partial answer')] });
+  let store = buildDefaultStore('session-b').apply({ kind: 'draft', sessionId: 'session-b', draft: 'continue' })
+    .apply({ kind: 'snapshot', sessionId: 'session-b', snapshot });
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+  try {
+    assert.match(view.container.textContent ?? '', /Readable partial answer/u);
+    assert.match(view.container.textContent ?? '', /repair/u);
+    assert.ok(view.container.querySelector('button.send:not(.stop)')?.hasAttribute('disabled'));
+    store = store.apply({ kind: 'snapshot', sessionId: 'session-b', snapshot: { ...snapshot, status: 'recovery_needed' } });
+    view.rerender(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b') })} />);
+    assert.equal(view.container.querySelector('button.send:not(.stop)')?.hasAttribute('disabled'), false);
+  } finally { view.unmount(); }
+});
 
 test('active token badges grow before usage and settle without losing late text accounting', () => {
   let store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'message', operationId: OPERATION_ID })
@@ -70,16 +102,28 @@ async function* readHttpChat(url: string, signal: AbortSignal, body?: Record<str
 async function readThrough(
   stream: AsyncGenerator<ChatSessionRuntimeTransition>,
   store: ChatSessionRuntimeStore,
-  kind: ChatSessionRuntimeTransition['kind'],
+  kind: 'prompt' | 'thinking' | 'done',
   thinkingTurn?: number,
 ) {
+  const before = store;
   for (;;) {
     const next = await stream.next();
     assert.equal(next.done, false, `stream ended before ${kind}`);
     assert.ok(next.value);
     store = store.apply(next.value);
     if (next.value.kind === 'failure') throw new Error(next.value.message);
-    if (next.value.kind === kind && (thinkingTurn === undefined || (next.value.kind === 'thinking' && next.value.delta.turn === thinkingTurn))) return { store, transition: next.value };
+    if (kind === 'done' && next.value.kind === 'done') return { store, transition: next.value };
+    if (next.value.kind !== 'snapshot') continue;
+    const prior = before.get(next.value.sessionId);
+    const snapshot = next.value.snapshot;
+    if (kind === 'prompt' && snapshot.tokenTurns.some(turn => turn.prompt !== null && turn.turn > Math.max(0, ...prior.tokenTurns.keys()))) {
+      return { store, transition: next.value };
+    }
+    if (kind === 'thinking' && snapshot.messages.some(message => message.kind === 'assistant_thinking'
+      && (thinkingTurn === undefined || message.id === buildChatMessageId(buildChatRunMessageIdPrefix(snapshot.operationId), { kind: 'thinking', turn: thinkingTurn }))
+      && message.content !== prior.liveMessages.find(previous => previous.id === message.id)?.content)) {
+      return { store, transition: next.value };
+    }
   }
 }
 
@@ -149,8 +193,7 @@ for (const queued of [false, true]) {
         const beforeReplay = readTokenBadges(view.container.innerHTML);
         const replay = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
         t.after(async () => { await replay.return(); });
-        const replayStore = (await readThrough(replay, new ChatSessionRuntimeStore().ensureSession(sessionId, ''), 'thinking')).store;
-        const replayNext = await readThrough(replay, replayStore, 'thinking', 2);
+        const replayNext = await readThrough(replay, new ChatSessionRuntimeStore().ensureSession(sessionId, ''), 'thinking', 2);
         const originalStore = store;
         store = replayNext.store;
         view.rerender(<ChatTab {...props()} />);
@@ -236,7 +279,7 @@ for (const force of [false, true]) {
       if (done.transition.kind !== 'done') throw new Error('Expected completion');
       const saved = done.transition.response.session;
       assert.equal(saved.messages.find((message) => message.kind === 'assistant_thinking')?.thinkingTokens, 10);
-      if (force) assert.match(saved.messages.at(-1)?.content ?? '', /Stopped/u);
+      if (force) assert.equal(saved.messages.at(-1)?.runTerminalCause, 'user_stop');
       const successorProvider = await backend.nextRequest();
       const successor = toRuntimeTransitions(sessionId, { kind: 'attached' }, readHttpChat(`${url}/operation/stream`, t.signal), true);
       t.after(async () => { await successor.return(); });
@@ -572,14 +615,17 @@ test('changing only preset metadata does not claim the model context is invalida
 
 test('repo-agent pending approval renders actions and reject requires a reason', async () => {
   const decisions: Array<{ decision: string; reason?: string }> = [];
-  const approval = {
+  const approval = DurableChatApprovalSchema.parse({
     runId: '4f9c1f9a-0000-4000-8000-000000000000',
     approvalId: '4f9c1f9a-0000-4000-8000-000000000001',
     toolName: 'bash',
     command: 'npm test',
     reviewPayload: 'Run focused tests first.',
-  };
-  const store = buildDefaultStore(SESSION_A.id).apply({ kind: 'approval', sessionId: SESSION_A.id, approval });
+    toolCallId: 'native-call', mode: 'interactive', requestedAtUtc: new Date().toISOString(),
+    expiresAtUtc: new Date(Date.now() + 600_000).toISOString(), outcome: null, decidedAtUtc: null, actionable: true,
+  });
+  const store = buildDefaultStore(SESSION_A.id).apply({ kind: 'snapshot', sessionId: SESSION_A.id,
+    snapshot: chatSnapshot({ sessionId: SESSION_A.id, approval }) });
   renderComponent(<ChatTab {...buildProps({
     chatMode: 'repo-agent',
     isRepoToolMode: true,
@@ -589,7 +635,7 @@ test('repo-agent pending approval renders actions and reject requires a reason',
   })} />);
   assert.equal(screen.getByText('npm test').textContent, 'npm test');
   assert.equal(screen.getByRole('button', { name: 'Queue' }).hasAttribute('disabled'), false);
-  assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
+  assert.ok(screen.getByRole('button', { name: 'Stop' }));
   assert.ok(screen.getByRole('button', { name: 'Approve' }));
   assert.ok(screen.getByRole('button', { name: 'Abort' }));
   fireEvent.click(screen.getByRole('button', { name: 'Reject…' }));

@@ -1,12 +1,6 @@
 import type Database from 'better-sqlite3';
 
-import {
-  PersistedChatTranscriptMessageSchema,
-  RunOperationTypeSchema,
-  buildChatRunMessageIdPrefix,
-  buildChatToolMessageId,
-  type PersistedChatTranscriptMessage,
-} from '@siftkit/contracts';
+import { PersistedChatTranscriptMessageSchema, RunOperationTypeSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type PersistedChatTranscriptMessage } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -45,7 +39,7 @@ export type ChatToolResultsFailure = z.infer<typeof ChatToolResultsFailureSchema
 export class ChatToolResultsError extends Error {
   constructor(
     readonly reason: ChatToolResultsFailure,
-    readonly requestId: string,
+    readonly requestId: string | null,
     message: string,
   ) {
     super(message);
@@ -98,7 +92,7 @@ export function requireDurableToolResult(message: {
   if (!parsed.success) {
     throw new ChatToolResultsError(
       'missing_result',
-      message.sourceRunId ?? '',
+      message.sourceRunId ?? null,
       `Chat tool row ${message.id} has no complete result to persist or replay.`,
     );
   }
@@ -463,7 +457,7 @@ export function hydrateChatToolMessages(
   }
   const prefix = buildChatRunMessageIdPrefix(canonicalResults.requestId);
   const outcomesById = new Map(canonicalResults.outcomes
-    .map((outcome) => [buildChatToolMessageId(prefix, String(outcome.toolCallId)), outcome] as const));
+    .map((outcome) => [buildChatMessageId(prefix, { kind: 'tool', toolCallId: String(outcome.toolCallId) }), outcome] as const));
   return messages.map((message) => {
     if (message.kind !== 'assistant_tool_call' || message.toolCallStatus !== 'done') {
       return message;

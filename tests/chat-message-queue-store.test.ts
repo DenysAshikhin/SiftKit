@@ -12,20 +12,67 @@ import { deleteChatSession, saveChatSession, type ChatSession } from '../src/sta
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { recoverInterruptedChatQueue } from '../src/status-server/chat-queue-recovery.js';
+import { recoverInterruptedChatRuns } from '../src/status-server/chat-run-recovery.js';
+import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
+import { ChatRunRecorder, buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { randomUUID } from 'node:crypto';
+import type { ChatQueueClaimInput } from '../src/state/chat-message-queue.js';
 import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
 
-test('restart preserves delivered users once, marks missing evidence, and never requeues execution', (t) => {
+function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueClaimInput) {
+  const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
+  const database = getRuntimeDatabase(databasePath);
+  const prior = new ChatJournalStore(database).listSessionRuns(sessionId).find(run => run.requestId === input.requestId);
+  if (prior) return ChatRunRecorder.resume(databasePath, prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input);
+  const saved = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+  assert.ok(saved);
+  const initial = new ChatMessageQueueStore(database).listPending(sessionId).find(message => input.ids === null || input.ids.includes(message.id));
+  assert.ok(initial);
+  const recorder = ChatRunRecorder.begin(databasePath, {
+    operationId: randomUUID(), sessionId, ownerEpoch: 'old-process', operationKind: 'message', userMessageId: initial.id,
+    content: initial.content, images: initial.images, imageMeta: [], retainedHistoryRevision: 0, startedAtUtc: new Date().toISOString(),
+    settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null }),
+  });
+  recorder.bindEngine({ requestId: input.requestId, repoAgentSessionId: null });
+  return recorder.claimQueuedMessages(sessionId, input);
+}
+
+function recoverRecordedQueue(runtimeRoot: string): void {
+  const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
+  const database = getRuntimeDatabase(databasePath);
+  const row = database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get();
+  const owner = row === undefined ? null : ChatRuntimeOwnerSchema.parse(row);
+  const epoch = owner ? `${owner.owner_id}:${owner.epoch}` : ChatRuntimeOwner.acquire(databasePath, 'new-process').ownerEpoch;
+  recoverInterruptedChatRuns(database, epoch);
+}
+
+test('restart fails an unfinished Force intent and preserves its pending messages', t => {
+  t.after(closeRuntimeDatabase);
+  const { store, runtimeRoot } = openStore('chat-force-restart-');
+  enqueued(store, 's1', entry(1));
+  store.beginForce('s1', { id: uuid(90), operationId: uuid(91) }, uuid(92));
+  recoverRecordedQueue(runtimeRoot);
+  assert.equal(store.state('s1').force?.phase, 'failed');
+  assert.equal(store.state('s1').paused, true);
+  assert.deepEqual(store.listPending('s1').map(message => message.id), [uuid(1)]);
+  const revision = store.state('s1').revision;
+  recoverRecordedQueue(runtimeRoot);
+  assert.equal(store.state('s1').revision, revision);
+});
+
+test('restart preserves journaled deliveries once and never requeues interrupted execution', (t) => {
   t.after(closeRuntimeDatabase);
   const { store, runtimeRoot } = openStore('siftkit-queue-recovery-');
   enqueued(store, 's1', entry(1));
-  store.claim('s1', { requestId: 'interrupted', turn: 2, ids: null });
+  recordedClaim(runtimeRoot, 's1', { requestId: 'interrupted', turn: 2, ids: null });
   enqueued(store, 's1', entry(2));
-  recoverInterruptedChatQueue(runtimeRoot);
-  recoverInterruptedChatQueue(runtimeRoot);
+  recoverRecordedQueue(runtimeRoot);
+  recoverRecordedQueue(runtimeRoot);
   const saved = readChatSessionFromPath(getChatSessionPath(runtimeRoot, 's1'));
   assert.deepEqual(saved?.messages?.filter((row) => row.role === 'user').map((row) => row.id), [uuid(1)]);
-  assert.match(saved?.messages?.at(-1)?.content ?? '', /execution evidence.*unavailable/iu);
+  assert.equal(new ChatJournalStore(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))).listSessionRuns('s1')[0]?.terminalCause, 'server_restart');
   assert.deepEqual(store.listPending('s1').map((row) => row.id), [uuid(2)]);
   assert.equal(store.listDelivered('s1', 'interrupted').length, 0);
   assert.equal(store.state('s1').paused, true);
@@ -186,17 +233,17 @@ test('claim takes the FIFO snapshot, later arrivals wait, and incorporation is r
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
   enqueued(store, 's2', entry(3));
-  const claimed = store.claim('s1', { requestId: 'run-1', turn: 2, ids: null });
+  const claimed = recordedClaim(runtimeRoot, 's1', { requestId: 'run-1', turn: 2, ids: null });
   assert.deepEqual(claimed.map((message) => message.id), [uuid(1), uuid(2)]);
   enqueued(store, 's1', entry(4));
   assert.deepEqual(store.listPending('s1').map((message) => message.id), [uuid(4)]);
   assert.deepEqual(store.listDelivered('s1', 'run-1').map((message) => message.id), [uuid(1), uuid(2)]);
   assert.deepEqual(store.listDelivered('s2', 'run-1'), []);
-  assert.deepEqual(store.claim('s1', { requestId: 'run-1', turn: 3, ids: null }).map((message) => message.id), [uuid(4)]);
+  assert.deepEqual(recordedClaim(runtimeRoot, 's1', { requestId: 'run-1', turn: 3, ids: null }).map((message) => message.id), [uuid(4)]);
 
   assert.throws(() => store.deleteIncorporated('s1', 'run-1'), /Unincorporated/u);
   assert.equal(store.listDelivered('s1', 'run-1').length, 3);
-  recoverInterruptedChatQueue(runtimeRoot);
+  recoverRecordedQueue(runtimeRoot);
   assert.deepEqual(store.list('s1'), []);
   assert.deepEqual(readChatSessionFromPath(getChatSessionPath(runtimeRoot, 's1'))?.messages?.filter((message) => message.role === 'user').map((message) => message.id), [uuid(1), uuid(2), uuid(4)]);
   assert.equal(store.list('s2').length, 1);
@@ -208,12 +255,12 @@ test('startup recovery incorporates delivered users and retains only unsent pend
   enqueued(store, 's1', entry(1));
   enqueued(store, 's1', entry(2));
   enqueued(store, 's2', entry(3));
-  store.claim('s1', { requestId: 'run-1', turn: 2, ids: [uuid(2)] });
-  store.claim('s2', { requestId: 'run-2', turn: 0, ids: null });
-  recoverInterruptedChatQueue(runtimeRoot);
+  recordedClaim(runtimeRoot, 's1', { requestId: 'run-1', turn: 2, ids: [uuid(2)] });
+  recordedClaim(runtimeRoot, 's2', { requestId: 'run-2', turn: 0, ids: null });
+  recoverRecordedQueue(runtimeRoot);
   assert.deepEqual(store.listPending('s1').map((message) => message.id), [uuid(1)]);
   assert.deepEqual(store.listPending('s2'), []);
-  recoverInterruptedChatQueue(runtimeRoot);
+  recoverRecordedQueue(runtimeRoot);
   assert.equal(readChatSessionFromPath(getChatSessionPath(runtimeRoot, 's2'))?.messages?.filter((message) => message.role === 'user').length, 1);
 });
 
@@ -296,9 +343,9 @@ test('delivery recovery advances the durable revision and invalid claims fail', 
   const { store, runtimeRoot } = openStore('siftkit-queue-store-ledger-revision-');
   enqueued(store, 's1', entry(1));
   assert.throws(() => store.claim('s1', { requestId: '', turn: -1, ids: null }));
-  store.claim('s1', { requestId: 'run', turn: 1, ids: null });
+  recordedClaim(runtimeRoot, 's1', { requestId: 'run', turn: 1, ids: null });
   const claimedRevision = store.state('s1').revision;
-  recoverInterruptedChatQueue(runtimeRoot);
+  recoverRecordedQueue(runtimeRoot);
   assert.ok(store.state('s1').revision > claimedRevision);
   assert.deepEqual(store.listDelivered('s1', 'run'), []);
 });

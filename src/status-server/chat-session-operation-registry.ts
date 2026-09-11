@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { ChatSessionOperationKind } from '@siftkit/contracts';
 
 import { ChatOperationBroadcast } from './chat-operation-broadcast.js';
+import type { ChatRunRecorder } from './chat-run-recorder.js';
 
 export type ChatSessionOperation = {
   token: string;
@@ -13,6 +14,7 @@ export type ChatSessionOperation = {
   abort?: () => void;
   failure?: string;
   stopRequested?: boolean;
+  recorder?: ChatRunRecorder;
 };
 
 export type ChatSessionOperationAcquireResult =
@@ -48,11 +50,11 @@ function requireSessionId(sessionId: string): void {
 
 export class ChatSessionOperationRegistry {
   private readonly activeBySessionId = new Map<string, ActiveChatSessionOperation>();
-  private readonly latestCompletion = new Map<string, { lease: ChatSessionOperation; completion: ChatSessionOperationCompletion }>();
+  private readonly latestCompletion = new Map<string, { operationId: string; completion: ChatSessionOperationCompletion }>();
 
   getCompletion(sessionId: string, operationId: string): ChatSessionOperationCompletion | null {
     const last = this.latestCompletion.get(sessionId);
-    return last?.lease.operationId === operationId ? last.completion : null;
+    return last?.operationId === operationId ? last.completion : null;
   }
 
   acquire(
@@ -82,9 +84,9 @@ export class ChatSessionOperationRegistry {
     if (active === null || active.lease.token !== lease.token) {
       return false;
     }
-    const error = lease.failure ?? active.broadcast.failure;
+    const error = lease.failure;
     if (error) completion = { kind: 'failed', error };
-    this.latestCompletion.set(lease.sessionId, { lease, completion });
+    this.latestCompletion.set(lease.sessionId, { operationId: lease.operationId, completion });
     delete lease.abort;
     this.activeBySessionId.delete(lease.sessionId);
     // Every stream ends with a terminal frame, so an attached reader can always tell "the run

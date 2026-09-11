@@ -8,7 +8,7 @@ import { buildUsageFrame } from './usage-frame';
 
 const PROMPT_FRAME = { turn: 1, maxTurns: 20, promptTokens: 900, charsPerToken: 4 } as const;
 
-test('operation token metadata survives queue and composer transitions and clears on every terminal boundary', () => {
+test('operation token metadata survives disconnects and clears when an authoritative replacement arrives', () => {
   const store = new ChatSessionRuntimeStore().ensureSession('s1', '').ensureSession('s2', '')
     .apply({ kind: 'prompt', sessionId: 's1', prompt: PROMPT_FRAME })
     .apply({ kind: 'usage', sessionId: 's1', usage: buildUsageFrame({ turn: 1, record: { thinkingTokens: 20 } }) });
@@ -23,8 +23,8 @@ test('operation token metadata survives queue and composer transitions and clear
     assert.equal(queued.apply({ kind, sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }).get('s1').tokenTurns.size, 0);
   }
   assert.equal(queued.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').tokenTurns.size, 0);
-  assert.equal(queued.apply({ kind: 'failure', sessionId: 's1', message: 'failed' }).get('s1').tokenTurns.size, 0);
-  assert.equal(queued.apply({ kind: 'detach', sessionId: 's1' }).get('s1').tokenTurns.size, 0);
+  assert.equal(queued.apply({ kind: 'failure', sessionId: 's1', message: 'failed' }).get('s1').tokenTurns, tokenTurns);
+  assert.equal(queued.apply({ kind: 'detach', sessionId: 's1' }).get('s1').tokenTurns, tokenTurns);
   assert.equal(store.get('s1').tokenTurns, tokenTurns);
 });
 
@@ -502,7 +502,7 @@ test('applyDone clears live messages and preserves the next draft for the sessio
   assert.deepEqual(runtime.pendingImages, []);
 });
 
-test('applyFailure clears live messages but preserves draft and images for retry', () => {
+test('applyFailure preserves generated messages, draft, and images', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
@@ -510,7 +510,7 @@ test('applyFailure clears live messages but preserves draft and images for retry
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
-  assert.deepEqual(runtime.liveMessages, []);
+  assert.deepEqual(runtime.liveMessages.map(message => message.content), ['answer']);
   assert.equal(runtime.draft, 'draft');
   assert.deepEqual(runtime.pendingImages, [IMAGE_A]);
 });

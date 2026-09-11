@@ -65,6 +65,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,
     terminalMetadata: {
+      pendingDirectJobs: 0,
       queue: [],
       drainScheduled: false,
       drainRunning: false,

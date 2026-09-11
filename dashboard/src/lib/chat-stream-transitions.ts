@@ -3,6 +3,7 @@ import { ChatOperationIdleError, ChatSessionBusyError } from '../api';
 import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store';
 import type { ChatStreamEvent } from './chat-stream-parser';
 import type { ChatSessionOperationKind } from '../types';
+import { ChatOperationProjection } from './chat-operation-projection';
 
 /** How this stream came to be: a turn this client started, or a run it latched onto. */
 export type ChatStreamStart =
@@ -23,9 +24,17 @@ export async function* toRuntimeTransitions(
     yield { kind: 'begin', sessionId, operationKind: start.operationKind, operationId: start.operationId };
   }
   let completed = false;
+  const projection = new ChatOperationProjection(sessionId);
   try {
     for await (const event of stream) {
-      if (event.kind === 'queue') {
+      if (event.kind === 'snapshot' || event.kind === 'projection') {
+        const snapshot = event.kind === 'snapshot' ? projection.acceptSnapshotPage(event.snapshot) : projection.acceptUpdate(event.update);
+        if (snapshot) yield { kind: 'snapshot', sessionId, snapshot: thinkingEnabled ? snapshot
+          : { ...snapshot, messages: snapshot.messages.filter(message => message.kind !== 'assistant_thinking') } };
+      } else if (event.kind === 'error') {
+        yield { kind: 'failure', sessionId, message: event.message, ...(event.issue ? { issue: event.issue } : {}) };
+        return;
+      } else if (event.kind === 'queue') {
         if (event.queue.sessionId !== sessionId) throw new Error('Queue stream session mismatch.');
         yield { kind: 'queue', sessionId, queue: event.queue };
       } else if (event.kind === 'queued-user') {
@@ -50,20 +59,6 @@ export async function* toRuntimeTransitions(
         yield { kind: 'usage', sessionId, usage: event.usage };
       } else if (event.kind === 'prompt') {
         yield { kind: 'prompt', sessionId, prompt: event.prompt };
-      } else if (event.kind === 'attached') {
-        yield {
-          kind: 'attach',
-          sessionId,
-          operationKind: event.operationKind,
-          operationId: event.operationId,
-        };
-        if (event.replayTruncated) {
-          yield {
-            kind: 'warning',
-            sessionId,
-            text: 'This run started before the buffer limit; earlier output is not shown.',
-          };
-        }
       } else if (event.kind === 'submitted') {
         yield { kind: 'user-turn', sessionId, content: event.content, images: event.images };
       } else if (event.kind === 'approval-state') {

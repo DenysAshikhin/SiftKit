@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { ImageDataUrlSchema } from './image.js';
 import {
   ChatAnswerCompletionSchema,
+  ChatRunTerminalCauseSchema,
+  type ChatRunTerminalCause,
   ChatStreamProgressSchema,
   ChatStreamQueuedUserMessageSchema,
   ChatStreamTextDeltaSchema,
@@ -39,7 +41,9 @@ export const ChatToolOutcomeSchema = z.strictObject({
 export type ChatToolOutcome = z.infer<typeof ChatToolOutcomeSchema>;
 
 export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('answer_completed'), answer: ChatAnswerCompletionSchema }),
+  z.strictObject({ kind: z.literal('completed') }),
+  z.strictObject({ kind: z.literal('user_usage'), messageId: z.string().min(1), inputTokens: z.number().int().nonnegative(), estimated: z.boolean() }),
+  z.strictObject({ kind: z.literal('answer_completed'), answer: ChatAnswerCompletionSchema, messageId: z.string().min(1).optional() }),
   z.strictObject({ kind: z.literal('thinking'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('narration'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('answer'), delta: ChatStreamTextDeltaSchema }),
@@ -73,10 +77,22 @@ export function buildChatRunMessageIdPrefix(requestId: string): string {
  * the same string from the same two parts, so a join is exact equality instead of parsing a
  * prefix back out of an id that another writer may have shaped differently.
  */
-export function buildChatToolMessageId(messageIdPrefix: string, toolCallId: string): string {
+const ChatMessageIdentitySchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.enum(['thinking', 'narration', 'answer']), turn: z.number().int().nonnegative() }),
+  z.strictObject({ kind: z.literal('tool'), toolCallId: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('approval'), approvalId: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('summary'), revision: z.number().int().positive() }),
+  z.strictObject({ kind: z.enum(['user', 'progress', 'answer-final', 'answer-stopped']) }),
+]);
+
+export function buildChatMessageId(messageIdPrefix: string, input: z.infer<typeof ChatMessageIdentitySchema>): string {
   const prefix = z.string().min(1).parse(messageIdPrefix);
-  const callId = z.string().min(1).parse(toolCallId);
-  return `${prefix}-tool-${callId}`;
+  const identity = ChatMessageIdentitySchema.parse(input);
+  if ('turn' in identity) return `${prefix}-${identity.kind}-${identity.turn}`;
+  if (identity.kind === 'tool') return `${prefix}-tool-${identity.toolCallId}`;
+  if (identity.kind === 'approval') return `${prefix}-approval-${identity.approvalId}`;
+  if (identity.kind === 'summary') return `${prefix}-summary-${identity.revision}`;
+  return `${prefix}-${identity.kind}`;
 }
 
 export function applyChatStreamTextDelta(previous: string, delta: ChatStreamTextDelta): string {
@@ -119,27 +135,19 @@ function textMessage(
   });
 }
 
-export function buildChatTextMessageId(
-  kind: 'thinking' | 'narration' | 'answer',
-  turn: number,
-  metadata: Pick<ChatTranscriptMetadata, 'messageIdPrefix'>,
-): string {
-  return `${metadata.messageIdPrefix}-${kind}-${turn}`;
-}
-
 function reduceTextEvent(
   messages: readonly ChatTranscriptMessage[],
   event: Extract<ChatTranscriptEvent, { kind: 'thinking' | 'narration' | 'answer' }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
-  const narrationId = buildChatTextMessageId('narration', event.delta.turn, metadata);
+  const narrationId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: event.delta.turn });
   const promotedNarration = event.kind === 'answer'
     ? messages.find((message) => (
       message.id === narrationId
       && (message.kind === 'assistant_narration' || message.kind === 'assistant_progress' || message.kind === 'assistant_answer')
     ))
     : undefined;
-  const id = promotedNarration?.id ?? buildChatTextMessageId(event.kind, event.delta.turn, metadata);
+  const id = promotedNarration?.id ?? buildChatMessageId(metadata.messageIdPrefix, { kind: event.kind, turn: event.delta.turn });
   const existing = messages.find((message) => message.id === id);
   const content = applyChatStreamTextDelta(existing?.content ?? '', event.delta);
   if (!content && !existing && event.kind !== 'answer') return [...messages];
@@ -160,7 +168,7 @@ function reduceProgressEvent(
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
   const message = textMessage(
-    `${metadata.messageIdPrefix}-progress`,
+    buildChatMessageId(metadata.messageIdPrefix, { kind: 'progress' }),
     'assistant_progress',
     event.progress.text,
     metadata,
@@ -175,30 +183,32 @@ function reduceToolEvent(
 ): ChatTranscriptMessage[] {
   const tool = event.tool;
   const existing = messages.find(
-    (message) => message.id === buildChatToolMessageId(metadata.messageIdPrefix, tool.toolCallId),
+    (message) => message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId }),
   );
+  if (existing && existing.kind !== 'assistant_tool_call') throw new Error('Tool progress conflicts with an existing message identity.');
   // A live frame only ever advances the state; a journal-derived outcome is what settles it.
-  const executionState = tool.kind === 'tool_result'
-    ? 'completed'
-    : existing?.toolCallExecutionState ?? 'executing';
+  const hasFullResult = typeof existing?.toolCallOutput === 'string';
+  const executionState = hasFullResult ? existing.toolCallExecutionState
+    : tool.kind === 'tool_result' ? 'completed' : existing?.toolCallExecutionState ?? 'executing';
   const beforeTool = tool.kind === 'tool_start'
     ? messages.map((message) => (
-      message.id === buildChatTextMessageId('narration', tool.turn, metadata)
+      message.id === buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: tool.turn })
       && message.kind === 'assistant_narration'
         ? ChatTranscriptMessageSchema.parse({ ...message, kind: 'assistant_progress' })
         : message
     ))
     : [...messages];
   const message = ChatTranscriptMessageSchema.parse({
-    id: buildChatToolMessageId(metadata.messageIdPrefix, tool.toolCallId),
+    ...existing,
+    id: buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: tool.toolCallId }),
     role: 'assistant',
     kind: 'assistant_tool_call',
     content: tool.command,
     inputTokensEstimate: 0,
-    outputTokensEstimate: tool.kind === 'tool_result' ? tool.outputTokens : 0,
+    outputTokensEstimate: hasFullResult ? existing.outputTokensEstimate : tool.kind === 'tool_result' ? tool.outputTokens : 0,
     thinkingTokens: 0,
     inputTokensEstimated: false,
-    outputTokensEstimated: tool.kind === 'tool_result' ? tool.outputTokensEstimated : false,
+    outputTokensEstimated: hasFullResult ? existing.outputTokensEstimated : tool.kind === 'tool_result' ? tool.outputTokensEstimated : false,
     thinkingTokensEstimated: false,
     createdAtUtc: metadata.createdAtUtc,
     sourceRunId: metadata.sourceRunId,
@@ -207,12 +217,10 @@ function reduceToolEvent(
     toolCallActivitySubject: tool.activitySubject,
     toolCallTurn: tool.turn,
     toolCallMaxTurns: tool.maxTurns,
-    toolCallExitCode: tool.kind === 'tool_result' ? tool.exitCode : null,
+    toolCallExitCode: hasFullResult ? existing.toolCallExitCode : tool.kind === 'tool_result' ? tool.exitCode : null,
     toolCallPromptTokenCount: tool.promptTokenCount,
-    // A live frame carries a preview, never the model-visible result. Leaving `toolCallOutput`
-    // absent here is what stops a 200-character preview from being replayed later as if it were
-    // the whole thing; durable history is hydrated from the run transcript before it is saved.
-    toolCallOutputSnippet: tool.kind === 'tool_result' ? tool.outputSnippet : undefined,
+    // Progress updates a preview; committed full results and finalized execution state survive it.
+    toolCallOutputSnippet: tool.kind === 'tool_result' ? tool.outputSnippet : existing?.toolCallOutputSnippet,
     toolCallExecutionState: executionState,
     toolCallStatus: toolCallStatusForExecutionState(executionState),
   });
@@ -244,7 +252,7 @@ function reduceUsageEvent(
   event: Extract<ChatTranscriptEvent, { kind: 'usage' }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
-  const thinkingId = buildChatTextMessageId('thinking', event.usage.turn, metadata);
+  const thinkingId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'thinking', turn: event.usage.turn });
   const answerIndex = findAnswerIndex(messages);
   return messages.map((message, index) => {
     if (message.id === thinkingId && message.kind === 'assistant_thinking') {
@@ -301,7 +309,7 @@ function reduceToolOutcomeEvent(
   event: Extract<ChatTranscriptEvent, { kind: 'tool_outcome' }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
-  const id = buildChatToolMessageId(metadata.messageIdPrefix, event.outcome.toolCallId);
+  const id = buildChatMessageId(metadata.messageIdPrefix, { kind: 'tool', toolCallId: event.outcome.toolCallId });
   const existing = messages.find((message) => message.id === id);
   if (existing === undefined || existing.kind !== 'assistant_tool_call') return [...messages];
   return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
@@ -320,12 +328,19 @@ export function reduceChatTranscript(
   event: ChatTranscriptEvent,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
+  if (event.kind === 'completed') return messages.filter(message => message.id !== buildChatMessageId(metadata.messageIdPrefix, { kind: 'progress' }));
+  if (event.kind === 'user_usage') {
+    const user = messages.find(message => message.id === event.messageId && message.role === 'user');
+    if (!user) throw new Error('Input usage has no submitted user message.');
+    return upsertMessage(messages, { ...user, inputTokensEstimate: event.inputTokens, inputTokensEstimated: event.estimated });
+  }
   if (event.kind === 'answer_completed') {
     const answerIndex = findAnswerIndex(messages);
-    const existing = answerIndex === null ? undefined : messages[answerIndex];
+    const existing = answerIndex === null ? messages.find(message => message.id === event.messageId) : messages[answerIndex];
     return upsertMessage(messages, ChatTranscriptMessageSchema.parse({
-      ...(existing ?? textMessage(`${metadata.messageIdPrefix}-answer-final`, 'assistant_answer', '', metadata)),
+      ...(existing ?? textMessage(event.messageId ?? buildChatMessageId(metadata.messageIdPrefix, { kind: 'answer-final' }), 'assistant_answer', '', metadata)),
       ...event.answer,
+      kind: 'assistant_answer',
     }));
   }
   if (event.kind === 'thinking' || event.kind === 'narration' || event.kind === 'answer') {
@@ -339,35 +354,27 @@ export function reduceChatTranscript(
   return reduceToolEvent(messages, event, metadata);
 }
 
-export function finalizeStoppedChatTranscript(
+/** A terminal outcome is metadata; generated text and measured usage remain unchanged. */
+export function finalizeChatRunTranscript(
   messages: readonly ChatTranscriptMessage[],
-  marker: string,
+  terminalCause: ChatRunTerminalCause,
   metadata: ChatTranscriptMetadata,
+  detail: string | null = null,
 ): PersistedChatTranscriptMessage[] {
-  const parsedMarker = z.string().trim().min(1).parse(marker);
-  const answerIndex = findAnswerIndex(messages);
-
-  const terminal = messages.map((message) => (
-    message.kind === 'assistant_tool_call' && message.toolCallStatus === 'running'
-      ? ChatTranscriptMessageSchema.parse({ ...message, toolCallStatus: 'stopped' })
-      : message
-  ));
-  const finalized = answerIndex === null
-    ? [
-      ...terminal,
-      textMessage(
-        `${metadata.messageIdPrefix}-answer-stopped`,
-        'assistant_answer',
-        parsedMarker,
-        metadata,
-      ),
-    ]
-    : terminal.map((message, index) => index === answerIndex
-      ? ChatTranscriptMessageSchema.parse({
-        ...message,
-        content: message.content ? `${message.content}\n\n${parsedMarker}` : parsedMarker,
-      })
-      : message);
-
-  return finalized.map((message) => PersistedChatTranscriptMessageSchema.parse(message));
+  const cause = ChatRunTerminalCauseSchema.parse(terminalCause);
+  findAnswerIndex(messages);
+  const progressId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'progress' });
+  let terminal = messages.filter(message => cause !== 'completed' || message.id !== progressId).map(message => {
+    const { runTerminalCause: previousCause, runTerminalDetail: previousDetail, ...body } = message;
+    const retained = previousCause === undefined && previousDetail === undefined ? message : body;
+    if (retained.kind !== 'assistant_tool_call') return retained;
+    const state = retained.toolCallExecutionState;
+    const executionState = state === 'executing' ? 'uncertain'
+      : state === 'proposed' || state === 'pending_approval' ? 'not_started' : state;
+    return executionState === state ? retained : PersistedChatTranscriptMessageSchema.parse({ ...retained,
+      toolCallExecutionState: executionState, toolCallStatus: toolCallStatusForExecutionState(executionState) });
+  });
+  if (cause === 'completed') return terminal;
+  if (terminal.length === 0) terminal = [textMessage(progressId, 'assistant_progress', '', metadata)];
+  return terminal.map((message, index) => index === terminal.length - 1 ? { ...message, runTerminalCause: cause, runTerminalDetail: detail } : message);
 }

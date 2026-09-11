@@ -299,11 +299,14 @@ export class ToolActionProcessor {
       duplicates.setReplayToolCallId(duplicateAnchor.toolCallId);
     }
     for (const pending of [...state.pendingToolImages].reverse()) {
+      const outcome = state.batchOutcomes[pending.outcomeIndex];
+      if (!outcome) throw new Error('Tool image has no native batch outcome.');
       transcript.insertUserAfter(
         preAppendMessagesLength + 1 + pending.outcomeIndex,
         `image ${pending.pathKey} — ${pending.metadata.width}×${pending.metadata.height}`,
         [pending.dataUrl],
         pending.pathKey,
+        outcome.toolCallId,
       );
       this.deps.liveImagePathKeys.add(pending.pathKey);
     }

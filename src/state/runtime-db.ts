@@ -133,6 +133,16 @@ function closeFailedDatabaseHandle(database: RuntimeDatabase): void {
 
 export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath()): RuntimeDatabase {
   const resolvedPath = resolve(databasePath);
+  const protectedPath = process.env.SIFTKIT_GUARD_RUNTIME_DATABASE;
+  if (protectedPath && (process.platform === 'win32'
+    ? resolve(protectedPath).toLowerCase() === resolvedPath.toLowerCase()
+    : resolve(protectedPath) === resolvedPath)) {
+    const error = new Error(`Test attempted to open the protected runtime database: ${resolvedPath}`);
+    // As with the HTTP live-instance guard, swallowed background errors must still fail the file.
+    process.exitCode = 1;
+    process.stderr.write(`${error.stack}\n`);
+    throw error;
+  }
   if (cachedDatabase && cachedDatabasePath === resolvedPath) {
     return cachedDatabase;
   }
@@ -266,15 +276,14 @@ export function pruneRuntimeHistory(
 }
 
 export function setRuntimeMetadataValue(
+  database: RuntimeDatabase,
   key: string,
   value: string,
-  databasePath: string = getRuntimeDatabasePath(),
 ): void {
   const normalizedKey = String(key || '').trim();
   if (!normalizedKey) {
     throw new Error('Runtime metadata key is required.');
   }
-  const database = getRuntimeDatabase(databasePath);
   database.prepare(`
     INSERT INTO runtime_metadata (key, value, updated_at_utc)
     VALUES (?, ?, ?)

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toError } from '../../src/lib/errors.js';
 import {
   RunsResponseSchema, RunDetailResponseSchema, RunLogDeletePreviewResponseSchema, RunLogDeleteResponseSchema,
   MetricsResponseSchema, WebSearchQuotaResponseSchema, IdleSummaryResponseSchema, DashboardHealthSchema,
@@ -449,11 +450,13 @@ export async function* streamChatQueue(sessionId: string, signal: AbortSignal) {
       if (!response.body) throw new Error('Queue response body was empty.');
       for await (const event of new ChatStreamReader(response.body.getReader()).events()) {
         if (signal.aborted) return;
-        if (event.kind === 'queue') yield event.queue;
+        if (event.kind === 'queue') yield { kind: 'queue' as const, queue: event.queue };
       }
+      if (!signal.aborted) yield { kind: 'error' as const, error: 'Queue connection ended; reconnecting.' };
     } catch (error) {
       if (signal.aborted) return;
       if (error instanceof z.ZodError) throw error;
+      yield { kind: 'error' as const, error: toError(error).message };
     }
     if (signal.aborted) return;
     await new Promise<void>((resolve) => {

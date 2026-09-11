@@ -9,6 +9,9 @@ export function ToolCallCard({ message }: { message: ChatToolCallMessage }) {
   const output = message.toolCallOutput ?? message.toolCallOutputSnippet ?? '';
   return (
     <div className="tcall">
+      {message.toolCallExecutionState === 'uncertain'
+        ? <p role="status">This tool may have run. Verify its effects before retrying.</p>
+        : message.toolCallExecutionState === 'not_started' ? <p role="status">This tool did not start.</p> : null}
       <details onToggle={(event) => setExpanded(event.currentTarget.open)}>
         <summary className="tcall-summary">
           <span className={group.state === 'failed' ? 'tbad' : 'tstatus'}>

@@ -1,6 +1,7 @@
 import {
   ChatStreamToolEventSchema,
   ChatStreamUsageEventSchema,
+  ChatStreamPromptEventSchema,
   type ChatStreamToolEvent,
   type ChatStreamUsageEvent,
 } from '@siftkit/contracts';
@@ -66,7 +67,11 @@ export function forwardRepoSearchPromptEvent(
   writer: ChatFrameWriter,
   event: Extract<RepoSearchProgressEvent, { kind: 'prompt' }>,
 ): void {
-  writer.writeEvent('prompt', {
+  writer.writeEvent('prompt', toChatStreamPromptEvent(event));
+}
+
+export function toChatStreamPromptEvent(event: Extract<RepoSearchProgressEvent, { kind: 'prompt' }>) {
+  return ChatStreamPromptEventSchema.parse({
     turn: event.turn,
     maxTurns: event.maxTurns,
     promptTokens: event.promptTokens,

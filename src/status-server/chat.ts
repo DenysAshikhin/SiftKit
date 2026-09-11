@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import type { ChatRunRecorder } from './chat-run-recorder.js';
 import { join } from 'node:path';
 import { z } from '../lib/zod.js';
-import { buildChatRunMessageIdPrefix, buildChatToolMessageId, ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import { buildChatRunMessageIdPrefix, buildChatMessageId, ChatRepoAgentApprovalMessageSchema, DEFAULT_REASONING_EFFORT, ImageMetadataSchema, isReplayableChatMessage, PersistedChatTranscriptMessageSchema, resolveEffectiveImagePixelCeiling, sumImageTokens, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata, ReasoningEffort, ReplayableChatMessage, ToolActivityKind, ToolActivitySubject } from '@siftkit/contracts';
 import {
   getActiveModelPreset,
@@ -317,38 +318,43 @@ export function buildChatHistoryMessages(
   const history: PlannerChatMessage[] = [];
   const replayThinking = shouldPreserveThinking(config, session.thinkingEnabled !== false);
   let pendingThinking = '';
+  let pendingThinkingMessageId: string | undefined;
   for (const message of messages) {
     const kind = message.kind;
     if (kind === 'compaction_summary') {
       const summaryText = trimText(message.content);
       if (summaryText) {
-        history.push(buildCompactionSummaryMessage(summaryText));
+        history.push({ ...buildCompactionSummaryMessage(summaryText), chatMessageId: message.id });
       }
       pendingThinking = '';
+      pendingThinkingMessageId = undefined;
       continue;
     }
     if (kind === 'assistant_thinking') {
       if (replayThinking) {
         pendingThinking = trimText(message.content);
+        pendingThinkingMessageId = message.id;
       }
       continue;
     }
     if (kind === 'assistant_tool_call') {
-      appendReplayToolMessages(history, message, pendingThinking);
+      appendReplayToolMessages(history, message, pendingThinking, pendingThinkingMessageId);
       pendingThinking = '';
+      pendingThinkingMessageId = undefined;
       continue;
     }
     if (kind === 'tool_image') {
       const toolImages = message.images ?? [];
       if (toolImages.length > 0) {
         const toolText = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
-        history.push({ role: 'user', content: buildUserContent(toolText, toolImages) });
+        history.push({ role: 'user', content: buildUserContent(toolText, toolImages), chatMessageId: message.id });
       }
       continue;
     }
     if (kind === 'repo_agent_approval') {
-      history.push({ role: 'user', content: `[repo-agent approval] ${message.content}` });
+      history.push({ role: 'user', content: `[repo-agent approval] ${message.content}`, chatMessageId: message.id });
       pendingThinking = '';
+      pendingThinkingMessageId = undefined;
       continue;
     }
     const content = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
@@ -358,15 +364,17 @@ export function buildChatHistoryMessages(
     }
     history.push({
       role: message.role === 'assistant' ? 'assistant' : 'user',
+      chatMessageId: message.id,
       content: message.role === 'user'
         ? buildUserContent(content, messageImages)
         : content,
-      ...(message.role === 'assistant' && pendingThinking ? { reasoning_content: pendingThinking } : {}),
+      ...(message.role === 'assistant' && pendingThinking ? { reasoning_content: pendingThinking, thinkingMessageId: pendingThinkingMessageId } : {}),
     });
     pendingThinking = '';
+    pendingThinkingMessageId = undefined;
   }
   if (pendingThinking) {
-    history.push({ role: 'assistant', content: '', reasoning_content: pendingThinking });
+    history.push({ role: 'assistant', content: '', reasoning_content: pendingThinking, thinkingMessageId: pendingThinkingMessageId });
   }
   return [...new ImageRetentionPolicy(getActiveModelPreset(config).VisionImageRetention).prune(history).messages];
 }
@@ -391,6 +399,7 @@ function appendReplayToolMessages(
   history: PlannerChatMessage[],
   message: ReplayableChatMessage & { kind: 'assistant_tool_call' },
   reasoningContent: string,
+  thinkingMessageId: string | undefined,
 ): void {
   const command = trimText(message.toolCallCommand) || trimText(message.content);
   const output = resolveReplayToolOutput(message);
@@ -398,11 +407,12 @@ function appendReplayToolMessages(
   history.push({
     role: 'assistant',
     content: '',
-    ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+    ...(reasoningContent ? { reasoning_content: reasoningContent, thinkingMessageId } : {}),
     tool_calls: [buildReplayToolCall({ id: toolCallId, command })],
   });
   history.push({
     role: 'tool',
+    chatMessageId: message.id,
     tool_call_id: toolCallId,
     content: output,
   });
@@ -1029,14 +1039,16 @@ export function appendChatRepoAgentMessages(
  * against the session's replayed history. One summarization call, no planner run.
  */
 export async function condenseChatSession(
-  runtimeRoot: string,
+  recorder: ChatRunRecorder,
   config: SiftConfig,
   session: ChatSession,
   mockResponses: MockPlannerResponseInput[] | undefined,
   logger: JsonLogger | null,
-): Promise<ChatSession & { messages: PersistedChatTranscriptMessage[] }> {
+): Promise<ChatSession> {
   const effectiveConfig = resolveChatSessionConfig(config, session);
-  const history = buildChatHistoryMessages(effectiveConfig, session);
+  const history = recorder.readHistory();
+  const compressedMessageIds = (recorder.readSession().messages ?? []).map(message => message.id);
+  recorder.recordContextInitialized({ messages: history, contextRevision: 0, turnBoundary: history.length });
   const cacheOrigin = {
     kind: 'new_epoch',
     flags: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
@@ -1057,7 +1069,7 @@ export async function condenseChatSession(
     mockResponses,
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
     logger,
-    abortSignal: undefined,
+    abortSignal: recorder.abortSignal,
   });
   // No system message: chat's system prompt is composed per request, and the compactor
   // summarizes everything below the system slot anyway. There is no turn either — this
@@ -1071,18 +1083,17 @@ export async function condenseChatSession(
     cacheOrigin,
   });
 
-  const now = new Date().toISOString();
-  const messages: PersistedChatTranscriptMessage[] = (Array.isArray(session.messages) ? session.messages : [])
-    .map((message: PersistedChatTranscriptMessage) => ({ ...message, compressedIntoSummary: true }));
-  messages.push(buildCompactionSummaryRow(outcome.summaryText, now));
-  const updated: ChatSession & { messages: PersistedChatTranscriptMessage[] } = { ...session, updatedAtUtc: now, messages };
-  saveChatSession(runtimeRoot, updated);
+  recorder.recordContextSpliced({ expectedRevision: 0, contextRevision: 1, startIndex: 0, deleteCount: history.length,
+    inserted: outcome.messages.map(message => message.role === 'assistant'
+      ? { ...message, chatMessageId: buildChatMessageId(recorder.messageIdPrefix, { kind: 'summary', revision: 1 }) } : message),
+    turnBoundary: outcome.messages.length, reason: 'compacted', compressedMessageIds });
+  recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
   writePromptCacheEpochReset(logger, {
     taskId: session.id,
     turn: null,
     droppedMessageCount: outcome.droppedMessageCount,
   });
-  return updated;
+  return recorder.readSession();
 }
 
 export function buildPlanRequestPrompt(userPrompt: string): string {
@@ -1212,7 +1223,7 @@ function buildToolMessageFromCommand(
   const outputTokens = command.outputTokens;
   return {
     id: command.toolCallId && requestId
-      ? buildChatToolMessageId(buildChatRunMessageIdPrefix(requestId), command.toolCallId)
+      ? buildChatMessageId(buildChatRunMessageIdPrefix(requestId), { kind: 'tool', toolCallId: command.toolCallId })
       : randomUUID(),
     content: commandText,
     toolCallCommand: commandText,

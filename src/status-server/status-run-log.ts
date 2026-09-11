@@ -85,7 +85,7 @@ export function persistStatusRunLog(
   }
   const identity = resolveStatusRunLogIdentity(taskKind);
   const activePreset = getActiveModelPreset(readConfig(ctx.configPath));
-  upsertRunLog(getRuntimeDatabase(), {
+  upsertRunLog(getRuntimeDatabase(ctx.chatRuntimeOwner.databasePath), {
     runId: job.requestId,
     requestId: job.requestId,
     runKind: identity.runKind,

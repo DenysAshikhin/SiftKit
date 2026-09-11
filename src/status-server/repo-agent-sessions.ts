@@ -57,7 +57,7 @@ export type RepoAgentEngine = {
 
 export type RepoAgentModelLockAdapter = {
   /** Resolves once the model lock is held and the preset is ready; null on queue timeout. */
-  acquire(runId: string): Promise<{ release(): void } | null>;
+  acquire(runId: string, abortSignal: AbortSignal): Promise<{ release(): void } | null>;
   queueLength(): number;
 };
 
@@ -127,6 +127,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly approvalGates: Map<string, ApprovalGate>;
   private readonly engineRequest: RepoAgentEngineRequest;
   private readonly abortController = new AbortController();
+  private readonly executionSignal: AbortSignal;
   private readonly progressWriter = new SessionProgressWriter(this);
   private readonly gate: ApprovalGate;
   private readonly waiters: BoundaryWaiter[] = [];
@@ -147,12 +148,14 @@ export class RepoAgentSession implements ApprovalGateObserver {
     this.locks = options.locks;
     this.approvalGates = options.approvalGates;
     this.engineRequest = options.engineRequest;
+    this.executionSignal = options.engineRequest.evidenceRecorder?.abortSignal
+      ? AbortSignal.any([this.abortController.signal, options.engineRequest.evidenceRecorder.abortSignal]) : this.abortController.signal;
     this.state = this.store.readState(this.runId);
     this.gate = new ApprovalGate({
       evidenceRecorder: options.engineRequest.evidenceRecorder,
       requestId: options.requestId,
       progressWriter: this.progressWriter,
-      abortSignal: this.abortController.signal,
+      abortSignal: this.executionSignal,
       mode: options.approvalMode,
       bypassReadOnlyTools: true,
       observer: this,
@@ -341,12 +344,13 @@ export class RepoAgentSession implements ApprovalGateObserver {
     lockWaitTimer.unref();
     try {
       try {
-        lock = await this.locks.acquire(this.runId);
+        lock = await this.locks.acquire(this.runId, this.executionSignal);
       } finally {
         clearInterval(lockWaitTimer);
       }
       if (!lock) {
-        this.settleFailure('Timed out waiting for model request queue.');
+        if (this.abortController.signal.aborted) this.settleAborted();
+        else this.settleFailure('Timed out waiting for model request queue.');
         return;
       }
       this.applyState(this.store.transition(this.runId, this.state.revision, {
@@ -358,7 +362,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
       }));
       const result = await this.engine.executeRepoSearch({
         ...this.engineRequest,
-        abortSignal: this.abortController.signal,
+        abortSignal: this.executionSignal,
         progressWriter: this.progressWriter,
         approvalGate: this.gate,
       });

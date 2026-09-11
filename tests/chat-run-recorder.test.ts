@@ -16,10 +16,13 @@ import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.
 import type {
   ChatRunEvidenceRecorder,
   ChatToolResultEvidence,
+  ChatToolProposedEvidence,
 } from '../src/repo-search/engine/chat-run-evidence.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
+import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
 const SESSION_ID = 'recorder-session';
 const OWNER_EPOCH = 'owner-a:1';
@@ -72,6 +75,42 @@ function beginRecorder(databasePath: string, operationId = randomUUID()): ChatRu
   });
 }
 
+for (const resumed of [false, true]) test(`late context initialization prevents submission cancellation (resumed=${resumed})`, () => {
+  const { databasePath, database } = openSessionDatabase('chat-recorder-dispatched-');
+  let recorder = beginRecorder(databasePath);
+  database.transaction(() => {
+    for (let index = 0; index < 501; index += 1) recorder.recordPresentation({ kind: 'warning', warning: 'status' });
+  })();
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [] });
+  if (resumed) recorder = ChatRunRecorder.resume(databasePath, recorder.operationId, OWNER_EPOCH);
+  assert.throws(() => recorder.cancelUndispatchedSubmission(), /Only an undispatched/u);
+  assert.equal(recorder.terminalCause, null);
+});
+
+test('resuming a recorder restores narration and tool identities from committed evidence', () => {
+  const { databasePath } = openSessionDatabase('chat-recorder-resume-identities-');
+  const recorder = beginRecorder(databasePath);
+  recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'looking' } });
+  recorder.recordToolProposed({ call: call(0, 'native'), toolName: 'read', arguments: { path: 'file' }, command: 'read file',
+    activityKind: 'read', activitySubject: { kind: 'file', value: 'file' }, maxTurns: 5, promptTokenCount: 0, executionState: 'proposed' });
+  const resumed = ChatRunRecorder.resume(databasePath, recorder.operationId, OWNER_EPOCH);
+  assert.equal(resumed.resolveAssistantMessageId(1), recorder.resolveAssistantMessageId(1));
+  assert.equal(resumed.resolveToolMessageId('native'), recorder.resolveToolMessageId('native'));
+});
+
+test('Stop preserves generated text and exposes its durable outcome separately after rebuild', () => {
+  const { databasePath, database } = openSessionDatabase('chat-recorder-stop-outcome-');
+  const recorder = beginRecorder(databasePath);
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial answer' } });
+  const stopped = recorder.stop('user_stop', null);
+  assert.equal(stopped.messages.find(message => message.kind === 'assistant_answer')?.content, 'partial answer');
+  assert.equal(stopped.messages.at(-1)?.runTerminalCause, 'user_stop');
+  database.prepare('DELETE FROM chat_messages WHERE session_id=?').run(SESSION_ID);
+  const recovered = recorder.readSession();
+  assert.equal(recovered.messages.find(message => message.kind === 'assistant_answer')?.content, 'partial answer');
+  assert.equal(recovered.messages.at(-1)?.runTerminalCause, 'user_stop');
+});
+
 function call(indexInBatch: number, toolCallId: string) {
   return {
     toolCallId,
@@ -86,12 +125,65 @@ function readAll(database: RuntimeDatabase, operationId: string): ChatJournalEnv
   return new ChatJournalStore(database).readAfter(operationId, 0, 500);
 }
 
+test('an asynchronous storage failure blocks later tool evidence while allowing its terminal outcome', () => {
+  const { database, databasePath } = openSessionDatabase('chat-storage-abort-');
+  const recorder = beginRecorder(databasePath);
+  recorder.abortForStorageFailure(new Error('stream flush failed'));
+  assert.throws(() => recorder.recordToolStarted({ call: call(0, 'call_a'), startedAtUtc: AT }), /stream flush failed/u);
+  recorder.finish({ terminalCause: 'storage_failure', detail: 'stream flush failed', usage: null, recoveryStatus: 'recovery_needed' });
+  assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'storage_failure');
+  assert.equal(readAll(database, recorder.operationId).some(envelope => envelope.event.kind === 'tool_started'), false);
+});
+
+test('a storage abort reaches the model loop before it prepares another provider request', async () => {
+  const { databasePath } = openSessionDatabase('chat-storage-loop-abort-');
+  const recorder = beginRecorder(databasePath);
+  const loop = new TaskLoop({ id: 'storage-abort', question: 'stop on failed storage' }, {
+    ...createMockLoopDefaults('chat-storage-loop-'), evidenceRecorder: recorder,
+    mockResponses: [{ content: 'must not be requested' }], mockCommandResults: {},
+  });
+  recorder.abortForStorageFailure(new Error('durable storage failed'));
+  await assert.rejects(loop.prepareTurn(1), /durable storage failed/u);
+});
+
+test('approval resolution is durable once and conflicting decisions cannot overwrite it', () => {
+  const { database, databasePath } = openSessionDatabase('chat-approval-cas-');
+  const recorder = beginRecorder(databasePath);
+  const approvalId = randomUUID();
+  recorder.recordApprovalRequested({ approvalId, call: call(0, 'call_a'), toolName: 'write', command: 'write file', reviewPayload: null,
+    mode: 'interactive', requestedAtUtc: AT, expiresAtUtc: '2026-09-10T11:14:54.755Z' });
+  const resolution = { approvalId, outcome: 'approved', decision: { decision: 'approve' }, reason: null, decidedAtUtc: AT } as const;
+  recorder.recordApprovalResolved(resolution);
+  recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 0, text: 'continuing' } });
+  recorder.recordApprovalResolved(resolution);
+  assert.throws(() => recorder.recordApprovalResolved({ ...resolution, outcome: 'denied', decision: { decision: 'deny', reason: 'late' } }), /conflict|different/u);
+  recorder.recordDisplay({ kind: 'narration', delta: { turn: 1, offset: 10, text: ' safely' } });
+  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'approval_resolved').length, 1);
+});
+
 test('a rejected submission event leaves no unfinished admission behind', () => {
   const { database, databasePath } = openSessionDatabase('chat-admission-rollback-');
   database.exec(`CREATE TRIGGER reject_submission BEFORE INSERT ON chat_run_events WHEN NEW.kind = 'run_started'
     BEGIN SELECT RAISE(ABORT, 'submission write refused'); END;`);
   assert.throws(() => beginRecorder(databasePath), /submission write refused/u);
   assert.deepEqual(new ChatJournalStore(database).listSessionRuns(SESSION_ID), []);
+});
+
+test('engine binding and its journal event commit atomically and retry without duplicates', () => {
+  const { database, databasePath } = openSessionDatabase('chat-binding-rollback-');
+  const recorder = beginRecorder(databasePath);
+  const store = new ChatJournalStore(database);
+  const binding = { requestId: 'request', repoAgentSessionId: randomUUID() };
+  database.exec(`CREATE TRIGGER reject_binding BEFORE INSERT ON chat_run_events WHEN NEW.kind='engine_bound'
+    BEGIN SELECT RAISE(ABORT, 'binding write refused'); END;`);
+  assert.throws(() => recorder.bindEngine(binding), /binding write refused/u);
+  assert.equal(store.readRun(recorder.operationId)?.requestId, null);
+  assert.equal(store.readRun(recorder.operationId)?.repoAgentSessionId, null);
+  database.exec('DROP TRIGGER reject_binding');
+  recorder.bindEngine(binding);
+  recorder.bindEngine(binding);
+  assert.equal(store.readRun(recorder.operationId)?.requestId, binding.requestId);
+  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'engine_bound').length, 1);
 });
 
 test('retrying a failed terminal row update commits one terminal event', () => {
@@ -232,6 +324,14 @@ test('a recorder fenced out by a newer owner cannot commit further evidence', ()
 
 /** Watches the recorder boundary and reports whether the command's side effect exists yet. */
 class OrderSpy implements ChatRunEvidenceRecorder {
+  readonly userMessageId = 'spy-user';
+  readonly messageIdPrefix = 'spy';
+  readonly historyRevision = 0;
+  readonly abortSignal = new AbortController().signal;
+  private readonly toolIds = new Map<string, string>();
+  resolveAssistantMessageId(turn: number): string { return `spy-narration-${turn}`; }
+  resolveToolMessageId(toolCallId: string): string | null { return this.toolIds.get(toolCallId) ?? null; }
+  readHistoryRevisions() { return []; }
   recordApprovalRequested(): void { this.note('approval_requested'); }
   recordApprovalResolved(): void { this.note('approval_resolved'); }
   readonly steps: string[] = [];
@@ -252,8 +352,9 @@ class OrderSpy implements ChatRunEvidenceRecorder {
     this.note('context_spliced');
   }
 
-  recordToolProposed(): void {
+  recordToolProposed(evidence: ChatToolProposedEvidence): void {
     this.note('tool_proposed');
+    this.toolIds.set(evidence.call.toolCallId, `spy-tool-${evidence.call.displayToolCallId}`);
   }
 
   recordToolStarted(): void {

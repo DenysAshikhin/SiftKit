@@ -203,6 +203,9 @@ export class TaskLoop {
   private executingPlannerRequest: ExecutingPlannerRequest | null = null;
 
   constructor(task: TaskDefinition, options: RunTaskLoopOptions) {
+    const evidenceSignal = options.evidenceRecorder?.abortSignal;
+    if (evidenceSignal) options = { ...options,
+      abortSignal: options.abortSignal ? AbortSignal.any([options.abortSignal, evidenceSignal]) : evidenceSignal };
     this.task = task;
     this.options = options;
     const activePreset = getActiveModelPreset(options.config);
@@ -271,7 +274,7 @@ export class TaskLoop {
         ? task.question
         : buildTaskInitialUserPrompt(task.question),
       initialUserImages: options.initialUserImages || [],
-      initialFollowupMessages: initialQueuedMessages.slice(1).map((message) => ({ role: 'user' as const, content: buildUserContent(message.content, message.images) })),
+      initialFollowupMessages: initialQueuedMessages.slice(1).map((message) => ({ role: 'user' as const, content: buildUserContent(message.content, message.images), chatMessageId: message.id })),
       initialQueueMessageIds: initialQueuedMessages.map(message => message.id),
       liveImagePathKeys: this.liveImagePathKeys,
       contextRecorder: options.evidenceRecorder,
@@ -466,6 +469,8 @@ export class TaskLoop {
 
   async prepareTurn(turn: number): Promise<AgentLoopPreparedTurn> {
     throwIfAborted(this.options.abortSignal);
+    this.transcript.reconcileHistory();
+    this.transcript.beginTurn(turn);
     this.turnsUsed = turn;
     const inForcedFinishMode = this.forcedFinish.isActive();
 

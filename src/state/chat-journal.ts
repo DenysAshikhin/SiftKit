@@ -18,7 +18,7 @@ import {
   type ChatRun,
   type ChatRunStart,
 } from './chat-journal-schema.js';
-import { ChatRunTerminalCauseSchema } from '@siftkit/contracts';
+import { ChatRunTerminalCauseSchema, type ChatRecoveryIssueCode } from '@siftkit/contracts';
 import type { RuntimeDatabase } from './database-handle.js';
 import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.js';
 
@@ -54,6 +54,24 @@ const EventRowsSchema = z.array(EventRowSchema);
 
 const MaxRunOrderRowSchema = z.object({ next_order: z.number().int() });
 
+export const CHAT_JOURNAL_READ_PAGE_SIZE = 500;
+
+export class ChatJournalIntegrityError extends Error {
+  constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, readonly eventId: string,
+    readonly sequence: number, detail: string) {
+    super(`Chat journal event ${eventId} in run ${operationId}: ${detail}`);
+    this.name = 'ChatJournalIntegrityError';
+  }
+}
+
+/** A validated recovery invariant with no individual source-event identity to attach. */
+export class ChatRecoveryInvariantError extends Error {
+  constructor(readonly code: ChatRecoveryIssueCode, readonly operationId: string, detail: string) {
+    super(detail);
+    this.name = 'ChatRecoveryInvariantError';
+  }
+}
+
 export const ChatRunFinishSchema = z.strictObject({
   operationId: z.string().uuid(),
   ownerEpoch: z.string().min(1),
@@ -79,7 +97,7 @@ export type ChatContextCheckpoint = z.infer<typeof ChatContextCheckpointSchema>;
  * as the same write regardless of when it was attempted, and a different body under the same event
  * id can be reported as corruption instead of silently replacing what is already committed.
  */
-function digestEvent(event: ChatJournalEvent): string {
+export function digestChatJournalEvent(event: ChatJournalEvent): string {
   const canonical = JsonValueSchema.parse(JSON.parse(JSON.stringify(event)));
   return createHash('sha256').update(stableStringify(canonical)).digest('hex');
 }
@@ -112,10 +130,14 @@ function toChatRun(row: z.infer<typeof RunRowSchema>): ChatRun {
 
 function toEnvelope(row: z.infer<typeof EventRowSchema>): ChatJournalEnvelope {
   if (row.version !== CHAT_JOURNAL_EVENT_VERSION) {
-    throw new Error(
-      `Chat journal event ${row.event_id} in run ${row.operation_id} has unsupported version `
-      + `${String(row.version)}; this build reads version ${String(CHAT_JOURNAL_EVENT_VERSION)}.`,
-    );
+    throw new ChatJournalIntegrityError('unknown_event_version', row.operation_id, row.event_id, row.sequence,
+      `unsupported version ${String(row.version)}; this build reads version ${String(CHAT_JOURNAL_EVENT_VERSION)}.`);
+  }
+  let event: ChatJournalEvent;
+  try { event = ChatJournalEventSchema.parse(JSON.parse(row.body_json)); }
+  catch { throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence, 'malformed event payload.'); }
+  if (digestChatJournalEvent(event) !== row.payload_digest) {
+    throw new ChatJournalIntegrityError('conflicting_event', row.operation_id, row.event_id, row.sequence, 'corrupt payload digest.');
   }
   return ChatJournalEnvelopeSchema.parse({
     operationId: row.operation_id,
@@ -123,7 +145,7 @@ function toEnvelope(row: z.infer<typeof EventRowSchema>): ChatJournalEnvelope {
     eventId: row.event_id,
     version: row.version,
     recordedAtUtc: row.recorded_at_utc,
-    event: ChatJournalEventSchema.parse(JSON.parse(row.body_json)),
+    event,
     payloadDigest: row.payload_digest,
   });
 }
@@ -192,7 +214,7 @@ export class ChatJournalStore {
 
   append(input: ChatJournalAppend): ChatJournalEnvelope {
     const write = ChatJournalAppendSchema.parse(input);
-    const payloadDigest = digestEvent(write.event);
+    const payloadDigest = digestChatJournalEvent(write.event);
     return this.database.transaction(() => {
       const run = this.requireRun(write.operationId);
       this.requireOwner(run, write.ownerEpoch);
@@ -208,7 +230,7 @@ export class ChatJournalStore {
         return existing;
       }
 
-      this.requireOwner(run, write.ownerEpoch);
+      if (run.terminalCause !== null) throw new Error(`Chat run ${write.operationId} is terminal; new evidence is forbidden.`);
       if (write.expectedSequence !== run.latestSequence) {
         throw new Error(
           `Chat journal write to run ${write.operationId} expected sequence ${String(write.expectedSequence)}`
@@ -298,6 +320,23 @@ export class ChatJournalStore {
       LIMIT ?
     `).all(z.string().uuid().parse(operationId), cursor, pageSize));
     return rows.map((row) => toEnvelope(row));
+  }
+
+  /** Iterate a committed head in bounded pages, rejecting incomplete evidence. */
+  *readAll(operationId: string, afterSequence = 0): Generator<ChatJournalEnvelope> {
+    let cursor = z.number().int().nonnegative().parse(afterSequence);
+    const run = this.readRun(operationId);
+    if (!run) throw new ChatRecoveryInvariantError('missing_run', operationId, 'Chat run does not exist.');
+    if (cursor > run.latestSequence) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal cursor exceeds its committed head.');
+    while (cursor < run.latestSequence) {
+      const page = this.readAfter(operationId, cursor, Math.min(CHAT_JOURNAL_READ_PAGE_SIZE, run.latestSequence - cursor));
+      if (page.length === 0) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal is missing committed evidence.');
+      for (const envelope of page) {
+        if (envelope.sequence !== cursor + 1) throw new ChatRecoveryInvariantError('sequence_gap', operationId, 'Chat journal contains a sequence gap.');
+        cursor = envelope.sequence;
+        yield envelope;
+      }
+    }
   }
 
   readRun(operationId: string): ChatRun | null {

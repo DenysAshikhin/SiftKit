@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  finalizeStoppedChatTranscript,
+  finalizeChatRunTranscript,
   reduceChatTranscript,
   type ChatTranscriptMessage,
   type ChatStreamUsageEvent,
@@ -132,7 +132,7 @@ test('stopped transcript finalization preserves partial output and terminals run
     delta: { turn: 1, offset: 0, text: 'partial answer' },
   }, metadata);
 
-  const stopped = finalizeStoppedChatTranscript(messages, '*Stopped by user.*', metadata);
+  const stopped = finalizeChatRunTranscript(messages, 'user_stop', metadata);
 
   assert.deepEqual(stopped.map((message) => message.kind), [
     'assistant_thinking',
@@ -142,7 +142,8 @@ test('stopped transcript finalization preserves partial output and terminals run
   ]);
   const tool = stopped.find((message) => message.kind === 'assistant_tool_call');
   assert.equal(tool?.toolCallStatus, 'stopped');
-  assert.equal(stopped.at(-1)?.content, 'partial answer\n\n*Stopped by user.*');
+  assert.equal(stopped.at(-1)?.content, 'partial answer');
+  assert.equal(stopped.at(-1)?.runTerminalCause, 'user_stop');
 });
 
 test('empty snapshots do not create transcript rows', () => {
@@ -194,7 +195,7 @@ test('stopped transcript finalization rejects multiple answer rows', () => {
   }, metadata);
 
   assert.throws(
-    () => finalizeStoppedChatTranscript(messages, '*Stopped by user.*', metadata),
+    () => finalizeChatRunTranscript(messages, 'user_stop', metadata),
     /multiple answer rows/u,
   );
 });
@@ -270,7 +271,7 @@ for (const estimated of [false, true]) {
         assert.equal(answer?.outputTokensEstimate, count);
         assert.equal(answer?.outputTokensEstimated, estimated);
       }
-      const stopped = finalizeStoppedChatTranscript(messages, '*Stopped*', metadata);
+      const stopped = finalizeChatRunTranscript(messages, 'user_stop', metadata);
       assert.equal(stopped.at(-2)?.outputTokensEstimate, count);
       assert.equal(stopped.at(-2)?.outputTokensEstimated, estimated);
     });

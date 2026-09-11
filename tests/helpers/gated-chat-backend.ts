@@ -2,8 +2,9 @@ import http from 'node:http';
 import { z } from 'zod';
 import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
+import { InferenceChatMessageSchema } from '../../src/llm-protocol/types.js';
 
-const RequestSchema = z.object({ messages: z.array(z.object({ role: z.string(), content: z.string().nullable() }).loose()) }).loose();
+const RequestSchema = z.object({ messages: z.array(InferenceChatMessageSchema) }).loose();
 
 /** The test releases each provider chunk only after observing the previous chunk in the client. */
 export class GatedChatBackend {

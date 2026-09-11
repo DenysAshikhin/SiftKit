@@ -15,6 +15,23 @@ import { join } from 'node:path';
 
 type WrittenEvent = { eventName: string; payload: JsonSerializable };
 
+test('a failed timer flush stops publication and still records a storage-failure terminal outcome', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const root = createManagedTempDir('chat-stream-flush-failure-');
+  const recorder = createTestChatRunRecorder(root, createTestChatSession(root), getDefaultConfigObject());
+  const { written, writer } = createRecordingWriter();
+  const progress = new ChatStreamProgressWriter(writer, null, true, recorder);
+  const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
+  database.exec(`CREATE TRIGGER reject_display BEFORE INSERT ON chat_run_events WHEN NEW.kind='display'
+    BEGIN SELECT RAISE(ABORT, 'display storage failed'); END;`);
+  progress.write({ kind: 'answer', turn: 1, maxTurns: 2, answerText: 'uncommitted fragment' });
+  t.mock.timers.tick(1000);
+  assert.equal(recorder.abortSignal.aborted, true);
+  assert.deepEqual(written, []);
+  recorder.finish({ terminalCause: 'storage_failure', detail: 'display storage failed', usage: null, recoveryStatus: 'recovery_needed' });
+  assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'storage_failure');
+});
+
 for (const kind of ['thinking', 'narration', 'answer'] as const) {
   for (const prefix of ['', 'x'.repeat(1024)]) {
     test(`usage flushes buffered ${kind}, prefix=${prefix.length}`, (t) => {

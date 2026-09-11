@@ -480,6 +480,9 @@ export class DashboardModelQueueHarness {
       try {
         const server = this.server;
         if (server !== null && server.listening) {
+          server.closeAllConnections();
+          await server.waitForRequestsIdle();
+          await server.waitForTerminalMetadataIdle();
           await closeHttpServer(server);
         }
       } finally {

@@ -5,6 +5,7 @@ getActiveModelPreset,
 type SiftConfig,
 } from '../config/index.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
+import { throwIfAborted } from '../lib/abort.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import type { MockPlannerResponseInput } from '../planner-protocol/mock-response.js';
 import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
@@ -14,7 +15,7 @@ RepoSearchMockCommandResult,
 RepoSearchProgressEvent,
 } from '../repo-search/types.js';
 import {
-type ChatSession
+type ChatSession, saveChatSessionMetadata
 } from '../state/chat-sessions.js';
 import {
 buildChatOperationAllowedTools,
@@ -102,18 +103,12 @@ class ChatRepoOperationProgressTracker extends ProgressWriter<RepoSearchProgress
 }
 
 export class ChatRepoOperationRunner {
-  runPlan(request: ChatRepoOperationRequest): Promise<ChatRepoOperationResult> {
-    return this.run(request, 'plan');
-  }
-
-  runRepoSearch(request: ChatRepoOperationRequest): Promise<ChatRepoOperationResult> {
-    return this.run(request, 'repo-search');
-  }
-
-  private async run(
-    request: ChatRepoOperationRequest,
+  async run(
     operation: ChatRepoOperation,
+    request: ChatRepoOperationRequest,
   ): Promise<ChatRepoOperationResult> {
+    const abortSignal = request.abortSignal ? AbortSignal.any([request.abortSignal, request.recorder.abortSignal]) : request.recorder.abortSignal;
+    throwIfAborted(abortSignal);
     const startedAt = Date.now();
     const progress = new ChatRepoOperationProgressTracker(request.progressWriter);
     const selected = new ChatOperationPresetSelector(request.config.Presets)
@@ -126,6 +121,7 @@ export class ChatRepoOperationRunner {
       ...selected.session,
       planRepoRoot: request.repoRoot,
     };
+    saveChatSessionMetadata(request.runtimeRoot, session);
     request.recorder.bindEngine({ requestId: request.requestId, repoAgentSessionId: null });
     const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
         evidenceRecorder: request.recorder,
@@ -149,8 +145,9 @@ export class ChatRepoOperationRunner {
         requestId: request.requestId,
         progressWriter: progress,
         queueDelivery: request.queueDelivery,
-        ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
+        abortSignal,
     });
+    throwIfAborted(abortSignal);
     const assistantContent = this.buildAssistantContent(
       operation,
       request.content,

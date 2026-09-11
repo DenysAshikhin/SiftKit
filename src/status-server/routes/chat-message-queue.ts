@@ -8,13 +8,24 @@ import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-ut
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
-import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import type { ChatOperationSubscriber } from '../chat-operation-broadcast.js';
 import { admitSelectedChatImages } from './chat.js';
 import { readConfig } from '../config-store.js';
+import { z } from '../../lib/zod.js';
+
+function readQueueSessionId(match: RouteMatch, res: ServerResponse): string | null {
+  try {
+    return z.string().trim().min(1).parse(decodeURIComponent(z.string().min(1).parse(match.captures[0])));
+  } catch {
+    sendJson(res, 400, { error: 'Expected a valid session identity.' });
+    return null;
+  }
+}
 
 export class ChatMessageQueueEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): Promise<void> {
-    const sessionId = decodeURIComponent(match.captures[0] ?? '');
+    const sessionId = readQueueSessionId(match, res);
+    if (sessionId === null) return;
     const session = readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId));
     if (!session) { sendJson(res, 404, { error: 'Session not found.' }); return; }
     const owner = ctx.chatMessageQueue;
@@ -76,11 +87,15 @@ export class ChatMessageQueueEndpoint implements RouteEndpoint {
 
 export class ChatMessageQueueStreamEndpoint implements RouteEndpoint {
   handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): void {
-    const sessionId = decodeURIComponent(match.captures[0] ?? '');
+    const sessionId = readQueueSessionId(match, res);
+    if (sessionId === null) return;
     if (!readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId))) { sendJson(res, 404, { error: 'Session not found.' }); return; }
     const writer = new SseResponseWriter(req, res);
     writer.open();
-    const subscriber = new ChatOperationSseSubscriber(writer);
+    const subscriber: ChatOperationSubscriber = {
+      onFrame(frame) { writer.writeSerializedEvent(frame.event, frame.data); },
+      onClosed() { writer.end(); },
+    };
     ctx.chatMessageQueue.attach(sessionId, subscriber);
     res.on('close', () => ctx.chatMessageQueue.detach(sessionId, subscriber));
   }
@@ -88,7 +103,8 @@ export class ChatMessageQueueStreamEndpoint implements RouteEndpoint {
 
 export class ChatMessageQueueForceEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): Promise<void> {
-    const sessionId = decodeURIComponent(match.captures[0] ?? '');
+    const sessionId = readQueueSessionId(match, res);
+    if (sessionId === null) return;
     if (!readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId))) {
       sendJson(res, 404, { error: 'Session not found.' });
       return;
@@ -172,7 +188,7 @@ export class ChatMessageQueueForceEndpoint implements RouteEndpoint {
     try {
       await successor.start(sessionId, started.force);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toError(error).message;
       ctx.chatMessageQueue.store.failForce(sessionId, started.force, message);
       ctx.chatMessageQueue.publish(sessionId);
       sendJson(res, 500, { error: message, queue: ctx.chatMessageQueue.state(sessionId) });

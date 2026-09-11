@@ -1,16 +1,16 @@
 import React from 'react';
-import type { ChatMessageQueueState } from '@siftkit/contracts';
-import type { getQueuedChatMessage } from '../api';
+import type { ChatMessageQueueState, ChatQueueEditableMessage, ChatQueueMessageResponse } from '@siftkit/contracts';
+import { toError } from '../../../src/lib/errors.js';
 
 export type ChatPendingQueueActions = {
   onForceQueue(): Promise<void>;
-  onLoadQueueMessage(id: string): ReturnType<typeof getQueuedChatMessage>;
+  onLoadQueueMessage(id: string): Promise<ChatQueueMessageResponse>;
   onEditQueueMessage(id: string, content: string, revision: number): Promise<void>;
   onRemoveQueueMessage(id: string): Promise<void>;
 };
 
 export function ChatPendingQueue({ queue, ...actions }: ChatPendingQueueActions & { queue: ChatMessageQueueState | null }) {
-  const [editing, setEditing] = React.useState<Awaited<ReturnType<typeof getQueuedChatMessage>>['message'] | null>(null);
+  const [editing, setEditing] = React.useState<ChatQueueEditableMessage | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const pending = queue?.messages.filter((message) => message.state === 'pending') ?? [];
@@ -20,20 +20,20 @@ export function ChatPendingQueue({ queue, ...actions }: ChatPendingQueueActions 
   async function edit(id: string): Promise<void> {
     setBusy(true);
     try { setEditing((await actions.onLoadQueueMessage(id)).message); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(toError(cause).message); }
     finally { setBusy(false); }
   }
   async function save(): Promise<void> {
     if (!editing) return;
     setBusy(true);
     try { await actions.onEditQueueMessage(editing.id, editing.content, editing.revision); setEditing(null); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(toError(cause).message); }
     finally { setBusy(false); }
   }
   async function remove(id: string): Promise<void> {
     setBusy(true);
     try { await actions.onRemoveQueueMessage(id); if (editing?.id === id) setEditing(null); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(toError(cause).message); }
     finally { setBusy(false); }
   }
   return <section className="chat-pending-queue" aria-label="Pending messages">

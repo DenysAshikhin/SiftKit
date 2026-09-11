@@ -41,6 +41,7 @@ export const ChatContextSpliceReasonSchema = z.enum([
   'images_pruned',
   'compacted',
   'interruption_closed',
+  'history_revised',
 ]);
 export type ChatContextSpliceReason = z.infer<typeof ChatContextSpliceReasonSchema>;
 
@@ -59,6 +60,7 @@ export type ChatContextInit = z.infer<typeof ChatContextInitSchema>;
  * applying a splice at the wrong offset.
  */
 export const ChatContextSpliceSchema = z.strictObject({
+  compressedMessageIds: z.array(z.string().min(1)).optional(),
   queueMessageIds: z.array(z.string().min(1)).optional(),
   expectedRevision: z.number().int().nonnegative(),
   contextRevision: z.number().int().positive(),
@@ -78,7 +80,6 @@ export type ChatContextSplice = z.infer<typeof ChatContextSpliceSchema>;
  */
 export function findPlannerContextViolation(messages: readonly ChatMessage[]): string | null {
   const openCallIds: string[] = [];
-  const seenCallIds = new Set<string>();
   for (const [index, message] of messages.entries()) {
     if (message.role === 'tool') {
       const expected = openCallIds.shift();
@@ -101,10 +102,9 @@ export function findPlannerContextViolation(messages: readonly ChatMessage[]): s
       return `message ${String(index)} declares an empty tool_calls list`;
     }
     for (const toolCall of message.tool_calls) {
-      if (seenCallIds.has(toolCall.id)) {
+      if (openCallIds.includes(toolCall.id)) {
         return `message ${String(index)} redeclares tool call ${toolCall.id}`;
       }
-      seenCallIds.add(toolCall.id);
       openCallIds.push(toolCall.id);
     }
   }

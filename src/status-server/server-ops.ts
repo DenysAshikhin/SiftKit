@@ -447,7 +447,7 @@ function refreshQueuedModelRequestTimeouts(ctx: ServerContext): void {
 function cancelModelRequestWaiter(
   ctx: ServerContext,
   waiter: ModelRequestWaiter,
-  reason: 'client_cancelled' | 'model_queue_timeout',
+  reason: 'client_cancelled' | 'operation_cancelled' | 'model_queue_timeout',
 ): void {
   if (waiter.cancelled || waiter.grantedLock) {
     return;
@@ -507,6 +507,7 @@ export async function acquireModelRequestWithWait(
   response?: ServerResponse,
   options: ModelRequestWaitOptions = {},
 ): Promise<ModelRequestLock | null> {
+  if (options.abortSignal?.aborted) return null;
   ctx.modelIdleController?.clearForIncomingRequest();
   ctx.assistant?.onInteractiveRequest();
   logIncomingModelRequest(ctx, kind);
@@ -541,6 +542,7 @@ export async function acquireModelRequestWithWait(
   const onAbortedRequest = (): void => {
     cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
+  const onAbortedOperation = (): void => { cancelModelRequestWaiter(ctx, waiter, 'operation_cancelled'); };
   const onClosedRequest = (): void => {
     if (request?.complete) {
       return;
@@ -554,6 +556,8 @@ export async function acquireModelRequestWithWait(
     cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
   startModelRequestWaiterTimeout(ctx, waiter);
+  options.abortSignal?.addEventListener('abort', onAbortedOperation, { once: true });
+  if (options.abortSignal?.aborted) onAbortedOperation();
   if (request) {
     request.once('aborted', onAbortedRequest);
     request.once('close', onClosedRequest);
@@ -566,8 +570,14 @@ export async function acquireModelRequestWithWait(
   }
   waitForModelRequestAdmission(ctx);
   try {
-    return await waiterLockPromise;
+    const granted = await waiterLockPromise;
+    if (options.abortSignal?.aborted && granted) {
+      releaseModelRequest(ctx, granted.token);
+      return null;
+    }
+    return granted;
   } finally {
+    options.abortSignal?.removeEventListener('abort', onAbortedOperation);
     clearModelRequestWaiterTimeout(waiter);
     if (response?.destroyed && !response.writableEnded) {
       cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');

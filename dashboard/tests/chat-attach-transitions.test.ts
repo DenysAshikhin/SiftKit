@@ -6,6 +6,7 @@ import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import { CHAT_SESSION_RESPONSE } from './fixtures.js';
+import { chatSnapshot } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 const RUN_ID = '4f9c1f9a-0000-4000-8000-000000000001';
@@ -20,7 +21,7 @@ const APPROVAL = {
 } as const;
 
 const ATTACHED: ChatStreamEvent = {
-  kind: 'attached', operationKind: 'repo-agent', operationId: OPERATION_ID, replayTruncated: false,
+  kind: 'snapshot', snapshot: chatSnapshot({ operationId: OPERATION_ID }),
 };
 
 async function* streamOf(events: ChatStreamEvent[]): AsyncGenerator<ChatStreamEvent> {
@@ -42,23 +43,23 @@ async function collect(stream: AsyncGenerator<ChatStreamEvent>): Promise<ChatSes
   return collected;
 }
 
-test('an attached stream emits no begin before the attached frame arrives', async () => {
+test('an attached stream adopts its complete snapshot without a speculative begin', async () => {
   const transitions = await collect(streamOf([ATTACHED, { kind: 'done', payload: CHAT_SESSION_RESPONSE }]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['attach', 'done']);
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'done']);
   assert.deepEqual(transitions[0], {
-    kind: 'attach',
+    kind: 'snapshot',
     sessionId: 's1',
-    operationKind: 'repo-agent',
-    operationId: OPERATION_ID,
+    snapshot: chatSnapshot({ operationId: OPERATION_ID }),
   });
 });
 
-test('a truncated replay warns the user that earlier output is gone', async () => {
+test('an incomplete snapshot page is not adopted before the next page arrives', async () => {
   const transitions = await collect(streamOf([
-    { ...ATTACHED, replayTruncated: true },
+    { kind: 'snapshot', snapshot: chatSnapshot({ complete: false }) },
+    { kind: 'snapshot', snapshot: chatSnapshot({ complete: true }) },
     { kind: 'done', payload: CHAT_SESSION_RESPONSE },
   ]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['attach', 'warning', 'done']);
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'done']);
 });
 
 test('a submitted frame becomes a user-turn transition', async () => {
@@ -101,7 +102,7 @@ test('a resolved approval becomes an approval decision transition', async () => 
 
 test('an ended frame becomes a detach and counts as completion', async () => {
   const transitions = await collect(streamOf([ATTACHED, { kind: 'ended' }]));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['attach', 'detach']);
+  assert.deepEqual(transitions.map((transition) => transition.kind), ['snapshot', 'detach']);
 });
 
 test('an idle session escapes as ChatOperationIdleError instead of a failure transition', async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { getRuntimeDatabasePath } from '../../state/runtime-db.js';
 import type { IncomingMessage,ServerResponse } from 'node:http';
 
 import {
@@ -54,7 +55,7 @@ import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-no
 import type { RouteEndpoint,RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
-import type { ChatRunSubmission } from './chat-session-operation-endpoint.js';
+import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.js';
 import {
 ChatSessionOperationEndpoint,
 parseChatRepoOperationRequest,
@@ -62,7 +63,8 @@ requireChatRunRecorder,
 type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
-import { buildChatSessionResponse,requireChatOperationBroadcast } from './chat.js';
+import { requireChatOperationBroadcast } from './chat.js';
+import { buildChatSessionResponse } from '../chat-session-response.js';
 import { startRepoAgentRun } from './repo-agent.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
@@ -150,16 +152,16 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     req: IncomingMessage | null,
     res: ServerResponse | null,
     request: ChatSessionOperationRequest<ChatRepoAgentRequest>,
-  ): Promise<void> {
+  ): Promise<ChatOperationOutcome> {
     if (req && res && rejectNestedAgentSelfCall(ctx, req, res, 'repo-search')) {
-      return;
+      return { failure: 'Nested repo-agent execution is not allowed.' };
     }
     const config = readConfig(ctx.configPath);
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       if (!res) throw new Error('Session not found.');
       sendJson(res, 404, { error: 'Session not found.' });
-      return;
+      return { failure: 'Session not found.' };
     }
     const effectiveConfig = resolveChatSessionConfig(config, activeSession);
     // Replay enforces the full-result contract itself; a row it refuses is reported here, before
@@ -170,7 +172,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     } catch (error) {
       if (!res) throw error;
       sendJson(res, 409, { error: `${toError(error).message} Repair the history before continuing.` });
-      return;
+      return { failure: toError(error).message };
     }
     const presetMaxTurns = request.value.maxTurns === undefined
       ? resolveRepoAgentPresetMaxTurns(effectiveConfig, activeSession.presetId)
@@ -178,7 +180,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
     const stream = requireChatOperationBroadcast(ctx, request);
     const sse = req && res ? new SseResponseWriter(req, res) : null;
     try {
-      const { updatedSession } = await executeChatRepoAgentOperation({
+      const { updatedSession, failure } = await executeChatRepoAgentOperation({
         ctx,
         recorder: requireChatRunRecorder(request),
         sessionId: request.sessionId,
@@ -200,11 +202,10 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
         queueSessionId: request.sessionId,
       });
       stream.writeEvent('done', buildChatSessionResponse(config, updatedSession));
+      return { failure };
     } catch (error) {
       stream.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
-    } finally {
-      sse?.end();
     }
   }
 }
@@ -230,9 +231,9 @@ export async function executeChatRepoAgentOperation(options: {
   connection?: SseResponseWriter;
   queueStart?: Pick<ChatSessionOperationRequest<ChatRepoAgentRequest>, 'sessionId' | 'queuedMessages' | 'queueIntentId'>;
   lease?: ChatSessionOperation;
-}): Promise<{ updatedSession: ChatSession }> {
+}): Promise<{ updatedSession: ChatSession } & ChatOperationOutcome> {
   const engineRequestId = options.lease?.operationId ?? randomUUID();
-  const progressWriter = new ChatStreamProgressWriter(options.stream, null, false, options.recorder);
+  const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
   const started = startRepoAgentRun(options.ctx, {
     evidenceRecorder: options.recorder,
     requestId: engineRequestId,
@@ -262,7 +263,10 @@ export async function executeChatRepoAgentOperation(options: {
   if (!options.queueStart?.queuedMessages) options.stream.writeEvent('submitted', { content: options.content, images: options.images });
   if (options.connection) {
     options.connection.open();
-    options.stream.attach(new ChatOperationSseSubscriber(options.connection));
+    const subscriber = new ChatOperationSseSubscriber(options.connection, { ctx: options.ctx, sessionId: options.sessionId,
+      operationId: options.recorder.operationId, databasePath: getRuntimeDatabasePath() });
+    options.stream.attach(subscriber);
+    subscriber.start();
   }
   const detach = started.session.attach({
     wantsLiveText: true,
@@ -285,9 +289,8 @@ export async function executeChatRepoAgentOperation(options: {
       : result.status === 'approval_timeout' ? 'approval_timeout' : 'execution_failure';
     const updatedSession = result.status === 'completed'
       ? options.recorder.completeAnswer(executionResult ? buildChatAnswerCompletion(executionResult, text) : { content: text })
-      : options.recorder.stop(cause, text);
-    if (cause !== 'completed' && cause !== 'user_stop' && options.lease) options.lease.failure = text;
-    return { updatedSession };
+      : options.recorder.stop(cause, cause === 'user_stop' ? null : text);
+    return { updatedSession, failure: cause === 'completed' || cause === 'user_stop' ? null : text };
   } finally {
     detach();
     options.ctx.chatRepoAgentRuns.delete(options.sessionId);

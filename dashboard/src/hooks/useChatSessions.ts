@@ -51,6 +51,8 @@ import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from 
 import type { ToastLevel } from './useToasts';
 import type { PendingImage } from '../lib/downscale-image';
 
+const CHAT_ATTACH_RECONNECT_MS = 1000;
+
 export type CreateChatSessionRequest = {
   title: string;
   presetId?: string;
@@ -124,6 +126,8 @@ export function useChatSessions(deps: {
           let store = prev;
           for (const session of response.sessions) {
             store = store.ensureSession(session.id, session.planRepoRoot);
+            if (response.recovery) store = store.apply({ kind: 'recovery', sessionId: session.id,
+              reports: response.recovery.filter(report => report.sessionId === session.id) });
             const runtime = store.get(session.id);
             const busyKind = busyKindBySessionId.get(session.id) ?? null;
             // The rail reads this; a client-owned stream already reports itself and must not be
@@ -174,11 +178,12 @@ export function useChatSessions(deps: {
         }
         setSessions((previous) => upsertSession(previous, response.session));
         setRuntimeStore((previous) => {
-          const withUsage = previous.apply({
+          let withUsage = previous.apply({
             kind: 'context-usage',
             sessionId: response.session.id,
             contextUsage: response.contextUsage,
           });
+          if (response.recovery) withUsage = withUsage.apply({ kind: 'recovery', sessionId: response.session.id, reports: response.recovery });
           return activeRun
             ? withUsage.apply({
                 kind: 'repo-agent-approval-mode',
@@ -209,8 +214,13 @@ export function useChatSessions(deps: {
     let lastOperationId: string | null | undefined;
     void (async () => {
       try {
-        for await (const queue of streamChatQueue(sessionId, controller.signal)) {
+        for await (const event of streamChatQueue(sessionId, controller.signal)) {
           if (controller.signal.aborted) return;
+          if (event.kind === 'error') {
+            setRuntimeStore(store => store.apply({ kind: 'control-error', sessionId, message: event.error }));
+            continue;
+          }
+          const queue = event.queue;
           if (queue.sessionId !== sessionId) throw new Error('Queue session mismatch.');
           setRuntimeStore((store) => store.apply({ kind: 'queue', sessionId, queue }));
           queueOperationIds.current.set(sessionId, queue.activeOperationId ?? null);
@@ -237,14 +247,27 @@ export function useChatSessions(deps: {
     const controller = new AbortController();
     let cancelled = false;
     let attached = false;
-    const refreshSession = async (): Promise<void> => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleReconnect = (): void => {
+      if (cancelled || reconnectTimer !== null) return;
+      reconnectTimer = setTimeout(() => { if (!cancelled) setRemoteRunGeneration(generation => generation + 1); }, CHAT_ATTACH_RECONNECT_MS);
+    };
+    const reconnectAfterError = (error: Error): void => {
+      if (cancelled) return;
+      setRuntimeStore(store => store.apply({ kind: 'control-error', sessionId, message: error.message }));
+      scheduleReconnect();
+    };
+    const refreshSession = async (): Promise<boolean> => {
       const response = await getChatSession(sessionId);
       if (cancelled) {
-        return;
+        return false;
       }
       setSessions((previous) => upsertSession(previous, response.session));
-      setRuntimeStore((previous) => previous
-        .apply({ kind: 'context-usage', sessionId, contextUsage: response.contextUsage }));
+      setRuntimeStore((previous) => {
+        const next = previous.apply({ kind: 'context-usage', sessionId, contextUsage: response.contextUsage });
+        return response.recovery ? next.apply({ kind: 'recovery', sessionId, reports: response.recovery }) : next;
+      });
+      return !response.recovery?.some(report => report.status === 'recovery_failed');
     };
     void (async () => {
       try {
@@ -258,7 +281,7 @@ export function useChatSessions(deps: {
             return;
           }
           setRuntimeStore((previous) => previous.apply(transition));
-          if (transition.kind === 'attach') {
+          if (transition.kind === 'snapshot') {
             attached = true;
           }
           if (transition.kind === 'done') {
@@ -267,15 +290,19 @@ export function useChatSessions(deps: {
           if (transition.kind === 'detach') {
             await refreshSession();
           }
+          if (transition.kind === 'failure') {
+            try { if (await refreshSession()) scheduleReconnect(); }
+            catch (error) { reconnectAfterError(toError(error)); }
+          }
         }
         attached = false;
       } catch (error) {
-        if (cancelled || !(error instanceof ChatOperationIdleError)) {
-          return;
-        }
+        if (cancelled) return;
+        if (!(error instanceof ChatOperationIdleError)) { reconnectAfterError(toError(error)); return; }
         // Nothing is running: the run may have finished while this client was away, so take the
         // stored transcript rather than leaving the session pinned as busy.
-        await refreshSession();
+        try { await refreshSession(); }
+        catch (error) { reconnectAfterError(toError(error)); return; }
         if (cancelled) {
           return;
         }
@@ -286,6 +313,7 @@ export function useChatSessions(deps: {
     })();
     return () => {
       cancelled = true;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       controller.abort();
       // Aborting mid-stream leaves the session marked as streamed by this client with nothing
       // behind it. Un-own it, or it reports itself busy forever and no later attach can take it.
@@ -297,11 +325,10 @@ export function useChatSessions(deps: {
 
   function applySessionResponse(response: ChatSessionResponse): void {
     setSessions((previous) => upsertSession(previous, response.session));
-    setRuntimeStore((previous) => previous.apply({
-      kind: 'context-usage',
-      sessionId: response.session.id,
-      contextUsage: response.contextUsage,
-    }));
+    setRuntimeStore((previous) => {
+      const next = previous.apply({ kind: 'context-usage', sessionId: response.session.id, contextUsage: response.contextUsage });
+      return response.recovery ? next.apply({ kind: 'recovery', sessionId: response.session.id, reports: response.recovery }) : next;
+    });
   }
 
   function failSessionOperation(sessionId: string, message: string): void {
@@ -509,6 +536,7 @@ export function useChatSessions(deps: {
     // Held for the whole turn, so the attach effect leaves this session to the frames rendered here.
     ownedStreamSessionIds.current.add(sessionId);
     let ownedElsewhere = false;
+    let accepted = false;
     try {
       for await (const transition of toRuntimeTransitions(
         sessionId,
@@ -517,9 +545,12 @@ export function useChatSessions(deps: {
         thinkingEnabled,
       )) {
         setRuntimeStore((previous) => previous.apply(transition));
+        if (transition.kind === 'snapshot') accepted = true;
+        if (transition.kind === 'failure' && (accepted || queueOperationIds.current.get(sessionId) === operationId)) ownedElsewhere = true;
         if (transition.kind === 'done') {
           setSessions((previous) => upsertSession(previous, transition.response.session));
         }
+        if (transition.kind === 'detach') applySessionResponse(await getChatSession(sessionId));
         if (transition.kind === 'remote-begin') ownedElsewhere = true;
       }
     } finally {

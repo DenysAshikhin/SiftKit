@@ -1,4 +1,4 @@
-import { getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.js';
 import { z } from '../lib/zod.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -31,7 +31,7 @@ export function writeRuntimeLaunchSnapshot(
   databasePath: string,
   snapshot: RuntimeLaunchSnapshot,
 ): void {
-  setRuntimeMetadataValue(SNAPSHOT_KEY, JSON.stringify(snapshot), databasePath);
+  setRuntimeMetadataValue(getRuntimeDatabase(databasePath), SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
 
 export function readRuntimeLaunchSnapshot(databasePath: string): RuntimeLaunchSnapshot | null {

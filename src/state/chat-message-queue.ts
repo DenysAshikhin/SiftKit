@@ -12,10 +12,12 @@ import {
   ChatMessageQueueForceStateSchema,
   type ChatMessageQueueForceState,
   ImageDataUrlSchema,
+  ChatQueueEditableMessageSchema,
 } from '@siftkit/contracts';
 
 import { z } from '../lib/zod.js';
-import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
+import { getRuntimeDatabase, setRuntimeMetadataValue, type RuntimeDatabase } from './runtime-db.js';
+import { CHAT_QUEUE_METADATA_PREFIX, chatMetadataKey } from './chat-metadata-keys.js';
 
 const QueueRowSchema = z.object({
   sequence: z.number().int().positive(),
@@ -37,7 +39,17 @@ const ImagesJsonSchema = z.array(ImageDataUrlSchema);
 const QueueMetadataSchema = ChatMessageQueueStateSchema.pick({ revision: true, paused: true, force: true });
 type QueueMetadata = z.infer<typeof QueueMetadataSchema>;
 
-export type ChatQueuedMessage = ReturnType<typeof toMessage>;
+const ChatQueuedMessageSchema = ChatQueueEditableMessageSchema.omit({ imageCount: true }).extend({
+  sequence: QueueRowSchema.shape.sequence,
+  sessionId: QueueRowSchema.shape.session_id,
+  images: ImagesJsonSchema,
+  options: ChatQueueSendOptionsSchema,
+  state: ChatQueuedMessageStateSchema,
+  deliveredRequestId: QueueRowSchema.shape.delivered_request_id,
+  deliveredTurn: QueueRowSchema.shape.delivered_turn,
+  createdAtUtc: QueueRowSchema.shape.created_at_utc,
+});
+export type ChatQueuedMessage = z.infer<typeof ChatQueuedMessageSchema>;
 export type ChatQueueEnqueueInput = z.infer<typeof ChatQueueEnqueueRequestSchema>;
 
 export type ChatQueueEnqueueResult =
@@ -73,7 +85,7 @@ export type ChatQueueForceResult =
   | { kind: 'conflict'; force: NonNullable<QueueMetadata['force']> }
   | { kind: 'missing_session' };
 function toMessage(row: z.infer<typeof QueueRowSchema>) {
-  return {
+  return ChatQueuedMessageSchema.parse({
     sequence: row.sequence,
     sessionId: row.session_id,
     id: row.id,
@@ -85,7 +97,7 @@ function toMessage(row: z.infer<typeof QueueRowSchema>) {
     deliveredRequestId: row.delivered_request_id,
     deliveredTurn: row.delivered_turn,
     createdAtUtc: row.created_at_utc,
-  };
+  });
 }
 
 function sameBody(message: ChatQueuedMessage, input: ChatQueueEnqueueInput): boolean {
@@ -106,7 +118,7 @@ export class ChatMessageQueueStore {
   private get database(): RuntimeDatabase { return getRuntimeDatabase(this.databasePath); }
 
   private metadata(sessionId: string) {
-    const raw = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(`chat_queue:${sessionId}`);
+    const raw = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(chatMetadataKey.queue(sessionId));
     return raw === undefined ? { revision: 0, paused: false, force: null } : QueueMetadataSchema.parse(JSON.parse(z.object({ value: z.string() }).parse(raw).value));
   }
 
@@ -137,21 +149,19 @@ export class ChatMessageQueueStore {
   }
 
   private writeMetadata(sessionId: string, state: QueueMetadata): void {
-    this.database.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc')
-      .run(`chat_queue:${sessionId}`, JSON.stringify(state), new Date().toISOString());
+    setRuntimeMetadataValue(this.database, chatMetadataKey.queue(sessionId), JSON.stringify(state));
   }
   setPaused(sessionId: string, paused: boolean): void {
     this.database.transaction(() => this.bump(sessionId, paused))();
   }
 
   readForceReceipt(sessionId: string, id: string): ChatMessageQueueForceState | null {
-    const row = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(`chat_queue_receipt:${sessionId}:${id}`);
+    const row = this.database.prepare('SELECT value FROM runtime_metadata WHERE key = ?').get(chatMetadataKey.receipt(sessionId, id));
     return row === undefined ? null : ChatMessageQueueForceStateSchema.parse(JSON.parse(z.object({ value: z.string() }).parse(row).value));
   }
 
   private saveReceipt(sessionId: string, force: ChatMessageQueueForceState): void {
-    this.database.prepare('INSERT INTO runtime_metadata(key, value, updated_at_utc) VALUES(?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at_utc=excluded.updated_at_utc')
-      .run(`chat_queue_receipt:${sessionId}:${force.id}`, JSON.stringify(force), new Date().toISOString());
+    setRuntimeMetadataValue(this.database, chatMetadataKey.receipt(sessionId, force.id), JSON.stringify(force));
   }
 
   failForce(sessionId: string, force: ChatMessageQueueForceState, error: string): void {
@@ -309,9 +319,9 @@ export class ChatMessageQueueStore {
   interruptedSessionIds(): string[] {
     return z.array(z.object({ session_id: z.string() })).parse(this.database.prepare(`
       SELECT DISTINCT session_id FROM chat_pending_messages
-      UNION SELECT substr(key, 12) AS session_id FROM runtime_metadata
-        WHERE key LIKE 'chat_queue:%' AND json_extract(value, '$.force') IS NOT NULL
-    `).all()).map((row) => row.session_id);
+      UNION SELECT substr(key, ?) AS session_id FROM runtime_metadata
+        WHERE substr(key, 1, ?) = ? AND json_extract(value, '$.force') IS NOT NULL
+    `).all(CHAT_QUEUE_METADATA_PREFIX.length + 1, CHAT_QUEUE_METADATA_PREFIX.length, CHAT_QUEUE_METADATA_PREFIX)).map((row) => row.session_id);
   }
 
   private isForceSnapshot(sessionId: string, id: string): boolean {

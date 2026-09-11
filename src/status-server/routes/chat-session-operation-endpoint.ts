@@ -7,6 +7,7 @@ import {
   ChatOperationIdSchema,
   ChatQueueOperationKindSchema,
   type ChatRunEffectiveSettings,
+  type ChatRecoveryReport,
   type ChatSessionOperationKind,
 } from '@siftkit/contracts';
 
@@ -35,6 +36,25 @@ import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.
 import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
+import { SseResponseWriter } from '../sse-response-writer.js';
+import { reconcileChatSession } from '../chat-run-recovery.js';
+import { buildChatSessionResponse } from '../chat-session-response.js';
+import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
+import { z } from '../../lib/zod.js';
+
+const ChatOperationOutcomeSchema = z.strictObject({ failure: z.string().min(1).nullable() });
+export type ChatOperationOutcome = z.infer<typeof ChatOperationOutcomeSchema>;
+
+class ChatImageAdmissionError extends Error {
+  constructor(cause: Error) { super(cause.message, { cause }); this.name = 'ChatImageAdmissionError'; }
+}
+
+class ChatRecoveryAdmissionError extends Error {
+  constructor(readonly report: ChatRecoveryReport) {
+    super(`Chat recovery requires repair for run ${report.operationId}.`);
+    this.name = 'ChatRecoveryAdmissionError';
+  }
+}
 
 export type ResolvedChatRepoRequest = {
   content: string;
@@ -167,7 +187,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     req: IncomingMessage | null,
     res: ServerResponse | null,
     request: ChatSessionOperationRequest<TParsed>,
-  ): Promise<void>;
+  ): Promise<ChatOperationOutcome>;
 
   /** A successor opens its own run record: it is a separate operation, not a continuation. */
   async executeDetached(
@@ -191,12 +211,23 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
   ): Promise<void> {
     const recorder = request.recorder;
     if (recorder === null) {
-      await this.run(ctx, req, res, request);
+      const outcome = ChatOperationOutcomeSchema.parse(await this.run(ctx, req, res, request));
+      if (outcome.failure && request.lease) request.lease.failure = outcome.failure;
       return;
     }
+    if (request.lease) request.lease.recorder = recorder;
+    let outcome: ChatOperationOutcome;
     try {
-      await this.run(ctx, req, res, request);
+      outcome = ChatOperationOutcomeSchema.parse(await this.run(ctx, req, res, request));
     } catch (error) {
+      if (recorder.sessionDeleted) {
+        if (res && !res.headersSent) sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      if (recorder.stopRequested && recorder.terminalCause === null) {
+        this.finishStopped(ctx, req, res, request, recorder);
+        return;
+      }
       if (recorder.terminalCause === null) recorder.finish({
         terminalCause: 'execution_failure',
         detail: toError(error).message,
@@ -205,15 +236,50 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       });
       throw error;
     }
+    if (recorder.sessionDeleted) {
+      if (res && !res.headersSent) sendJson(res, 404, { error: 'Session not found.' });
+      return;
+    }
+    if (recorder.stopRequested && recorder.terminalCause === null) {
+      this.finishStopped(ctx, req, res, request, recorder);
+      return;
+    }
+    if (outcome.failure && request.lease) request.lease.failure = outcome.failure;
     if (recorder.terminalCause !== null) return;
-    const failure = request.lease?.failure ?? ctx.chatSessionOperations.getBroadcast(request.sessionId)?.failure
-      ?? (res && res.statusCode >= 400 ? `Chat operation returned HTTP ${res.statusCode}.` : null);
+    if (!this.clientOwnedOperation && res?.destroyed) {
+      recorder.cancelUndispatchedSubmission();
+      return;
+    }
+    const failure = outcome.failure;
     recorder.finish({
       terminalCause: request.lease?.stopRequested ? 'user_stop' : failure ? 'execution_failure' : 'completed',
       detail: failure,
       usage: null,
       recoveryStatus: failure ? 'recovery_needed' : 'ok',
     });
+  }
+
+  private finishStopped(ctx: ServerContext, req: IncomingMessage | null, res: ServerResponse | null,
+    request: ChatSessionOperationRequest<TParsed>, recorder: ChatRunRecorder): void {
+    if (recorder.terminalCause !== null) return;
+    const session = recorder.stop('user_stop', null);
+    const response = buildChatSessionResponse(readConfig(ctx.configPath), session);
+    if (this.clientOwnedOperation) {
+      const broadcast = ctx.chatSessionOperations.getBroadcast(request.sessionId);
+      if (!broadcast) throw new Error('Stopped chat operation lost its lease.');
+      if (req && res && !res.headersSent && !res.destroyed) {
+        const writer = new SseResponseWriter(req, res);
+        writer.open();
+        const subscriber = new ChatOperationSseSubscriber(writer, { ctx, sessionId: request.sessionId,
+          operationId: recorder.operationId, databasePath: getRuntimeDatabasePath() });
+        broadcast.attach(subscriber);
+        subscriber.start();
+        res.on('close', () => broadcast.detach(subscriber));
+      }
+      broadcast.writeEvent('done', response);
+    } else if (res && !res.writableEnded && !res.destroyed) {
+      sendJson(res, 200, response);
+    }
   }
 
   /**
@@ -231,8 +297,13 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     ctx.chatRuntimeOwner.assertOwned();
     const submission = this.describeRun(session, value, config);
     if (submission === null) return null;
+    let admittedImages: ReturnType<typeof admitImagesForPreset>;
+    try { admittedImages = admitImagesForPreset(session.modelPreset, submission.images); }
+    catch (error) { throw new ChatImageAdmissionError(toError(error)); }
     importChatSessionBaseline(getRuntimeDatabase(getRuntimeDatabasePath()), session, config);
-    const admittedImages = admitImagesForPreset(session.modelPreset, submission.images);
+    const recovery = reconcileChatSession(getRuntimeDatabase(getRuntimeDatabasePath()), sessionId);
+    const failed = recovery.find(report => report.status === 'recovery_failed');
+    if (failed) throw new ChatRecoveryAdmissionError(failed);
     return ChatRunRecorder.begin(getRuntimeDatabasePath(), {
       operationId: randomUUID(),
       sessionId,
@@ -310,11 +381,10 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
         lease,
         recorder,
       });
-      if (lease && res.statusCode >= 400) lease.failure ??= `Chat operation returned HTTP ${res.statusCode}.`;
       if (lease && !ctx.chatSessionOperations.finish(lease, { kind: 'completed' })) {
         throw new Error(`Failed to finish chat session operation ${lease.sessionId}.`);
       }
-      if (lease) {
+      if (lease && !recorder?.sessionDeleted) {
         if (ctx.chatSessionOperations.getCompletion(sessionId, lease.operationId)?.kind === 'completed') await ctx.chatQueueSuccessor?.startPending(sessionId);
         else ctx.chatMessageQueue.store.setPaused(sessionId, true);
         ctx.chatMessageQueue.publish(sessionId);
@@ -322,8 +392,25 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     } catch (error) {
       if (lease) {
         ctx.chatSessionOperations.finish(lease, { kind: 'failed', error: toError(error).message });
-        ctx.chatMessageQueue.store.setPaused(sessionId, true);
-        ctx.chatMessageQueue.publish(sessionId);
+        if (!lease.recorder?.sessionDeleted) {
+          ctx.chatMessageQueue.store.setPaused(sessionId, true);
+          ctx.chatMessageQueue.publish(sessionId);
+        }
+      }
+      if (error instanceof ChatImageAdmissionError) {
+        if (this.clientOwnedOperation) {
+          const writer = new SseResponseWriter(req, res);
+          writer.open();
+          writer.writeEvent('error', { error: error.message });
+          writer.end();
+        } else {
+          sendJson(res, 400, { error: error.message });
+        }
+        return;
+      }
+      if (error instanceof ChatRecoveryAdmissionError) {
+        sendJson(res, 409, { error: error.message, recovery: error.report });
+        return;
       }
       throw error;
     }

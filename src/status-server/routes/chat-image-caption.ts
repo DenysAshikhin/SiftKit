@@ -1,3 +1,4 @@
+import { toError } from '../../lib/errors.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { z } from '../../lib/zod.js';
@@ -20,6 +21,7 @@ import { sendJson } from '../http-utils.js';
 import {
   ChatSessionOperationEndpoint,
   type ChatSessionOperationRequest,
+  type ChatOperationOutcome,
 } from './chat-session-operation-endpoint.js';
 import type { ServerContext } from '../server-types.js';
 import {
@@ -85,35 +87,33 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
     req: IncomingMessage,
     res: ServerResponse,
     request: ChatSessionOperationRequest<CaptionRequest>,
-  ): Promise<void> {
+  ): Promise<ChatOperationOutcome> {
     const initialTarget = findCaptionTarget(request.session, request.value.messageId, request.value.imageIndex);
     if (!initialTarget) {
       sendJson(res, 404, { error: 'Image not found.' });
-      return;
+      return { failure: 'Image not found.' };
     }
     if (initialTarget.caption?.trim()) {
       sendJson(res, 200, { caption: initialTarget.caption });
-      return;
+      return { failure: null };
     }
 
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_image_caption', req, res);
-    if (!modelRequestLock) {
-      return;
-    }
+    if (!modelRequestLock) return { failure: 'Model request could not be acquired.' };
     try {
       const authoritativeSession = readChatSessionFromPath(request.sessionPath);
       if (!authoritativeSession) {
         sendJson(res, 404, { error: 'Session not found.' });
-        return;
+        return { failure: 'Session not found.' };
       }
       const target = findCaptionTarget(authoritativeSession, request.value.messageId, request.value.imageIndex);
       if (!target) {
         sendJson(res, 404, { error: 'Image not found.' });
-        return;
+        return { failure: 'Image not found.' };
       }
       if (target.caption?.trim()) {
         sendJson(res, 200, { caption: target.caption });
-        return;
+        return { failure: null };
       }
 
       try {
@@ -155,7 +155,7 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
         }
         if (latestTarget.caption?.trim()) {
           sendJson(res, 200, { caption: latestTarget.caption });
-          return;
+          return { failure: null };
         }
         updateChatMessageImageCaption(
           getRuntimeRoot(),
@@ -165,12 +165,14 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
           caption,
         );
         sendJson(res, 200, { caption });
+        return { failure: null };
       } catch (error) {
         if (error instanceof ChatMessageImageNotFoundError) {
           sendJson(res, 404, { error: error.message });
-          return;
+          return { failure: error.message };
         }
-        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        sendJson(res, 500, { error: toError(error).message });
+        return { failure: toError(error).message };
       }
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);

@@ -4,12 +4,11 @@ import type { RepoSearchProgressEvent } from '../repo-search/types.js';
 import { LiveTextDeltaTracker, LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from './live-text-delta.js';
 import {
   forwardRepoSearchPromptEvent, forwardRepoSearchToolEvent, forwardRepoSearchUsageEvent,
-  toChatStreamToolEvent, toChatStreamUsageEvent, type ChatFrameWriter,
+  toChatStreamToolEvent, toChatStreamUsageEvent, toChatStreamPromptEvent, type ChatFrameWriter,
 } from './chat-stream-frames.js';
 import type { ChatTurnPhaseTracker } from './chat-turn-phase-tracker.js';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
 
-export const STOPPED_BY_USER_MARKER = '*Stopped by user.*';
 
 /** Coalesces live text; the recorder owns the transcript and commits each emitted delta first. */
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -55,6 +54,7 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       const queued = ChatStreamQueuedUserMessageSchema.parse(payload);
       this.writer.writeEvent('queued_user_message', queued);
     } else if (event.kind === 'context_warning') {
+      this.recorder.recordPresentation({ kind: 'warning', warning: event.warningText });
       this.writer.writeEvent('warning', { warning: event.warningText });
     } else if (event.kind === 'progress_update') {
       const progress = { turn: event.turn, text: event.progressText, elapsedMs: event.elapsedMs };
@@ -64,6 +64,7 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       this.recorder.recordDisplay({ kind: 'usage', usage: toChatStreamUsageEvent(event) });
       forwardRepoSearchUsageEvent(this.writer, event);
     } else if (event.kind === 'prompt') {
+      this.recorder.recordPresentation({ kind: 'prompt', prompt: toChatStreamPromptEvent(event) });
       forwardRepoSearchPromptEvent(this.writer, event);
     } else if (event.kind === 'tool_start' || event.kind === 'tool_result') {
       const tool = toChatStreamToolEvent(event);

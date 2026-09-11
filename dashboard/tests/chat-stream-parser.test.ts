@@ -1,16 +1,32 @@
 import test from 'node:test';
+import { chatSnapshot, chatSnapshotFrame } from './chat-snapshot-fixture.js';
 import assert from 'node:assert/strict';
 import { parseChatStreamPacket, ChatStreamReader, type ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionResponse } from '../src/types';
 
-test('parseChatStreamPacket contract: one single-line data: JSON frame per packet (multi-line data: not supported)', () => {
-  const multiLine = 'event: thinking\ndata: {"thinking":\ndata: "ignored second line"}';
-  assert.equal(parseChatStreamPacket(multiLine), null);
+test('malformed and unknown recovery packets require refetch instead of disappearing', () => {
+  assert.throws(() => parseChatStreamPacket('event: snapshot\ndata: {not-json'), /JSON|frame/i);
+  assert.throws(() => parseChatStreamPacket('event: projection\ndata: {"operationId":"bad"}'));
+  assert.throws(() => parseChatStreamPacket('event: future_event\ndata: {}'), /Unsupported|unknown/i);
 });
 
-test('parseChatStreamPacket returns null for empty or data-less packets', () => {
+test('recovery frames support multiline data and CRLF packet boundaries', async () => {
+  const snapshot = chatSnapshot();
+  const packet = `event: snapshot\r\n${JSON.stringify(snapshot, null, 2).split('\n').map(line => `data: ${line}`).join('\r\n')}\r\n\r\n`;
+  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(packet)); controller.close(); } });
+  const events: ChatStreamEvent[] = [];
+  for await (const event of new ChatStreamReader(stream.getReader()).events()) events.push(event);
+  assert.deepEqual(events, [{ kind: 'snapshot', snapshot }]);
+});
+
+test('malformed multiline payloads fail validation', () => {
+  const multiLine = 'event: thinking\ndata: {"thinking":\ndata: "ignored second line"}';
+  assert.throws(() => parseChatStreamPacket(multiLine));
+});
+
+test('empty packets are ignored and incomplete event packets fail', () => {
   assert.equal(parseChatStreamPacket(''), null);
-  assert.equal(parseChatStreamPacket('event: thinking'), null);
+  assert.throws(() => parseChatStreamPacket('event: thinking'));
 });
 
 test('parses a thinking delta payload', () => {
@@ -39,7 +55,7 @@ test('parses an answer delta payload', () => {
 
 test('rejects a malformed thinking payload', () => {
   const packet = 'event: thinking\ndata: {"thinking":"legacy snapshot"}';
-  assert.equal(parseChatStreamPacket(packet), null);
+  assert.throws(() => parseChatStreamPacket(packet));
 });
 
 test('parseChatStreamPacket parses warning events', () => {
@@ -61,10 +77,7 @@ test('parseChatStreamPacket validates approval events', () => {
     parseChatStreamPacket(`event: approval\ndata: ${JSON.stringify(approval)}`),
     { kind: 'approval', approval },
   );
-  assert.equal(
-    parseChatStreamPacket('event: approval\ndata: {"runId":"not-a-uuid"}'),
-    null,
-  );
+  assert.throws(() => parseChatStreamPacket('event: approval\ndata: {"runId":"not-a-uuid"}'));
 });
 
 test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', () => {
@@ -105,12 +118,9 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
     },
   });
   // The cap crosses the wire only as maxTurns; a legacy toolCallLimit field is rejected, not coerced.
-  assert.equal(
-    parseChatStreamPacket(
+  assert.throws(() => parseChatStreamPacket(
       'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"toolCallLimit":5,"activityKind":"search","activitySubject":{"kind":"none"},"command":"rg foo","promptTokenCount":42}'
-    ),
-    null,
-  );
+    ));
 });
 
 test('parseChatStreamPacket rejects malformed tool events instead of coercing them', () => {
@@ -124,7 +134,7 @@ test('parseChatStreamPacket rejects malformed tool events instead of coercing th
     { toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'invalid', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42 },
   ];
   for (const body of invalidBodies) {
-    assert.equal(parseChatStreamPacket(`event: tool_start\ndata: ${JSON.stringify(body)}`), null);
+    assert.throws(() => parseChatStreamPacket(`event: tool_start\ndata: ${JSON.stringify(body)}`));
   }
 });
 
@@ -132,7 +142,7 @@ test('parseChatStreamPacket requires complete tool result metadata', () => {
   const base = {
     toolCallId: 'tc_0', turn: 1, maxTurns: 5, activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg foo', promptTokenCount: 42,
   };
-  assert.equal(parseChatStreamPacket(`event: tool_result\ndata: ${JSON.stringify(base)}`), null);
+  assert.throws(() => parseChatStreamPacket(`event: tool_result\ndata: ${JSON.stringify(base)}`));
 });
 
 const SAMPLE_SESSION: ChatSessionResponse['session'] = {
@@ -169,8 +179,8 @@ test('parseChatStreamPacket parses done and error', () => {
   assert.deepEqual(parseChatStreamPacket('event: error\ndata: {"error":"boom"}'), { kind: 'error', message: 'boom' });
 });
 
-test('parseChatStreamPacket returns null on malformed JSON', () => {
-  assert.equal(parseChatStreamPacket('event: answer\ndata: {not json'), null);
+test('malformed JSON is a recoverable stream failure', () => {
+  assert.throws(() => parseChatStreamPacket('event: answer\ndata: {not json'));
 });
 
 test('ChatStreamReader flushes a trailing packet that ends without a blank line', async () => {
@@ -284,20 +294,13 @@ test('parses a usage frame into a usage event', () => {
 
 test('rejects a malformed usage frame instead of silently dropping the numbers', () => {
   const packet = 'event: usage\ndata: {"turn":3,"maxTurns":20,"charsPerToken":4}';
-  assert.equal(parseChatStreamPacket(packet), null);
+  assert.throws(() => parseChatStreamPacket(packet));
 });
 
-test('parses the attached frame', () => {
-  const event = parseChatStreamPacket(
-    'event: attached\ndata: {"operationKind":"plan",'
-      + '"operationId":"4f9c1f9a-0000-4000-8000-000000000000",'
-      + '"startedAtUtc":"2026-09-08T12:00:00.000Z","replayTruncated":true}',
-  );
+test('parses the journal snapshot frame', () => {
+  const event = parseChatStreamPacket(chatSnapshotFrame({ operationKind: 'plan' }));
   assert.deepEqual(event, {
-    kind: 'attached',
-    operationKind: 'plan',
-    operationId: '4f9c1f9a-0000-4000-8000-000000000000',
-    replayTruncated: true,
+    kind: 'snapshot', snapshot: chatSnapshot({ operationKind: 'plan' }),
   });
 });
 
@@ -349,5 +352,5 @@ test('parses the ended frame', () => {
 });
 
 test('rejects a malformed approval state frame', () => {
-  assert.equal(parseChatStreamPacket('event: approval_state\ndata: {"approval":{"runId":"x"}}'), null);
+  assert.throws(() => parseChatStreamPacket('event: approval_state\ndata: {"approval":{"runId":"x"}}'));
 });

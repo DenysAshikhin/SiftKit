@@ -16,6 +16,8 @@ import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.
 import type { ChatContextRecorder } from '../src/repo-search/engine/chat-run-evidence.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import type { ChatContextInit, ChatContextSplice } from '../src/repo-search/planner-chat-message.js';
+import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
+import { buildAssistantToolCallMessage, buildToolResultMessage } from '../src/tool-call-messages.js';
 import {
   buildRecoveredChatHistory,
   replayChatContext,
@@ -31,6 +33,19 @@ const PNG = 'data:image/png;base64,AAAA';
 
 /** Turns the transcript's own mutations into the journal events a recovered run would read back. */
 class RecordingContextRecorder implements ChatContextRecorder {
+  readonly userMessageId = 'replay-user';
+  readonly messageIdPrefix = `stopped-${OPERATION_ID}`;
+  readonly historyRevision = 0;
+  private readonly toolIds = new Map<string, string>();
+  resolveAssistantMessageId(turn: number): string { return `${this.messageIdPrefix}-narration-${turn}`; }
+  resolveToolMessageId(toolCallId: string): string {
+    const existing = this.toolIds.get(toolCallId);
+    if (existing) return existing;
+    const id = `${this.messageIdPrefix}-tool-tc_${this.toolIds.size}`;
+    this.toolIds.set(toolCallId, id);
+    return id;
+  }
+  readHistoryRevisions() { return []; }
   readonly events: ChatJournalEvent[] = [];
 
   recordContextInitialized(init: ChatContextInit): void {
@@ -62,7 +77,7 @@ function toolCall(indexInBatch: number, toolCallId: string) {
   return { toolCallId, displayToolCallId: `tc_${String(indexInBatch)}`, batchId: 'batch-1', turn: 1, indexInBatch };
 }
 
-function proposed(indexInBatch: number, toolCallId: string, command: string): ChatJournalEvent {
+function proposed(indexInBatch: number, toolCallId: string, command: string): Extract<ChatJournalEvent, { kind: 'tool_proposed' }> {
   return {
     kind: 'tool_proposed',
     call: toolCall(indexInBatch, toolCallId),
@@ -97,6 +112,76 @@ function result(indexInBatch: number, toolCallId: string, output: string): ChatJ
   };
 }
 
+for (const scenario of [
+  { name: 'start without proposal', events: [started(0, 'call_a')] },
+  { name: 'result with another native identity', events: [proposed(0, 'call_a', 'first'), result(0, 'call_b', 'wrong result')] },
+  { name: 'duplicate proposal identity', events: [proposed(0, 'call_a', 'first'), proposed(0, 'call_a', 'second')] },
+  { name: 'missing earlier batch member', events: [proposed(1, 'call_b', 'second')] },
+  { name: 'conflicting second result', events: [proposed(0, 'call_a', 'first'), result(0, 'call_a', 'first'), result(0, 'call_a', 'second')] },
+  { name: 'finalization without full result', events: [proposed(0, 'call_a', 'first'),
+    { kind: 'tool_result_finalized', call: toolCall(0, 'call_a'), modelVisibleText: 'invented', contextRevision: 0 }] },
+] satisfies { name: string; events: ChatJournalEvent[] }[]) test(`context recovery rejects ${scenario.name}`, () => {
+  const recovered = replayChatContext(envelopes([
+    { kind: 'context_initialized', contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'task' }] },
+    ...scenario.events,
+  ]));
+  assert.equal(recovered.status, 'recovery_failed');
+  assert.equal(recovered.issues[0]?.operationId, OPERATION_ID);
+  assert.ok(recovered.issues[0]?.eventId);
+});
+
+test('native call IDs may be reused after a closed exchange but not within one open batch', () => {
+  const call = { action: { toolName: 'read', args: { path: 'old.ts' } }, toolCallId: 'call_a', toolContent: 'old result' };
+  const exchange = [buildAssistantToolCallMessage([call]), buildToolResultMessage(call.toolCallId, call.toolContent)];
+  assert.equal(findPlannerContextViolation([...exchange, ...exchange]), null);
+  assert.match(findPlannerContextViolation([buildAssistantToolCallMessage([call, call])]) ?? '', /redeclares/u);
+});
+
+test('a reused native ID cannot hide the current interrupted proposal behind retained history', () => {
+  const prior = [buildAssistantToolCallMessage([{ action: { toolName: 'read', args: { path: 'old.ts' } }, toolCallId: 'call_a', toolContent: 'old result' }]),
+    buildToolResultMessage('call_a', 'old result')];
+  const recovered = replayChatContext(envelopes([
+    { kind: 'context_initialized', contextRevision: 0, turnBoundary: prior.length, messages: [...prior, { role: 'user', content: 'new request' }] },
+    proposed(0, 'call_a', 'new effect'), started(0, 'call_a'),
+  ]));
+  assert.notEqual(recovered.status, 'recovery_failed');
+  const results = recovered.messages.filter(message => message.role === 'tool');
+  assert.equal(results.length, 2);
+  assert.equal(results[0]?.content, 'old result');
+  assert.match(String(results[1]?.content), /Outcome uncertain/u);
+});
+
+test('two batches in one run keep distinct evidence when their native IDs repeat', () => {
+  const firstExchange = [buildAssistantToolCallMessage([{ action: { toolName: 'run_repo_cmd', args: { command: 'first' } }, toolCallId: 'call_a', toolContent: 'first result' }]),
+    buildToolResultMessage('call_a', 'first result')];
+  const secondCall = { ...toolCall(0, 'call_a'), displayToolCallId: 'second-display', batchId: 'batch-2', turn: 2 };
+  const recovered = replayChatContext(envelopes([
+    { kind: 'context_initialized', contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'request' }] },
+    proposed(0, 'call_a', 'first'), started(0, 'call_a'), result(0, 'call_a', 'first result'),
+    { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0, inserted: firstExchange, turnBoundary: 0, reason: 'append' },
+    { ...proposed(0, 'call_a', 'second'), call: secondCall },
+    { kind: 'tool_started', call: secondCall, startedAtUtc: RECORDED_AT },
+  ]));
+  assert.notEqual(recovered.status, 'recovery_failed');
+  const results = recovered.messages.filter(message => message.role === 'tool');
+  assert.equal(results.length, 2);
+  assert.equal(results[0]?.content, 'first result');
+  assert.match(String(results[1]?.content), /Outcome uncertain/u);
+  assert.deepEqual(recovered.toolExecutions.map(tool => tool.executionState), ['completed', 'uncertain']);
+});
+
+test('finalizing a reused native ID replaces the latest exchange without editing retained history', () => {
+  const prior = [buildAssistantToolCallMessage([{ action: { toolName: 'read', args: { path: 'old.ts' } }, toolCallId: 'call_a', toolContent: 'old result' }]),
+    buildToolResultMessage('call_a', 'old result')];
+  const recorder = new RecordingContextRecorder();
+  const transcript = new TranscriptManager({ systemPromptContent: 'SYSTEM', historyMessages: prior,
+    initialUserContent: 'new request', initialUserImages: [], liveImagePathKeys: new Set<string>(), contextRecorder: recorder });
+  transcript.appendBatchExchange([{ action: { toolName: 'read', args: { path: 'new.ts' } }, toolCallId: 'call_a', toolContent: 'new result' }], '');
+  transcript.replaceToolResult('call_a', 'finalized new result');
+  assert.deepEqual(transcript.getMessages().filter(message => message.role === 'tool').map(message => message.content), ['old result', 'finalized new result']);
+  assert.deepEqual(replayChatContext(envelopes(recorder.events)).messages, transcript.getMessages());
+});
+
 /** A run that exercises every mutation the engine performs, recorded exactly as it happened. */
 function runLiveTranscript(): { transcript: TranscriptManager; recorder: RecordingContextRecorder } {
   const recorder = new RecordingContextRecorder();
@@ -118,7 +203,7 @@ function runLiveTranscript(): { transcript: TranscriptManager; recorder: Recordi
     'looking',
   );
   transcript.pruneThinking(false);
-  transcript.insertUserAfter(batchStart + 1, 'image a', [PNG], 'a.png');
+  transcript.insertUserAfter(batchStart + 1, 'image a', [PNG], 'a.png', 'call_a');
   // A rejected repeat rewrites the answer that is already in history.
   transcript.replaceToolResult('call_b', 'duplicate command requested x2');
   transcript.pushUser('steering while the run is live');
@@ -142,6 +227,33 @@ test('replay reproduces the live planner context exactly', () => {
   assert.equal(replayed.status, 'ok');
   assert.deepEqual(replayed.issues, []);
 });
+
+test('replay rejects a missing initial journal prefix', () => {
+  const event: ChatJournalEvent = { kind: 'context_initialized', messages: [{ role: 'user', content: 'question' }], contextRevision: 0, turnBoundary: 0 };
+  const recovered = replayChatContext([envelope(2, event)]);
+  assert.equal(recovered.status, 'recovery_failed');
+  assert.equal(recovered.issues[0]?.code, 'sequence_gap');
+});
+
+test('replay rejects events from different operations even when their sequence is contiguous', () => {
+  const recovered = replayChatContext([
+    envelope(1, { kind: 'context_initialized', messages: [{ role: 'user', content: 'question' }], contextRevision: 0, turnBoundary: 0 }),
+    envelope(2, { kind: 'context_spliced', expectedRevision: 0, contextRevision: 1, startIndex: 1, deleteCount: 0,
+      inserted: [{ role: 'assistant', content: 'unrelated' }], turnBoundary: 0, reason: 'append' }, randomUUID()),
+  ]);
+  assert.equal(recovered.status, 'recovery_failed');
+});
+
+for (const mutation of [{ contextRevision: 2, turnBoundary: 0 }, { contextRevision: 1, turnBoundary: 3 }]) {
+  test(`replay rejects invalid context mutation bounds ${JSON.stringify(mutation)}`, () => {
+    const recovered = replayChatContext(envelopes([
+      { kind: 'context_initialized', messages: [{ role: 'user', content: 'question' }], contextRevision: 0, turnBoundary: 0 },
+      { kind: 'context_spliced', expectedRevision: 0, ...mutation, startIndex: 1, deleteCount: 0,
+        inserted: [{ role: 'assistant', content: 'answer' }], reason: 'append' },
+    ]));
+    assert.equal(recovered.status, 'recovery_failed');
+  });
+}
 
 test('replay preserves an unfinished turn across a compaction', () => {
   const recorder = new RecordingContextRecorder();
@@ -293,14 +405,17 @@ test('a batch interrupted before execution is closed as never started, not as un
 
 test('replay of a completed batch leaves no interruption answer behind', () => {
   const { transcript, recorder } = runLiveTranscript();
+  const [initial, ...mutations] = recorder.events;
+  assert.ok(initial);
   const events: ChatJournalEvent[] = [
-    ...recorder.events,
+    initial,
     proposed(0, 'call_a', 'read a.png'),
     proposed(1, 'call_b', 'grep x'),
     started(0, 'call_a'),
     result(0, 'call_a', 'image a'),
     started(1, 'call_b'),
     result(1, 'call_b', ''),
+    ...mutations,
   ];
 
   const replayed = replayChatContext(envelopes(events));

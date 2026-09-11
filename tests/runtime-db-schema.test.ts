@@ -538,6 +538,35 @@ test('a row the canonical definition rejects aborts the rebuild and leaves marke
   }
 });
 
+test('marker-67 migrates the historical tool_call_limit rename without losing values', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-historical-limit-');
+  seedLegacyChatDatabase(dbPath);
+  closeRuntimeDatabase();
+  const legacy = new Database(dbPath);
+  legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
+    UPDATE chat_messages SET tool_call_limit = tool_call_max_turns, tool_call_max_turns = NULL;`);
+  legacy.close();
+  try {
+    const upgraded = getRuntimeDatabase(dbPath);
+    assert.equal(readTableColumns(upgraded, 'chat_messages').includes('tool_call_limit'), false);
+    assert.equal(readChatMessageRows(upgraded).find(row => row.id === 'message-populated')?.tool_call_max_turns, 120);
+  } finally { closeRuntimeDatabase(); }
+});
+
+test('marker-67 refuses conflicting historical and current tool limits atomically', () => {
+  const dbPath = tempDbPath('siftkit-runtime-schema-conflicting-limit-');
+  seedLegacyChatDatabase(dbPath);
+  closeRuntimeDatabase();
+  const legacy = new Database(dbPath);
+  legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
+    UPDATE chat_messages SET tool_call_limit = 999 WHERE id = 'message-populated';`);
+  legacy.close();
+  try {
+    assert.throws(() => getRuntimeDatabase(dbPath), /conflicting.*tool.*limit/iu);
+  } finally { closeRuntimeDatabase(); }
+  assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
+});
+
 test('an unknown legacy chat_messages column is rejected instead of silently dropped', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-upgrade-67-drift-');
   seedLegacyChatDatabase(dbPath, { extraColumn: true });

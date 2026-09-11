@@ -128,6 +128,7 @@ type PendingApproval = {
   abortListener: () => void;
   timeoutHandle: NodeJS.Timeout | null;
   startedAtMs: number;
+  toolName: string;
 };
 
 /**
@@ -217,6 +218,7 @@ export class ApprovalGate {
         reject(getAbortError(this.abortSignal));
       };
       const entry: PendingApproval = {
+        toolName: input.toolName,
         resolve,
         abortListener,
         timeoutHandle: null,
@@ -230,27 +232,7 @@ export class ApprovalGate {
       }
       // Not unref'd: this timer is the only guarantee the run resolves, and it is always cleared
       // on the paths that settle the approval, so it cannot outlive the request.
-      entry.timeoutHandle = setTimeout(() => {
-        this.clearPending(approvalId);
-        this.logger.error({
-          scope: 'rs',
-          id: this.requestId,
-          event: 'approval_timeout',
-          fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
-            + `waited_ms=${this.decisionTimeoutMs}`,
-        });
-        try {
-          this.evidenceRecorder?.recordApprovalResolved({ approvalId, outcome: 'timeout', decision: null,
-            reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs), decidedAtUtc: new Date().toISOString() });
-          this.observer?.onTimeout();
-          resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
-        } catch (error) {
-          resolve({
-            kind: 'abort',
-            reason: buildObserverFailureMessage(error instanceof Error ? error : null),
-          });
-        }
-      }, this.decisionTimeoutMs);
+      entry.timeoutHandle = setTimeout(() => this.expireApproval(approvalId, entry), this.decisionTimeoutMs);
       try {
         this.progressWriter.write({
           kind: 'approval_request',
@@ -282,6 +264,10 @@ export class ApprovalGate {
     if (!entry) {
       return false;
     }
+    if (Date.now() >= entry.startedAtMs + this.decisionTimeoutMs) {
+      this.expireApproval(approvalId, entry);
+      return false;
+    }
     this.evidenceRecorder?.recordApprovalResolved({ approvalId,
       outcome: decision.kind === 'approve' ? 'approved' : decision.kind === 'deny' ? 'denied' : 'aborted',
       decision: decision.kind === 'deny' ? { decision: 'deny', reason: decision.reason } : { decision: decision.kind },
@@ -305,6 +291,23 @@ export class ApprovalGate {
       });
     }
     return true;
+  }
+
+  private expireApproval(approvalId: string, entry: PendingApproval): void {
+    if (this.pending.get(approvalId) !== entry) return;
+    const reason = buildApprovalTimeoutMessage(this.decisionTimeoutMs);
+    try {
+      this.evidenceRecorder?.recordApprovalResolved({ approvalId, outcome: 'timeout', decision: null,
+        reason, decidedAtUtc: new Date().toISOString() });
+      this.clearPending(approvalId);
+      this.logger.error({ scope: 'rs', id: this.requestId, event: 'approval_timeout',
+        fields: `approval=${shortenRequestId(approvalId)} tool=${entry.toolName} waited_ms=${this.decisionTimeoutMs}` });
+      this.observer?.onTimeout();
+      entry.resolve({ kind: 'abort', reason });
+    } catch (error) {
+      this.clearPending(approvalId);
+      entry.resolve({ kind: 'abort', reason: buildObserverFailureMessage(error instanceof Error ? error : null) });
+    }
   }
 
   /** Forgets an approval and releases everything holding it open, whichever path settled it. */

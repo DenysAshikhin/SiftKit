@@ -1,4 +1,9 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
+import { IsolatedRuntime } from './helpers/isolated-runtime.js';
+
+const isolatedRuntime = new IsolatedRuntime();
+before(() => isolatedRuntime.start());
+after(() => isolatedRuntime.close());
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import { InferenceClient } from '../src/llm-protocol/inference-client.js';
