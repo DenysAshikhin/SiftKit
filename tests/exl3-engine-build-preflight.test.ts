@@ -74,6 +74,7 @@ test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', a
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
+      Environment: {},
     }, flushQueue, capabilitiesForJobSource(jobSourcePath));
     try {
       await assert.rejects(runtime.ensurePresetReady({
@@ -109,6 +110,7 @@ test('managed Tabby reports a missing configured Python interpreter before check
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
+      Environment: {},
     }, flushQueue);
     try {
       await assert.rejects(runtime.ensurePresetReady({

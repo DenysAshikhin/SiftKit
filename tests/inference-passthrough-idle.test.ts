@@ -108,6 +108,7 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
         ModelRoot: tempRoot,
         AdminApiKey: 'admin-secret',
         ShutdownTimeoutMs: 1_000,
+        Environment: {},
       };
       config.Server.ModelPresets.Presets = [{
         ...preset,
@@ -301,6 +302,7 @@ test('chat queued during a preset switch is translated for the target preset', a
         ModelRoot: tempRoot,
         AdminApiKey: '',
         ShutdownTimeoutMs: 1_000,
+        Environment: {},
       };
       config.Server.ModelPresets = {
         ActivePresetId: firstPreset.id,

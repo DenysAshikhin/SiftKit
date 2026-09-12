@@ -166,6 +166,25 @@ test('normalizeConfig rejects a missing or legacy preset catalog at the Presets 
   assert.match(errorMessage, /"Presets"/u);
 });
 
+test('normalizeConfig keeps the EXL3 engine environment, defaults it to empty, and rejects non-string values', () => {
+  const config = defaultConfigObject();
+  const exl3 = asObject(asObject(asObject(config.Server).Engines).Exl3);
+  exl3.Environment = { EXL3_MOE_PINNED_ARENA: '1', EXL3_MOE_ARENA_DEBUG: '1' };
+  assert.deepEqual(
+    normalizeConfig(JsonValueSchema.parse(config)).Server.Engines.Exl3.Environment,
+    { EXL3_MOE_PINNED_ARENA: '1', EXL3_MOE_ARENA_DEBUG: '1' },
+  );
+
+  delete exl3.Environment;
+  assert.deepEqual(normalizeConfig(JsonValueSchema.parse(config)).Server.Engines.Exl3.Environment, {});
+
+  exl3.Environment = { EXL3_MOE_PINNED_ARENA: 1 };
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(config)),
+    /Server\.Engines\.Exl3\.Environment/u,
+  );
+});
+
 test('normalizeConfig trims the EXL3 admin API key', () => {
   const config = defaultConfigObject();
   const server = asObject(config.Server);

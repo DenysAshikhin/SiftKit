@@ -14,7 +14,7 @@ import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState, writeFakeTabby } from './helpers/tabby-fake.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
-async function createManagedTabbyFixture(root: string, leaseName: string) {
+async function createManagedTabbyFixture(root: string, leaseName: string, environment: Record<string, string> = {}) {
   const portLease = await acquireChildPortLease(leaseName);
   const fakeTabby = writeFakeTabby(root, portLease.port, null);
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
@@ -41,6 +41,7 @@ async function createManagedTabbyFixture(root: string, leaseName: string) {
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
+    Environment: environment,
   }, flushQueue, fakeTabby.capabilities);
 
   return {
@@ -119,6 +120,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 2_000,
+      Environment: {},
     }, flushQueue);
     try {
       await Promise.all([runtime.ensurePresetReady(exl3Preset), runtime.ensurePresetReady(exl3Preset)]);
@@ -225,6 +227,7 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
+      Environment: {},
     }, flushQueue, capabilities);
     try {
       await assert.rejects(runtime.ensurePresetReady({
@@ -255,6 +258,7 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
     ModelRoot: '.',
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
+    Environment: {},
   }, flushQueue);
 
   await assert.rejects(runtime.ensurePresetReady({
@@ -287,6 +291,7 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
+      Environment: {},
     }, flushQueue, capabilities);
     try {
       await runtime.ensurePresetReady({
@@ -323,6 +328,7 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
+      Environment: {},
     }, flushQueue, capabilities);
     try {
       await assert.rejects(runtime.ensurePresetReady({
@@ -404,6 +410,7 @@ test('external EXL3 preset does not launch the configured managed Tabby process'
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 2_000,
+      Environment: {},
     }, flushQueue);
     try {
       await runtime.ensurePresetReady(externalPreset);
@@ -423,6 +430,23 @@ const ManagedAllocatorEnvironmentSchema = z.object({
   PYTORCH_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
   PYTORCH_CUDA_ALLOC_CONF: z.literal('backend:native,expandable_segments:True'),
   TABBY_MEMORY_CUDA_MALLOC_ASYNC: z.literal('false'),
+});
+
+test('managed Tabby forwards the engine environment beneath the preset environment', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-engine-env', {
+      EXL3_MOE_PINNED_ARENA: '1',
+      TABBY_MODEL_CHUNK_SIZE: '4',   // preset-owned: must not override the preset's value
+    });
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    const recorded = z.object({
+      EXL3_MOE_PINNED_ARENA: z.string(),
+      TABBY_MODEL_CHUNK_SIZE: z.string(),
+    }).parse(JSON.parse(fs.readFileSync(fixture.environmentPath, 'utf8')));
+    assert.equal(recorded.EXL3_MOE_PINNED_ARENA, '1');
+    assert.equal(recorded.TABBY_MODEL_CHUNK_SIZE, '1024');
+  });
 });
 
 test('managed Tabby overrides conflicting inherited allocator settings', async () => {

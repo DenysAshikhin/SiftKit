@@ -275,6 +275,7 @@ process.on('SIGINT', shutdown);
       ModelRoot: modelRoot,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5000,
+      Environment: {},
     },
     probeShimPath,
     pidFilePath,

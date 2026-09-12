@@ -108,6 +108,8 @@ export const Exl3EngineConfigSchema = z.object({
   ModelRoot: z.string(),
   AdminApiKey: z.string(),
   ShutdownTimeoutMs: z.number().positive(),
+  /** Extra variables for the engine process (e.g. EXL3_MOE_PINNED_ARENA); preset-derived keys win. */
+  Environment: z.record(z.string(), z.string()),
 }).strict();
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
 

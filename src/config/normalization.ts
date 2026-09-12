@@ -252,7 +252,17 @@ function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
     ModelRoot: getNullableTrimmedString(input.ModelRoot) ?? defaults.ModelRoot,
     AdminApiKey: getNullableTrimmedString(input.AdminApiKey) ?? '',
     ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),
+    Environment: getEngineEnvironment(input.Environment),
   };
+}
+
+function getEngineEnvironment(value: JsonValue): Record<string, string> {
+  if (value === undefined) return {};
+  const parsed = z.record(z.string(), z.string()).safeParse(value);
+  if (!parsed.success) {
+    throw new Error('Invalid Server.Engines.Exl3.Environment; expected an object of string values.');
+  }
+  return parsed.data;
 }
 
 function clampInteger(value: JsonValue, fallback: number, minValue: number, maxValue: number): number {

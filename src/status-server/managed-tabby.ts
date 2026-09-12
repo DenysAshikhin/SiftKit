@@ -210,7 +210,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.recorder = recorder;
     const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
       cwd: this.engine.WorkingDirectory,
-      env: { ...process.env, ...launchEnvironment },
+      env: { ...process.env, ...this.engine.Environment, ...launchEnvironment },
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],

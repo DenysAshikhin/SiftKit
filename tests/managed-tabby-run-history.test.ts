@@ -23,6 +23,7 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
+    Environment: {},
   }, flushQueue, capabilities);
 
   return {

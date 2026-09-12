@@ -127,10 +127,14 @@ test('Exl3EngineConfigSchema accepts process-level configuration', () => {
     ModelRoot: 'D:\\models\\exl3',
     AdminApiKey: 'secret',
     ShutdownTimeoutMs: 30_000,
+    Environment: { EXL3_MOE_PINNED_ARENA: '1' },
   };
   assert.doesNotThrow(() => Exl3EngineConfigSchema.parse(config));
   const { AdminApiKey: _AdminApiKey, ...withoutAdminApiKey } = config;
   assert.equal(Exl3EngineConfigSchema.safeParse(withoutAdminApiKey).success, false);
+  const { Environment: _Environment, ...withoutEnvironment } = config;
+  assert.equal(Exl3EngineConfigSchema.safeParse(withoutEnvironment).success, false);
+  assert.equal(Exl3EngineConfigSchema.safeParse({ ...config, Environment: { EXL3_MOE_PINNED_ARENA: 1 } }).success, false);
 });
 
 test('InferenceRuntimeStatusSchema represents process and model residency independently', () => {

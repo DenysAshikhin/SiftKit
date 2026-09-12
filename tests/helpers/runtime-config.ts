@@ -87,6 +87,7 @@ export function getTestExl3Engine(): Exl3EngineConfig {
     ModelRoot: 'D:\\personal\\models\\elx3',
     AdminApiKey: '',
     ShutdownTimeoutMs: 30_000,
+    Environment: {},
   };
 }
 

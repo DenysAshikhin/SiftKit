@@ -165,6 +165,7 @@ export function getDefaultConfig(): TestConfig {
           ModelRoot: 'D:\\models\\elx3',
           AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,
+          Environment: {},
         },
       },
     },

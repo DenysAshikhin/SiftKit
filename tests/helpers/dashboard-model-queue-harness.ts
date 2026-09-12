@@ -256,6 +256,7 @@ export class DashboardModelQueueHarness {
         ModelRoot: this.tempRoot,
         AdminApiKey: '',
         ShutdownTimeoutMs: 2_000,
+        Environment: {},
       };
       config.Server.ModelPresets = {
         ActivePresetId: 'exl3-main',
