@@ -63,9 +63,11 @@ $Out = "C:\AI\exl3\benchmarks\2026-09-11-windows-pinned\rebuild\$Base"
 $Wheels = "C:\AI\exl3\packages\windows-pinned\$Base"
 $Scratch = 'C:\AI\exl3\staging\2026-09-11-windows-pinned'
 $env:PYTHONDONTWRITEBYTECODE = '1'
+# Windows PowerShell 5.1 writes UTF-16 for `>` and `*>`; make every redirection UTF-8 so grep/git can read the logs
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 ```
 
-Test runs from the source tree use `-p no:cacheprovider` so no `__pycache__` lands in the checkout. The candidate venv carries a DevBase-built native extension, which the source tree shadows for Python only; the C++ is unchanged by this plan.
+Two encoding rules follow from PowerShell 5.1: patches are always written with `git diff --output=<path>` (never `>`; the UTF-8 default above still adds a BOM, which `git apply` rejects), and nothing in this plan uses `Tee-Object` (it has no encoding parameter in 5.1). Test runs from the source tree use `-p no:cacheprovider` so no `__pycache__` lands in the checkout. The candidate venv carries a DevBase-built native extension, which the source tree shadows for Python only; the C++ is unchanged by this plan.
 
 ## File structure
 
@@ -110,7 +112,7 @@ Any additional line is content to preserve as well in Step 3; nothing is discard
 ```powershell
 $Saved = "$Out\windows-pinned-post-shutdown-ordering-with-tests.patch"
 git -C $Src add --intent-to-add tests/test_host_memory.py tests/test_moe_pinned_arena_windows.py
-git -C $Src diff $Base > "$Out\superseded-fresh.patch"
+git -C $Src diff $Base --output="$Out\superseded-fresh.patch"
 git -C $Src reset -q tests/test_host_memory.py tests/test_moe_pinned_arena_windows.py
 (Get-FileHash $Saved -Algorithm SHA256).Hash
 (Get-FileHash "$Out\superseded-fresh.patch" -Algorithm SHA256).Hash
@@ -595,7 +597,7 @@ Replace `_attach_chunk` entirely:
                                     count = size // 2)
             cuda_host_register(view.data_ptr(), size, flags = CUDA_HOST_REGISTER_PORTABLE)
         except Exception as e:
-            view = None   # release the buffer export before the mapping closes
+            view = None   # no tensor over an unmapped region may survive in the traceback's frame
             m.close()
             raise RuntimeError(
                 f"CPU MoE pinned arena: chunk {index} ({size >> 20} MiB) could not be attached "
@@ -719,20 +721,28 @@ host = m.MoeCpuHost(SimpleNamespace(directory = None, infer_params = SimpleNames
 a, b = mmap.mmap(-1, 1 << 20), mmap.mmap(-1, 1 << 20)
 host.arena_maps = [a, b]
 host.arena_views = [torch.frombuffer(a, dtype = torch.int16), torch.frombuffer(b, dtype = torch.int16)]
+host.started = True
 m.cuda_host_unregister = lambda ptr: None
-held = torch.frombuffer(a, dtype = torch.int16)     # export that makes a.close() raise BufferError
-host.shutdown()
-print("started", host.started, "maps", host.arena_maps, "b_closed", b.closed, "a_closed", a.closed)
+# torch.frombuffer releases its Py_buffer after construction, so it does not block close();
+# a live memoryview is a real export and makes a.close() raise BufferError
+held = memoryview(a)
+try:
+    host.shutdown()
+    print("started", host.started, "maps", host.arena_maps, "b_closed", b.closed, "a_closed", a.closed)
+finally:
+    held.release()
+    a.close()
+    b.close()
 ```
 
 Run: `& $PyBase -B "$Round\temp\probe2_devbase.py" $BaseSrc`
 
-If it prints `started False maps [] b_closed True a_closed False`, DevBase already closes the later mapping and resets state; the only effect is one silently dropped mapping, and no shutdown change is made in this PR. Record the output in `$Out\meta\probe2-devbase.txt`. If it prints anything else, the defect is demonstrated: add a task that makes the smallest change to keep ownership of the failed mapping (do not swallow the error, do not clear `arena_maps` until each close succeeded), with this probe turned into a test in the test file.
+The user ran this corrected probe during planning and reported `started False maps [] b_closed True a_closed False`. Re-run it for the record. If it prints that, DevBase already closes the later mapping and resets state; the only effect is one silently dropped mapping, and no shutdown change is made in this PR. Record the output in `$Out\meta\probe2-devbase.txt`. If it prints anything else, the defect is demonstrated: add a task that makes the smallest change to keep ownership of the failed mapping (do not swallow the error, do not clear `arena_maps` until each close succeeded), with this probe turned into a test in the test file.
 
 - [ ] **Step 3: Export**
 
 ```powershell
-git -C $Src diff $Base > "$Out\windows-pinned-minimal.patch"
+git -C $Src diff $Base --output="$Out\windows-pinned-minimal.patch"
 (Get-FileHash "$Out\windows-pinned-minimal.patch" -Algorithm SHA256).Hash | Out-File -Encoding utf8 "$Out\meta\minimal-patch-sha256.txt"
 git -C $Src reset -q tests/test_moe_pinned_arena_windows.py
 git -C $BaseSrc apply --check "$Out\windows-pinned-minimal.patch"; $LASTEXITCODE
@@ -775,37 +785,55 @@ Expected: `pip check` prints `No broken requirements found.`
 Create `$Round\runners\verify_install.py`:
 
 ```python
-"""usage: verify_install.py <round-root> <expected-source-root>
-Asserts the interpreter imports exllamav3 and its extension from inside <round-root>, and that
-the installed moe_cpu_host.py / util/memory.py are byte-identical to <expected-source-root>."""
-import hashlib, os, sys
+"""usage: verify_install.py <expected-source-root> <expected-wheel>
+Asserts that exllamav3 and its extension import from THIS interpreter's site-packages (not a
+source tree, not another venv), that the extension is byte-identical to the one inside
+<expected-wheel>, and that the installed moe_cpu_host.py / util/memory.py are byte-identical
+to <expected-source-root>."""
+import hashlib, os, site, sys, zipfile
 import exllamav3, exllamav3_ext
 import exllamav3.model.moe_cpu_host as host
 import exllamav3.util.memory as memory
 
-round_root, src_root = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
+src_root, wheel = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
+site_dirs = [os.path.abspath(p) for p in site.getsitepackages()]
 def sha(p): return hashlib.sha256(open(p, "rb").read()).hexdigest()
+def sha_bytes(b): return hashlib.sha256(b).hexdigest()
+
 for mod in (exllamav3, exllamav3_ext):
-    assert os.path.abspath(mod.__file__).startswith(round_root), (mod.__file__, round_root)
+    path = os.path.abspath(mod.__file__)
+    assert any(path.startswith(d + os.sep) for d in site_dirs), (path, site_dirs)
+
+with zipfile.ZipFile(wheel) as z:
+    ext_name = os.path.basename(exllamav3_ext.__file__)
+    members = [n for n in z.namelist() if n.endswith(ext_name)]
+    assert len(members) == 1, (ext_name, members)
+    expected_ext = sha_bytes(z.read(members[0]))
+actual_ext = sha(exllamav3_ext.__file__)
+assert actual_ext == expected_ext, f"extension {exllamav3_ext.__file__} is not the one in {wheel}"
+
 for installed, rel in ((host.__file__, "exllamav3/model/moe_cpu_host.py"),
                        (memory.__file__, "exllamav3/util/memory.py")):
     expected = os.path.join(src_root, rel)
     assert sha(installed) == sha(expected), f"{installed} differs from {expected}"
     print(rel, sha(installed))
-print("ext", exllamav3_ext.__file__, sha(exllamav3_ext.__file__))
+print("ext", exllamav3_ext.__file__, actual_ext)
 print("OK", sys.executable)
 ```
 
-Run for both venvs from a directory outside any source tree:
+Run for both venvs from a directory outside any source tree. The baseline wheel is the one recorded in `$Out\meta\baseline-wheel-sha256.txt`:
 
 ```powershell
+$CandWheel = (Get-ChildItem "$Wheels\minimal\*.whl").FullName
+$BaseWheel = (Get-ChildItem "C:\AI\exl3\packages\upstream-dev\$Base\*.whl").FullName
 Set-Location "$Round\runners"
 $env:PYTHONPATH = ''
-& $Py -B verify_install.py $Round $Src | Tee-Object "$Out\meta\minimal-candidate-install-verify.txt"; if ($LASTEXITCODE -ne 0) { throw 'candidate install mismatch' }
-& $PyBase -B verify_install.py $Round $BaseSrc | Tee-Object "$Out\meta\minimal-baseline-install-verify.txt"; if ($LASTEXITCODE -ne 0) { throw 'baseline install mismatch' }
+& $Py -B verify_install.py $Src $CandWheel | Out-File "$Out\meta\minimal-candidate-install-verify.txt"; if ($LASTEXITCODE -ne 0) { throw 'candidate install mismatch' }
+& $PyBase -B verify_install.py $BaseSrc $BaseWheel | Out-File "$Out\meta\minimal-baseline-install-verify.txt"; if ($LASTEXITCODE -ne 0) { throw 'baseline install mismatch' }
+Get-Content "$Out\meta\minimal-candidate-install-verify.txt", "$Out\meta\minimal-baseline-install-verify.txt"
 ```
 
-Expected: both print `OK` with an interpreter path under `$Round`, and the candidate's `moe_cpu_host.py` hash equals the source file's.
+Expected: both files end with `OK` and an interpreter path inside the matching `$Round\*-venv`; the candidate's `moe_cpu_host.py` hash equals the source file's, and the extension hash equals the wheel member's. A source tree on `sys.path` or a stale extension fails the assertion rather than being printed.
 
 - [ ] **Step 4: Installed-wheel tests from outside the source tree**
 
@@ -846,8 +874,9 @@ set "TRITON_CACHE_DIR=C:\AI\exl3\cache\triton"
 set "CUDA_CACHE_PATH=C:\AI\exl3\cache\cuda"
 set "TORCH_EXTENSIONS_DIR=C:\AI\exl3\cache\torch-extensions"
 set "HF_HOME=C:\AI\exl3\cache\huggingface"
+if "%~1"=="baseline" ( for %%w in ("C:\AI\exl3\packages\upstream-dev\2c9d9a496df4c5e5f5623c8f94c22d4839747c04\*.whl") do set "WHEEL=%%~fw" ) else ( for %%w in ("C:\AI\exl3\packages\windows-pinned\2c9d9a496df4c5e5f5623c8f94c22d4839747c04\minimal\*.whl") do set "WHEEL=%%~fw" )
 cd /d "%R%\runners"
-"%R%\%VENV%\Scripts\python.exe" -B "%R%\runners\verify_install.py" "%R%" "%SRC%"
+"%R%\%VENV%\Scripts\python.exe" -B "%R%\runners\verify_install.py" "%SRC%" "%WHEEL%"
 if errorlevel 1 exit /b %errorlevel%
 "%R%\%VENV%\Scripts\python.exe" -B "%S%\smoke_model.py" %2 %3
 exit /b %errorlevel%
@@ -860,9 +889,11 @@ exit /b %errorlevel%
 Do not run concurrently with the WSL workload or the benchmark matrix.
 
 ```powershell
-& "$Round\runners\smoke_run.cmd" windows-pinned "$Out\smoke-candidate-minimal.pt" *> "$Out\logs\smoke-candidate-minimal.log"; $LASTEXITCODE
-& "$Round\runners\smoke_run.cmd" baseline "$Out\smoke-baseline-minimal.pt" *> "$Out\logs\smoke-baseline-minimal.log"; $LASTEXITCODE
+cmd /c "`"$Round\runners\smoke_run.cmd`" windows-pinned `"$Out\smoke-candidate-minimal.pt`" > `"$Out\logs\smoke-candidate-minimal.log`" 2>&1"; $LASTEXITCODE
+cmd /c "`"$Round\runners\smoke_run.cmd`" baseline `"$Out\smoke-baseline-minimal.pt`" > `"$Out\logs\smoke-baseline-minimal.log`" 2>&1"; $LASTEXITCODE
 ```
+
+`cmd /c` does the redirection so the log is raw UTF-8 from the child, not PowerShell-re-encoded.
 
 Expected: both exit 0. Candidate log: `verify_install` `OK` line first, then `chunks=46 registered_mib=47104`, unload assertions pass, reload plus second generation succeed, no `BufferError` or `Exception ignored` lines. Compare tokens with the comparison script used for `smoke-compare-after-pid32928.json`; expected 200/200 greedy tokens identical across baseline/candidate and load/reload.
 
@@ -921,8 +952,9 @@ set "TMP=%R%\temp"
 set "TRITON_CACHE_DIR=C:\AI\exl3\cache\triton"
 set "CUDA_CACHE_PATH=C:\AI\exl3\cache\cuda"
 set "TORCH_EXTENSIONS_DIR=C:\AI\exl3\cache\torch-extensions"
+for %%w in ("C:\AI\exl3\packages\windows-pinned\2c9d9a496df4c5e5f5623c8f94c22d4839747c04\minimal\*.whl") do set "WHEEL=%%~fw"
 cd /d "%R%\runners"
-"%R%\windows-venv\Scripts\python.exe" -B "%R%\runners\verify_install.py" "%R%" "%R%\windows-src"
+"%R%\windows-venv\Scripts\python.exe" -B "%R%\runners\verify_install.py" "%R%\windows-src" "%WHEEL%"
 if errorlevel 1 exit /b %errorlevel%
 "%R%\windows-venv\Scripts\python.exe" -B "%R%\runners\inject_fail.py" %1
 exit /b %errorlevel%
@@ -934,7 +966,7 @@ Copy `$Scratch\inject_fail.py` to `$Round\runners\inject_fail.py` unchanged. It 
 
 ```powershell
 foreach ($mode in 'capacity','create','register') {
-  & "$Round\runners\inject_run.cmd" $mode *> "$Out\logs\minimal-inject-$mode.log"
+  cmd /c "`"$Round\runners\inject_run.cmd`" $mode > `"$Out\logs\minimal-inject-$mode.log`" 2>&1"
   "$mode exit=$LASTEXITCODE"
 }
 ```
@@ -943,56 +975,140 @@ Expected per mode: exit 0, log ends with `INJECT <mode>: PASS`, meaning the load
 
 ---
 
-### Task 9: Linux validation in the retained WSL distro, with exit codes propagated
+### Task 9: Linux functional validation in the retained WSL distro, with exit codes propagated
 
 **Files:**
+- Create: `$Round\runners\wsl\apply_patch.sh`, `$Round\runners\wsl\run_tests.sh`, `$Round\runners\wsl\run_smoke.sh`, `$Round\runners\wsl\exit_probe.sh`
 - Logs: `$Out\logs\linux-wsl-round\minimal-*.log`
 
-Every `wsl.exe` invocation below captures the workload's exit code into `rc`, prints diagnostics, then exits with `rc`. PowerShell checks `$LASTEXITCODE` after each.
+Bash logic lives in literal `.sh` files invoked with arguments. Nothing Bash-specific is written inside a PowerShell string: in PowerShell `"\$?"` expands `$?` to `True`/`False` before Bash sees it, and `"\$rc"` expands to an empty string. Every script captures its workload's exit code, prints diagnostics, then exits with that code, and PowerShell checks `$LASTEXITCODE` after each call.
 
-- [ ] **Step 1: Apply the minimal patch to the WSL candidate checkout**
+Shared values used by every script:
+
+```
+WSL round:  /opt/scratch-2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/candidate-src
+Logs:       /mnt/c/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/logs/linux-wsl-round
+Scripts:    /mnt/c/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/runners/wsl
+```
+
+Write the scripts with UTF-8 and LF endings (`Set-Content -Encoding utf8` then strip CR: `(Get-Content -Raw $f) -replace "`r`n", "`n" | Set-Content -NoNewline -Encoding utf8 $f`, or author them from Git Bash).
+
+- [ ] **Step 1: Prove exit-code propagation with a deliberate failure**
+
+`$Round\runners\wsl\exit_probe.sh`:
+
+```bash
+#!/usr/bin/env bash
+# usage: exit_probe.sh <code>   exits with <code> after printing it
+echo "probe exit=$1"
+exit "$1"
+```
 
 ```powershell
-$W = '/opt/scratch-2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/candidate-src'
-$P = '/mnt/c/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-pinned-minimal.patch'
-$L = '/mnt/c/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/logs/linux-wsl-round'
-wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -lc "set -e; cd $W; git checkout -- .; git clean -fdq tests; git apply $P; git status --short; git rev-parse HEAD"
+$Wsl = '/mnt/c/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/runners/wsl'
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/exit_probe.sh" 3; "LASTEXITCODE=$LASTEXITCODE"
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/exit_probe.sh" 0; "LASTEXITCODE=$LASTEXITCODE"
+```
+
+Expected: `LASTEXITCODE=3` then `LASTEXITCODE=0`. Do not continue until this holds.
+
+- [ ] **Step 2: Apply the minimal patch to the WSL candidate checkout**
+
+`$Round\runners\wsl\apply_patch.sh`:
+
+```bash
+#!/usr/bin/env bash
+# usage: apply_patch.sh <patch-path-in-wsl>
+set -e
+W=/opt/scratch-2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/candidate-src
+cd "$W"
+git checkout -- .
+git clean -fdq tests
+git apply "$1"
+git status --short
+git rev-parse HEAD
+```
+
+```powershell
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/apply_patch.sh" /mnt/c/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-pinned-minimal.patch
 if ($LASTEXITCODE -ne 0) { throw "WSL patch apply failed: $LASTEXITCODE" }
 ```
 
 Expected: status lists the three modified files plus the new test; HEAD is DevBase. The previously built extension in that checkout stays valid because the C++ is unchanged.
 
-- [ ] **Step 2: Linux tests with a durable log and a real exit code**
+- [ ] **Step 3: Linux tests with a durable log and a real exit code**
+
+`$Round\runners\wsl\run_tests.sh`:
+
+```bash
+#!/usr/bin/env bash
+# usage: run_tests.sh <log-path-in-wsl>
+W=/opt/scratch-2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/candidate-src
+cd "$W" || exit 2
+ulimit -Sn 65536
+PYTHONDONTWRITEBYTECODE=1 /opt/exl3/bin/python -B -m pytest \
+  tests/test_moe_pinned_arena_windows.py tests/test_moe_cpu_pool_.py \
+  tests/test_moe_cpu_tiers_.py tests/test_failure_containment.py \
+  -q -p no:cacheprovider > "$1" 2>&1
+rc=$?
+tail -5 "$1"
+echo "pytest_exit=$rc"
+exit $rc
+```
 
 ```powershell
-wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -lc "cd $W; ulimit -Sn 65536; PYTHONDONTWRITEBYTECODE=1 /opt/exl3/bin/python -B -m pytest tests/test_moe_pinned_arena_windows.py tests/test_moe_cpu_pool_.py tests/test_moe_cpu_tiers_.py tests/test_failure_containment.py -q -p no:cacheprovider > $L/minimal-linux-tests.log 2>&1; rc=\$?; tail -5 $L/minimal-linux-tests.log; echo pytest_exit=\$rc; exit \$rc"
+$L = '/mnt/c/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/logs/linux-wsl-round'
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/run_tests.sh" "$L/minimal-linux-tests.log"
 if ($LASTEXITCODE -ne 0) { throw "Linux tests failed: $LASTEXITCODE" }
 ```
 
 Expected: exit 0; `test_pinned_arena_flag_is_honoured_on_this_platform` and `test_linux_chunk_message_carries_no_name_and_one_descriptor` pass; Windows-only tests skipped; upstream suites unchanged. This log replaces the unverified "30 passed / 16 skipped" claim in the ledger.
 
-- [ ] **Step 3: Linux pinned and staged smoke**
+- [ ] **Step 4: Linux pinned and staged smoke (functional only)**
+
+`$Round\runners\wsl\run_smoke.sh`:
+
+```bash
+#!/usr/bin/env bash
+# usage: run_smoke.sh <pinned 0|1> <log-path-in-wsl>   functional check: exit code, resolved source, chunk count
+W=/opt/scratch-2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/candidate-src
+PERF=/opt/scratch-2026-09-11-windows-pinned/bench/eval/perf.py
+MODEL=/mnt/d/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6
+ulimit -Sn 65536
+for v in $(env | grep -o '^EXL3_[A-Z_]*'); do unset "$v"; done
+export PYTHONPATH="$W" PYTHONDONTWRITEBYTECODE=1 EXL3_MOE_PINNED_ARENA="$1" EXL3_MOE_ARENA_DEBUG=1
+cd /opt/scratch-2026-09-11-windows-pinned/bench || exit 2
+/opt/exl3/bin/python -B -c 'import exllamav3; print("RESOLVED", exllamav3.__file__)' > "$2" 2>&1 || exit 2
+/opt/exl3/bin/python -B "$PERF" -m "$MODEL" -mcs 410 -mct 12 -cs 32768 -cq 8,8 -rcs 4.0 -ccs 0.0 -ambs 1 \
+  -chunk_size 4096 -max_length 32768 >> "$2" 2>&1
+rc=$?
+echo "registered_chunks=$(grep -c 'mapped + registered chunk' "$2")"
+tail -5 "$2"
+echo "perf_exit=$rc"
+exit $rc
+```
 
 ```powershell
-$Perf = '/opt/scratch-2026-09-11-windows-pinned/bench/eval/perf.py'
-$Model = '/mnt/d/personal/models/elx3/td_flash-next_4.05bpw_h6_ng6'
-$Args = "-m $Model -mcs 410 -mct 12 -cs 32768 -cq 8,8 -rcs 4.0 -ccs 0.0 -ambs 1 -chunk_size 4096 -max_length 32768"
-wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -lc "ulimit -Sn 65536; export PYTHONPATH=$W PYTHONDONTWRITEBYTECODE=1 EXL3_MOE_PINNED_ARENA=1 EXL3_MOE_ARENA_DEBUG=1; cd /opt/scratch-2026-09-11-windows-pinned/bench; /opt/exl3/bin/python -B -c 'import exllamav3; print(exllamav3.__file__)' > $L/minimal-linux-pinned-smoke.log 2>&1; /opt/exl3/bin/python -B $Perf $Args >> $L/minimal-linux-pinned-smoke.log 2>&1; rc=\$?; grep -c 'mapped + registered chunk' $L/minimal-linux-pinned-smoke.log; tail -5 $L/minimal-linux-pinned-smoke.log; echo perf_exit=\$rc; exit \$rc"
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/run_smoke.sh" 1 "$L/minimal-linux-pinned-smoke.log"
 if ($LASTEXITCODE -ne 0) { throw "Linux pinned smoke failed: $LASTEXITCODE" }
-wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -lc "export PYTHONPATH=$W PYTHONDONTWRITEBYTECODE=1 EXL3_MOE_PINNED_ARENA=0; cd /opt/scratch-2026-09-11-windows-pinned/bench; /opt/exl3/bin/python -B $Perf $Args > $L/minimal-linux-staged-smoke.log 2>&1; rc=\$?; tail -5 $L/minimal-linux-staged-smoke.log; echo perf_exit=\$rc; exit \$rc"
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash "$Wsl/run_smoke.sh" 0 "$L/minimal-linux-staged-smoke.log"
 if ($LASTEXITCODE -ne 0) { throw "Linux staged smoke failed: $LASTEXITCODE" }
 ```
 
-Expected: both exit 0; the pinned log's first line resolves `exllamav3` under `candidate-src`, and the grep count is 46. Prefill/decode within the previously recorded Linux envelope (980 to 1095 tok/s prefill at 32k, ~25.8 decode). One pair is sufficient here; the Linux protocol control already ran three pairs on the same transport.
+Expected: both exit 0; the pinned log's `RESOLVED` line is under `candidate-src`; `registered_chunks=46` for pinned and `0` for staged. These runs establish that the Linux path loads, registers, and generates. Their tok/s numbers are informational only and must not be compared against the earlier round's Linux figures, which were measured on a different patch.
 
-- [ ] **Step 4: Release the WSL memory before Windows GPU timing**
+- [ ] **Step 5 (only if the PR body will claim Linux performance parity): matched control on the frozen base**
+
+Copy `$Scratch\temp\linux_bench.sh` to `$Round\runners\wsl\linux_pairs.sh` with `R` pointing at the round mirror, `SRC` for `baseline` set to `.../rebuild/<DevBase>/baseline-src` and for `windows-pinned` to `.../candidate-src`, `OUT` set to the round's `logs/linux-wsl-round`, and the trailing `tail -1` replaced by `rc=$?; tail -1 "$OUT/$TAG.log"; exit $rc` capturing the perf exit code. Run three baseline/candidate pairs with `EXL3_MOE_PINNED_ARENA=1` on both, alternating order as the earlier control did. Compare medians of prefill at 32768 and decode at 32512. Without this step the PR body states Linux evidence as functional only.
+
+- [ ] **Step 6: Release the WSL memory before Windows GPU timing**
 
 ```powershell
-wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -lc "pgrep -f perf.py && exit 7; free -g | head -2"
-if ($LASTEXITCODE -ne 0) { throw 'perf.py still running in WSL' }
+wsl.exe -d SiftKit-EXL3-Perf-20260905 -- bash -c 'if pgrep -f perf.py > /dev/null; then echo perf.py still running; exit 7; fi; free -g | head -2'
+if ($LASTEXITCODE -ne 0) { throw "WSL not idle: $LASTEXITCODE" }
 ```
 
-Expected: no perf.py processes; free memory recovered. Do not terminate the distro.
+Single quotes keep PowerShell from expanding anything inside. Expected: no perf.py processes; free memory recovered. Do not terminate the distro.
 
 ---
 
@@ -1017,12 +1133,18 @@ and replace the resolution assertion (`assert VENV[a.variant] in pkg and VENV[a.
 
 ```python
     src = os.path.join(S, "windows-src" if a.variant == "windows-pinned" else "baseline-src")
-    verify = subprocess.run([py, "-B", os.path.join(S, "runners", "verify_install.py"), S, src],
+    wheel_dir = (r"C:\AI\exl3\packages\windows-pinned\2c9d9a496df4c5e5f5623c8f94c22d4839747c04\minimal"
+                 if a.variant == "windows-pinned" else
+                 r"C:\AI\exl3\packages\upstream-dev\2c9d9a496df4c5e5f5623c8f94c22d4839747c04")
+    (wheel,) = [os.path.join(wheel_dir, f) for f in os.listdir(wheel_dir) if f.endswith(".whl")]
+    verify = subprocess.run([py, "-B", os.path.join(S, "runners", "verify_install.py"), src, wheel],
                             cwd = os.path.join(S, "runners"), env = env, capture_output = True, text = True)
     if verify.returncode:
         sys.exit(f"REJECT: install verification failed for {a.variant}:\n{verify.stdout}{verify.stderr}")
-    assert pkg.startswith(S) and ext.startswith(S), (pkg, ext)
+    info_verify = verify.stdout.strip().splitlines()
 ```
+
+and add `verify = info_verify` to the `info` dict so each cell's JSON records the verified hashes.
 
 `cwd` for the perf run must not be a source tree; use `os.path.join(S, "runners")` wherever the copy used `os.path.join(S, "bench")`, and make sure `TEMP`/`TMP` point at `$Round\temp`.
 
@@ -1052,6 +1174,21 @@ import sys
 output = Path(sys.argv[1])                       # explicit input directory, no hard-coded path
 ```
 
+Before the JSON loading loop, add a global orphan check over every matrix file in the directory, so an interrupted run anywhere (including an extra round for a chunk that was never flagged) is an error rather than an unread file:
+
+```python
+log_pattern = re.compile(r"^(baseline|windows-pinned)-c(1024|2048|4096|8192)-r([1-5])\.(log|json)$")
+stems = {}
+for path in logs.iterdir():
+    match = log_pattern.match(path.name)
+    if match is None:
+        continue
+    stems.setdefault(path.stem, set()).add(match.group(4))
+orphans = sorted(stem for stem, kinds in stems.items() if kinds != {"log", "json"})
+if orphans:
+    raise ValueError(f"orphaned matrix files (interrupted runs): {orphans}")
+```
+
 Replace the per-chunk block so it uses every matched round present and refuses partial cells:
 
 ```python
@@ -1062,10 +1199,7 @@ def cell(variant, chunk, repeats):
     records = []
     for repeat in repeats:
         key = (variant, chunk, repeat)
-        log = logs / f"{variant}-c{chunk}-r{repeat}.log"
         if key not in runs:
-            if log.exists():
-                raise ValueError(f"incomplete cell (log without json): {log}")
             raise ValueError(f"missing {variant} c{chunk} r{repeat}")
         records.append(runs[key])
     return records
@@ -1091,23 +1225,26 @@ for chunk in [1024, 2048, 4096, 8192]:
         status = "final (5 rounds)"
     else:
         status = "final (3 rounds)"
-    selected_decode_gate = all(
+    final = status.startswith("final")
+    selected_decode_gate = None if not final else all(
         decode[context]["candidate_median"] >= 0.95 * decode[context]["baseline_median"]
         for context in decode_contexts
     )
+    conservative = None if not final else (
+        min(prefill[32768]["candidate"]) > max(prefill[32768]["baseline"]))
     summary[chunk] = {
         "runs": {"baseline": len(baseline), "candidate": len(candidate)},
         "status": status,
         "registered_chunks": {...},   # unchanged
         "prefill": prefill, "decode": decode,
-        "primary_prefill_conservative_pass": min(prefill[32768]["candidate"]) > max(prefill[32768]["baseline"]),
+        "primary_prefill_conservative_pass": conservative,
         "selected_decode_gate_pass": selected_decode_gate,
         "requires_r4_r5": required_extra,
     }
 (output / "matrix-summary.json").write_text(json.dumps(summary, indent = 2), encoding = "utf-8")
 ```
 
-The print loop adds `status=` to each line. A chunk with `status` starting `incomplete` is not a gate result. Any log file without a matching JSON (an interrupted run) is an error, never silently ignored.
+The print loop adds `status=` to each line and prints `decode_gate=None` for incomplete chunks. Gate fields are `null` in the JSON until every required round exists, so no downstream reader can mistake a three-round preliminary for a verdict. Any orphaned log or JSON anywhere in the directory aborts aggregation.
 
 - [ ] **Step 4: Rounds 1 to 3**
 
@@ -1120,17 +1257,19 @@ Ensure `nvidia-smi` shows 0 MiB and no compute apps before starting. Expected: e
 - [ ] **Step 5: Aggregate, then rounds 4 and 5 where flagged**
 
 ```powershell
-& $Py -B "$Round\runners\aggregate.py" "$Out\matrix-minimal" | Tee-Object "$Out\matrix-minimal\summary-r1r3.txt"
+& $Py -B "$Round\runners\aggregate.py" "$Out\matrix-minimal" | Out-File "$Out\matrix-minimal\summary-r1r3.txt"; $LASTEXITCODE
+Get-Content "$Out\matrix-minimal\summary-r1r3.txt"
 ```
 
 For every chunk printed with `extra=True`, run:
 
 ```powershell
 & "$Round\runners\run_matrix.ps1" -Output "$Out\matrix-minimal" -Rounds r4r5 -Chunks <flagged chunks>; $LASTEXITCODE
-& $Py -B "$Round\runners\aggregate.py" "$Out\matrix-minimal" | Tee-Object "$Out\matrix-minimal\summary.txt"
+& $Py -B "$Round\runners\aggregate.py" "$Out\matrix-minimal" | Out-File "$Out\matrix-minimal\summary.txt"; $LASTEXITCODE
+Get-Content "$Out\matrix-minimal\summary.txt"
 ```
 
-Expected: no chunk left with `status=incomplete`. Gate (from the ledger): ratio of medians per context; prefill improvement reported; median decode loss no worse than 5% at every context. Record pass/fail per context in the ledger's result table. A failing decode cell is reported as such in the PR body, not hidden.
+Expected: aggregator exit 0 and no chunk left with `status=incomplete` or `decode_gate=None`. If a round was interrupted, the aggregator names the orphaned files; rerun exactly those cells (delete the orphaned `.log` first, since `bench_run.py` rejects duplicates) before aggregating again. Gate (from the ledger): ratio of medians per context; prefill improvement reported; median decode loss no worse than 5% at every context. Record pass/fail per context in the ledger's result table. A failing decode cell is reported as such in the PR body, not hidden.
 
 ---
 
@@ -1150,7 +1289,7 @@ Title: `CPU MoE: Windows named-memory backend for the pinned arena`. Body sectio
 4. Not done: no hugepage variant on Windows (`EXL3_MOE_ARENA_HUGE` raises there, including under `-O`); CPU kernels run on 4K pages, as on a Linux host with `shmem_enabled=never`. Mention the 8 GiB 4K-vs-2M microbenchmark showed no difference on the 7900X.
 5. Lifecycle: no changes to shutdown, spawn, watchdog, or registration (or, if Task 7 Step 2 demonstrated probe 2, the one ownership change and its test). Sections die with the worker and the parent's `close()`.
 6. Tests: `tests/test_moe_pinned_arena_windows.py`, what runs on each platform, skip counts.
-7. Evidence: Windows smoke (46 chunks / 47,104 MiB, token match), Linux test and smoke logs, and the matrix table from Task 10 with medians, round counts per context, and the decode gate outcome per context.
+7. Evidence: Windows smoke (46 chunks / 47,104 MiB, token match), install verification hashes, Linux test and functional smoke logs (stated as functional; Linux tok/s only if Task 9 Step 5 ran matched pairs on the frozen base), and the matrix table from Task 10 with medians, round counts per context, and the decode gate outcome per context.
 8. Base: DevBase SHA; supersedes PR341. Separate note, outside the PR: the same-`Config` reload deadlock observed on both variants.
 
 - [ ] **Step 2: Update the ledger**
@@ -1175,7 +1314,7 @@ State: changed files with line counts, patch and wheel hashes, install verificat
 
 ## Self-review
 
-**Spec coverage.** turboderp's three asks: named sections with names over the pipe (Tasks 4, 5), same message shape on Linux (Task 4), loud RAM check (Task 4). Review findings: scope back to the backend under an explicit change criterion (header, Task 7), no lifecycle changes without a red test (Task 7 Step 2), fork wording out of docs (Task 6), small test file (Tasks 2 to 5), transactional attach with traceback-holding regressions (Task 5), `RuntimeError` for hugetlb on Windows with an `-O` test (Task 3), evidence regenerated on the final wheel by the rebuild interpreters with hash verification (Tasks 8 to 10), exit codes propagated from WSL (Task 9), aggregator with explicit input and complete matched rounds (Task 10), exact preservation before reset (Task 1).
+**Spec coverage.** turboderp's three asks: named sections with names over the pipe (Tasks 4, 5), same message shape on Linux (Task 4), loud RAM check (Task 4). Review findings: scope back to the backend under an explicit change criterion (header, Task 7), no lifecycle changes without a red test and a corrected probe that uses a real export (Task 7 Step 2), fork wording out of docs (Task 6), small test file (Tasks 2 to 5), transactional attach with traceback-holding regressions (Task 5), `RuntimeError` for hugetlb on Windows with an `-O` test (Task 3), evidence regenerated on the final wheel by the rebuild interpreters with site-packages and wheel-member hash verification (Tasks 8 to 10), WSL work in literal Bash scripts with a proven exit-code path (Task 9), Linux timings kept functional unless matched pairs run (Task 9 Step 5), aggregator with explicit input, global orphan check, and gate fields unset until rounds are complete (Task 10), exact preservation with `git diff --output` before reset (Task 1), UTF-8 redirection default and no `Tee-Object` under PowerShell 5.1 (preamble).
 
 **Type consistency.** `windows_memory_status() -> tuple[int, int]` used in Task 4 and the injection hook; `_attach_chunk(self, index, size, name)` in Task 5 and its tests; `_HugeArena(shared, huge, conn)` signature unchanged; `_CapturePipe.messages`, `_small_arena(monkeypatch, module, conn)`, `_host(module)`, `_fresh_interpreter(code, *flags, **env)` used identically across tasks. Section names `exl3_moe_arena_{pid}_{index}` match `inject_fail.py`. Error text `"physical RAM"`, `"paging file"` (from the OS `strerror`), `"injected failure"`, and `EXL3_MOE_PINNED_ARENA` match what `inject_fail.py` asserts.
 
