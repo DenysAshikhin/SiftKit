@@ -782,21 +782,33 @@ This ledger describes the new implementation round. Historical counts below do n
 
 | Deliverable | Current status |
 |---|---|
-| Plan/design | Written; implementation not started in this planning turn |
-| Frozen new DevBase | Not fetched for execution; latest observed 08849e3 |
-| Frozen TabbyBase | Not fetched for execution; clean local 92198cc, latest observed de76ff8 |
-| New baseline/candidate wheels | Not built |
-| Memory/attachment/cleanup TDD | Not executed for the new round |
-| Windows installed-wheel correctness | Not executed for the new round |
-| Linux correctness/performance control | Not executed for the new round |
-| New Windows matrix/selected-setting gate | Not measured |
-| Clean upstream TabbyAPI provenance | Current checkout clean and upstream; final tested revision not deployed |
-| Managed startup/root cause | Existing exit-1 failure unresolved |
-| Application full-suite result | Previous run hung; new validation not executed |
-| Production activation/debug removal | Incomplete |
-| Rollback smoke | Not executed in this planning turn |
+| Plan/design | Written; non-GPU evidence and launcher validation refreshed on 2026-09-12; GPU-gated tasks remain paused |
+| Frozen new DevBase | `2c9d9a496df4c5e5f5623c8f94c22d4839747c04`; Windows and WSL baseline/candidate checkouts are at this revision |
+| Frozen TabbyBase | `de76ff88991477639a6a7f88c2d116f18c2ca24f`; clean `tabby-src` checkout with upstream origin; production checkout remains at `92198cca1aa48f83121027f5b9058c24d7c2d894` |
+| New baseline/candidate wheels | Baseline `C:/AI/exl3/packages/upstream-dev/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/exllamav3-1.4.9-cp314-cp314-win_amd64.whl`, SHA256 `A38E3987520800EE10EFCC599EC59CB757FA9F4074848C6D7DD817090160A0ED`; candidate `C:/AI/exl3/packages/windows-pinned/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/post-shutdown-ordering/exllamav3-1.4.9-cp314-cp314-win_amd64.whl`, SHA256 `B6A6A0D4E77763E8159E0EA8F891942D5E4DEAD3C775601B99C6C97A574A2E8E` |
+| Complete candidate patch | `C:/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-pinned-post-shutdown-ordering-with-tests.patch`; SHA256 `12602B73485D209BCC32C5B70FFFEBF9876CF08904F57290563AB39FE6355524`; contains `doc/env_vars.md`, `moe_cpu_host.py`, `memory.py`, and both new test files |
+| Memory/attachment/cleanup TDD | Reviewed after the final shutdown-ordering change; no further code correction identified. Current validated artifact record: source CPU/failure tests 40 passed/1 skipped; installed-wheel CPU/lifecycle/failure tests 46 passed/1 skipped; dependency check clean |
+| Windows installed-wheel correctness | CPU/lifecycle/failure evidence is preserved for the exact candidate wheel; real worker/DMA, failure cleanup, unload/reload, and model smoke remain pending GPU availability |
+| Linux correctness/performance control | WSL base checkouts and build/staged logs preserved under `logs/linux-wsl-round/`; reported lifecycle 30 passed/16 skipped and CPU/failure 8 passed/1 skipped logs were not found (search exit 1), so those counts remain unverified; matched Linux controls remain pending |
+| New Windows matrix/selected-setting gate | Not measured; GPU check found RTX 4090 memory 22658/24564 MiB held by Python PID 32928, so 1024/2048/4096/8192 work remains paused |
+| Clean upstream TabbyAPI provenance | Verified on clean `tabby-src` at TabbyBase with upstream origin and no hidden assume-unchanged/skip-worktree files; not deployed |
+| Managed startup/root cause | Existing exit-1 failure remains unresolved; launcher contracts and Environment propagation are covered by the focused suite, but real model startup was not retried while the GPU was occupied |
+| Application validation | `npm run build:test` exit 0; focused launcher/config suite 73 passed/0 failed/0 skipped; full suite 4011 passed/0 failed/5 skipped; `npm run typecheck` including lint exit 0; `npm run build` exit 0. Durable logs are under `logs/app-validation/` |
+| Production activation/debug removal | Incomplete; no production configuration or process restart performed |
+| Rollback smoke | Not executed |
 | Replacement PR | Not created; PR341 not retired |
-| Scratch cleanup | Deferred until implementation evidence and active sources are preserved |
+| Scratch cleanup | Deferred until GPU-gated evidence and active-source preservation are complete |
+
+## Handoff references
+
+- [Full implementation plan and result ledger](C:/Users/denys/Documents/GitHub/SiftKit/docs/superpowers/plans/2026-09-10-exl3-pinned-arena-windows-and-prod-resync.md) — read the design contracts, Tasks 7–12, and this ledger; historical benchmarks do not validate the latest wheel.
+- [EXL3 host implementation](C:/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-src/exllamav3/model/moe_cpu_host.py:1782) — shutdown ordering, worker ownership, named mappings, and common registration path; also inspect `_spawn`, `_pump`, and `_release_pending_waits`.
+- [Lifecycle regression tests](C:/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-src/tests/test_moe_pinned_arena_windows.py:515) — finishing-worker race, failed startup, cleanup retries, and Windows/Linux worker fixtures.
+- [Memory implementation](C:/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-src/exllamav3/util/memory.py) and [memory tests](C:/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-src/tests/test_host_memory.py) — Windows physical/commit limits and upstream soft reserve.
+- [Environment-variable documentation](C:/AI/exl3/staging/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/windows-src/doc/env_vars.md:385) — supported flags, platform behavior, and memory requirements.
+- [Round metadata](C:/AI/exl3/benchmarks/2026-09-11-windows-pinned/rebuild/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/meta/round-paths.json) — checkout and environment paths; the sibling baseline checkout is the unchanged comparison at the same base.
+- [Validated candidate wheel](C:/AI/exl3/packages/windows-pinned/2c9d9a496df4c5e5f5623c8f94c22d4839747c04/post-shutdown-ordering/exllamav3-1.4.9-cp314-cp314-win_amd64.whl) — SHA256 `B6A6A0D4E77763E8159E0EA8F891942D5E4DEAD3C775601B99C6C97A574A2E8E`.
+- Evidence cautions: older exported patches predate the final ordering fix; use the complete patch recorded above. The reported Linux pytest counts remain unverified because their logs were not durable. GPU tests and benchmarks are paused while PID 32928 holds the GPU allocation.
 
 ## Final acceptance checklist
 
