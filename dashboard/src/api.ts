@@ -15,6 +15,8 @@ import {
   ChatQueueForceRequestSchema,
   ChatMessageQueueConflictResponseSchema,
   type ChatMessageQueueConflictResponse,
+  type ChatMessageStreamRequest,
+  type ChatRepoStreamRequest,
   ChatSessionBusyResponseSchema,
   ActiveChatOperationsResponseSchema,
   StopChatOperationResponseSchema,
@@ -609,11 +611,13 @@ async function* consumeChatStream(
 function postChatStream(
   url: string,
   payload: Record<string, JsonSerializable>,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   return consumeChatStream(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    ...(signal ? { signal } : {}),
   }, 'error');
 }
 
@@ -635,45 +639,37 @@ export function listActiveChatOperations(): Promise<ActiveChatOperationsResponse
 
 export function streamChatMessage(
   sessionId: string,
-  payload: { content: string; images?: string[]; operationId: string },
+  payload: ChatMessageStreamRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
     payload,
+    signal,
   );
 }
 
 export function streamPlanMessage(
   sessionId: string,
-  payload: {
-    content: string;
-    images?: string[];
-    repoRoot?: string;
-    model?: string;
-    maxTurns?: number;
-    operationId: string;
-  },
+  payload: ChatRepoStreamRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
     payload,
+    signal,
   );
 }
 
 export function streamRepoSearchMessage(
   sessionId: string,
-  payload: {
-    content: string;
-    images?: string[];
-    repoRoot?: string;
-    model?: string;
-    maxTurns?: number;
-    operationId: string;
-  },
+  payload: ChatRepoStreamRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
     payload,
+    signal,
   );
 }
 
@@ -682,10 +678,12 @@ export type { RepoAgentDecision } from '@siftkit/contracts';
 export function streamRepoAgentMessage(
   sessionId: string,
   payload: ChatRepoAgentStreamRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   return postChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/stream`,
     payload,
+    signal,
   );
 }
 

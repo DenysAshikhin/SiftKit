@@ -26,6 +26,7 @@ export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
   return runtime !== null && (
     runtime.activity.kind !== 'idle'
     || runtime.pendingApproval !== null
+    || runtime.submissionPhase !== null
   );
 }
 

@@ -242,6 +242,16 @@ export const CHAT_JOURNAL_SCHEMA_SQL = `
   );
 `;
 
+export const CHAT_SUBMISSIONS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS chat_submissions (
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    submission_id TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    run_operation_id TEXT NOT NULL UNIQUE REFERENCES chat_runs(operation_id) ON DELETE CASCADE,
+    PRIMARY KEY (session_id, submission_id)
+  );
+`;
+
 function sqlString(value: string): string {
   return value.replaceAll("'", "''");
 }
@@ -682,6 +692,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
   database.exec(CHAT_MESSAGES_SCHEMA_SQL);
   database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL);
   database.exec(CHAT_JOURNAL_SCHEMA_SQL);
+  database.exec(CHAT_SUBMISSIONS_SCHEMA_SQL);
   database.exec(ASSISTANT_CORE_SCHEMA_SQL);
   database.exec(ASSISTANT_FTS_SCHEMA_SQL);
   database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);

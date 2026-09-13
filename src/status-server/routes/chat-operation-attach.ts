@@ -9,11 +9,37 @@ import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import { ChatJournalStore } from '../../state/chat-journal.js';
 
+export function streamRecordedChatOperation(
+  ctx: ServerContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessionId: string,
+  runOperationId: string,
+): void {
+  const run = new ChatJournalStore(ctx.runtimeDatabase).readRun(runOperationId);
+  if (!run || run.sessionId !== sessionId || run.recordKind !== 'execution') {
+    sendJson(res, 500, { error: 'Chat submission receipt references an invalid run.' });
+    return;
+  }
+  const lease = ctx.chatSessionOperations.getActive(sessionId);
+  const broadcast = lease?.recorder?.operationId === runOperationId
+    ? ctx.chatSessionOperations.getBroadcast(sessionId)
+    : null;
+  const writer = new SseResponseWriter(req, res);
+  writer.open();
+  const subscriber = new ChatOperationSseSubscriber(writer, {
+    ctx, sessionId, operationId: runOperationId, database: ctx.runtimeDatabase,
+  });
+  if (broadcast) broadcast.attach(subscriber);
+  else subscriber.onClosed({ failure: null });
+  subscriber.start();
+  res.on('close', () => broadcast?.detach(subscriber));
+}
+
 export class GetChatOperationStreamEndpoint implements RouteEndpoint {
   handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): void {
     const sessionId = decodeURIComponent(match.captures[0] ?? '');
     const lease = ctx.chatSessionOperations.getActive(sessionId);
-    const broadcast = ctx.chatSessionOperations.getBroadcast(sessionId);
     const operationId = lease?.recorder?.operationId ?? new ChatJournalStore(ctx.runtimeDatabase)
       .listSessionRuns(sessionId).filter(run => run.recordKind === 'execution').at(-1)?.operationId;
     if (lease && !lease.recorder) {
@@ -24,13 +50,7 @@ export class GetChatOperationStreamEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'No recorded operation for this session.' });
       return;
     }
-    const writer = new SseResponseWriter(req, res);
-    writer.open();
-    const subscriber = new ChatOperationSseSubscriber(writer, { ctx, sessionId, operationId, database: ctx.runtimeDatabase });
-    if (broadcast) broadcast.attach(subscriber);
-    else subscriber.onClosed({ failure: null });
-    subscriber.start();
-    res.on('close', () => broadcast?.detach(subscriber));
+    streamRecordedChatOperation(ctx, req, res, sessionId, operationId);
   }
 }
 

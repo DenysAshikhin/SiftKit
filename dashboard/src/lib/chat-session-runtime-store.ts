@@ -16,6 +16,7 @@ import {
   type ChatRecoveryIssue,
   type ChatRecoveryStatus,
   type ChatRecoveryReport,
+  type ChatSubmissionPhase,
 } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 
@@ -44,6 +45,7 @@ export type ChatSessionRuntime = {
   draft: string;
   pendingImages: PendingImage[];
   submittedInput: SubmittedChatInput | null;
+  submissionPhase: ChatSubmissionPhase | null;
   /** The submitted turn has produced nothing yet; cleared by the first streamed evidence. */
   awaitingResponse: boolean;
   planRepoRootInput: string;
@@ -72,6 +74,8 @@ export type ChatSessionRuntimeTransition =
   /** The run settled; the stored session is refreshed through REST, so the live view retires. */
   | { kind: 'terminal'; sessionId: string; terminal: ChatProjectionTerminalRecord }
   | { kind: 'failure'; sessionId: string; message: string; issue?: ChatRecoveryIssue }
+  | { kind: 'interrupted'; sessionId: string; message: string }
+  | { kind: 'submission-phase'; sessionId: string; phase: ChatSubmissionPhase }
   | { kind: 'control-error'; sessionId: string; message: ChatSessionRuntime['error'] }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'draft'; sessionId: string; draft: string }
@@ -97,6 +101,7 @@ function createChatSessionRuntime(sessionId: string, planRepoRootInput: string):
     draft: '',
     pendingImages: [],
     submittedInput: null,
+    submissionPhase: null,
     awaitingResponse: false,
     planRepoRootInput,
     planMaxTurnsInput: '',
@@ -142,7 +147,7 @@ function applyTransition(
         : snapshot.controlOperationId !== null ? { kind: 'local', operationKind: snapshot.operationKind, operationId: snapshot.controlOperationId }
           : { kind: 'remote', operationKind: snapshot.operationKind };
       return { ...runtime, journalSnapshot: snapshot, recoveryStatus: snapshot.status, activity, liveMessages: snapshot.messages,
-        awaitingResponse: false, submittedInput: null,
+        awaitingResponse: false, submittedInput: runtime.submittedInput, submissionPhase: 'streaming',
         pendingApproval: snapshot.approval?.actionable ? snapshot.approval : null,
         tokenTurns: new Map(snapshot.tokenTurns.map(turn => [turn.turn, { prompt: turn.prompt, usage: turn.usage }])),
         liveTokenBase: [...snapshot.tokenTurns].reverse().find(turn => turn.prompt !== null)?.prompt ?? null,
@@ -173,6 +178,7 @@ function applyTransition(
         liveTokenBase: null,
         tokenTurns: new Map(),
         streamedCharsSinceBase: 0,
+        submissionPhase: 'sending',
       };
     case 'attach':
       // Adopting a run in flight: the replay that follows rebuilds the whole live transcript, so
@@ -190,6 +196,7 @@ function applyTransition(
         error: null,
         liveTokenBase: null,
         streamedCharsSinceBase: 0,
+        submissionPhase: 'sending',
       };
     // This client is no longer reading a stream for the session: the operation ended without a
     // payload, or the reader was aborted. Either way the live view it built is no longer current.
@@ -211,6 +218,7 @@ function applyTransition(
         draft: '',
         pendingImages: [],
         submittedInput: { content: transition.content, images: transition.images },
+        submissionPhase: 'sending',
         awaitingResponse: true,
         pendingApproval: null,
         liveMessages: upsertLiveMessageInto(
@@ -227,7 +235,12 @@ function applyTransition(
         activity: { kind: 'idle' },
         recoveryStatus: transition.terminal.issue ? 'recovery_failed' : runtime.recoveryStatus,
         error: null,
+        submissionPhase: null,
       };
+    case 'interrupted':
+      return { ...runtime, submissionPhase: 'reconnecting', awaitingResponse: false };
+    case 'submission-phase':
+      return { ...runtime, submissionPhase: transition.phase };
     case 'failure':
       return {
         ...runtime,
@@ -240,6 +253,7 @@ function applyTransition(
         error: transition.message,
         draft: runtime.draft || runtime.submittedInput?.content || '',
         pendingImages: [...(runtime.submittedInput?.images ?? []), ...runtime.pendingImages],
+        submissionPhase: null,
       };
     case 'control-error':
       return { ...runtime, error: transition.message };

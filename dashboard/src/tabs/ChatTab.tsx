@@ -477,10 +477,10 @@ export function ChatTab({
                   onDecide={(decision) => { void onSubmitRepoAgentDecision(decision); }}
                 />
               ) : null}
-              {selectedRuntime?.awaitingResponse ? (
+              {selectedRuntime?.awaitingResponse || selectedRuntime?.submissionPhase === 'reconnecting' ? (
                 <section className="recent-activity" aria-label="Recent activity">
                   <div className="recent-activity-header">
-                    <span>Recent activity</span>
+                    <span>{selectedRuntime?.submissionPhase === 'reconnecting' ? 'Reconnecting…' : 'Recent activity'}</span>
                   </div>
                   <div className="recent-activity-list" />
                 </section>

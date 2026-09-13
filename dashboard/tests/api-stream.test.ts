@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionPackets, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000010';
 
 test('queue status reconnects after EOF and abort cancels further connections', async () => {
   const { streamChatQueue } = await import('../src/api');
@@ -74,7 +75,7 @@ test('operation streams yield every projection frame in order, terminal included
     const restoreFetch = mockFetchOnce([SETTLED_BODY]);
     try {
       const indices: number[] = [];
-      for await (const event of open('sess', { content: 'go', operationId: OPERATION_ID })) {
+      for await (const event of open('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
         assert.equal(event.kind, 'projection');
         if (event.kind === 'projection') indices.push(event.frame.recordIndex);
       }
@@ -98,10 +99,10 @@ test('plan and repo-search stream requests include attached images', async () =>
     return new Response(SETTLED_BODY, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
   try {
-    for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID })) {
+    for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
       void _event;
     }
-    for await (const _event of streamRepoSearchMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID })) {
+    for await (const _event of streamRepoSearchMessage('sess', { content: 'go', images: [image], operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
       void _event;
     }
     assert.equal(bodies.length, 2);
@@ -116,7 +117,7 @@ test('an error record and a body that ends mid-transfer both surface as projecti
   const restoreFetch = mockFetchOnce([projectionPackets(singleRecordFrames(errorRecord({ error: 'boom' })))]);
   try {
     const kinds: string[] = [];
-    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) kinds.push(event.kind);
+    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) kinds.push(event.kind);
     assert.deepEqual(kinds, ['projection']);
   } finally {
     restoreFetch();
@@ -124,7 +125,7 @@ test('an error record and a body that ends mid-transfer both surface as projecti
   const truncated = mockFetchOnce([projectionPackets(chatSnapshotFrames(CAPTURE).slice(0, 2))]);
   try {
     let count = 0;
-    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) { void event; count += 1; }
+    for await (const event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) { void event; count += 1; }
     assert.equal(count, 2);
   } finally {
     truncated();
@@ -138,7 +139,7 @@ test('streamPlanMessage throws on empty response body', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -163,7 +164,7 @@ test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
         void _event;
       }
     } catch (error) {
@@ -184,7 +185,7 @@ test('streamPlanMessage throws generic error on malformed 409', async () => {
   try {
     let threw = false;
     try {
-      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID })) {
+      for await (const _event of streamPlanMessage('sess', { content: 'go', operationId: OPERATION_ID, submissionId: SUBMISSION_ID })) {
         void _event;
       }
     } catch (error) {

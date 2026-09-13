@@ -7,6 +7,9 @@ import {
   type ChatQueueOperationKind,
   type ChatQueueEnqueueRequest,
   type ChatQueueForceRequest,
+  type ChatMessageStreamRequest,
+  type ChatRepoStreamRequest,
+  type ChatRepoAgentStreamRequest,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.js';
 import {
@@ -47,11 +50,36 @@ import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../l
 import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
-import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
+import type { ChatSession, ChatSessionResponse } from '../types';
 import type { ToastLevel } from './useToasts';
 import type { PendingImage } from '../lib/downscale-image';
 
 const CHAT_ATTACH_RECONNECT_MS = 1000;
+
+type OwnedChatSubmission =
+  | { operationKind: 'message'; payload: ChatMessageStreamRequest }
+  | { operationKind: 'plan' | 'repo-search'; payload: ChatRepoStreamRequest }
+  | { operationKind: 'repo-agent'; payload: ChatRepoAgentStreamRequest };
+
+function waitForSubmissionReconnect(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, CHAT_ATTACH_RECONNECT_MS);
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+function openOwnedSubmissionStream(
+  sessionId: string,
+  submission: OwnedChatSubmission,
+  signal: AbortSignal,
+): AsyncGenerator<ChatStreamEvent> {
+  switch (submission.operationKind) {
+    case 'message': return streamChatMessage(sessionId, submission.payload, signal);
+    case 'plan': return streamPlanMessage(sessionId, submission.payload, signal);
+    case 'repo-search': return streamRepoSearchMessage(sessionId, submission.payload, signal);
+    case 'repo-agent': return streamRepoAgentMessage(sessionId, submission.payload, signal);
+  }
+}
 
 export type CreateChatSessionRequest = {
   title: string;
@@ -93,12 +121,17 @@ export function useChatSessions(deps: {
   // The sessions whose stream this client is draining itself. A ref, not state: it is a fact about
   // in-flight work, read at the instant the attach effect runs, and no render displays it. The
   // effect must not read activity instead — it writes activity, so that guard would be circular.
-  const ownedStreamSessionIds = useRef<Set<string>>(new Set());
+  const ownedSubmissions = useRef(new Map<string, { submission: OwnedChatSubmission; controller: AbortController }>());
   const queueSubmissions = useRef(new Map<string, ChatQueueEnqueueRequest>());
   const forceSubmissions = useRef(new Map<string, ChatQueueForceRequest>());
   const queueMutations = useRef(new Set<string>());
   const queueOperationIds = useRef(new Map<string, string | null>());
   const pendingTerminalTransitions = useRef(new Map<string, Extract<ChatSessionRuntimeTransition, { kind: 'terminal' }>>());
+
+  useEffect(() => () => {
+    for (const owned of ownedSubmissions.current.values()) owned.controller.abort();
+    ownedSubmissions.current.clear();
+  }, []);
   // Bumped when a submitted turn is rejected because the session is already running elsewhere.
   // Nothing else tells the attach effect that a run it should follow now exists.
   const [remoteRunGeneration, setRemoteRunGeneration] = useState(0);
@@ -240,7 +273,7 @@ export function useChatSessions(deps: {
   useEffect(() => {
     // A turn this client started already renders its own frames; latching on again would double
     // every one of them.
-    if (!selectedSessionId || selectedSession === null || ownedStreamSessionIds.current.has(selectedSessionId)) {
+    if (!selectedSessionId || selectedSession === null || ownedSubmissions.current.has(selectedSessionId)) {
       return;
     }
     const sessionId = selectedSessionId;
@@ -542,46 +575,51 @@ export function useChatSessions(deps: {
 
   async function runChatStream(
     sessionId: string,
-    operationKind: ChatSessionOperationKind,
-    operationId: string,
-    stream: AsyncGenerator<ChatStreamEvent>,
+    submission: OwnedChatSubmission,
   ): Promise<void> {
     const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
-    // Held for the whole turn, so the attach effect leaves this session to the frames rendered here.
-    ownedStreamSessionIds.current.add(sessionId);
+    const controller = new AbortController();
+    ownedSubmissions.current.set(sessionId, { submission, controller });
     let ownedElsewhere = false;
     let retryTerminalRefresh = false;
-    let accepted = false;
     try {
-      for await (const transition of toRuntimeTransitions(
-        sessionId,
-        { kind: 'owned', operationKind, operationId },
-        stream,
-        thinkingEnabled,
-      )) {
-        if (transition.kind === 'terminal') {
-          try {
-            applySessionResponse(await getChatSession(sessionId));
-            pendingTerminalTransitions.current.delete(sessionId);
-            setRuntimeStore((previous) => previous.apply(transition));
-          } catch (error) {
-            pendingTerminalTransitions.current.set(sessionId, transition);
-            setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
-            retryTerminalRefresh = true;
+      while (!controller.signal.aborted) {
+        const stream = openOwnedSubmissionStream(sessionId, submission, controller.signal);
+        let interrupted = false;
+        for await (const transition of toRuntimeTransitions(
+          sessionId,
+          { kind: 'owned', operationKind: submission.operationKind, operationId: submission.payload.operationId },
+          stream,
+          thinkingEnabled,
+        )) {
+          if (transition.kind === 'terminal') {
+            setRuntimeStore((previous) => previous.apply({ kind: 'submission-phase', sessionId, phase: 'settling' }));
+            try {
+              applySessionResponse(await getChatSession(sessionId));
+              pendingTerminalTransitions.current.delete(sessionId);
+              setRuntimeStore((previous) => previous.apply(transition));
+            } catch (error) {
+              pendingTerminalTransitions.current.set(sessionId, transition);
+              setRuntimeStore((previous) => previous.apply({ kind: 'control-error', sessionId, message: toError(error).message }));
+              retryTerminalRefresh = true;
+            }
+            continue;
           }
-          continue;
+          setRuntimeStore((previous) => previous.apply(transition));
+          if (transition.kind === 'interrupted') interrupted = true;
+          if (transition.kind === 'failure' || transition.kind === 'remote-begin') ownedElsewhere = true;
         }
-        setRuntimeStore((previous) => previous.apply(transition));
-        if (transition.kind === 'snapshot') accepted = true;
-        if (transition.kind === 'failure' && (accepted || queueOperationIds.current.get(sessionId) === operationId)) ownedElsewhere = true;
-        if (transition.kind === 'remote-begin') ownedElsewhere = true;
+        if (!interrupted || retryTerminalRefresh || ownedElsewhere) break;
+        await waitForSubmissionReconnect(controller.signal);
       }
     } finally {
-      // Released before the re-arm, so the attach effect cannot run while this session still
-      // looks owned and skip the very run it was woken for.
-      ownedStreamSessionIds.current.delete(sessionId);
+      const owner = ownedSubmissions.current.get(sessionId);
+      if (owner?.submission.payload.submissionId === submission.payload.submissionId) {
+        ownedSubmissions.current.delete(sessionId);
+      }
+      controller.abort();
       const queuedOperationId = queueOperationIds.current.get(sessionId);
-      if (retryTerminalRefresh || ownedElsewhere || (queuedOperationId && queuedOperationId !== operationId)) {
+      if (retryTerminalRefresh || ownedElsewhere || (queuedOperationId && queuedOperationId !== submission.payload.operationId)) {
         setRemoteRunGeneration((generation) => generation + 1);
       }
     }
@@ -652,16 +690,16 @@ export function useChatSessions(deps: {
     }
     submitRuntimeInputs(selectedSession.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
-    await runChatStream(
-      selectedSession.id,
-      'message',
-      operationId,
-      streamChatMessage(selectedSession.id, {
+    const submissionId = crypto.randomUUID();
+    await runChatStream(selectedSession.id, {
+      operationKind: 'message',
+      payload: {
         content: inputs.draft,
         images: inputs.pendingImages.map((image) => image.dataUrl),
         operationId,
-      }),
-    );
+        submissionId,
+      },
+    });
   }
 
   async function sendPlan(): Promise<void> {
@@ -677,13 +715,12 @@ export function useChatSessions(deps: {
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
-    await runChatStream(session.id, 'plan', operationId, streamPlanMessage(session.id, {
-      content: inputs.draft,
-      images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
-      ...maxTurnsOverride,
-      operationId,
-    }));
+    const submissionId = crypto.randomUUID();
+    await runChatStream(session.id, { operationKind: 'plan', payload: {
+      content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), ...maxTurnsOverride,
+      operationId, submissionId,
+    } });
   }
 
   async function sendRepoSearch(): Promise<void> {
@@ -699,13 +736,12 @@ export function useChatSessions(deps: {
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
-    await runChatStream(session.id, 'repo-search', operationId, streamRepoSearchMessage(session.id, {
-      content: inputs.draft,
-      images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
-      ...maxTurnsOverride,
-      operationId,
-    }));
+    const submissionId = crypto.randomUUID();
+    await runChatStream(session.id, { operationKind: 'repo-search', payload: {
+      content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), ...maxTurnsOverride,
+      operationId, submissionId,
+    } });
   }
 
   async function sendRepoAgent(): Promise<void> {
@@ -721,14 +757,12 @@ export function useChatSessions(deps: {
     }
     submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
-    await runChatStream(session.id, 'repo-agent', operationId, streamRepoAgentMessage(session.id, {
-      content: inputs.draft,
-      images: inputs.pendingImages.map((image) => image.dataUrl),
-      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot),
-      approval: inputs.repoAgentApprovalMode,
-      ...maxTurnsOverride,
-      operationId,
-    }));
+    const submissionId = crypto.randomUUID();
+    await runChatStream(session.id, { operationKind: 'repo-agent', payload: {
+      content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), approval: inputs.repoAgentApprovalMode,
+      ...maxTurnsOverride, operationId, submissionId,
+    } });
   }
 
   async function submitRepoAgentDecision(decision: RepoAgentDecision): Promise<void> {

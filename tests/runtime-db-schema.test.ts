@@ -67,6 +67,7 @@ const BOOTSTRAP_TABLES = [
   'chat_pending_messages',
   'chat_run_events',
   'chat_runs',
+  'chat_submissions',
   'chat_runtime_owner',
   'chat_session_recovery',
   'chat_sessions',
@@ -282,7 +283,7 @@ test('a version 66 database upgrades in place, adding the pending-message table 
       VALUES ('run-1', 'run-1', 'chat', 'chat', 'completed', 'kept run', '2026-09-09T00:00:00.000Z');
     `);
     // The exact shape a database left by the previous release has: no queue table, marker 66.
-    database.exec('DROP TABLE chat_pending_messages; UPDATE runtime_schema SET version = 66 WHERE id = 1;');
+    database.exec('DROP TABLE chat_submissions; DROP TABLE chat_pending_messages; UPDATE runtime_schema SET version = 66 WHERE id = 1;');
     closeAllRuntimeDatabases();
 
     const upgraded = getRuntimeDatabase(dbPath);
@@ -644,7 +645,7 @@ test('the marker-68 upgrade retires repo-agent history repair markers and keeps 
     .run('repo-agent-history-v1:session-b', '{"done":true}', '2026-09-10T11:00:00.000Z');
   fresh.prepare('INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)')
     .run('schema-test.sentinel', 'keep', '2026-09-10T11:00:00.000Z');
-  fresh.prepare('UPDATE runtime_schema SET version = 68 WHERE id = 1').run();
+  fresh.exec('DROP TABLE chat_submissions; UPDATE runtime_schema SET version = 68 WHERE id = 1;');
   closeAllRuntimeDatabases();
   try {
     const upgraded = getRuntimeDatabase(dbPath);
@@ -676,6 +677,7 @@ test('the marker-69 upgrade moves projection checkpoints onto run rows, backfill
              ('s1', 'tool-running', 'assistant', 'assistant_tool_call', 'x', 0, 0, 0, 0, 0, 0, 'running', '2026-09-10T11:00:00.000Z', 0, 2),
              ('s1', 'answer', 'assistant', 'assistant_answer', 'x', 0, 0, 0, 0, 0, 0, NULL, '2026-09-10T11:00:00.000Z', 0, 3);
     CREATE TABLE chat_context_snapshots (operation_id TEXT PRIMARY KEY);
+    DROP TABLE chat_submissions;
     UPDATE runtime_schema SET version = 69 WHERE id = 1;
   `);
   closeAllRuntimeDatabases();
@@ -716,6 +718,7 @@ test('the marker-70 upgrade accepts approval reviews and both historical queue l
       VALUES ('${sessionId}', 'Session', 'preset-a', '{}', 1, 0, 'chat', 'chat', 'C:/repo', '${at}', '${at}');
     INSERT INTO chat_runs (operation_id, session_id, record_kind, operation_kind, run_order, owner_epoch, created_at_utc, updated_at_utc)
       VALUES ('${operationId}', '${sessionId}', 'execution', 'message', 1, 'owner:1', '${at}', '${at}');
+    DROP TABLE chat_submissions;
     UPDATE runtime_schema SET version = 70 WHERE id = 1;
   `);
   const imageMeta = ImageMetadataSchema.parse({ width: 1, height: 1, originalWidth: 1, originalHeight: 1,

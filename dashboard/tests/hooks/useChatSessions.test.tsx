@@ -41,7 +41,7 @@ function terminalBody(operationId = OPERATION_ID, terminalCause: 'completed' | '
   return projectionPackets(singleRecordFrames(terminalRecord({ operationId, sequence: 1, historyRevision: 0 }, terminalCause)));
 }
 
-const StreamRequestSchema = z.object({ operationId: z.string().uuid() });
+const StreamRequestSchema = z.object({ operationId: z.string().uuid(), submissionId: z.string().uuid() });
 
 const PENDING_APPROVAL = DurableChatApprovalSchema.parse({
   runId: RUN_ID, approvalId: APPROVAL_ID, toolName: 'bash', command: 'npm test', reviewPayload: null,
@@ -269,6 +269,7 @@ class ChatFetchFixture {
   readonly forcedBodies: string[] = [];
   readonly requestedUrls: string[] = [];
   readonly sentBodies: string[] = [];
+  readonly streamBodies: z.infer<typeof StreamRequestSchema>[] = [];
   detailRequestCount = 0;
   detailFailureCount = 0;
   streamRequestCount = 0;
@@ -303,6 +304,7 @@ class ChatFetchFixture {
     stopStatus?: number;
     queueStatus?: number;
     loseFirstForceResponse?: boolean;
+    loseFirstStreamResponse?: boolean;
   }) {
     const sessions = this.options.sessions ?? [this.options.session];
     const hasMultipleSessions = this.options.sessions !== undefined;
@@ -388,10 +390,16 @@ class ChatFetchFixture {
         || url === `${streamUrl}/repo-search/stream`
       )) {
         this.streamRequestCount += 1;
+        const streamRequest = StreamRequestSchema.parse(JSON.parse(String(init?.body)));
+        this.streamBodies.push(streamRequest);
         this.ownedOperation = {
-          operationId: StreamRequestSchema.parse(JSON.parse(String(init?.body))).operationId,
+          operationId: streamRequest.operationId,
           operationKind: url.endsWith('/plan/stream') ? 'plan' : url.endsWith('/repo-search/stream') ? 'repo-search' : 'message',
         };
+        if (this.options.loseFirstStreamResponse && this.streamRequestCount === 1) {
+          this.settled = true;
+          throw new Error('stream response lost');
+        }
         const conflictOperationKind = this.options.conflictOperationKind;
         if (conflictOperationKind) {
           this.conflictCount += 1;
@@ -519,6 +527,34 @@ test('a lost Force now response retries the same idempotency request', async () 
     await act(async () => hook.result.current.forceQueue());
     assert.equal(fixture.forcedBodies.length, 2);
     assert.equal(fixture.forcedBodies[0], fixture.forcedBodies[1]);
+  } finally { fixture.restore(); }
+});
+
+test('a lost submission response reconnects the same submission and preserves a newer draft', async () => {
+  const completed = { ...SESSION, messages: [
+    chatMessage({ id: 'user', role: 'user', content: 'perform once' }),
+    chatMessage({ id: 'answer', role: 'assistant', content: 'Executed successfully' }),
+  ] };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: completed, contextUsage: CONTEXT_USAGE },
+    loseFirstStreamResponse: true,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    act(() => hook.result.current.setSessionDraft('s1', 'perform once'));
+    let run = Promise.resolve();
+    act(() => { run = hook.result.current.sendMessage(); });
+    await waitFor(() => assert.equal(fixture.streamRequestCount, 1));
+    act(() => hook.result.current.setSessionDraft('s1', 'new unsent draft'));
+    await act(async () => { await run; });
+    assert.equal(fixture.streamRequestCount, 2);
+    assert.deepEqual(fixture.streamBodies[1], fixture.streamBodies[0]);
+    assert.equal(hook.result.current.selectedSession?.messages.at(-1)?.content, 'Executed successfully');
+    assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'new unsent draft');
   } finally { fixture.restore(); }
 });
 

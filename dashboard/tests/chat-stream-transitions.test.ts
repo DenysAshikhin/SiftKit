@@ -196,12 +196,15 @@ test('two streams complete out of order without crossing session state', async (
   assert.equal(drain.store.get('session-a').activity.kind, 'idle');
 });
 
-test('premature stream close fails only the initiating session and preserves its draft', async () => {
+test('premature stream close is interrupted without restoring accepted work as a fresh draft', async () => {
   const drain = new StoreDrain();
-  drain.store = drain.store.apply({ kind: 'draft', sessionId: 'session-a', draft: 'retry me' });
+  drain.store = drain.store.apply({ kind: 'submit', sessionId: 'session-a', content: 'accepted work', images: [] })
+    .apply({ kind: 'draft', sessionId: 'session-a', draft: 'new draft' });
   await drain.drain(prematureStream(), 'session-a', true);
-  assert.equal(drain.store.get('session-a').error, 'Chat stream ended before its terminal record');
-  assert.equal(drain.store.get('session-a').draft, 'retry me');
+  assert.equal(drain.store.get('session-a').error, null);
+  assert.equal(drain.store.get('session-a').draft, 'new draft');
+  assert.equal(drain.store.get('session-a').submittedInput?.content, 'accepted work');
+  assert.equal(drain.store.get('session-a').submissionPhase, 'reconnecting');
   assert.equal(drain.store.get('session-b').error, null);
 });
 

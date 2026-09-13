@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import {
   ChatOperationIdSchema,
   ChatQueueOperationKindSchema,
+  ChatStreamSubmissionIdentitySchema,
   type ChatRunEffectiveSettings,
   type ChatRecoveryReport,
   type ChatSessionOperationKind,
@@ -41,6 +42,8 @@ import { reconcileChatSession } from '../chat-run-recovery.js';
 import { buildChatSessionResponse } from '../chat-session-response.js';
 import { ChatOperationSseSubscriber, writeChatProjectionFailure } from '../chat-operation-sse-subscriber.js';
 import { z } from '../../lib/zod.js';
+import { ChatSubmissionStore, digestChatSubmission } from '../../state/chat-submissions.js';
+import { streamRecordedChatOperation } from './chat-operation-attach.js';
 
 const ChatOperationOutcomeSchema = z.strictObject({ failure: z.string().min(1).nullable() });
 export type ChatOperationOutcome = z.infer<typeof ChatOperationOutcomeSchema>;
@@ -63,16 +66,16 @@ export type ResolvedChatRepoRequest = {
   maxTurns: number | undefined;
 };
 
-/**
- * What a run commits about itself before it is allowed to publish or dispatch anything. An
- * operation that only edits history returns null: it is a revision, not a model run.
- */
 export type ChatRunSubmission = {
   settings: ChatRunEffectiveSettings;
   content: string;
   images: string[];
 };
 
+/**
+ * What a run commits about itself before it is allowed to publish or dispatch anything. An
+ * operation that only edits history returns null: it is a revision, not a model run.
+ */
 export type ChatSessionOperationRequest<TParsed> = {
   queuedMessages?: ChatQueuedMessage[];
   queueIntentId?: string;
@@ -291,6 +294,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     session: ChatSession,
     value: TParsed,
     userMessageId: string = randomUUID(),
+    receipt: { submissionId: string; requestDigest: string } | null = null,
   ): ChatRunRecorder | null {
     const config = readConfig(ctx.configPath);
     ctx.chatRuntimeOwner.assertOwned();
@@ -304,19 +308,28 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     const recovery = reconcileChatSession(database, sessionId);
     const failed = recovery.find(report => report.status === 'recovery_failed');
     if (failed) throw new ChatRecoveryAdmissionError(failed);
-    return ChatRunRecorder.begin(database, {
-      operationId: randomUUID(),
-      sessionId,
-      ownerEpoch: ctx.chatRunOwnerEpoch,
-      operationKind: this.operationKind,
-      userMessageId,
-      content: submission.content,
-      images: admitted.images,
-      imageMeta: admitted.imageMeta,
-      settings: submission.settings,
-      retainedHistoryRevision: readChatHistoryRevisionCount(database, sessionId),
-      startedAtUtc: new Date().toISOString(),
-    });
+    return database.transaction(() => {
+      const recorder = ChatRunRecorder.begin(database, {
+        operationId: randomUUID(),
+        sessionId,
+        ownerEpoch: ctx.chatRunOwnerEpoch,
+        operationKind: this.operationKind,
+        userMessageId,
+        content: submission.content,
+        images: admitted.images,
+        imageMeta: admitted.imageMeta,
+        settings: submission.settings,
+        retainedHistoryRevision: readChatHistoryRevisionCount(database, sessionId),
+        startedAtUtc: new Date().toISOString(),
+      });
+      if (receipt) new ChatSubmissionStore(database).insert({
+        sessionId,
+        submissionId: receipt.submissionId,
+        requestDigest: receipt.requestDigest,
+        runOperationId: recorder.operationId,
+      });
+      return recorder;
+    })();
   }
 
   async handle(
@@ -326,12 +339,6 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     routeMatch: RouteMatch,
   ): Promise<void> {
     const sessionId = readChatSessionIdFromMatch(routeMatch);
-    const sessionPath = getChatSessionPath(getRuntimeRoot(), sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
     let parsedBody: JsonObject;
     try {
       parsedBody = parseJsonBody(await readBody(req));
@@ -339,13 +346,39 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
+    const identity = this.clientOwnedOperation
+      ? ChatStreamSubmissionIdentitySchema.safeParse({
+          submissionId: parsedBody.submissionId,
+          operationId: parsedBody.operationId,
+        })
+      : null;
+    if (identity && !identity.success) {
+      sendJson(res, 400, { error: 'submissionId and operationId must be UUIDs.' });
+      return;
+    }
+    const requestDigest = identity ? digestChatSubmission(this.operationKind, parsedBody) : null;
+    if (identity?.success && requestDigest) {
+      const receipt = new ChatSubmissionStore(ctx.runtimeDatabase).read(sessionId, identity.data.submissionId);
+      if (receipt) {
+        if (receipt.requestDigest !== requestDigest) {
+          sendJson(res, 409, { error: 'Submission identity was already used with different content.', code: 'submission_conflict' });
+          return;
+        }
+        streamRecordedChatOperation(ctx, req, res, sessionId, receipt.runOperationId);
+        return;
+      }
+    }
+    const sessionPath = getChatSessionPath(getRuntimeRoot(), sessionId);
+    const session = readChatSessionFromPath(sessionPath);
+    if (!session) {
+      sendJson(res, 404, { error: 'Session not found.' });
+      return;
+    }
     const value = this.parseRequest(res, session, parsedBody);
     if (value === null) {
       return;
     }
-    const operationId = this.clientOwnedOperation
-      ? ChatOperationIdSchema.safeParse(parsedBody.operationId)
-      : null;
+    const operationId = this.clientOwnedOperation ? ChatOperationIdSchema.safeParse(parsedBody.operationId) : null;
     if (operationId && !operationId.success) {
       sendJson(res, 400, { error: 'operationId must be a UUID.' });
       return;
@@ -369,9 +402,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       return;
     }
     const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
-    if (lease) ctx.chatMessageQueue.publish(sessionId);
     try {
-      const recorder = this.beginRun(ctx, sessionId, session, value);
+      const recorder = this.beginRun(ctx, sessionId, session, value, randomUUID(), identity?.success && requestDigest
+        ? { submissionId: identity.data.submissionId, requestDigest }
+        : null);
+      if (lease && recorder) lease.recorder = recorder;
+      if (lease) ctx.chatMessageQueue.publish(sessionId);
       await this.runRecorded(ctx, req, res, {
         sessionId,
         sessionPath,

@@ -179,6 +179,7 @@ export function seedLegacyChatDatabase(
   try {
     database.exec('PRAGMA foreign_keys = ON;');
     database.exec(`
+      DROP TABLE chat_submissions;
       DROP TABLE chat_messages;
       ${chatMessagesDdl(options)}
       INSERT INTO chat_sessions (

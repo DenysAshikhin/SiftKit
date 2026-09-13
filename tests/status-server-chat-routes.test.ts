@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { ImageMetadataSchema } from '@siftkit/contracts';
 
@@ -861,6 +862,29 @@ test('two sequential turns reusing one client operationId record two distinct ru
     assert.notEqual(runs[0]?.operation_id, runs[1]?.operation_id);
     assert.equal(runs[1]?.run_order, (runs[0]?.run_order ?? 0) + 1);
     assert.deepEqual(runs.map((run) => run.terminal_cause), ['completed', 'completed']);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+test('repeating one streamed submission replays its durable run without executing twice', async () => {
+  const engine = new StaticCaptionEngineService('one answer');
+  const context = await withCaptionServer({}, engine);
+  const body = { content: 'perform once', operationId: randomUUID(), submissionId: randomUUID() };
+  const streamUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/stream`;
+  try {
+    const first = await requestSse(streamUrl, { method: 'POST', body: JSON.stringify(body) });
+    const repeated = await requestSse(streamUrl, { method: 'POST', body: JSON.stringify(body) });
+    assert.equal(first.statusCode, 200, JSON.stringify(first.events));
+    assert.equal(repeated.statusCode, 200, JSON.stringify(repeated.events));
+    const runs = new ChatJournalStore(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite')))
+      .listSessionRuns(context.fixture.session.id).filter(run => run.recordKind === 'execution');
+    assert.equal(runs.length, 1);
+    const conflict = await requestJson(streamUrl, {
+      method: 'POST', body: JSON.stringify({ ...body, content: 'changed' }),
+    });
+    assert.equal(conflict.statusCode, 409);
+    assert.equal(asObject(conflict.body).code, 'submission_conflict');
   } finally {
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }

@@ -28,11 +28,20 @@ export async function* toRuntimeTransitions(
   try {
     for await (const event of stream) {
       if (event.kind === 'queue') {
-        if (event.queue.sessionId !== sessionId) throw new Error('Queue stream session mismatch.');
+        if (event.queue.sessionId !== sessionId) {
+          yield { kind: 'failure', sessionId, message: 'Queue stream session mismatch.' };
+          return;
+        }
         yield { kind: 'queue', sessionId, queue: event.queue };
         continue;
       }
-      const delivery = projection.acceptFrame(event.frame);
+      let delivery;
+      try {
+        delivery = projection.acceptFrame(event.frame);
+      } catch (error) {
+        yield { kind: 'failure', sessionId, message: getErrorMessage(error) };
+        return;
+      }
       if (delivery === null) continue;
       if (delivery.kind === 'view') {
         const snapshot = delivery.snapshot;
@@ -62,10 +71,6 @@ export async function* toRuntimeTransitions(
       yield { kind: 'control-error', sessionId, message: getErrorMessage(error) };
       return;
     }
-    yield {
-      kind: 'failure',
-      sessionId,
-      message: getErrorMessage(error),
-    };
+    yield { kind: 'interrupted', sessionId, message: getErrorMessage(error) };
   }
 }

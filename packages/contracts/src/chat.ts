@@ -318,6 +318,11 @@ export const ChatSessionBusyResponseSchema = z.object({
   operationKind: ChatSessionOperationKindSchema,
 });
 export type ChatSessionBusyResponse = z.infer<typeof ChatSessionBusyResponseSchema>;
+export const ChatSubmissionConflictResponseSchema = z.strictObject({
+  error: z.string().min(1),
+  code: z.literal('submission_conflict'),
+});
+export type ChatSubmissionConflictResponse = z.infer<typeof ChatSubmissionConflictResponseSchema>;
 
 export const RepoAgentApproveDecisionSchema = z.strictObject({ decision: z.literal('approve') });
 export const RepoAgentDenyDecisionSchema = z.strictObject({
@@ -337,18 +342,58 @@ export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 export const DEFAULT_APPROVAL_MODE = 'auto' satisfies ApprovalMode;
 export const APPROVAL_MODE_ERROR = `approval must be one of: ${ApprovalModeSchema.options.join(', ')}.`;
 
+export const ChatOperationIdSchema = z.string().uuid();
+export type ChatOperationId = z.infer<typeof ChatOperationIdSchema>;
+export const ChatSubmissionIdSchema = z.string().uuid();
+export type ChatSubmissionId = z.infer<typeof ChatSubmissionIdSchema>;
+export const ChatStreamSubmissionIdentitySchema = z.strictObject({
+  submissionId: ChatSubmissionIdSchema,
+  operationId: ChatOperationIdSchema,
+});
+export type ChatStreamSubmissionIdentity = z.infer<typeof ChatStreamSubmissionIdentitySchema>;
+export const ChatSubmissionPhaseSchema = z.enum(['sending', 'streaming', 'reconnecting', 'settling']);
+export type ChatSubmissionPhase = z.infer<typeof ChatSubmissionPhaseSchema>;
+/** A per-send web override; absent means the session's own setting applies. */
+export const ChatWebSearchOverrideSchema = z.enum(['on', 'off']);
+export type ChatWebSearchOverride = z.infer<typeof ChatWebSearchOverrideSchema>;
+
+const ChatStreamRequestTestFields = {
+  availableModels: z.array(z.string()).optional(),
+  mockResponses: z.array(z.json()).optional(),
+  mockCommandResults: z.record(z.string(), z.json()).optional(),
+} as const;
+export const ChatMessageStreamRequestSchema = z.strictObject({
+  ...ChatStreamSubmissionIdentitySchema.shape,
+  content: z.string(),
+  images: z.array(ImageDataUrlSchema).optional(),
+  assistantContent: z.string().optional(),
+  maxTurns: z.number().int().positive().optional(),
+  webSearchOverride: ChatWebSearchOverrideSchema.optional(),
+  ...ChatStreamRequestTestFields,
+});
+export type ChatMessageStreamRequest = z.infer<typeof ChatMessageStreamRequestSchema>;
+export const ChatRepoStreamRequestSchema = z.strictObject({
+  ...ChatStreamSubmissionIdentitySchema.shape,
+  content: z.string().trim().min(1),
+  images: z.array(ImageDataUrlSchema).optional(),
+  repoRoot: z.string().trim().min(1).optional(),
+  model: z.string().optional(),
+  maxTurns: z.number().int().positive().optional(),
+  ...ChatStreamRequestTestFields,
+});
+export type ChatRepoStreamRequest = z.infer<typeof ChatRepoStreamRequestSchema>;
+
 export const ChatRepoAgentStreamRequestSchema = z.strictObject({
   content: z.string().trim().min(1),
   images: z.array(ImageDataUrlSchema).optional(),
   repoRoot: z.string().trim().min(1).optional(),
   approval: ApprovalModeSchema,
   maxTurns: z.number().int().positive().optional(),
-  operationId: z.string().uuid(),
+  ...ChatStreamRequestTestFields,
+  ...ChatStreamSubmissionIdentitySchema.shape,
 });
 export type ChatRepoAgentStreamRequest = z.infer<typeof ChatRepoAgentStreamRequestSchema>;
 
-export const ChatOperationIdSchema = z.string().uuid();
-export type ChatOperationId = z.infer<typeof ChatOperationIdSchema>;
 export const StopChatOperationRequestSchema = z.strictObject({ operationId: ChatOperationIdSchema });
 export type StopChatOperationRequest = z.infer<typeof StopChatOperationRequestSchema>;
 export const StopChatOperationResponseSchema = z.strictObject({
@@ -377,10 +422,6 @@ export type ChatQueuedMessageState = z.infer<typeof ChatQueuedMessageStateSchema
  * Everything about a send except its text and images, captured at enqueue time so a queued
  * message later starts exactly the operation the user would have started by pressing Send.
  */
-/** A per-send web override; absent means the session's own setting applies. */
-export const ChatWebSearchOverrideSchema = z.enum(['on', 'off']);
-export type ChatWebSearchOverride = z.infer<typeof ChatWebSearchOverrideSchema>;
-
 export const ChatQueueSendOptionsSchema = z.strictObject({
   operationKind: ChatQueueOperationKindSchema,
   approval: ApprovalModeSchema.optional(),
