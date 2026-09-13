@@ -347,7 +347,8 @@ export class DashboardModelQueueHarness {
     return requestSse(`${this.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/${segment}/stream`, {
       method: 'POST',
       timeoutMs: 30_000,
-      body: JSON.stringify({ content, operationId, repoRoot: this.tempRoot }),
+      body: JSON.stringify({ content, operationId, submissionId: randomUUID(),
+        ...(operationKind === 'message' ? {} : { repoRoot: this.tempRoot }) }),
     });
   }
 

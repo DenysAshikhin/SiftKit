@@ -847,7 +847,7 @@ test('two sequential turns reusing one client operationId record two distinct ru
     for (const content of ['first question', 'second question']) {
       const response = await requestSse(streamUrl, {
         method: 'POST',
-        body: JSON.stringify({ content, operationId: clientOperationId }),
+        body: JSON.stringify({ content, operationId: clientOperationId, submissionId: randomUUID() }),
       });
       assert.equal(response.statusCode, 200, JSON.stringify(response.events));
       assert.equal(response.events.some((event) => event.event === 'error'), false, JSON.stringify(response.events));
@@ -890,6 +890,22 @@ test('repeating one streamed submission replays its durable run without executin
   }
 });
 
+test('streaming admission rejects fields outside the authoritative request schema', async () => {
+  const context = await withCaptionServer({}, new StaticCaptionEngineService('must not run'));
+  const streamUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/stream`;
+  try {
+    const response = await requestJson(streamUrl, { method: 'POST', body: JSON.stringify({
+      content: 'invalid request', operationId: randomUUID(), submissionId: randomUUID(), unexpected: true,
+    }) });
+    assert.equal(response.statusCode, 400);
+    const runs = new ChatJournalStore(getRuntimeDatabase(path.join(context.fixture.runtimeRoot, 'runtime.sqlite')))
+      .listSessionRuns(context.fixture.session.id).filter(run => run.recordKind === 'execution');
+    assert.equal(runs.length, 0);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
 class ForeignDatabaseFailureEngineService extends StatusEngineService {
   override executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     // Another root's database opens and closes mid-run; the admitted run keeps its own handle.
@@ -917,7 +933,7 @@ test('streaming and non-streaming message dispatch commit engine context to thei
     const normal = await requestJson(url, { method: 'POST', body: JSON.stringify({ content: 'normal' }) });
     assert.equal(normal.statusCode, 200, JSON.stringify(normal.body));
     const streamed = await requestSse(`${url}/stream`, {
-      method: 'POST', body: JSON.stringify({ content: 'streamed', operationId: '4f9c1f9a-0000-4000-8000-000000000000' }),
+      method: 'POST', body: JSON.stringify({ content: 'streamed', operationId: '4f9c1f9a-0000-4000-8000-000000000000', submissionId: randomUUID() }),
     });
     assert.equal(streamed.events.some(event => event.event === 'error'), false, JSON.stringify(streamed.events));
     const rows = z.array(z.object({ kind: z.string() })).parse(
@@ -964,7 +980,7 @@ test('admission records the preset, turn limit, web override and history revisio
   try {
     const sessionUrl = `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}`;
     const first = await requestSse(`${sessionUrl}/messages/stream`, { method: 'POST', body: JSON.stringify({
-      content: 'explicit limits', operationId: '4f9c1f9a-0000-4000-8000-000000000000', maxTurns: 3, webSearchOverride: 'on',
+      content: 'explicit limits', operationId: '4f9c1f9a-0000-4000-8000-000000000000', submissionId: randomUUID(), maxTurns: 3, webSearchOverride: 'on',
     }) });
     assert.equal(first.events.some(event => event.event === 'error'), false, JSON.stringify(first.events));
     const deleted = await requestJson(`${sessionUrl}/messages/${context.fixture.message.id}`, { method: 'DELETE' });

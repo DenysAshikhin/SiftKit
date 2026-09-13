@@ -6,6 +6,9 @@ import { resolve } from 'node:path';
 import {
   ChatOperationIdSchema,
   ChatQueueOperationKindSchema,
+  ChatMessageStreamRequestSchema,
+  ChatRepoStreamRequestSchema,
+  ChatRepoAgentStreamRequestSchema,
   ChatStreamSubmissionIdentitySchema,
   type ChatRunEffectiveSettings,
   type ChatRecoveryReport,
@@ -13,7 +16,7 @@ import {
 } from '@siftkit/contracts';
 
 import { toError } from '../../lib/errors.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import type { ChatSession } from '../../state/chat-sessions.js';
 import type { ChatQueuedMessage } from '../../state/chat-message-queue.js';
 import { getRuntimeRoot } from '../paths.js';
@@ -100,6 +103,20 @@ function readChatSessionIdFromMatch(routeMatch: RouteMatch): string {
     throw new Error(`Chat route ${routeMatch.pathname} did not capture a session id.`);
   }
   return decodeURIComponent(rawSessionId);
+}
+
+function parseCompleteChatStreamRequest(
+  operationKind: ChatSessionOperationKind,
+  body: JsonObject,
+): JsonObject | null {
+  const parsed = operationKind === 'message'
+    ? ChatMessageStreamRequestSchema.safeParse(body)
+    : operationKind === 'plan' || operationKind === 'repo-search'
+      ? ChatRepoStreamRequestSchema.safeParse(body)
+      : operationKind === 'repo-agent'
+        ? ChatRepoAgentStreamRequestSchema.safeParse(body)
+        : null;
+  return parsed?.success ? JsonObjectSchema.parse(parsed.data) : null;
 }
 
 function rejectBusyChatSession(
@@ -294,7 +311,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     session: ChatSession,
     value: TParsed,
     userMessageId: string = randomUUID(),
-    receipt: { submissionId: string; requestDigest: string } | null = null,
+    submissionReceipt: { submissionId: string; requestDigest: string } | null = null,
   ): ChatRunRecorder | null {
     const config = readConfig(ctx.configPath);
     ctx.chatRuntimeOwner.assertOwned();
@@ -308,28 +325,20 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     const recovery = reconcileChatSession(database, sessionId);
     const failed = recovery.find(report => report.status === 'recovery_failed');
     if (failed) throw new ChatRecoveryAdmissionError(failed);
-    return database.transaction(() => {
-      const recorder = ChatRunRecorder.begin(database, {
-        operationId: randomUUID(),
-        sessionId,
-        ownerEpoch: ctx.chatRunOwnerEpoch,
-        operationKind: this.operationKind,
-        userMessageId,
-        content: submission.content,
-        images: admitted.images,
-        imageMeta: admitted.imageMeta,
-        settings: submission.settings,
-        retainedHistoryRevision: readChatHistoryRevisionCount(database, sessionId),
-        startedAtUtc: new Date().toISOString(),
-      });
-      if (receipt) new ChatSubmissionStore(database).insert({
-        sessionId,
-        submissionId: receipt.submissionId,
-        requestDigest: receipt.requestDigest,
-        runOperationId: recorder.operationId,
-      });
-      return recorder;
-    })();
+    return ChatRunRecorder.begin(database, {
+      operationId: randomUUID(),
+      sessionId,
+      ownerEpoch: ctx.chatRunOwnerEpoch,
+      operationKind: this.operationKind,
+      userMessageId,
+      content: submission.content,
+      images: admitted.images,
+      imageMeta: admitted.imageMeta,
+      settings: submission.settings,
+      retainedHistoryRevision: readChatHistoryRevisionCount(database, sessionId),
+      startedAtUtc: new Date().toISOString(),
+      ...(submissionReceipt ? { submission: submissionReceipt } : {}),
+    });
   }
 
   async handle(
@@ -345,6 +354,14 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     } catch (error) {
       sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
+    }
+    if (this.clientOwnedOperation) {
+      const completeBody = parseCompleteChatStreamRequest(this.operationKind, parsedBody);
+      if (!completeBody) {
+        sendJson(res, 400, { error: 'Invalid streaming chat request.' });
+        return;
+      }
+      parsedBody = completeBody;
     }
     const identity = this.clientOwnedOperation
       ? ChatStreamSubmissionIdentitySchema.safeParse({

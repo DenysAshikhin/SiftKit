@@ -21,6 +21,7 @@ import { applyLiveTranscript, type LiveTranscriptStep } from './live-transcript-
 import { createLiveMessage } from '../src/lib/chat-live-messages';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 
 for (const grouped of [false, true]) test(`Stop outcome is visible once outside generated text (grouped=${grouped})`, () => {
   const answer = { ...createLiveMessage('partial', 'assistant_answer', 'assistant', 'Original partial answer'), runTerminalCause: 'user_stop' as const };
@@ -161,7 +162,7 @@ for (const queued of [false, true]) {
     let session = created.session;
     const props = () => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [session], selectedRuntime: store.get(sessionId), sessionRuntimes: store.getAll() });
     const view = renderComponent(<ChatTab {...props()} />);
-    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, maxTurns: 3 }), true);
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
     t.after(async () => { await stream.return(); });
     try {
       const firstPrompt = readThrough(stream, store, 'prompt');
@@ -253,7 +254,7 @@ for (const force of [false, true]) {
     const sessionId = created.session.id;
     const url = `${server.baseUrl}/dashboard/chat/sessions/${sessionId}`;
     let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '');
-    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, maxTurns: 3 }), true);
+    const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'original', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
     t.after(async () => { await stream.return(); });
     const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: sessionId, selectedSession: created.session, selectedRuntime: store.get(sessionId) })} />);
     try {
@@ -1455,6 +1456,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
         body: JSON.stringify({
           content: triggerQuestion,
           operationId: OPERATION_ID,
+          submissionId: SUBMISSION_ID,
           webSearchOverride: 'off',
           maxTurns: 1,
           availableModels: ['mock'],

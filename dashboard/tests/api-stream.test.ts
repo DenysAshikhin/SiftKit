@@ -179,8 +179,8 @@ test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
   }
 });
 
-test('streamPlanMessage throws generic error on malformed 409', async () => {
-  const { streamPlanMessage } = await import('../src/api');
+test('streamPlanMessage preserves a definite rejection status on malformed 409', async () => {
+  const { streamPlanMessage, ChatStreamHttpError } = await import('../src/api');
   const restoreFetch = mockFetchStatus(409, '{"bad":true}');
   try {
     let threw = false;
@@ -190,7 +190,8 @@ test('streamPlanMessage throws generic error on malformed 409', async () => {
       }
     } catch (error) {
       threw = true;
-      assert.ok(error instanceof Error);
+      assert.ok(error instanceof ChatStreamHttpError);
+      assert.equal(error.status, 409);
       assert.equal(error.message, 'Request failed (409): {"bad":true}');
     }
     assert.equal(threw, true);

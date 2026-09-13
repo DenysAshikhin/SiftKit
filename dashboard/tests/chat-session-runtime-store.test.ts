@@ -60,6 +60,13 @@ test('a committed view replaces the live transcript and completion preserves the
   assert.deepEqual(settled.get('s1').liveMessages, []);
 });
 
+test('a remote snapshot does not create owned submission phase', () => {
+  const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '')
+    .apply(snapshotFor('s1')).get('s1');
+  assert.equal(runtime.submissionPhase, null);
+  assert.equal(runtime.ownedSubmissionId, null);
+});
+
 const SAMPLE_RESPONSE: ChatSessionResponse = {
   session: {
     id: 's1',

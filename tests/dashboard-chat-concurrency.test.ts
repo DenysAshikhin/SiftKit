@@ -162,7 +162,7 @@ test('a stream request that loses its client while queued still completes its tu
     const aborter = new AbortController();
     const queued = fireAndAbortJsonRequest(
       `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/messages/stream`,
-      JSON.stringify({ content: 'prompt-b', operationId: randomUUID() }),
+      JSON.stringify({ content: 'prompt-b', operationId: randomUUID(), submissionId: randomUUID() }),
       aborter.signal,
     );
     await harness.waitForQueuedRequest('dashboard_chat_stream');

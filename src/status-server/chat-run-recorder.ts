@@ -38,6 +38,7 @@ import { getAbortError, throwIfAborted } from '../lib/abort.js';
 import { admitChatImages } from '../llm-protocol/preset-image-admission.js';
 import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
 import { sanitizeChatContextImages } from '../state/chat-context-images.js';
+import { ChatSubmissionReceiptSchema, ChatSubmissionStore } from '../state/chat-submissions.js';
 
 /** The submission, minus the ordering the store assigns and the discriminator the recorder stamps. */
 export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
@@ -46,6 +47,7 @@ export const ChatRunRecorderStartSchema = ChatRunStartedEventSchema
     operationId: z.string().uuid(),
     ownerEpoch: z.string().min(1),
     startedAtUtc: z.string().datetime(),
+    submission: ChatSubmissionReceiptSchema.omit({ sessionId: true, runOperationId: true }).optional(),
   });
 export type ChatRunRecorderStart = z.infer<typeof ChatRunRecorderStartSchema>;
 
@@ -135,29 +137,35 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     const start = ChatRunRecorderStartSchema.parse(input);
     const recorder = new ChatRunRecorder(database, start.operationId, start.ownerEpoch, start.sessionId, start.settings);
     return database.transaction(() => {
-    const run = recorder.store.begin({
-      operationId: start.operationId,
-      sessionId: start.sessionId,
-      recordKind: 'execution',
-      operationKind: start.operationKind,
-      ownerEpoch: start.ownerEpoch,
-      settings: start.settings,
-      provenance: null,
-      createdAtUtc: start.startedAtUtc,
-    });
-    recorder.commit({
-      kind: 'run_started',
-      sessionId: start.sessionId,
-      operationKind: start.operationKind,
-      runOrder: run.runOrder,
-      userMessageId: start.userMessageId,
-      content: start.content,
-      images: start.images,
-      imageMeta: start.imageMeta,
-      settings: start.settings,
-      retainedHistoryRevision: start.retainedHistoryRevision,
-    }, start.startedAtUtc);
-    return recorder;
+      const run = recorder.store.begin({
+        operationId: start.operationId,
+        sessionId: start.sessionId,
+        recordKind: 'execution',
+        operationKind: start.operationKind,
+        ownerEpoch: start.ownerEpoch,
+        settings: start.settings,
+        provenance: null,
+        createdAtUtc: start.startedAtUtc,
+      });
+      recorder.commit({
+        kind: 'run_started',
+        sessionId: start.sessionId,
+        operationKind: start.operationKind,
+        runOrder: run.runOrder,
+        userMessageId: start.userMessageId,
+        content: start.content,
+        images: start.images,
+        imageMeta: start.imageMeta,
+        settings: start.settings,
+        retainedHistoryRevision: start.retainedHistoryRevision,
+      }, start.startedAtUtc);
+      if (start.submission) new ChatSubmissionStore(database).insert({
+        sessionId: start.sessionId,
+        submissionId: start.submission.submissionId,
+        requestDigest: start.submission.requestDigest,
+        runOperationId: start.operationId,
+      });
+      return recorder;
     })();
   }
 

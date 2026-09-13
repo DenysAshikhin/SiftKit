@@ -53,6 +53,7 @@ import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse } from '../types';
 import type { ToastLevel } from './useToasts';
 import type { PendingImage } from '../lib/downscale-image';
+import { waitForAbortableDelay } from '../lib/abortable-delay';
 
 const CHAT_ATTACH_RECONNECT_MS = 1000;
 
@@ -60,13 +61,6 @@ type OwnedChatSubmission =
   | { operationKind: 'message'; payload: ChatMessageStreamRequest }
   | { operationKind: 'plan' | 'repo-search'; payload: ChatRepoStreamRequest }
   | { operationKind: 'repo-agent'; payload: ChatRepoAgentStreamRequest };
-
-function waitForSubmissionReconnect(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, CHAT_ATTACH_RECONNECT_MS);
-    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
-  });
-}
 
 function openOwnedSubmissionStream(
   sessionId: string,
@@ -330,7 +324,7 @@ export function useChatSessions(deps: {
           if (transition.kind === 'snapshot') {
             attached = true;
           }
-          if (transition.kind === 'failure') {
+          if (transition.kind === 'failure' || transition.kind === 'interrupted') {
             try { if (await refreshSession()) scheduleReconnect(); }
             catch (error) { reconnectAfterError(toError(error)); }
           }
@@ -588,12 +582,14 @@ export function useChatSessions(deps: {
         let interrupted = false;
         for await (const transition of toRuntimeTransitions(
           sessionId,
-          { kind: 'owned', operationKind: submission.operationKind, operationId: submission.payload.operationId },
+          { kind: 'owned', operationKind: submission.operationKind, operationId: submission.payload.operationId,
+            submissionId: submission.payload.submissionId },
           stream,
           thinkingEnabled,
         )) {
           if (transition.kind === 'terminal') {
-            setRuntimeStore((previous) => previous.apply({ kind: 'submission-phase', sessionId, phase: 'settling' }));
+            setRuntimeStore((previous) => previous.apply({ kind: 'submission-phase', sessionId,
+              submissionId: submission.payload.submissionId, phase: 'settling' }));
             try {
               applySessionResponse(await getChatSession(sessionId));
               pendingTerminalTransitions.current.delete(sessionId);
@@ -605,12 +601,19 @@ export function useChatSessions(deps: {
             }
             continue;
           }
-          setRuntimeStore((previous) => previous.apply(transition));
+          setRuntimeStore((previous) => {
+            const next = previous.apply(transition);
+            if (transition.kind === 'snapshot') return next.apply({ kind: 'submission-phase', sessionId,
+              submissionId: submission.payload.submissionId, phase: 'streaming' });
+            if (transition.kind === 'interrupted') return next.apply({ kind: 'submission-phase', sessionId,
+              submissionId: submission.payload.submissionId, phase: 'reconnecting' });
+            return next;
+          });
           if (transition.kind === 'interrupted') interrupted = true;
           if (transition.kind === 'failure' || transition.kind === 'remote-begin') ownedElsewhere = true;
         }
         if (!interrupted || retryTerminalRefresh || ownedElsewhere) break;
-        await waitForSubmissionReconnect(controller.signal);
+        await waitForAbortableDelay(controller.signal, CHAT_ATTACH_RECONNECT_MS);
       }
     } finally {
       const owner = ownedSubmissions.current.get(sessionId);
@@ -642,8 +645,8 @@ export function useChatSessions(deps: {
     };
   }
 
-  function submitRuntimeInputs(sessionId: string, content: string, images: PendingImage[]): void {
-    setRuntimeStore((previous) => previous.apply({ kind: 'submit', sessionId, content, images }));
+  function submitRuntimeInputs(sessionId: string, content: string, images: PendingImage[], submissionId: string): void {
+    setRuntimeStore((previous) => previous.apply({ kind: 'submit', sessionId, content, images, submissionId }));
   }
 
   function parseSessionMaxTurnsOverride(sessionId: string, input: string): ParsedMaxTurnsOverride | null {
@@ -688,9 +691,9 @@ export function useChatSessions(deps: {
         // The warning is advisory; a failed probe must not block a user who knows the image is safe.
       }
     }
-    submitRuntimeInputs(selectedSession.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     const submissionId = crypto.randomUUID();
+    submitRuntimeInputs(selectedSession.id, inputs.draft, inputs.pendingImages, submissionId);
     await runChatStream(selectedSession.id, {
       operationKind: 'message',
       payload: {
@@ -713,9 +716,9 @@ export function useChatSessions(deps: {
     if (!maxTurnsOverride) {
       return;
     }
-    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     const submissionId = crypto.randomUUID();
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages, submissionId);
     await runChatStream(session.id, { operationKind: 'plan', payload: {
       content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), ...maxTurnsOverride,
@@ -734,9 +737,9 @@ export function useChatSessions(deps: {
     if (!maxTurnsOverride) {
       return;
     }
-    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     const submissionId = crypto.randomUUID();
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages, submissionId);
     await runChatStream(session.id, { operationKind: 'repo-search', payload: {
       content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), ...maxTurnsOverride,
@@ -755,9 +758,9 @@ export function useChatSessions(deps: {
     if (!maxTurnsOverride) {
       return;
     }
-    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     const operationId = crypto.randomUUID();
     const submissionId = crypto.randomUUID();
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages, submissionId);
     await runChatStream(session.id, { operationKind: 'repo-agent', payload: {
       content: inputs.draft, images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot), approval: inputs.repoAgentApprovalMode,

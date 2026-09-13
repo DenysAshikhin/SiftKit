@@ -19,6 +19,7 @@ import {
 } from '@siftkit/contracts';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 
 test('operation kind accepts repo-agent', () => {
   assert.equal(ChatSessionOperationKindSchema.parse('repo-agent'), 'repo-agent');
@@ -78,9 +79,12 @@ test('chat repo-agent stream requests require a client operation id', () => {
     repoRoot: 'C:\\repo',
     approval: 'interactive',
     operationId: OPERATION_ID,
+    submissionId: SUBMISSION_ID,
   });
   assert.equal(parsed.operationId, OPERATION_ID);
-  assert.throws(() => ChatRepoAgentStreamRequestSchema.parse({ content: 'missing ownership' }));
+  assert.throws(() => ChatRepoAgentStreamRequestSchema.parse({
+    content: 'missing ownership', approval: 'interactive', submissionId: SUBMISSION_ID,
+  }));
 });
 
 test('active repo-agent responses expose only actionable nonterminal states', () => {
@@ -115,9 +119,10 @@ test('chat repo-agent stream requests require an approval mode', () => {
     content: 'update the repository',
     repoRoot: 'C:\repo',
     operationId: OPERATION_ID,
+    submissionId: SUBMISSION_ID,
   }));
   assert.equal(
-    ChatRepoAgentStreamRequestSchema.parse({ content: 'x', approval: 'off', operationId: OPERATION_ID }).approval,
+    ChatRepoAgentStreamRequestSchema.parse({ content: 'x', approval: 'off', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }).approval,
     'off',
   );
 });

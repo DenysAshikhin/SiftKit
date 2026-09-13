@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
-import { ChatSessionBusyError } from '../src/api';
+import { ChatSessionBusyError, ChatStreamHttpError } from '../src/api';
 import type { ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import type { ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import type { ChatSessionOperationKind } from '../src/types';
@@ -15,9 +15,10 @@ import { buildUsageFrame } from './usage-frame';
 import { chatProjectionCapture, chatSnapshotFrames, errorRecord, projectionEvents, singleRecordFrames, terminalRecord } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000010';
 
 for (const thinking of [true, false]) {
-  test(`recovered token metadata stays session scoped, respects thinking=${thinking}, and survives failure until its successor`, async () => {
+  test(`recovered token metadata stays session scoped, respects thinking=${thinking}, and survives interruption until its successor`, async () => {
     const drain = new StoreDrain();
     const gate = new Gate();
     const firstId = buildChatMessageId(buildChatRunMessageIdPrefix(OPERATION_ID), { kind: 'thinking', turn: 1 });
@@ -47,7 +48,8 @@ for (const thinking of [true, false]) {
     gate.open();
     await completion;
     assert.equal(drain.store.get('session-a').tokenTurns.size, 2);
-    assert.equal(drain.store.get('session-a').error, 'provider failure after text');
+    assert.equal(drain.store.get('session-a').error, null);
+    assert.equal(drain.store.get('session-a').submissionPhase, 'reconnecting');
     const successorGate = new Gate();
     const successorId = '4f9c1f9a-0000-4000-8000-000000000003';
     const answerId = buildChatMessageId(buildChatRunMessageIdPrefix(successorId), { kind: 'answer', turn: 1 });
@@ -117,7 +119,8 @@ class StoreDrain {
   readonly completions: string[] = [];
 
   async drain(stream: AsyncGenerator<ChatStreamEvent>, sessionId: string, thinking: boolean): Promise<void> {
-    for await (const transition of toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'message', operationId: OPERATION_ID }, stream, thinking)) {
+    for await (const transition of toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'message', operationId: OPERATION_ID,
+      submissionId: SUBMISSION_ID }, stream, thinking)) {
       this.store = this.store.apply(transition);
       if (transition.kind === 'terminal') {
         this.completions.push(transition.sessionId);
@@ -198,7 +201,7 @@ test('two streams complete out of order without crossing session state', async (
 
 test('premature stream close is interrupted without restoring accepted work as a fresh draft', async () => {
   const drain = new StoreDrain();
-  drain.store = drain.store.apply({ kind: 'submit', sessionId: 'session-a', content: 'accepted work', images: [] })
+  drain.store = drain.store.apply({ kind: 'submit', sessionId: 'session-a', content: 'accepted work', images: [], submissionId: SUBMISSION_ID })
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'new draft' });
   await drain.drain(prematureStream(), 'session-a', true);
   assert.equal(drain.store.get('session-a').error, null);
@@ -232,4 +235,11 @@ test('a 409 replaces local ownership with authoritative remote activity', async 
     operationKind: 'repo-search',
   });
   assert.equal(drain.store.get('session-a').error, 'Chat session already has an active operation.');
+});
+
+test('a definite HTTP rejection fails instead of reconnecting', async () => {
+  async function* rejectedStream(): AsyncGenerator<ChatStreamEvent> {
+    throw new ChatStreamHttpError(400, 'Request failed (400): invalid request');
+  }
+  assert.deepEqual(await collectKinds(rejectedStream(), 'message', true), ['begin', 'failure']);
 });

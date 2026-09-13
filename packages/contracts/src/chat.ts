@@ -357,7 +357,7 @@ export type ChatSubmissionPhase = z.infer<typeof ChatSubmissionPhaseSchema>;
 export const ChatWebSearchOverrideSchema = z.enum(['on', 'off']);
 export type ChatWebSearchOverride = z.infer<typeof ChatWebSearchOverrideSchema>;
 
-const ChatStreamRequestTestFields = {
+const ChatStreamExecutionFields = {
   availableModels: z.array(z.string()).optional(),
   mockResponses: z.array(z.json()).optional(),
   mockCommandResults: z.record(z.string(), z.json()).optional(),
@@ -369,7 +369,7 @@ export const ChatMessageStreamRequestSchema = z.strictObject({
   assistantContent: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   webSearchOverride: ChatWebSearchOverrideSchema.optional(),
-  ...ChatStreamRequestTestFields,
+  ...ChatStreamExecutionFields,
 });
 export type ChatMessageStreamRequest = z.infer<typeof ChatMessageStreamRequestSchema>;
 export const ChatRepoStreamRequestSchema = z.strictObject({
@@ -379,7 +379,8 @@ export const ChatRepoStreamRequestSchema = z.strictObject({
   repoRoot: z.string().trim().min(1).optional(),
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
-  ...ChatStreamRequestTestFields,
+  logFile: z.string().optional(),
+  ...ChatStreamExecutionFields,
 });
 export type ChatRepoStreamRequest = z.infer<typeof ChatRepoStreamRequestSchema>;
 
@@ -389,7 +390,7 @@ export const ChatRepoAgentStreamRequestSchema = z.strictObject({
   repoRoot: z.string().trim().min(1).optional(),
   approval: ApprovalModeSchema,
   maxTurns: z.number().int().positive().optional(),
-  ...ChatStreamRequestTestFields,
+  ...ChatStreamExecutionFields,
   ...ChatStreamSubmissionIdentitySchema.shape,
 });
 export type ChatRepoAgentStreamRequest = z.infer<typeof ChatRepoAgentStreamRequestSchema>;

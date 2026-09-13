@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 
 import { z } from '../src/lib/zod.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
@@ -1108,7 +1109,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
       method: 'POST',
       timeoutMs: 3000,
-      body: JSON.stringify({ ...planRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
+      body: JSON.stringify({ ...planRequestBody, operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() }),
     });
     assert.equal(planSse.statusCode, 200);
     const planViews = readChatStreamViews(planSse, sessionId);
@@ -1163,6 +1164,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       body: JSON.stringify({
         content: 'Find tests',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         repoRoot: tempRoot,
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
@@ -1291,7 +1293,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
     const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
       method: 'POST',
       timeoutMs: 3000,
-      body: JSON.stringify({ ...imageRequestBody, operationId: CHAT_STREAM_OPERATION_ID }),
+      body: JSON.stringify({ ...imageRequestBody, operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() }),
     });
     assert.equal(repoResponse.statusCode, 200);
     const repoDoneSession = (await readSettledChatSession(baseUrl, repoSessionId, repoResponse)).session;
@@ -1457,6 +1459,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
         content: 'Describe it again.',
         images: [secondOversizedImage],
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
       }),
     });
     assert.equal(streamResponse.statusCode, 200, JSON.stringify(streamResponse.events));
@@ -1640,7 +1643,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
     const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
       method: 'POST',
       timeoutMs: 5_000,
-      body: JSON.stringify({ ...requestBody, operationId: CHAT_STREAM_OPERATION_ID }),
+      body: JSON.stringify({ ...requestBody, operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() }),
     });
     assert.equal(repoResponse.statusCode, 200, JSON.stringify(repoResponse.events));
     assert.equal(readChatStream(repoResponse, repoSessionId).failure, null, JSON.stringify(repoResponse.events));
@@ -1757,6 +1760,7 @@ test('plan stream endpoint rejects images when image retention is zero', async (
       body: JSON.stringify({
         content: 'plan it',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         repoRoot: tempRoot,
         images: [PNG],
         mockResponses: [{ content: 'done' }],
@@ -1909,9 +1913,9 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
       body: JSON.stringify({
         content: 'Stream a bounded response.',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'off',
         availableModels: ['chat-delta-model-exl3'],
-        model: 'chat-delta-model-exl3',
       }),
     });
 
@@ -2006,9 +2010,9 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
         body: JSON.stringify({
           content: 'What is 2+2?',
           operationId: CHAT_STREAM_OPERATION_ID,
+          submissionId: randomUUID(),
           webSearchOverride: 'off',
           availableModels: ['mock'],
-          model: 'mock',
           mockResponses: [{ content: "4" }],
         }),
       });
@@ -2073,9 +2077,9 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { content: "About 999 gp per bar without checking." },
           { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
@@ -2129,9 +2133,9 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
       body: JSON.stringify({
         content: 'Check that price again.',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
           { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
@@ -2219,9 +2223,9 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
       body: JSON.stringify({
         content: 'What does the iron bar page say?',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS iron bar"} }] },
           { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://oldschool.runescape.wiki/w/Iron_bar"} }] },
@@ -2258,9 +2262,9 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
       body: JSON.stringify({
         content: 'Repeat the exact fetched evidence from the page.',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { content: "The fetched page text said: Iron bars are used in Smithing and quests." },
         ],
@@ -2320,9 +2324,9 @@ test('deleting retained web tool step allows the same web call in a later chat t
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
           { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar"} }] },
@@ -2360,9 +2364,9 @@ test('deleting retained web tool step allows the same web call in a later chat t
       body: JSON.stringify({
         content: 'Check that price again.',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         webSearchOverride: 'on',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [
           { toolCalls: [{ name: "web_search", arguments: {"query":"iron bar GE price"} }] },
           { toolCalls: [{ name: "web_fetch", arguments: {"url":"https://prices.runescape.wiki/iron-bar-live"} }] },
@@ -2627,11 +2631,11 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
     ] as const;
     const conflictRoutes = [
       { suffix: 'messages', body: { content: 'conflict', assistantContent: 'blocked' } },
-      { suffix: 'messages/stream', body: { content: 'conflict', operationId: CHAT_STREAM_OPERATION_ID } },
+      { suffix: 'messages/stream', body: { content: 'conflict', operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() } },
       { suffix: 'plan', body: { content: 'conflict', repoRoot: process.cwd() } },
-      { suffix: 'plan/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID } },
+      { suffix: 'plan/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() } },
       { suffix: 'repo-search', body: { content: 'conflict', repoRoot: process.cwd() } },
-      { suffix: 'repo-search/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID } },
+      { suffix: 'repo-search/stream', body: { content: 'conflict', repoRoot: process.cwd(), operationId: CHAT_STREAM_OPERATION_ID, submissionId: randomUUID() } },
     ] as const;
 
     for (const activeSession of activeSessions) {
@@ -2827,6 +2831,7 @@ test('a queued Repo Search whose client disconnects still completes its turn', a
       JSON.stringify({
         content: 'survives the disconnect',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         repoRoot: process.cwd(),
         maxTurns: 1,
         availableModels: ['Qwen3.5-9B-EXL3'],
@@ -3364,6 +3369,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       body: JSON.stringify({
         content: 'Find package name',
         operationId: CHAT_STREAM_OPERATION_ID,
+        submissionId: randomUUID(),
         repoRoot: tempRoot,
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],

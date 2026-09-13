@@ -561,6 +561,13 @@ export class ChatSessionBusyError extends Error {
   }
 }
 
+export class ChatStreamHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = 'ChatStreamHttpError';
+  }
+}
+
 /** The session has no operation to latch onto; the caller should fall back to the stored session. */
 export class ChatOperationIdleError extends Error {
   constructor() {
@@ -576,14 +583,14 @@ async function buildChatStreamHttpError(response: Response): Promise<never> {
     try {
       raw = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error(`Request failed (${response.status}): ${text}`);
+      throw new ChatStreamHttpError(response.status, `Request failed (${response.status}): ${text}`);
     }
     const parsed = ChatSessionBusyResponseSchema.safeParse(raw);
     if (parsed.success) {
       throw new ChatSessionBusyError(parsed.data);
     }
   }
-  throw new Error(`Request failed (${response.status}): ${text}`);
+  throw new ChatStreamHttpError(response.status, `Request failed (${response.status}): ${text}`);
 }
 
 /** What a 404 means to the caller: a real failure, or "there is nothing running to latch onto". */

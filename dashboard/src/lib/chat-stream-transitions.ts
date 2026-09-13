@@ -1,5 +1,5 @@
 import { getErrorMessage } from '../../../src/lib/errors.js';
-import { ChatOperationIdleError, ChatSessionBusyError } from '../api';
+import { ChatOperationIdleError, ChatSessionBusyError, ChatStreamHttpError } from '../api';
 import type { ChatSessionRuntimeTransition } from './chat-session-runtime-store';
 import type { ChatStreamEvent } from './chat-stream-parser';
 import type { ChatSessionOperationKind } from '../types';
@@ -7,7 +7,7 @@ import { ChatOperationProjection } from './chat-operation-projection';
 
 /** How this stream came to be: a turn this client started, or a run it latched onto. */
 export type ChatStreamStart =
-  | { kind: 'owned'; operationKind: ChatSessionOperationKind; operationId: string }
+  | { kind: 'owned'; operationKind: ChatSessionOperationKind; operationId: string; submissionId?: string }
   | { kind: 'attached' };
 
 /**
@@ -21,7 +21,8 @@ export async function* toRuntimeTransitions(
   thinkingEnabled: boolean,
 ): AsyncGenerator<ChatSessionRuntimeTransition> {
   if (start.kind === 'owned') {
-    yield { kind: 'begin', sessionId, operationKind: start.operationKind, operationId: start.operationId };
+    yield { kind: 'begin', sessionId, operationKind: start.operationKind, operationId: start.operationId,
+      ...(start.submissionId ? { submissionId: start.submissionId } : {}) };
   }
   let settled = false;
   const projection = new ChatOperationProjection(sessionId);
@@ -71,6 +72,11 @@ export async function* toRuntimeTransitions(
       yield { kind: 'control-error', sessionId, message: getErrorMessage(error) };
       return;
     }
-    yield { kind: 'interrupted', sessionId, message: getErrorMessage(error) };
+    if (error instanceof ChatStreamHttpError && error.status >= 400 && error.status < 500) {
+      yield { kind: 'failure', sessionId, message: getErrorMessage(error) };
+      return;
+    }
+    yield { kind: 'interrupted', sessionId, message: getErrorMessage(error),
+      ...(start.kind === 'owned' && start.submissionId ? { submissionId: start.submissionId } : {}) };
   }
 }

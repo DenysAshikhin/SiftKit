@@ -7,6 +7,7 @@ import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
 import { asObject, requestJson, requestSse } from './helpers/dashboard-http.js';
 
 const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const CHAT_SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 
 // A chat turn is reported to /status twice when both the dashboard route and the engine
 // post for the same turn: every character, token and millisecond lands in the runtime
@@ -150,9 +151,9 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
       body: JSON.stringify({
         content: CHAT_PROMPT,
         operationId: CHAT_OPERATION_ID,
+        submissionId: CHAT_SUBMISSION_ID,
         webSearchOverride: 'off',
         availableModels: ['mock'],
-        model: 'mock',
         mockResponses: [{ content: MOCK_FINISH_RESPONSE }],
       }),
     });

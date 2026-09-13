@@ -50,7 +50,7 @@ for (const failed of [false, true, 'throw'] as const) test(`terminal ${failed ==
   t.after(() => service.release());
   const sessionId = String(asObject((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'terminal' }) })).body.session).id);
   const url = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
-  const running = requestSse(`${url}/${failed === 'throw' ? 'plan' : 'messages/stream'}`, { method: 'POST', body: JSON.stringify({ operationId: randomUUID(), content: 'original task', repoRoot: process.cwd(), mockResponses: [{ content: 'finished' }] }) });
+  const running = requestSse(`${url}/${failed === 'throw' ? 'plan' : 'messages/stream'}`, { method: 'POST', body: JSON.stringify({ operationId: randomUUID(), submissionId: randomUUID(), content: 'original task', ...(failed === 'throw' ? { repoRoot: process.cwd() } : {}), mockResponses: [{ content: 'finished' }] }) });
   await service.ready;
   assert.equal((await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: randomUUID(), content: 'follow-up', images: [], options: { operationKind: failed === 'throw' ? 'plan' : 'message', mockResponses: [{ content: 'continued' }] } }) })).statusCode, 200);
   service.release();
@@ -72,7 +72,7 @@ for (const fail of [false, true]) test(`normal queued delivery retains safe chro
   const sessionId = String(asObject((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'normal' }) })).body.session).id);
   const url = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
   const original = requestSse(`${url}/repo-search/stream`, { method: 'POST', body: JSON.stringify({
-    operationId: randomUUID(), content: 'original task', repoRoot: process.cwd(), maxTurns: 3,
+    operationId: randomUUID(), submissionId: randomUUID(), content: 'original task', repoRoot: process.cwd(), maxTurns: 3,
     mockResponses: [{ toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] }, { content: 'answer after steering' }],
     mockCommandResults: { [command]: { exitCode: 0, stdout: 'complete tool evidence', delayMs: 500 } },
   }) });
@@ -134,7 +134,7 @@ test('a separate send cannot overtake durable pending users', async (t) => {
   const sessionId = String(asObject((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'order' }) })).body.session).id);
   const url = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
   await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: randomUUID(), content: 'first', images: [], options: { operationKind: 'message' } }) });
-  const later = await requestSse(`${url}/messages/stream`, { method: 'POST', body: JSON.stringify({ operationId: randomUUID(), content: 'second', mockResponses: [{ content: 'overtook' }] }) });
+  const later = await requestSse(`${url}/messages/stream`, { method: 'POST', body: JSON.stringify({ operationId: randomUUID(), submissionId: randomUUID(), content: 'second', mockResponses: [{ content: 'overtook' }] }) });
   assert.equal(later.statusCode, 409);
   assert.equal(service.requests.length, 0);
 });
@@ -145,7 +145,7 @@ test('an automatic busy enqueue arriving after normal completion still starts on
   const sessionId = String(asObject((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'late' }) })).body.session).id);
   const url = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
   const operationId = randomUUID();
-  await requestSse(`${url}/messages/stream`, { method: 'POST', body: JSON.stringify({ operationId, content: 'original', mockResponses: [{ content: 'done' }] }) });
+  await requestSse(`${url}/messages/stream`, { method: 'POST', body: JSON.stringify({ operationId, submissionId: randomUUID(), content: 'original', mockResponses: [{ content: 'done' }] }) });
   const response = await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: randomUUID(), afterOperationId: operationId, content: 'late follow-up', images: [], options: { operationKind: 'message', mockResponses: [{ content: 'continued' }] } }) });
   assert.equal(response.statusCode, 200);
   for (let attempt = 0; attempt < 100 && service.requests.length < 2; attempt++) await delay(10);
@@ -175,7 +175,7 @@ for (const cancel of [false, true]) test(`Force now ${cancel ? 'is superseded by
   const operationId = randomUUID();
   const fullResult = `${'evidence '.repeat(100)}FULL_RESULT_SENTINEL`;
   const original = requestSse(`${url}/repo-search/stream`, { method: 'POST', timeoutMs: 15000, body: JSON.stringify({
-    operationId, content: 'original task', repoRoot: process.cwd(), maxTurns: 3,
+    operationId, submissionId: randomUUID(), content: 'original task', repoRoot: process.cwd(), maxTurns: 3,
     mockResponses: [{ toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] }, { toolCalls: [{ name: 'grep', arguments: { pattern: 'hold' } }] }],
     mockCommandResults: {
       [buildRepoToolRequestedCommand('read', { path: 'package.json' })]: { exitCode: 0, stdout: fullResult },

@@ -35,7 +35,7 @@ test('HTTP stop retains completed thinking usage and partial answer usage with a
   const harness = await startHarness('chat-stop-measured-', t, { engineService });
   const sessionId = await createSession(harness, 'measured stop');
   const stream = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
-    method: 'POST', body: JSON.stringify({ content: 'stop measured transcript', operationId: OPERATION_A }),
+    method: 'POST', body: JSON.stringify({ content: 'stop measured transcript', operationId: OPERATION_A, submissionId: SUBMISSION_A }),
   });
   await engineService.waitUntilEntered();
   const stop = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/stop`, {
@@ -58,6 +58,8 @@ test('HTTP stop retains completed thinking usage and partial answer usage with a
 
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
+const SUBMISSION_A = '4f9c1f9a-0000-4000-8000-000000000010';
+const SUBMISSION_B = '4f9c1f9a-0000-4000-8000-000000000011';
 
 test('Stop cancels a JSON chat operation through the same durable terminal owner', { timeout: 10000 }, async t => {
   const engineService = new StoppedChatEngineService({ prompt: 'stop JSON', progressEvents: [] });
@@ -86,7 +88,7 @@ test('deleting an active session cancels its engine and cannot recreate the jour
   const harness = await startHarness('chat-delete-active-', t, { engineService });
   const sessionId = await createSession(harness, 'delete active');
   const stream = requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
-    method: 'POST', body: JSON.stringify({ content: 'delete active session', operationId: OPERATION_A }),
+    method: 'POST', body: JSON.stringify({ content: 'delete active session', operationId: OPERATION_A, submissionId: SUBMISSION_A }),
   });
   await engineService.waitUntilEntered();
   try {
@@ -298,6 +300,7 @@ test('stopping a repo-agent parked at approval persists an aborted terminal resu
     body: JSON.stringify({
       content: 'write a file', repoRoot: process.cwd(), approval: 'interactive', maxTurns: 4,
       operationId: OPERATION_A,
+      submissionId: SUBMISSION_A,
       mockResponses: [
         { toolCalls: [{ name: 'write', arguments: { path: 'stopped.txt', content: 'no' } }] },
         ...repoAgentFinishResponses('unreachable'),
@@ -333,6 +336,7 @@ test('stopping a generating repo-agent records aborted and clears the chat bindi
     body: JSON.stringify({
       content: 'hold generation', repoRoot: process.cwd(), approval: 'off',
       operationId: OPERATION_A,
+      submissionId: SUBMISSION_A,
       mockResponses: repoAgentFinishResponses('unreachable'), mockCommandResults: {},
     }),
   });
@@ -540,6 +544,7 @@ function fileToolBody(content: string, operationId: string, continuation: boolea
   return {
     content,
     operationId,
+    submissionId: continuation ? SUBMISSION_B : SUBMISSION_A,
     repoRoot: process.cwd(),
     maxTurns: 3,
     mockResponses: continuation
@@ -559,6 +564,7 @@ function webToolBody(content: string, operationId: string, continuation: boolean
   return {
     content,
     operationId,
+    submissionId: continuation ? SUBMISSION_B : SUBMISSION_A,
     webSearchOverride: 'on',
     maxTurns: 3,
     mockResponses: continuation
@@ -706,7 +712,7 @@ test('deleting a projected message wakes attached readers without waiting for an
   const sessionId = await createSession(harness, 'delete live');
   const sessionUrl = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
   const stream = requestSse(`${sessionUrl}/messages/stream`, {
-    method: 'POST', body: JSON.stringify({ content: 'delete while live', operationId: OPERATION_A }),
+    method: 'POST', body: JSON.stringify({ content: 'delete while live', operationId: OPERATION_A, submissionId: SUBMISSION_A }),
   });
   await engineService.waitUntilEntered();
   try {

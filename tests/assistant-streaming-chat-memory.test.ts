@@ -17,6 +17,7 @@ import {
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 const CHAT_OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
+const CHAT_SUBMISSION_ID = '4f9c1f9a-0000-4000-8000-000000000001';
 
 class RecordingAssistant {
   readonly enabled = true;
@@ -87,9 +88,9 @@ test('streaming dashboard chat retrieves and ingests opted-in assistant memory',
         body: JSON.stringify({
           content: 'Which shell do I use?',
           operationId: CHAT_OPERATION_ID,
+          submissionId: CHAT_SUBMISSION_ID,
           webSearchOverride: 'off',
           availableModels: ['mock'],
-          model: 'mock',
           mockResponses: [{ content: "PowerShell." }],
         }),
       },

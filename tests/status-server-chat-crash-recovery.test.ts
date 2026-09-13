@@ -134,8 +134,11 @@ if (childConfig !== undefined) {
       } catch (error) { if (!closing) throw error; }
     })();
 
-    const body = { operationId: randomUUID(), content: 'CRASH_ORIGINAL_42', images: [image], repoRoot: root,
-      maxTurns: 4, approval: scenario.barrier === 'approval' ? 'interactive' : 'off' };
+    const body = {
+      operationId: randomUUID(), submissionId: randomUUID(), content: 'CRASH_ORIGINAL_42', images: [image], maxTurns: 4,
+      ...(scenario.operationKind === 'message' ? {} : { repoRoot: root }),
+      ...(scenario.operationKind === 'repo-agent' ? { approval: scenario.barrier === 'approval' ? 'interactive' : 'off' } : {}),
+    };
     if (scenario.force) {
       for (const content of ['CRASH_ORIGINAL_42', 'CRASH_STEERING_41']) {
         const enqueued = await requestJson(`${sessionUrl}/queue`, { method: 'POST', body: JSON.stringify({
@@ -212,7 +215,11 @@ if (childConfig !== undefined) {
     continuing = true;
     const continuationKind = scenario.operationKind === 'condense' ? 'message' : scenario.operationKind;
     const response = await requestSse(`${recoveredUrl}/${continuationKind === 'message' ? 'messages' : continuationKind}/stream`, {
-      method: 'POST', timeoutMs: 30_000, body: JSON.stringify({ operationId: randomUUID(), content: 'CRASH_CONTINUE_99', repoRoot: root, maxTurns: 4, approval: 'off' }),
+      method: 'POST', timeoutMs: 30_000, body: JSON.stringify({
+        operationId: randomUUID(), submissionId: randomUUID(), content: 'CRASH_CONTINUE_99', maxTurns: 4,
+        ...(continuationKind === 'message' ? {} : { repoRoot: root }),
+        ...(continuationKind === 'repo-agent' ? { approval: 'off' } : {}),
+      }),
     });
     assert.equal(response.statusCode, 200);
     assert.equal(readChatStream(response, 'crash-session').terminal?.terminalCause, 'completed', JSON.stringify(response.events.at(-1)));

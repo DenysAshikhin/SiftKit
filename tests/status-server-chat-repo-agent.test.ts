@@ -34,6 +34,14 @@ import { replayChatContext } from '../src/status-server/chat-context-replay.js';
 const ACTIVE_RUN_TIMEOUT_MS = 5_000;
 const OPERATION_A = '4f9c1f9a-0000-4000-8000-000000000000';
 const OPERATION_B = '4f9c1f9a-0000-4000-8000-000000000001';
+const OPERATION_C = '4f9c1f9a-0000-4000-8000-000000000002';
+const SUBMISSION_A = '4f9c1f9a-0000-4000-8000-000000000010';
+const SUBMISSION_B = '4f9c1f9a-0000-4000-8000-000000000011';
+const SUBMISSION_C = '4f9c1f9a-0000-4000-8000-000000000012';
+
+function submissionIdForOperation(operationId: string): string {
+  return operationId === OPERATION_A ? SUBMISSION_A : SUBMISSION_B;
+}
 
 class EngineGate {
   readonly promise: Promise<void>;
@@ -143,6 +151,7 @@ async function runSimpleRepoAgentChat(
         repoRoot: process.cwd(),
         approval: 'off',
         operationId,
+        submissionId: submissionIdForOperation(operationId),
         ...(maxTurns === undefined ? {} : { maxTurns }),
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] },
@@ -223,6 +232,7 @@ async function startApprovalRun(
         repoRoot: process.cwd(),
         approval: 'interactive',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: [
           { toolCalls: [{ name: 'write', arguments: { path: filename, content: 'approved' } }] },
@@ -297,7 +307,7 @@ test('chat repo-agent approval holds the lease, resumes the stream, and persists
 
   const busy = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
     method: 'POST',
-    body: JSON.stringify({ content: 'must be rejected while agent runs', operationId: OPERATION_B }),
+    body: JSON.stringify({ content: 'must be rejected while agent runs', operationId: OPERATION_B, submissionId: SUBMISSION_B }),
   });
   assert.equal(busy.statusCode, 409);
   assert.equal(busy.body.operationKind, 'repo-agent');
@@ -493,6 +503,7 @@ test('a repo-agent follow-up receives the preceding repo-agent turn as replayabl
       repoRoot: process.cwd(),
       approval: 'off',
       operationId: OPERATION_B,
+      submissionId: SUBMISSION_B,
       maxTurns: 2,
       mockResponses: repoAgentFinishResponses('second repo-agent result'),
       mockCommandResults: {},
@@ -541,6 +552,7 @@ test('chat repo-agent decide rejects a run that is generating instead of parked'
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         mockResponses: repoAgentFinishResponses('released'),
         mockCommandResults: {},
       }),
@@ -600,6 +612,7 @@ test('chat repo-agent streams thinking deltas', async (t) => {
         repoRoot: process.cwd(),
         approval: 'auto',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: cipherThinkingMockResponses(),
         mockCommandResults: {},
@@ -637,6 +650,7 @@ test('chat repo-agent persists its thinking trace', async (t) => {
         repoRoot: process.cwd(),
         approval: 'auto',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: cipherThinkingMockResponses(),
         mockCommandResults: {},
@@ -695,13 +709,13 @@ test('chat repo-agent stream rejects a request without an approval mode', async 
     {
       method: 'POST',
       body: JSON.stringify({
-        content: 'write a file', repoRoot: process.cwd(), operationId: OPERATION_A,
+        content: 'write a file', repoRoot: process.cwd(), operationId: OPERATION_A, submissionId: SUBMISSION_A,
         mockResponses: repoAgentFinishResponses('never'), mockCommandResults: {},
       }),
     },
   );
   assert.equal(response.statusCode, 400);
-  assert.equal(response.body.error, 'approval must be one of: interactive, auto, off.');
+  assert.equal(response.body.error, 'Invalid streaming chat request.');
 });
 
 test('approval-mode endpoint rejects sessions without an active run and invalid modes', async (t) => {
@@ -733,6 +747,7 @@ test('switching a parked chat run to off approves the pending command and skips 
         repoRoot: process.cwd(),
         approval: 'interactive',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 6,
         mockResponses: [
           { toolCalls: [{ name: 'write', arguments: { path: 'first.txt', content: 'one' } }] },
@@ -783,7 +798,7 @@ test('active endpoint reports the live mode and a running chat run switches mode
       method: 'POST',
       timeoutMs: 20_000,
       body: JSON.stringify({
-        content: 'hold generation', repoRoot: process.cwd(), approval: 'auto', operationId: OPERATION_A,
+        content: 'hold generation', repoRoot: process.cwd(), approval: 'auto', operationId: OPERATION_A, submissionId: SUBMISSION_A,
         mockResponses: repoAgentFinishResponses('held then done'), mockCommandResults: {},
       }),
     },
@@ -822,6 +837,7 @@ test('an auto-mode chat run whose reviewer is unsure surfaces an approval frame 
         repoRoot: process.cwd(),
         approval: 'auto',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: [
           { toolCalls: [{ name: 'write', arguments: { path: 'unsure.txt', content: 'x' } }] },
@@ -904,6 +920,7 @@ test('a stopped repo-agent turn persists and replays the whole tool result, not 
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
           { toolCalls: [{ name: 'run', arguments: { command: 'hold-until-stopped' } }] },
@@ -947,6 +964,7 @@ test('a stopped repo-agent turn persists and replays the whole tool result, not 
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('continued'),
         mockCommandResults: {},
       }),
@@ -979,6 +997,7 @@ test('a completed repo-agent turn persists every tool result in full and replays
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         mockResponses: [
           {
             toolCalls: [
@@ -1011,6 +1030,7 @@ test('a completed repo-agent turn persists every tool result in full and replays
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('summarised'),
         mockCommandResults: {},
       }),
@@ -1042,6 +1062,7 @@ test('stopping at an approval keeps the finished read whole and records the park
         repoRoot: process.cwd(),
         approval: 'interactive',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
@@ -1075,6 +1096,7 @@ test('stopping at an approval keeps the finished read whole and records the park
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('carried on'),
         mockCommandResults: {},
       }),
@@ -1104,6 +1126,7 @@ test('a continuation cannot start until the stopped turn is durably saved', asyn
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
           { toolCalls: [{ name: 'run', arguments: { command: 'hold-until-stopped' } }] },
@@ -1131,6 +1154,7 @@ test('a continuation cannot start until the stopped turn is durably saved', asyn
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('too early'),
         mockCommandResults: {},
       }),
@@ -1154,6 +1178,7 @@ test('a continuation cannot start until the stopped turn is durably saved', asyn
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('continued'),
         mockCommandResults: {},
       }),
@@ -1178,6 +1203,7 @@ async function runReadTurn(
         repoRoot: process.cwd(),
         approval: 'off',
         operationId,
+        submissionId: submissionIdForOperation(operationId),
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
           ...repoAgentFinishResponses(`${content} done`),
@@ -1213,6 +1239,7 @@ test('a continuation survives artifact cleanup while the archived transcript rem
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('continued'),
         mockCommandResults: {},
       }),
@@ -1251,6 +1278,7 @@ test('corrupt canonical journal evidence blocks continuation while its display p
         repoRoot: process.cwd(),
         approval: 'off',
         operationId: OPERATION_B,
+        submissionId: SUBMISSION_B,
         mockResponses: repoAgentFinishResponses('unreachable'),
         mockCommandResults: {},
       }),
@@ -1414,6 +1442,7 @@ test('an automatic approval prints one approval line for the run that made it', 
         repoRoot: process.cwd(),
         approval: 'auto',
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 4,
         mockResponses: cipherThinkingMockResponses(),
         mockCommandResults: {},
@@ -1440,6 +1469,7 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
         content: 'search the document',
         repoRoot: process.cwd(),
         operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
         maxTurns: 2,
         mockResponses: [
           { toolCalls: [{ name: 'read', arguments: { path: 'doc.txt' } }] },
@@ -1484,7 +1514,8 @@ test('a mixed session switches to repo-agent after unrelated run-log cleanup, wh
         content: 'blocked continuation',
         repoRoot: process.cwd(),
         approval: 'off',
-        operationId: OPERATION_A,
+        operationId: OPERATION_C,
+        submissionId: SUBMISSION_C,
         mockResponses: repoAgentFinishResponses('unreachable'),
         mockCommandResults: {},
       }),
@@ -1508,7 +1539,8 @@ async function runRepoAgentTools(harness: StreamedOperationHarness, sessionId: s
   toolCalls: readonly (readonly (typeof LS_CALL | { name: 'ls'; arguments: { path: string } })[])[], maxTurns: number): Promise<SseResponse> {
   return await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
     method: 'POST', timeoutMs: 20_000,
-    body: JSON.stringify({ content: 'list things', repoRoot: process.cwd(), approval: 'off', operationId, maxTurns,
+    body: JSON.stringify({ content: 'list things', repoRoot: process.cwd(), approval: 'off', operationId,
+      submissionId: submissionIdForOperation(operationId), maxTurns,
       mockResponses: [...toolCalls.map((calls) => ({ toolCalls: [...calls] })), ...repoAgentFinishResponses('listed')], mockCommandResults: {} }),
   });
 }
@@ -1541,7 +1573,7 @@ for (const [label, batches, expectedToolMessages] of [
 
   const second = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
     method: 'POST', timeoutMs: 20_000,
-    body: JSON.stringify({ content: 'continue after collapse', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, maxTurns: 2,
+    body: JSON.stringify({ content: 'continue after collapse', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, submissionId: SUBMISSION_B, maxTurns: 2,
       mockResponses: repoAgentFinishResponses('continued'), mockCommandResults: {} }),
   });
   assert.equal(second.statusCode, 200);
@@ -1558,7 +1590,7 @@ test('an invalid native call is durably rejected, corrected on the next turn, an
   const sessionId = await createSession(harness, 'Invalid call recovery');
   const response = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
     method: 'POST', timeoutMs: 20_000,
-    body: JSON.stringify({ content: 'read something', repoRoot: process.cwd(), approval: 'interactive', operationId: OPERATION_A, maxTurns: 4,
+    body: JSON.stringify({ content: 'read something', repoRoot: process.cwd(), approval: 'interactive', operationId: OPERATION_A, submissionId: SUBMISSION_A, maxTurns: 4,
       mockResponses: [
         { toolCalls: [{ name: 'read', arguments: {} }] },
         { toolCalls: [{ name: 'no_such_tool', arguments: { anything: true } }] },
@@ -1590,7 +1622,7 @@ test('an invalid native call is durably rejected, corrected on the next turn, an
 
   const second = await requestSse(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`, {
     method: 'POST', timeoutMs: 20_000,
-    body: JSON.stringify({ content: 'continue after invalid', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, maxTurns: 2,
+    body: JSON.stringify({ content: 'continue after invalid', repoRoot: process.cwd(), approval: 'off', operationId: OPERATION_B, submissionId: SUBMISSION_B, maxTurns: 2,
       mockResponses: repoAgentFinishResponses('continued'), mockCommandResults: {} }),
   });
   assert.equal(second.statusCode, 200);
