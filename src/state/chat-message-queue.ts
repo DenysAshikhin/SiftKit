@@ -150,7 +150,7 @@ export class ChatMessageQueueStore {
     setRuntimeMetadataValue(this.database, chatMetadataKey.queue(sessionId), JSON.stringify(state));
   }
   setPaused(sessionId: string, paused: boolean): void {
-    this.database.transaction(() => this.bump(sessionId, paused))();
+    this.database.transaction(() => this.bump(sessionId, paused)).immediate();
   }
 
   readForceReceipt(sessionId: string, id: string): ChatMessageQueueForceState | null {
@@ -168,7 +168,7 @@ export class ChatMessageQueueStore {
       this.saveReceipt(sessionId, failed);
       const state = this.metadata(sessionId);
       if (!state.force || state.force.id === force.id) this.writeMetadata(sessionId, { revision: state.revision + 1, paused: true, force: failed });
-    })();
+    }).immediate();
   }
 
   beginForce(
@@ -201,7 +201,7 @@ export class ChatMessageQueueStore {
       };
       this.writeMetadata(sessionId, { revision: state.revision + 1, paused: state.paused, force });
       return { kind: 'started', force };
-    })();
+    }).immediate();
   }
 
   updateForce(
@@ -219,7 +219,7 @@ export class ChatMessageQueueStore {
         force: { ...state.force, phase: patch.phase, failureDetail: patch.failureDetail },
       });
       return true;
-    })();
+    }).immediate();
   }
 
   clearForce(sessionId: string, forceId: string): boolean {
@@ -230,7 +230,7 @@ export class ChatMessageQueueStore {
       this.saveReceipt(sessionId, state.force);
       this.writeMetadata(sessionId, { revision: state.revision + 1, paused: state.paused, force: null });
       return true;
-    })();
+    }).immediate();
   }
 
   private sessionExists(sessionId: string): boolean {
@@ -298,7 +298,7 @@ export class ChatMessageQueueStore {
       );
       this.bump(sessionId);
       return { kind: 'enqueued', message: this.requireRow(sessionId, input.id) };
-    })();
+    }).immediate();
   }
 
   /** Every row of the session, pending and delivered, in submission order. */
@@ -339,7 +339,7 @@ export class ChatMessageQueueStore {
       ).run(content, sessionId, id);
       this.bump(sessionId);
       return { kind: 'applied', message: this.requireRow(sessionId, id) };
-    })();
+    }).immediate();
   }
 
   remove(sessionId: string, id: string): ChatQueueMutationResult {
@@ -350,7 +350,7 @@ export class ChatMessageQueueStore {
       this.database.prepare('DELETE FROM chat_pending_messages WHERE session_id = ? AND id = ?').run(sessionId, id);
       this.bump(sessionId);
       return { kind: 'applied', message: existing };
-    })();
+    }).immediate();
   }
 
   /**
@@ -374,7 +374,7 @@ export class ChatMessageQueueStore {
       }
       if (claimed.length > 0) this.bump(sessionId);
       return claimed.map((message) => this.requireRow(sessionId, message.id));
-    })();
+    }).immediate();
   }
 
   listDelivered(sessionId: string, requestId: string): ChatQueuedMessage[] {
@@ -395,7 +395,7 @@ export class ChatMessageQueueStore {
       if (count > 0) this.bump(sessionId);
       if (this.listDelivered(sessionId, requestId).length > 0) throw new Error(`Unincorporated queued delivery for request ${requestId}.`);
       return count;
-    })();
+    }).immediate();
   }
 
 }

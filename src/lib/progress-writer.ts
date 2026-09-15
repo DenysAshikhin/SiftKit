@@ -1,4 +1,9 @@
-export abstract class ProgressWriter<TEvent> {
+/** Hears that the provider produced a validated message for the run, independent of UI text delivery. */
+export type InferenceActivityObserver = {
+  recordActivity(): void;
+};
+
+export abstract class ProgressWriter<TEvent> implements InferenceActivityObserver {
   abstract get enabled(): boolean;
   abstract write(event: TEvent): void;
 
@@ -9,6 +14,9 @@ export abstract class ProgressWriter<TEvent> {
   get wantsLiveText(): boolean {
     return true;
   }
+
+  /** Provider activity for the run. Not an event: nothing is rendered, logged, or journaled. */
+  recordActivity(): void {}
 }
 
 export class SilentProgressWriter<TEvent> extends ProgressWriter<TEvent> {

@@ -51,6 +51,11 @@ export class ProgressReporter {
     this.progressWriter.write(event);
   }
 
+  /** Provider activity for the run; forwarded to the writer, never emitted as an event. */
+  recordActivity(): void {
+    this.progressWriter.recordActivity();
+  }
+
   preflightStart(turn: number, promptChars: number): void {
     this.emit({ kind: 'preflight_start', taskId: this.taskId, turn, maxTurns: this.maxTurns, promptChars, elapsedMs: this.elapsedMs() });
   }

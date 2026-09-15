@@ -166,7 +166,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
         runOperationId: start.operationId,
       });
       return recorder;
-    })();
+    }).immediate();
   }
 
   static resume(database: RuntimeDatabase, operationId: string, ownerEpoch: string): ChatRunRecorder {
@@ -189,7 +189,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
         this.store.bindEngine({ ...binding, operationId: this.operationId, ownerEpoch: this.ownerEpoch });
         if (before?.requestId === binding.requestId) return;
         this.commit({ kind: 'engine_bound', ...binding });
-      })();
+      }).immediate();
     } catch (error) {
       this.latestSequence = sequence;
       throw error;
@@ -208,7 +208,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   private commitContext<T>(write: () => T): T {
     const before = this.latestSequence;
     try {
-      return this.database.transaction(write)();
+      return this.database.transaction(write).immediate();
     } catch (error) {
       this.latestSequence = before;
       throw error;
@@ -282,7 +282,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
           queue.clearForce(sessionId, forceId);
         }
         return messages;
-      })();
+      }).immediate();
     } catch (error) {
       this.latestSequence = before;
       throw error;
@@ -359,7 +359,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
           terminalCause: outcome.terminalCause,
           updatedAtUtc: finishedAtUtc,
         });
-      })();
+      }).immediate();
     } catch (error) {
       this.latestSequence = before;
       throw error;

@@ -92,6 +92,10 @@ class ChatRepoOperationProgressTracker extends ProgressWriter<RepoSearchProgress
     this.writer.write(event);
   }
 
+  override recordActivity(): void {
+    this.writer.recordActivity();
+  }
+
   observeAnswer(content: string): void {
     this.phaseTracker.observeAnswer(content);
   }

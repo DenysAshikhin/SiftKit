@@ -305,6 +305,7 @@ export class TaskLoop {
         tokenUsage: this.tokenUsage,
         logger: options.logger || null,
         abortSignal: options.abortSignal,
+        activityObserver: this.progress,
       }),
       progress: this.progress,
       logger: options.logger || null,
@@ -403,6 +404,7 @@ export class TaskLoop {
       mockResponseIndex: this.mockResponseIndex,
       abortSignal: this.options.abortSignal,
       logger: this.options.logger || null,
+      activityObserver: this.progress,
     });
     if (typeof response.nextMockResponseIndex === 'number') {
       this.mockResponseIndex = response.nextMockResponseIndex;
@@ -735,6 +737,7 @@ export class TaskLoop {
         }
       }
       : undefined,
+        activityObserver: this.progress,
         mockResponses: this.options.mockResponses,
         mockResponseIndex: this.mockResponseIndex,
         abortSignal: this.options.abortSignal,

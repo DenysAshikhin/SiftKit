@@ -117,7 +117,8 @@ function makeLock(): ModelRequestLock {
     kind: 'repo_search',
     startedAtUtc: new Date().toISOString(),
     ownerRunId: null,
-    holdTimeoutHandle: null,
+    lastActivityAtMs: Date.now(),
+    inactivityTimeoutHandle: null,
   };
 }
 

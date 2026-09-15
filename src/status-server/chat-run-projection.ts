@@ -329,7 +329,7 @@ function projectRun(database: RuntimeDatabase, operationId: string, force: boole
       }
       afterDigest = projectionDigest(readChatRunMessages(database, run.sessionId, operationId));
       store.advanceProjection({ operationId, projectedSequence: run.latestSequence, projectedHistoryRevision: revisions.length, projectedDigest: afterDigest });
-    })();
+    }).immediate();
   } catch (error) {
     const detail = toError(error).message;
     return report(run, projected, false, [issue(operationId, 'projection_failed', detail)]);

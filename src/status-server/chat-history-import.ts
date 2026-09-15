@@ -34,7 +34,7 @@ export function recordImportedChatBaseline(database: RuntimeDatabase, options:
     store.append({ operationId, ownerEpoch: options.ownerEpoch, expectedSequence: 0, eventId: 'baseline',
       occurredAtUtc: options.createdAtUtc, event: options.event });
     store.finish({ operationId, ownerEpoch: options.ownerEpoch, terminalCause: options.terminalCause, updatedAtUtc: options.updatedAtUtc });
-  })();
+  }).immediate();
   return operationId;
 }
 

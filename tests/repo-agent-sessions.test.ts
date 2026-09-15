@@ -25,6 +25,7 @@ import {
   type RepoAgentEngine,
   type RepoAgentEngineRequest,
   type RepoAgentModelLockAdapter,
+  type RepoAgentModelLockHandle,
   type RepoAgentSession,
   type RepoAgentSessionSubscriber,
 } from '../src/status-server/repo-agent-sessions.js';
@@ -51,8 +52,12 @@ function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
 
 class ImmediateLockAdapter implements RepoAgentModelLockAdapter {
   releases = 0;
-  acquire(): Promise<{ release(): void } | null> {
-    return Promise.resolve({ release: () => { this.releases += 1; } });
+  renewals = 0;
+  acquire(): Promise<RepoAgentModelLockHandle | null> {
+    return Promise.resolve({
+      release: () => { this.releases += 1; },
+      renewActivity: () => { this.renewals += 1; },
+    });
   }
   queueLength(): number { return 0; }
 }
@@ -204,6 +209,27 @@ class ScriptedProgressEngine implements RepoAgentEngine {
     for (const event of this.events) {
       writer.write(event);
     }
+    return makeEngineResult('done');
+  }
+}
+
+/** Hands over its writer, then holds the run open until `release()` so the lock stays held. */
+class HeldWriterEngine implements RepoAgentEngine {
+  readonly writerReceived: Promise<ProgressWriter<RepoSearchProgressEvent>>;
+  release: () => void = () => {};
+  private announceWriter: (writer: ProgressWriter<RepoSearchProgressEvent>) => void = () => {};
+  private readonly released = new Promise<void>((resolve) => { this.release = resolve; });
+
+  constructor() {
+    this.writerReceived = new Promise((resolve) => { this.announceWriter = resolve; });
+  }
+
+  async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    if (!request.progressWriter) {
+      throw new Error('HeldWriterEngine requires a progress writer.');
+    }
+    this.announceWriter(request.progressWriter);
+    await this.released;
     return makeEngineResult('done');
   }
 }
@@ -531,6 +557,10 @@ class SessionTestHarness {
 
   get lockReleaseCount(): number {
     return this.locks instanceof ImmediateLockAdapter ? this.locks.releases : 0;
+  }
+
+  get lockRenewalCount(): number {
+    return this.locks instanceof ImmediateLockAdapter ? this.locks.renewals : 0;
   }
 
   get cleanupObserverWasDetached(): boolean {
@@ -1146,6 +1176,88 @@ test('session progress writer reports wantsLiveText from the attached subscriber
   assert.equal(writer.wantsLiveText, false, 'subscriber detached');
 
   await session.settled;
+});
+
+// Renewal must not depend on live text: the engine suppresses thinking/narration when no
+// subscriber wants it, so a headless run only ever emits tool and turn boundaries.
+test('tool activity alone renews model ownership with no subscriber attached', async (t) => {
+  const engine = new ScriptedProgressEngine([liveTextEvents().toolStart]);
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
+  const session = harness.start();
+
+  const writer = await waitWithTimeout(engine.writerReceived, 'the engine to receive the progress writer');
+  assert.equal(writer.wantsLiveText, false, 'the run is headless, so live text is off');
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+
+  assert.equal(harness.lockRenewalCount, 1);
+  assert.equal(harness.lockReleaseCount, 1);
+  // The handle is cleared with the release, so a late renewal cannot revive settled ownership.
+  session.renewOwnership();
+  assert.equal(harness.lockRenewalCount, 1);
+});
+
+// Provider frames reach the session as activity on the writer itself, with no progress event:
+// a headless stream renews ownership without producing anything a subscriber would see.
+test('provider activity on the session writer renews model ownership without a progress event', async (t) => {
+  const engine = new HeldWriterEngine();
+  const harness = await SessionTestHarness.create({ engine, approvalMode: 'off', approvalDelivery: 'boundary' }, t);
+  const session = harness.start();
+
+  const writer = await waitWithTimeout(engine.writerReceived, 'the engine to receive the progress writer');
+  const revisionBefore = session.currentRevision();
+  writer.recordActivity();
+  writer.recordActivity();
+  assert.equal(harness.lockRenewalCount, 2);
+  assert.equal(session.currentRevision(), revisionBefore, 'activity is not a run-state change');
+  engine.release();
+
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'completed');
+  await session.settled;
+  assert.equal(harness.lockReleaseCount, 1);
+});
+
+test('an accepted approval decision renews model ownership', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+    approvalDelivery: 'boundary',
+  }, t);
+  const session = harness.start();
+
+  const parked = await session.waitForBoundary(0);
+  assert.equal(parked.status, 'approval_required');
+  const renewalsWhileParked = harness.lockRenewalCount;
+  assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
+  assert.equal(harness.lockRenewalCount, renewalsWhileParked + 1);
+
+  const completed = await session.waitForBoundary(session.currentRevision());
+  assert.equal(completed.status, 'completed');
+  await session.settled;
+  assert.equal(harness.lockReleaseCount, 1);
+});
+
+test('an aborted run releases model ownership and cannot renew it afterwards', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new AbortingEngine(),
+    approvalMode: 'off',
+    approvalDelivery: 'boundary',
+  }, t);
+  const session = harness.start();
+
+  await waitForStatus(session, 'running');
+  session.abort();
+  const boundary = await session.waitForBoundary(0);
+  assert.equal(boundary.status, 'aborted');
+  await session.settled;
+
+  assert.equal(harness.lockReleaseCount, 1);
+  const renewalsAfterSettle = harness.lockRenewalCount;
+  session.renewOwnership();
+  assert.equal(harness.lockRenewalCount, renewalsAfterSettle);
 });
 
 function liveTextEvents() {

@@ -2,14 +2,24 @@ import { ProgressWriter } from '../../src/lib/progress-writer.js';
 
 export class CollectingProgressWriter<TEvent extends { kind: string }> extends ProgressWriter<TEvent> {
   public readonly events: TEvent[];
+  /** Provider frames observed, counted apart from events so headless activity stays visible. */
+  public activity = 0;
 
-  constructor(events: TEvent[] = []) {
+  constructor(events: TEvent[] = [], private readonly liveText = true) {
     super();
     this.events = events;
   }
 
   get enabled(): boolean {
     return true;
+  }
+
+  override get wantsLiveText(): boolean {
+    return this.liveText;
+  }
+
+  override recordActivity(): void {
+    this.activity += 1;
   }
 
   write(event: TEvent): void {

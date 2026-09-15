@@ -197,7 +197,7 @@ export class ChatJournalStore {
         start.provenance === null ? null : JSON.stringify(start.provenance),
       );
       return this.requireRun(start.operationId);
-    })();
+    }).immediate();
   }
 
   /**
@@ -224,7 +224,7 @@ export class ChatJournalStore {
         WHERE operation_id = ?
       `).run(binding.requestId, binding.repoAgentSessionId, run.updatedAtUtc, binding.operationId);
       return this.requireRun(binding.operationId);
-    })();
+    }).immediate();
   }
 
   append(input: ChatJournalAppend): ChatJournalEnvelope {
@@ -281,7 +281,7 @@ export class ChatJournalStore {
         event: write.event,
         payloadDigest,
       });
-    })();
+    }).immediate();
   }
 
   finish(input: ChatRunFinish): ChatRun {
@@ -300,7 +300,7 @@ export class ChatJournalStore {
         UPDATE chat_runs SET terminal_cause = ?, updated_at_utc = ? WHERE operation_id = ?
       `).run(finish.terminalCause, finish.updatedAtUtc, finish.operationId);
       return this.requireRun(finish.operationId);
-    })();
+    }).immediate();
   }
 
   /** Moves the projection checkpoint. Callers advance it in the same transaction as their own writes. */

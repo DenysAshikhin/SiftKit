@@ -460,7 +460,7 @@ export function bufferInferenceRunLogChunk(options: {
   }
 }
 
-export function appendInferenceRunLogChunk(options: {
+function appendInferenceRunLogChunk(options: {
   runId: string;
   streamKind: InferenceRunStreamKind;
   chunkText: string;
@@ -495,6 +495,38 @@ export function appendInferenceRunLogChunk(options: {
   );
 }
 
+/**
+ * Writes one batch as a single immediate transaction: the writer slot is reserved before any
+ * sequence is read, and a rejected entry rolls back every entry, so a retry never duplicates.
+ * Zero-length entries are dropped before the database is touched; an all-empty batch is a no-op.
+ */
+export function appendInferenceRunLogChunks(options: {
+  runId: string;
+  entries: readonly InferenceRunPendingLogChunkEntry[];
+  databasePath?: string;
+}): void {
+  const runId = String(options.runId || '').trim();
+  if (!runId) {
+    throw new Error('Inference run id is required for log chunks.');
+  }
+  const entries = options.entries.filter((entry) => entry.chunkText.length > 0);
+  if (entries.length === 0) {
+    return;
+  }
+  const database = getDatabase(options.databasePath);
+  database.transaction(() => {
+    for (const entry of entries) {
+      appendInferenceRunLogChunk({
+        runId,
+        streamKind: entry.streamKind,
+        chunkText: entry.chunkText,
+        sequence: getNextChunkSequence(database, runId, entry.streamKind),
+        databasePath: options.databasePath,
+      });
+    }
+  }).immediate();
+}
+
 export function flushInferenceRunLogChunks(runId: string, databasePath?: string): void {
   const normalizedRunId = String(runId || '').trim();
   if (!normalizedRunId) {
@@ -505,23 +537,7 @@ export function flushInferenceRunLogChunks(runId: string, databasePath?: string)
     clearPendingChunksForRun(normalizedRunId);
     return;
   }
-  const entries = takePendingEntries(pending);
-  if (entries.length === 0) {
-    clearPendingChunksForRun(normalizedRunId);
-    return;
-  }
-  const database = getDatabase(databasePath);
-  database.transaction(() => {
-    for (const entry of entries) {
-      appendInferenceRunLogChunk({
-        runId: normalizedRunId,
-        streamKind: entry.streamKind,
-        chunkText: entry.chunkText,
-        sequence: getNextChunkSequence(database, normalizedRunId, entry.streamKind),
-        databasePath,
-      });
-    }
-  })();
+  appendInferenceRunLogChunks({ runId: normalizedRunId, entries: takePendingEntries(pending), databasePath });
   clearPendingChunksForRun(normalizedRunId);
 }
 

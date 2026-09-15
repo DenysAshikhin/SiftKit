@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readChatStream, readChatStreamViews, readSettledChatSession } from './helpers/chat-stream-views.js';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -25,7 +26,7 @@ import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js
 import { asObject, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { requestSse as requestOperationSse } from './helpers/sse-http.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
-import { startHarness, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
+import { startHarness, waitForActiveModelRequestOwner, type StreamedOperationHarness } from './helpers/streamed-op-harness.js';
 import { HoldingCaptureEngineService } from './helpers/holding-capture-engine-service.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { findPlannerContextViolation } from '../src/repo-search/planner-chat-message.js';
@@ -530,6 +531,70 @@ test('a repo-agent follow-up receives the preceding repo-agent turn as replayabl
   assert.equal(requestPresetId, replacementModelPreset.id);
   assert.equal(sessionPresetId, firstDone.session.modelPresetId);
   assert.deepEqual(requestModelFields, sessionModelFields);
+});
+
+// A user still typing into the queue is activity, so a silently generating run must not lose
+// the model out from under them.
+test('a queued user message renews the repo-agent run model ownership', async (t) => {
+  const previousTimeout = process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS;
+  process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS = '250';
+  t.after(() => {
+    if (previousTimeout === undefined) delete process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS;
+    else process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS = previousTimeout;
+  });
+  const engineGate = new EngineGate();
+  const harness = await startHarness('siftkit-chat-repo-agent-queue-renew-', t, {
+    engineService: new GatedEngineService(engineGate),
+  });
+  const sessionId = await createSession(harness, 'Queue renewal');
+  t.after(() => {
+    engineGate.release();
+  });
+
+  const stream = requestSse(
+    `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/repo-agent/stream`,
+    {
+      method: 'POST',
+      timeoutMs: 20_000,
+      body: JSON.stringify({
+        content: 'hold generation',
+        repoRoot: process.cwd(),
+        approval: 'off',
+        operationId: OPERATION_A,
+        submissionId: SUBMISSION_A,
+        mockResponses: repoAgentFinishResponses('released'),
+        mockCommandResults: {},
+      }),
+    },
+  );
+  await waitForRunStatus(harness, sessionId, 'running');
+  const ownerRunId = await waitForActiveModelRequestOwner(harness.baseUrl);
+
+  // The engine is parked before it emits anything, so the enqueues are the only activity here.
+  const queueUrl = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/queue`;
+  const queuedIds: string[] = [];
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await delay(100);
+    const id = randomUUID();
+    const enqueue = await requestJson(queueUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        id,
+        content: `follow-up ${attempt}`,
+        images: [],
+        options: { operationKind: 'repo-agent' },
+      }),
+    });
+    assert.equal(enqueue.statusCode, 200);
+    queuedIds.push(id);
+  }
+  assert.equal(await waitForActiveModelRequestOwner(harness.baseUrl), ownerRunId);
+
+  for (const id of queuedIds) {
+    assert.equal((await requestJson(`${queueUrl}/${id}`, { method: 'DELETE' })).statusCode, 200);
+  }
+  engineGate.release();
+  await readDoneResponse(harness, sessionId, await stream);
 });
 
 test('chat repo-agent decide rejects a run that is generating instead of parked', async (t) => {

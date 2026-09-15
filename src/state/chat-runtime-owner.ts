@@ -22,14 +22,14 @@ export class ChatRuntimeOwner {
         heartbeat_at_utc=excluded.heartbeat_at_utc, lease_expires_at_utc=excluded.lease_expires_at_utc
       `).run(z.string().min(1).parse(ownerId), epoch, new Date(nowMs).toISOString(), new Date(nowMs + CHAT_OWNER_LEASE_MS).toISOString());
       return new ChatRuntimeOwner(database, ownerId, epoch);
-    })();
+    }).immediate();
   }
   renew(nowMs = Date.now()): void {
     this.database.transaction(() => {
       this.assertOwned(nowMs);
       this.database.prepare('UPDATE chat_runtime_owner SET heartbeat_at_utc=?, lease_expires_at_utc=? WHERE id=1 AND owner_id=? AND epoch=?')
         .run(new Date(nowMs).toISOString(), new Date(nowMs + CHAT_OWNER_LEASE_MS).toISOString(), this.ownerId, this.epoch);
-    })();
+    }).immediate();
   }
   assertOwned(nowMs = Date.now()): void {
     const row = ChatRuntimeOwnerSchema.parse(this.database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get());

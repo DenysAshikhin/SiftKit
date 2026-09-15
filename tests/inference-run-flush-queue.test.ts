@@ -9,6 +9,7 @@ import {
 } from '../src/status-server/inference-run-flush-queue.js';
 import {
   bufferInferenceRunLogChunk,
+  consumeInferenceRunPendingLogChunks,
   createInferenceRun,
   getInferenceRunPendingLogChunkStats,
   readInferenceRunLogTextByStream,
@@ -62,6 +63,59 @@ test('inference run flush queue coalesces duplicate run flushes and drains async
   });
 });
 
+// An empty batch has nothing to write, so starting the flush flow would only contend for the
+// journal. Whitespace is real log data and must still flush.
+test('inference run flush queue refuses to enqueue a run with nothing buffered', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    const queue = new InferenceRunFlushQueue();
+
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), false);
+      assert.deepEqual(queue.getSnapshot(), {
+        pendingCount: 0,
+        runningRunId: null,
+        scheduled: false,
+        completedCount: 0,
+        failedCount: 0,
+      });
+
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: '  \t ' });
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await queue.waitForIdle();
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, '  \t ');
+      assert.equal(queue.getSnapshot().completedCount, 1);
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+test('inference run flush queue drops a queued run whose buffer emptied before draining', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'taken\n' });
+    const queue = new InferenceRunFlushQueue();
+
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      assert.deepEqual(consumeInferenceRunPendingLogChunks(run.id), [
+        { streamKind: 'launcher_stdout', chunkText: 'taken\n' },
+      ]);
+
+      await queue.drainNow();
+      await queue.waitForIdle();
+      // Skipped, not flushed and not failed: neither counter moves.
+      assert.equal(queue.getSnapshot().completedCount, 0);
+      assert.equal(queue.getSnapshot().failedCount, 0);
+      assert.equal(queue.getSnapshot().pendingCount, 0);
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, '');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
 test('inference run flush queue logs each run under its own backend scope', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
@@ -97,6 +151,7 @@ test('inference run flush queue logs each run under its own backend scope', asyn
 test('inference run flush queue records another flush requested while the same run is active', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'busy\n' });
     const queue = new InferenceRunFlushQueue();
     const internals = flushQueueInternals(queue);
     internals.runningRunId = run.id;
@@ -240,6 +295,7 @@ test('the flush worker serves consecutive runs after closing its database each t
 test('closing the queue reports an in-flight flush that outlives the wait budget', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'stuck\n' });
     const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 40 });
     assert.equal(queue.enqueue(run.id, 'exl3'), true);
     await queue.waitForIdle();

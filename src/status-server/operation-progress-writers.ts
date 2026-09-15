@@ -108,4 +108,10 @@ export class CompositeRepoSearchProgressWriter extends ProgressWriter<RepoSearch
       writer.write(event);
     }
   }
+
+  override recordActivity(): void {
+    for (const writer of this.writers) {
+      writer.recordActivity();
+    }
+  }
 }

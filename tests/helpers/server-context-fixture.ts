@@ -66,8 +66,10 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     deferredArtifactDrainRunning: false,
     terminalMetadata: {
       pendingDirectJobs: 0,
+      directJobs: new Map(),
       queue: [],
       drainScheduled: false,
+      drainTimer: null,
       drainRunning: false,
       lastModelRequestFinishedAtMs: null,
       serverStartedAtMs: 0,

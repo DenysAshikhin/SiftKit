@@ -4,6 +4,7 @@ import { resolveGenerationTokenLimit } from '../lib/context-token-budget.js';
 import { estimateTokenCount } from '../lib/token-estimate.js';
 import { InferenceClient } from '../llm-protocol/inference-client.js';
 import { completeLiveContent, type LiveContentSnapshot } from '../llm-protocol/live-content-classifier.js';
+import type { InferenceActivityObserver } from '../lib/progress-writer.js';
 import type { JsonObject, InferenceChatMessage, InferenceChatRequest, InferenceChatRole, InferenceToolCall, InferenceToolDefinition, StreamStop } from '../llm-protocol/types.js';
 import { CLEAN_STREAM_STOP, InferenceToolDefinitionsSchema } from '../llm-protocol/types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -296,6 +297,7 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   maxTokens: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
+  activityObserver?: InferenceActivityObserver;
   mockResponses?: MockPlannerResponseInput[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
@@ -455,6 +457,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       : null;
     const text = inline?.text ?? mock.content;
     const thinkingText = inline?.thinkingText ?? mock.thinking;
+    options.activityObserver?.recordActivity();
     if (thinkingText) options.onThinkingDelta?.(thinkingText);
     const content = completeLiveContent(text, mock.toolCalls.length > 0, options.onContentDelta);
     return {
@@ -497,6 +500,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         continuationMinTokens: options.continuationMinTokens,
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
+        activityObserver: options.activityObserver,
       }),
       {
         maxWaitMs: options.timeoutMs,
@@ -625,6 +629,7 @@ export async function requestApprovalVerdict(options: {
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
+  activityObserver?: InferenceActivityObserver;
 }): Promise<PlannerActionResponse> {
   const verdictMessages = buildApprovalVerdictPromptMessages(
     options.transcriptMessages,
@@ -675,6 +680,7 @@ export async function requestApprovalVerdict(options: {
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
     logger: options.logger,
+    activityObserver: options.activityObserver,
     cachePrefix: options.executing,
     stage: 'approval_verdict',
     responseSchema: buildApprovalVerdictJsonSchema(),
@@ -696,6 +702,7 @@ export async function requestTerminalSynthesis(options: {
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
+  activityObserver?: InferenceActivityObserver;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
     config: options.config,
@@ -717,6 +724,7 @@ export async function requestTerminalSynthesis(options: {
     tools: options.executing.tools,
     toolChoice: 'none',
     onContentDelta: options.onContentDelta,
+    activityObserver: options.activityObserver,
   });
 }
 
@@ -764,6 +772,7 @@ export async function requestContextCompactionSummary(options: {
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
+  activityObserver?: InferenceActivityObserver;
 }): Promise<PlannerActionResponse> {
   const state = options.cacheOrigin.kind === 'planner'
     ? options.cacheOrigin.executing
@@ -792,6 +801,7 @@ export async function requestContextCompactionSummary(options: {
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
     logger: options.logger,
+    activityObserver: options.activityObserver,
     stage: 'context_compaction',
     responseSchema: null,
     tools: state.tools,

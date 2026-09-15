@@ -55,9 +55,15 @@ export type RepoAgentEngine = {
   executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult>;
 };
 
+export type RepoAgentModelLockHandle = {
+  release(): void;
+  /** Records a sign of life against the lock's inactivity timeout. */
+  renewActivity(): void;
+};
+
 export type RepoAgentModelLockAdapter = {
   /** Resolves once the model lock is held and the preset is ready; null on queue timeout. */
-  acquire(runId: string, abortSignal: AbortSignal): Promise<{ release(): void } | null>;
+  acquire(runId: string, abortSignal: AbortSignal): Promise<RepoAgentModelLockHandle | null>;
   queueLength(): number;
 };
 
@@ -93,6 +99,10 @@ class SessionProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   write(event: RepoSearchProgressEvent): void {
     this.session.handleProgressEvent(event);
+  }
+
+  override recordActivity(): void {
+    this.session.renewOwnership();
   }
 }
 
@@ -132,6 +142,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly gate: ApprovalGate;
   private readonly waiters: BoundaryWaiter[] = [];
   private subscriber: RepoAgentSessionSubscriber | null = null;
+  private lock: RepoAgentModelLockHandle | null = null;
   // In-memory only on purpose: large thinking text must never land in the persisted run state.
   private executionResult: RepoSearchExecutionResult | null = null;
   private state: RepoAgentRunState;
@@ -225,6 +236,16 @@ export class RepoAgentSession implements ApprovalGateObserver {
     return this.subscriber?.wantsLiveText === true;
   }
 
+  /**
+   * Reports a sign of life to the model lock. No-op before acquisition and after release.
+   *
+   * Driven by provider frames and engine events regardless of live text, so a run with no
+   * attached client still holds its ownership.
+   */
+  renewOwnership(): void {
+    this.lock?.renewActivity();
+  }
+
   /** Resolves the parked approval via the shared gate. False when nothing is parked. */
   submitDecision(input: RepoAgentDecideRequest): boolean {
     if (input.runId !== this.runId) {
@@ -238,7 +259,11 @@ export class RepoAgentSession implements ApprovalGateObserver {
       : input.decision === 'deny'
         ? { kind: 'deny', reason: input.reason }
         : { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
-    return this.gate.submit(this.state.approval.approvalId, decision);
+    const submitted = this.gate.submit(this.state.approval.approvalId, decision);
+    if (submitted) {
+      this.renewOwnership();
+    }
+    return submitted;
   }
 
   abort(): void {
@@ -302,6 +327,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   // ---- progress routing ----
 
   handleProgressEvent(event: RepoSearchProgressEvent): void {
+    this.renewOwnership();
     if (event.kind === 'approval_request') {
       this.publishApproval(event);
       if (this.approvalDelivery === 'boundary') {
@@ -333,7 +359,6 @@ export class RepoAgentSession implements ApprovalGateObserver {
 
   private async run(): Promise<void> {
     this.approvalGates.set(this.requestId, this.gate);
-    let lock: { release(): void } | null = null;
     const lockWaitStartedAt = Date.now();
     const lockWaitTimer = setInterval(() => {
       this.subscriber?.writeProgress({
@@ -344,11 +369,11 @@ export class RepoAgentSession implements ApprovalGateObserver {
     lockWaitTimer.unref();
     try {
       try {
-        lock = await this.locks.acquire(this.runId, this.executionSignal);
+        this.lock = await this.locks.acquire(this.runId, this.executionSignal);
       } finally {
         clearInterval(lockWaitTimer);
       }
-      if (!lock) {
+      if (!this.lock) {
         if (this.abortController.signal.aborted) this.settleAborted();
         else this.settleFailure('Timed out waiting for model request queue.');
         return;
@@ -385,7 +410,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
         this.settleFailure(toError(error).message);
       }
     } finally {
-      lock?.release();
+      this.lock?.release();
+      this.lock = null;
       this.approvalGates.delete(this.requestId);
     }
   }

@@ -110,7 +110,7 @@ export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch
       recorder.finish({ terminalCause: stopped ? 'user_stop' : 'server_restart',
         detail: stopped ? 'Stopped by user.' : 'The owning server stopped.', usage: null, recoveryStatus: 'recovery_needed' });
       new ChatMessageQueueStore(database).setPaused(orphan.session_id, true);
-    })();
+    }).immediate();
     const report = reconcileChatRun(database, orphan.operation_id);
     if (report.status !== 'recovery_failed') {
       const run = store.readRun(orphan.operation_id);

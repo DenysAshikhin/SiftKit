@@ -6,6 +6,13 @@ declare module 'better-sqlite3' {
     iterate(...params: unknown[]): IterableIterator<unknown>;
   }
 
+  /** A wrapped function; the variants pick the BEGIN mode. `immediate` reserves the writer up front. */
+  export type Transaction<T extends (...args: unknown[]) => unknown> = T & {
+    deferred: T;
+    immediate: T;
+    exclusive: T;
+  };
+
   export interface Database {
     readonly name: string;
     readonly open: boolean;
@@ -14,7 +21,7 @@ declare module 'better-sqlite3' {
     exec(sql: string): this;
     pragma(source: string, options?: { simple?: boolean }): unknown;
     close(): void;
-    transaction<T extends (...args: unknown[]) => unknown>(fn: T): T;
+    transaction<T extends (...args: unknown[]) => unknown>(fn: T): Transaction<T>;
     /** Native online backup: a consistent copy without blocking writers. */
     backup(destinationFile: string): Promise<{ totalPages: number; remainingPages: number }>;
   }

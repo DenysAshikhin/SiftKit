@@ -64,7 +64,7 @@ import { StatusEngineService } from './engine-service.js';
 import { StatusRunRegistry } from './status-run-registry.js';
 import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import { createRequestHandler } from './routes.js';
-import { waitForTerminalMetadataIdle } from './terminal-metadata.js';
+import { flushTerminalMetadataForShutdown, waitForTerminalMetadataIdle } from './terminal-metadata.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.js';
@@ -137,6 +137,8 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 const INFERENCE_RUN_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const INFERENCE_RUN_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
+/** Bounded wait for each shutdown persistence stage; a stage that cannot finish fails shutdown loudly. */
+const SHUTDOWN_PERSISTENCE_TIMEOUT_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const ASSISTANT_DRAIN_INTERVAL_MS = 20_000;
@@ -291,7 +293,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     terminalMetadata: {
       pendingDirectJobs: 0,
       queue: [],
+      directJobs: new Map(),
       drainScheduled: false,
+      drainTimer: null,
       drainRunning: false,
       lastModelRequestFinishedAtMs: null,
       serverStartedAtMs: Date.now(),
@@ -502,10 +506,14 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       clearInterval(ctx.runtimeHistoryPruneTimer);
       ctx.runtimeHistoryPruneTimer = null;
     }
-    // Drain this server's writers, release its lease while the handle is open, then close only its path.
+    // Drain this server's writers in dependency order — inference logs, then the metadata and
+    // direct jobs that wait on them, then artifacts — release its lease while the handle is
+    // open, then close only its path. Completion is persistence, not an idle-delay race.
     void (async () => {
       await server.waitForRequestsIdle();
-      await server.waitForTerminalMetadataIdle();
+      await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
+      await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
+      await flushDeferredArtifacts(ctx);
       clearIdleSummaryTimer(ctx);
       await ctx.inferenceRunFlushQueue.close();
       if (ctx.idleSummary.database) {

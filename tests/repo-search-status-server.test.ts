@@ -17,6 +17,8 @@ import {
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { readMetrics } from '../src/status-server/metrics.js';
+import { getMetricsPath } from '../src/status-server/paths.js';
 import { requestSse } from './helpers/sse-http.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
@@ -556,7 +558,10 @@ test('health reports unavailable while managed engine bootstrap is still startin
   }
 });
 
-test('status completion flushing does not block health responses', async () => {
+// Completion metadata is acknowledged before it is persisted; persistence is deferred by the idle
+// delay, which here is far longer than the shutdown budget so ordering is fixed by construction.
+// The server stays responsive while the write is pending, and shutdown writes it exactly once.
+test('completion metadata is acknowledged before persistence and shutdown persists it once', async () => {
   const tempRoot = createManagedTempDir('siftkit-status-flush-health-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
@@ -580,44 +585,24 @@ test('status completion flushing does not block health responses', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const requestId = 'flush-block-test';
-  const delayedArtifactPath = path.join(tempRoot, '.siftkit', 'logs', 'requests', `request_${requestId}.json`);
-  fs.mkdirSync(path.dirname(delayedArtifactPath), { recursive: true });
-  fs.writeFileSync(
-    delayedArtifactPath,
-    `${JSON.stringify({ title: 'flush blocking simulation', prompt: 'x'.repeat(1024) })}\n`,
-    'utf8',
-  );
-
-  // Minimal mutable view of the shared CJS fs module so readFileSync can be
-  // monkeypatched with a single-signature wrapper (the full overloaded type
-  // cannot accept a plain arrow without a cast).
-  type ReadFileSyncArg = string | Buffer | URL | number;
-  type ReadFileSyncOptions = BufferEncoding | { encoding?: BufferEncoding | null; flag?: string } | null;
-  type MutableFsModule = {
-    readFileSync: (filePath: ReadFileSyncArg, options?: ReadFileSyncOptions) => string | Buffer;
-  };
-  const sharedNodeFs: MutableFsModule = requireFromHere('node:fs');
-  const originalReadFileSync = sharedNodeFs.readFileSync;
-  sharedNodeFs.readFileSync = (filePath, options) => {
-    const target = typeof filePath === 'string' ? filePath : '';
-    if (target && path.resolve(target).toLowerCase() === path.resolve(delayedArtifactPath).toLowerCase()) {
-      const start = Date.now();
-      while (Date.now() - start < 350) {
-        // Intentional busy wait to simulate a heavy synchronous artifact read.
-      }
+  const requestId = 'deferred-completion-test';
+  const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+  const countRunLogs = (): number => {
+    const database = new Database(runtimeDbPath, { readonly: true });
+    try {
+      return Number(JsonRecordReader.asObject(database.prepare('SELECT COUNT(*) AS count FROM run_logs WHERE request_id = ?').get(requestId))?.count);
+    } finally {
+      database.close();
     }
-    return originalReadFileSync(filePath, options);
   };
 
-  const server = startStatusServer({ disableManagedEngineStartup: true });
+  const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 60_000 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const statusStartMs = Date.now();
-    const statusPromise = requestJson(`${baseUrl}/status/terminal-metadata`, {
+    const statusResponse = await requestJson(`${baseUrl}/status/terminal-metadata`, {
       method: 'POST',
       timeoutMs: 5000,
       body: JSON.stringify({
@@ -631,29 +616,24 @@ test('status completion flushing does not block health responses', async () => {
         outputTokens: 1,
         requestDurationMs: 1,
       }),
-    }).then((response) => ({
-      response,
-      resolvedAtMs: Date.now(),
-    }));
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const healthStartMs = Date.now();
-    const healthResponse = await requestJson(`${baseUrl}/health`, { timeoutMs: 5000 });
-    const healthLatencyMs = Date.now() - healthStartMs;
-
-    const statusResult = await statusPromise;
-    const statusResponse = statusResult.response;
-    const statusLatencyMs = statusResult.resolvedAtMs - statusStartMs;
-
+    });
     assert.equal(statusResponse.statusCode, 200);
+    const healthResponse = await requestJson(`${baseUrl}/health`, { timeoutMs: 5000 });
     assert.equal(healthResponse.statusCode, 200);
-    assert.ok(statusLatencyMs >= 0);
-    assert.ok(healthLatencyMs < 250, `expected fast /health during flush, got ${healthLatencyMs}ms`);
-  } finally {
-    sharedNodeFs.readFileSync = originalReadFileSync;
+    assert.equal(healthResponse.body.ok, true);
+    assert.equal(countRunLogs(), 0, 'persistence is still deferred behind the idle delay');
+
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    assert.equal(countRunLogs(), 1);
+    assert.equal(readMetrics(getMetricsPath()).outputTokensTotal, 1);
+  } finally {
+    if (server.listening) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
     process.chdir(previousCwd);
     closeAllRuntimeDatabases();
     for (const [key, value] of Object.entries(envBackup)) {

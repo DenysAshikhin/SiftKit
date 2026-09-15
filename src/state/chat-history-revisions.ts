@@ -58,7 +58,7 @@ export function recordChatHistoryRevision(database: RuntimeDatabase, sessionId: 
     store.append({ operationId, ownerEpoch: 'history-edit', expectedSequence: 0, eventId: 'revision', occurredAtUtc: now,
       event: { kind: 'history_revised', revision, expectedSessionRevision: readChatHistoryRevisionCount(database, sessionId) } });
     store.finish({ operationId, ownerEpoch: 'history-edit', terminalCause: 'completed', updatedAtUtc: now });
-  })();
+  }).immediate();
 }
 
 export function applyChatDisplayRevisions(messages: readonly ChatTranscriptMessage[], revisions: readonly ChatHistoryRevision[]): ChatTranscriptMessage[] {
@@ -115,7 +115,7 @@ export function removeChatImageEvidence(database: RuntimeDatabase, sessionId: st
     }
     recordChatHistoryRevision(database, sessionId, { action: 'image_removed', messageId, imageIndex, originalImageIndex, imagePathKey: null,
       payloadDigest: createHash('sha256').update(payload).digest('hex') });
-  })();
+  }).immediate();
 }
 
 /** Native copies drop one occurrence of the exact payload: positions drift once retention ages siblings out. */

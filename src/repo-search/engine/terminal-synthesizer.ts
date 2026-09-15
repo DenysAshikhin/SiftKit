@@ -94,6 +94,7 @@ export class TerminalSynthesizer {
           onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
             ? (snapshot) => { this.options.progress.answer(input.turnsUsed, snapshot.narrationText); }
             : undefined,
+          activityObserver: this.options.progress,
         });
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;

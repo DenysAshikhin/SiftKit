@@ -3,16 +3,17 @@ import {
   ensureActivePresetReadyForModelRequest,
   getModelRequestQueueDiagnostics,
   releaseModelRequest,
+  renewModelRequestActivity,
 } from './server-ops.js';
 import type { ServerContext } from './server-types.js';
-import type { RepoAgentModelLockAdapter } from './repo-agent-sessions.js';
+import type { RepoAgentModelLockAdapter, RepoAgentModelLockHandle } from './repo-agent-sessions.js';
 import { throwIfAborted } from '../lib/abort.js';
 
 /** Session-owned model lock: acquired without an HTTP request, released when the run settles. */
 export class ServerModelLockAdapter implements RepoAgentModelLockAdapter {
   constructor(private readonly ctx: ServerContext) {}
 
-  async acquire(runId: string, abortSignal: AbortSignal): Promise<{ release(): void } | null> {
+  async acquire(runId: string, abortSignal: AbortSignal): Promise<RepoAgentModelLockHandle | null> {
     const lock = await acquireModelRequestWithWait(this.ctx, 'repo_search', undefined, undefined, {
       ownerRunId: runId,
       abortSignal,
@@ -30,6 +31,9 @@ export class ServerModelLockAdapter implements RepoAgentModelLockAdapter {
     return {
       release: () => {
         releaseModelRequest(this.ctx, lock.token);
+      },
+      renewActivity: () => {
+        renewModelRequestActivity(this.ctx, lock.token);
       },
     };
   }

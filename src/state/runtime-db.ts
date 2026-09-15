@@ -130,15 +130,8 @@ function configureRuntimeDatabase(database: RuntimeDatabase): void {
   `);
 }
 
+/** Ordinary close: the last connection checkpoints on its own, and WAL stays on for any other. */
 function closeRuntimeDatabaseHandle(database: RuntimeDatabase): void {
-  try {
-    database.exec(`
-      PRAGMA wal_checkpoint(TRUNCATE);
-      PRAGMA journal_mode = DELETE;
-    `);
-  } catch {
-    // Best effort before close.
-  }
   database.close();
 }
 

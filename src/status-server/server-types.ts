@@ -29,8 +29,10 @@ export type ModelRequestLock = {
   kind: string;
   startedAtUtc: string;
   ownerRunId: string | null;
-  /** Fires the hold ceiling that force-releases a holder which never releases on its own. */
-  holdTimeoutHandle: NodeJS.Timeout | null;
+  /** Last sign of life from the holder. Renewal moves this, never the timer. */
+  lastActivityAtMs: number;
+  /** Force-releases a holder that has gone silent for a full inactivity window. */
+  inactivityTimeoutHandle: NodeJS.Timeout | null;
 };
 export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null; abortSignal?: AbortSignal };
 export type ModelRequestWaiter = {
@@ -56,7 +58,10 @@ export type TerminalMetadataQueueItem = {
 export type TerminalMetadataState = {
   queue: TerminalMetadataQueueItem[];
   pendingDirectJobs: number;
+  /** Scheduled direct jobs by timer, so shutdown can run them now instead of waiting on the clock. */
+  directJobs: Map<NodeJS.Timeout, () => void>;
   drainScheduled: boolean;
+  drainTimer: NodeJS.Timeout | null;
   drainRunning: boolean;
   lastModelRequestFinishedAtMs: number | null;
   /** Set once at context construction; model quiet counts from here until the first request finishes. */

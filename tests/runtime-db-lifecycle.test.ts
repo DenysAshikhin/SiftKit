@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import Database from 'better-sqlite3';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -78,6 +79,27 @@ test('an explicitly closed database reopens as a new handle', () => {
   } finally {
     closeAllRuntimeDatabases();
   }
+});
+
+// The flush worker and the server share one file. An ordinary close must not switch the
+// journal back to rollback mode under the other connection, and cleanup must still succeed.
+test('closing one connection leaves a concurrent connection in WAL mode and usable', () => {
+  const { firstPath } = twoPaths('runtime-db-lifecycle-wal-');
+  const first = getRuntimeDatabase(firstPath);
+  first.exec("CREATE TABLE audit_value(value TEXT); INSERT INTO audit_value VALUES ('A')");
+  const second = new Database(firstPath);
+  try {
+    assert.equal(JournalModeRowSchema.parse(second.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
+    closeRuntimeDatabase(firstPath);
+    assert.equal(first.open, false);
+    assert.equal(JournalModeRowSchema.parse(second.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
+    second.exec("INSERT INTO audit_value VALUES ('B')");
+    assert.deepEqual(readValues(second), ['A', 'B']);
+  } finally {
+    second.close();
+    closeAllRuntimeDatabases();
+  }
+  assert.doesNotThrow(() => rmSync(path.dirname(firstPath), { recursive: true, force: false }));
 });
 
 test('a failed second initialization closes only its own handle', () => {

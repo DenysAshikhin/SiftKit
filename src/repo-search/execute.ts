@@ -173,6 +173,10 @@ class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> 
     logRepoSearchLifecycleEvent(this.requestId, event);
     this.target.write(event);
   }
+
+  override recordActivity(): void {
+    this.target.recordActivity();
+  }
 }
 
 type RepoSearchRunPersistenceOptions = Omit<Parameters<typeof upsertRepoSearchRun>[0], 'database'> & {

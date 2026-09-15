@@ -8,6 +8,7 @@ import { buildCompactionSummaryInstruction } from '../prompts.js';
 import { countPlannerPromptTokens, countTokensWithFallback } from '../prompt-budget.js';
 import { renderWirePrompt } from '../wire-prompt.js';
 import type { JsonLogger } from '../types.js';
+import type { InferenceActivityObserver } from '../../lib/progress-writer.js';
 import { TokenUsageTracker } from './token-usage.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import {
@@ -83,6 +84,7 @@ export class TranscriptCompactor {
     tokenUsage: TokenUsageTracker;
     logger: JsonLogger | null;
     abortSignal: AbortSignal | undefined;
+    activityObserver?: InferenceActivityObserver;
   }) {}
 
   private get tokenCountConfig(): SiftConfig | undefined {
@@ -238,6 +240,7 @@ export class TranscriptCompactor {
           mockResponseIndex,
           abortSignal: this.options.abortSignal,
           logger: this.options.logger,
+          activityObserver: this.options.activityObserver,
         });
         if (typeof response.nextMockResponseIndex === 'number') {
           mockResponseIndex = response.nextMockResponseIndex;

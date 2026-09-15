@@ -454,7 +454,7 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
     database.prepare('DELETE FROM runtime_metadata WHERE substr(key, 1, ?) = ?').run(receiptPrefix.length, receiptPrefix);
     const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId);
     return Number(result.changes || 0) > 0;
-  })();
+  }).immediate();
 }
 
 export function deleteChatMessage(runtimeRoot: string, sessionId: string, messageId: string): { session: ChatSession; deletedMessage: ChatMessage } | null {
@@ -487,7 +487,7 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
     messages: current.messages.filter((message) => String(message.id || '') !== normalizedMessageId),
   };
   return { session: updatedSession, deletedMessage };
-  })();
+  }).immediate();
 }
 
 export function updateChatMessageImageCaption(
@@ -611,7 +611,7 @@ export function deleteChatMessageImage(
     throw new ChatMessageImageNotFoundError();
   }
   touchChatSession(runtimeRoot, normalizedSessionId);
-  })();
+  }).immediate();
 }
 
 /**
@@ -626,7 +626,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     saveChatSessionMetadata(runtimeRoot, session);
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(session.id.trim());
     insertChatMessages(database, session.id.trim(), messages, 0, new Date().toISOString());
-  })();
+  }).immediate();
 }
 
 /** Session preferences have no authority over journal-derived message rows. */
@@ -681,7 +681,7 @@ export function saveChatSessionMetadata(runtimeRoot: string, session: ChatSessio
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );
 
-  })();
+  }).immediate();
 }
 
 /**

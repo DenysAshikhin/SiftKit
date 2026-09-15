@@ -196,5 +196,5 @@ export function applyChatHistoryRepair(database: RuntimeDatabase, prepared: Retu
     queue.deleteIncorporated(report.sessionId, report.requestId);
     owner.assertOwned();
     return { changed: true, report };
-  })();
+  }).immediate();
 }

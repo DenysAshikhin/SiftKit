@@ -1,6 +1,6 @@
 import { parentPort } from 'node:worker_threads';
 import {
-  appendInferenceRunLogChunk,
+  appendInferenceRunLogChunks,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.js';
@@ -18,24 +18,24 @@ type FlushWorkerResponse = {
   errorMessage?: string;
 };
 
-function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
+function handleFlushRequest(message: FlushWorkerRequest, entries: InferenceRunPendingLogChunkEntry[]): FlushWorkerResponse {
   const database = getRuntimeDatabase(message.databasePath);
+  // Yield fast when chat holds the writer: the queue restores the batch and retries it whole.
   database.exec('PRAGMA busy_timeout = 1;');
-  for (const entry of message.entries) {
-    appendInferenceRunLogChunk({
-      runId: message.runId,
-      streamKind: entry.streamKind,
-      chunkText: entry.chunkText,
-      databasePath: message.databasePath,
-    });
-  }
+  appendInferenceRunLogChunks({ runId: message.runId, entries, databasePath: message.databasePath });
   return { id: message.id, ok: true };
 }
 
 parentPort?.on('message', (message: FlushWorkerRequest) => {
+  // Answer an empty batch without opening the database: nothing to write, nothing to create.
+  const entries = message.entries.filter((entry) => entry.chunkText.length > 0);
+  if (entries.length === 0) {
+    parentPort?.postMessage({ id: message.id, ok: true } satisfies FlushWorkerResponse);
+    return;
+  }
   let response: FlushWorkerResponse;
   try {
-    response = handleFlushRequest(message);
+    response = handleFlushRequest(message, entries);
   } catch (error) {
     response = {
       id: message.id,

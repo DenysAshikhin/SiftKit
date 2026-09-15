@@ -69,6 +69,9 @@ export class InferenceRunFlushQueue {
   private readonly pendingByRunId = new Map<string, InferenceRunFlushQueueItem>();
   private readonly pendingOrder: string[] = [];
   private scheduled = false;
+  private drainTimer: NodeJS.Timeout | null = null;
+  /** Set by the shutdown drain: the idle-delay gate is bypassed until the queue is empty. */
+  private shuttingDown = false;
   private draining = false;
   private runningRunId: string | null = null;
   private activeModelRequest = false;
@@ -91,8 +94,24 @@ export class InferenceRunFlushQueue {
       : DEFAULT_CLOSE_FLUSH_WAIT_MS;
   }
 
+  /**
+   * Shutdown: cancels the delayed drain, flushes every pending batch now and awaits each
+   * acknowledgement. An in-flight batch completes first. A batch that keeps failing is a
+   * bounded wait that rejects, so shutdown reports the loss instead of dropping it silently.
+   */
+  async drainForShutdown(timeoutMs: number): Promise<void> {
+    this.shuttingDown = true;
+    this.clearDrainTimer();
+    this.scheduled = false;
+    if (!this.draining) {
+      await this.drainNow();
+    }
+    await this.waitForIdle(timeoutMs);
+  }
+
   async close(): Promise<void> {
     this.closed = true;
+    this.clearDrainTimer();
     const worker = this.worker;
     this.worker = null;
     if (!worker) {
@@ -123,6 +142,10 @@ export class InferenceRunFlushQueue {
       return false;
     }
     if (this.pendingByRunId.has(normalizedRunId)) {
+      return false;
+    }
+    // Nothing buffered means no work: a flush flow here would only contend for the journal.
+    if (getInferenceRunPendingLogChunkStats(normalizedRunId).totalCharacters === 0) {
       return false;
     }
     this.pendingByRunId.set(normalizedRunId, {
@@ -217,6 +240,12 @@ export class InferenceRunFlushQueue {
           continue;
         }
         const pendingStats = getInferenceRunPendingLogChunkStats(nextRunId);
+        // The buffer can drain between enqueue and drain; drop the stale item before scheduling.
+        if (pendingStats.totalCharacters === 0) {
+          this.pendingOrder.shift();
+          this.pendingByRunId.delete(nextRunId);
+          continue;
+        }
         const idleWaitMs = this.getIdleWaitMs(item.enqueuedAtMs, pendingStats.totalCharacters);
         if (idleWaitMs > 0) {
           this.scheduleDrain(idleWaitMs);
@@ -227,11 +256,15 @@ export class InferenceRunFlushQueue {
           continue;
         }
         this.pendingByRunId.delete(runId);
+        item.entries ??= consumeInferenceRunPendingLogChunks(runId);
+        // Skipped without touching the counters: no flush was attempted and none failed.
+        if (item.entries.length === 0) {
+          continue;
+        }
         this.runningRunId = runId;
         const startedAtMs = Date.now();
         const waitMs = startedAtMs - item.enqueuedAtMs;
         try {
-          item.entries ??= consumeInferenceRunPendingLogChunks(runId);
           await this.flushInWorker(runId, item.entries);
           const durationMs = Date.now() - startedAtMs;
           this.completedCount += 1;
@@ -272,7 +305,7 @@ export class InferenceRunFlushQueue {
   }
 
   private getIdleWaitMs(fallbackStartedAtMs: number, pendingCharacters: number): number {
-    if (pendingCharacters >= PENDING_FLUSH_HIGH_WATER_CHARACTERS) {
+    if (this.shuttingDown || pendingCharacters >= PENDING_FLUSH_HIGH_WATER_CHARACTERS) {
       return 0;
     }
     if (this.activeModelRequest || this.modelRequestQueueLength > 0) {
@@ -334,6 +367,13 @@ export class InferenceRunFlushQueue {
     return this.worker;
   }
 
+  private clearDrainTimer(): void {
+    if (this.drainTimer !== null) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
+  }
+
   private scheduleDrain(delayMs: number): void {
     if (this.scheduled) {
       return;
@@ -341,11 +381,13 @@ export class InferenceRunFlushQueue {
     this.scheduled = true;
     if (delayMs > 0) {
       const timer = setTimeout(() => {
+        this.drainTimer = null;
         void this.drainNow();
       }, delayMs);
       if (typeof timer.unref === 'function') {
         timer.unref();
       }
+      this.drainTimer = timer;
       return;
     }
     setImmediate(() => {

@@ -41,6 +41,7 @@ import {
 import { InferenceToolCallParser } from './tool-call-parser.js';
 import { InferenceRequestBuilder } from './inference-request-builder.js';
 import { LiveContentClassifier, toLiveContentResult, type LiveContentSnapshot } from './live-content-classifier.js';
+import type { InferenceActivityObserver } from '../lib/progress-writer.js';
 
 type InferenceHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
@@ -135,6 +136,8 @@ export type InferenceChatOptions = {
   continuationMinTokens?: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
+  /** Told of every validated, non-error provider frame, whether or not any text is delivered. */
+  activityObserver?: InferenceActivityObserver;
 };
 
 /**
@@ -428,6 +431,7 @@ export class InferenceClient {
           });
           throw buildStreamErrorFrameError(url, errorFrame);
         }
+        options.activityObserver?.recordActivity();
         const promptUsage = getPromptUsageFromResponseBody(packet);
         const completionUsage = getCompletionUsageFromResponseBody(packet);
         const timingUsage = getTimingUsageFromResponseBody(packet);

@@ -42,11 +42,12 @@ import { serverLogger } from './server-logger.js';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 /**
- * Longest a single request may hold the model before the server takes the lock back.
+ * Longest a request may hold the model without activity before the server takes the lock back.
  *
- * Deliberately far beyond any legitimate operation: this is not a work deadline, it is the floor
- * under a wedge. A holder that deadlocks keeps the lock forever — one held it for 943s with a
- * queue behind it — and every later request waits on a run that will never finish.
+ * This is not a work deadline: run-owned holders renew it on every sign of progress, so it only
+ * fires on a holder that has gone silent. A holder that deadlocks keeps the lock forever — one
+ * held it for 943s with a queue behind it — and every later request waits on a run that will
+ * never finish.
  */
 export const DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS = 3_600_000;
 export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
@@ -56,7 +57,7 @@ function readModelRequestQueueTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
 }
 
-function readModelRequestHoldCeilingMs(): number {
+function readModelRequestInactivityTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS || ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS;
 }
@@ -323,7 +324,7 @@ function logModelRequestExpired(lock: ModelRequestLock): void {
     scope: 'st',
     id: lock.token,
     event: 'expired',
-    fields: `reason=model_hold_ceiling task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)}`,
+    fields: `reason=model_inactivity_timeout task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)}`,
   });
 }
 
@@ -368,30 +369,59 @@ function createModelRequestLock(kind: string, ownerRunId: string | null): ModelR
     kind: String(kind),
     startedAtUtc: new Date().toISOString(),
     ownerRunId,
-    holdTimeoutHandle: null,
+    lastActivityAtMs: Date.now(),
+    inactivityTimeoutHandle: null,
   };
 }
 
 /**
- * The only way a lock enters the active set, so no path can grant one without a ceiling.
- * Expiry runs the ordinary release, which is what drains the queue behind the stuck holder.
+ * The only way a lock enters the active set, so no path can grant one without an inactivity
+ * timeout. Expiry runs the ordinary release, which drains the queue behind the stuck holder.
  */
 function registerActiveModelRequest(ctx: ServerContext, lock: ModelRequestLock): void {
   ctx.activeModelRequests.set(lock.token, lock);
-  const holdTimeoutHandle = setTimeout(() => {
-    logModelRequestExpired(lock);
-    releaseModelRequest(ctx, lock.token);
-  }, readModelRequestHoldCeilingMs());
-  holdTimeoutHandle.unref?.();
-  lock.holdTimeoutHandle = holdTimeoutHandle;
+  armModelRequestInactivityTimeout(ctx, lock, readModelRequestInactivityTimeoutMs());
 }
 
-function clearModelRequestHoldCeiling(lock: ModelRequestLock): void {
-  if (!lock.holdTimeoutHandle) {
+/**
+ * Arms one timer that expires the lock only if the holder is still silent when it fires.
+ * Activity since then re-arms for the remaining window, so renewal costs a timestamp write
+ * rather than a timer swap — a holder signals on every progress event it emits.
+ */
+function armModelRequestInactivityTimeout(ctx: ServerContext, lock: ModelRequestLock, delayMs: number): void {
+  const inactivityTimeoutHandle = setTimeout(() => {
+    lock.inactivityTimeoutHandle = null;
+    const remainingMs = readModelRequestInactivityTimeoutMs() - (Date.now() - lock.lastActivityAtMs);
+    if (remainingMs > 0) {
+      armModelRequestInactivityTimeout(ctx, lock, remainingMs);
+      return;
+    }
+    logModelRequestExpired(lock);
+    releaseModelRequest(ctx, lock.token);
+  }, delayMs);
+  inactivityTimeoutHandle.unref?.();
+  lock.inactivityTimeoutHandle = inactivityTimeoutHandle;
+}
+
+/**
+ * Records a sign of life from the holder, keeping its original acquisition time. False once the
+ * token has been released or expired, so a settled run cannot revive ownership it no longer holds.
+ */
+export function renewModelRequestActivity(ctx: ServerContext, token: string): boolean {
+  const lock = ctx.activeModelRequests.get(token);
+  if (!lock) {
+    return false;
+  }
+  lock.lastActivityAtMs = Date.now();
+  return true;
+}
+
+function clearModelRequestInactivityTimeout(lock: ModelRequestLock): void {
+  if (!lock.inactivityTimeoutHandle) {
     return;
   }
-  clearTimeout(lock.holdTimeoutHandle);
-  lock.holdTimeoutHandle = null;
+  clearTimeout(lock.inactivityTimeoutHandle);
+  lock.inactivityTimeoutHandle = null;
 }
 
 function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boolean {
@@ -598,7 +628,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   if (!releasedLock) {
     return false;
   }
-  clearModelRequestHoldCeiling(releasedLock);
+  clearModelRequestInactivityTimeout(releasedLock);
   ctx.activeModelRequests.delete(token);
   const finishedAtMs = Date.now();
   ctx.terminalMetadata.lastModelRequestFinishedAtMs = finishedAtMs;

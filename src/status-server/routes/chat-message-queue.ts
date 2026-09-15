@@ -22,6 +22,13 @@ function readQueueSessionId(match: RouteMatch, res: ServerResponse): string | nu
   }
 }
 
+/** A queued user message is run activity: renew the active repo-agent's model ownership. */
+function renewActiveRepoAgentOwnership(ctx: ServerContext, sessionId: string): void {
+  const binding = ctx.chatRepoAgentRuns.get(sessionId);
+  if (!binding) return;
+  ctx.repoAgentSessions.get(binding.runId)?.renewOwnership();
+}
+
 export class ChatMessageQueueEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): Promise<void> {
     const sessionId = readQueueSessionId(match, res);
@@ -75,10 +82,13 @@ export class ChatMessageQueueEndpoint implements RouteEndpoint {
     }
     const ok = ['enqueued', 'duplicate', 'already_persisted', 'applied'].includes(kind);
     if (ok) owner.publish(sessionId);
-    if (kind === 'enqueued' && afterOperationId && !ctx.chatSessionOperations.getActive(sessionId)) {
-      if (ctx.chatSessionOperations.getCompletion(sessionId, afterOperationId)?.kind === 'completed') await ctx.chatQueueSuccessor?.startPending(sessionId);
-      else owner.store.setPaused(sessionId, true);
-      owner.publish(sessionId);
+    if (kind === 'enqueued') {
+      renewActiveRepoAgentOwnership(ctx, sessionId);
+      if (afterOperationId && !ctx.chatSessionOperations.getActive(sessionId)) {
+        if (ctx.chatSessionOperations.getCompletion(sessionId, afterOperationId)?.kind === 'completed') await ctx.chatQueueSuccessor?.startPending(sessionId);
+        else owner.store.setPaused(sessionId, true);
+        owner.publish(sessionId);
+      }
     }
     const queue = owner.state(sessionId);
     sendJson(res, ok ? 200 : kind === 'not_found' ? 404 : 409, ok ? { queue } : { error: kind, queue });

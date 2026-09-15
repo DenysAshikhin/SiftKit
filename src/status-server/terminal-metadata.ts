@@ -155,13 +155,17 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
 
 export function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminalMetadataJob): void {
   ctx.terminalMetadata.pendingDirectJobs += 1;
-  const timer = setTimeout(() => {
+  const run = (): void => {
+    clearTimeout(timer);
+    ctx.terminalMetadata.directJobs.delete(timer);
     try { applyDeferredTerminalMetadata(ctx, job); }
     finally { ctx.terminalMetadata.pendingDirectJobs -= 1; }
-  }, 25);
+  };
+  const timer = setTimeout(run, 25);
   if (typeof timer.unref === 'function') {
     timer.unref();
   }
+  ctx.terminalMetadata.directJobs.set(timer, run);
 }
 
 function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: number): number {
@@ -185,11 +189,21 @@ function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0):
   }
   ctx.terminalMetadata.drainScheduled = true;
   const timer = setTimeout(() => {
+    ctx.terminalMetadata.drainTimer = null;
     drainTerminalMetadataQueue(ctx);
   }, Math.max(0, Math.trunc(delayMs)));
   if (typeof timer.unref === 'function') {
     timer.unref();
   }
+  ctx.terminalMetadata.drainTimer = timer;
+}
+
+function cancelScheduledTerminalMetadataDrain(ctx: ServerContext): void {
+  if (ctx.terminalMetadata.drainTimer !== null) {
+    clearTimeout(ctx.terminalMetadata.drainTimer);
+    ctx.terminalMetadata.drainTimer = null;
+  }
+  ctx.terminalMetadata.drainScheduled = false;
 }
 
 export function enqueueTerminalMetadata(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
@@ -325,10 +339,17 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
   }
   ctx.terminalMetadata.drainRunning = true;
   const item = ctx.terminalMetadata.queue.shift();
-  if (!item) {
+  try {
+    if (item) processTerminalMetadataItem(ctx, item);
+  } finally {
     ctx.terminalMetadata.drainRunning = false;
-    return;
+    if (ctx.terminalMetadata.queue.length > 0) {
+      scheduleTerminalMetadataDrain(ctx);
+    }
   }
+}
+
+function processTerminalMetadataItem(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
   const startedAt = Date.now();
   serverLogger.debug({
     scope: 'st',
@@ -352,12 +373,28 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
       fields: `state=${item.terminalState} duration_ms=${Date.now() - startedAt} `
         + `error=${error instanceof Error ? error.message : String(error)}`,
     });
-  } finally {
-    ctx.terminalMetadata.drainRunning = false;
-    if (ctx.terminalMetadata.queue.length > 0) {
-      scheduleTerminalMetadataDrain(ctx);
+  }
+}
+
+/**
+ * Shutdown: cancels the idle-delay timer and processes every queued item and direct job now, in
+ * order, through the same routines the timer would have used. Inference logs must already be
+ * drained; nothing here waits on them.
+ */
+export async function flushTerminalMetadataForShutdown(ctx: ServerContext, timeoutMs: number): Promise<void> {
+  cancelScheduledTerminalMetadataDrain(ctx);
+  if (!ctx.terminalMetadata.drainRunning) {
+    ctx.terminalMetadata.drainRunning = true;
+    try {
+      for (let item = ctx.terminalMetadata.queue.shift(); item; item = ctx.terminalMetadata.queue.shift()) {
+        processTerminalMetadataItem(ctx, item);
+      }
+    } finally {
+      ctx.terminalMetadata.drainRunning = false;
     }
   }
+  for (const run of [...ctx.terminalMetadata.directJobs.values()]) run();
+  await waitForTerminalMetadataIdle(ctx, timeoutMs);
 }
 
 function isTerminalMetadataIdle(ctx: ServerContext, minimumCompletedRequestCount: number): boolean {

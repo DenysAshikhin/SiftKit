@@ -49,3 +49,25 @@ test('ProgressWriter wants live text by default', () => {
   }
   assert.equal(new DefaultWriter().wantsLiveText, true);
 });
+
+// Ownership renewal rides on provider activity, not on live text: a writer that wants no text
+// must still hear that the model is producing, and hearing it must not emit a progress event.
+test('recordActivity forwards to the writer without emitting a progress event', () => {
+  class ActivityWriter extends StubWriter {
+    activity = 0;
+    override recordActivity(): void {
+      this.activity += 1;
+    }
+  }
+  const writer = new ActivityWriter(false);
+  const reporter = buildReporter(writer);
+  reporter.recordActivity();
+  reporter.recordActivity();
+  assert.equal(writer.activity, 2);
+  assert.deepEqual(writer.events, []);
+});
+
+test('ProgressWriter ignores activity by default', () => {
+  const writer = new SilentProgressWriter<RepoSearchProgressEvent>();
+  assert.doesNotThrow(() => writer.recordActivity());
+});

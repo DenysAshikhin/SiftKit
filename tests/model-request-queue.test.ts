@@ -13,6 +13,7 @@ import {
   ensureActivePresetReadyForModelRequest,
   getModelRequestQueueDiagnostics,
   isIdle,
+  renewModelRequestActivity,
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
@@ -26,6 +27,10 @@ import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { InferenceClient } from '../src/llm-protocol/inference-client.js';
+import type { FullJsonResponse, SseStreamOptions } from '../src/lib/http-client.js';
+import type { SseFrame } from '../src/lib/sse-frame-parser.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 let queueContextIndex = 0;
@@ -622,18 +627,26 @@ test('model request hold ceiling default is one hour', () => {
   assert.equal(DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS, 3_600_000);
 });
 
-function useHoldCeiling(t: TestContext, ceilingMs: number): void {
-  process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS = String(ceilingMs);
+function useInactivityTimeout(t: TestContext, timeoutMs: number): void {
+  process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS = String(timeoutMs);
   t.after(() => {
     delete process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS;
   });
 }
 
-// Without a ceiling a holder that never releases wedges the server for every later request:
+/**
+ * Expiry compares `Date.now()` against the lock's last activity, so a mocked `setTimeout` with a
+ * real clock would read zero elapsed time and re-arm forever. Both must advance together.
+ */
+function useLockClock(t: TestContext, timeoutMs: number): void {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  useInactivityTimeout(t, timeoutMs);
+}
+
+// Without a timeout a holder that never releases wedges the server for every later request:
 // one stuck operation held the lock for 943s with a queue behind it and no way out.
-test('a model request held past the ceiling is force-released and the queue drains', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  useHoldCeiling(t, 25);
+test('a model request silent past the inactivity timeout is force-released and the queue drains', async (t) => {
+  useLockClock(t, 25);
   const ctx = createQueueContext();
   try {
     const stuckLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -654,7 +667,7 @@ test('a model request held past the ceiling is force-released and the queue drai
     const lines = capture.lines;
 
     assert.ok(
-      lines.some((line) => /st [\w-]{8}  expired  reason=model_hold_ceiling task=repo_search/u.test(line)),
+      lines.some((line) => /st [\w-]{8}  expired  reason=model_inactivity_timeout task=repo_search/u.test(line)),
       lines.join('\n'),
     );
     // The holder's own release finds nothing left to release, which is how it learns it lost the lock.
@@ -665,9 +678,8 @@ test('a model request held past the ceiling is force-released and the queue drai
   }
 });
 
-test('releasing a model request cancels its hold ceiling', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  useHoldCeiling(t, 25);
+test('releasing a model request cancels its inactivity timeout', async (t) => {
+  useLockClock(t, 25);
   const ctx = createQueueContext();
   try {
     const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -682,7 +694,119 @@ test('releasing a model request cancels its hold ceiling', async (t) => {
     }
     const lines = capture.lines;
 
-    assert.equal(lines.some((line) => line.includes('model_hold_ceiling')), false, lines.join('\n'));
+    assert.equal(lines.some((line) => line.includes('model_inactivity_timeout')), false, lines.join('\n'));
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+// The one-hour timeout is an inactivity timeout for run-owned holders: a run that keeps
+// reporting activity keeps the model, and only silence takes it back.
+test('a renewed model request survives past the original timeout and keeps its start time', async (t) => {
+  useLockClock(t, 100);
+  const ctx = createQueueContext();
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+    const startedAtUtc = lock.startedAtUtc;
+
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      for (let tick = 0; tick < 5; tick += 1) {
+        t.mock.timers.tick(80);
+        assert.equal(renewModelRequestActivity(ctx, lock.token), true);
+      }
+      t.mock.timers.tick(80);
+    } finally {
+      capture.restore();
+    }
+
+    assert.equal(capture.lines.some((line) => line.includes('model_inactivity_timeout')), false, capture.lines.join('\n'));
+    assert.deepEqual([...ctx.activeModelRequests.keys()], [lock.token]);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeRequests[0]?.startedAtUtc, startedAtUtc);
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+// Renewal only moves the deadline forward; it must not buy a holder extra silent time.
+test('a renewed model request still expires after a full window of silence', async (t) => {
+  useLockClock(t, 100);
+  const ctx = createQueueContext();
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+    t.mock.timers.tick(80);
+    assert.equal(renewModelRequestActivity(ctx, lock.token), true);
+
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      // The timer armed at grant fires at 100 and finds activity at 80, so it re-arms for the
+      // remaining 80 instead of expiring: silence is measured from the renewal, not the grant.
+      t.mock.timers.tick(99);
+      assert.equal(ctx.activeModelRequests.size, 1, 'still held 99ms after the last renewal');
+      t.mock.timers.tick(1);
+    } finally {
+      capture.restore();
+    }
+
+    assert.equal(capture.lines.some((line) => line.includes('model_inactivity_timeout')), true, capture.lines.join('\n'));
+    assert.equal(ctx.activeModelRequests.size, 0);
+    // An expired token cannot be revived: renewal reports that it lost the lock.
+    assert.equal(renewModelRequestActivity(ctx, lock.token), false);
+    assert.equal(ctx.activeModelRequests.size, 0);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('model request renewal is token-scoped and cannot renew another holder', async (t) => {
+  useLockClock(t, 100);
+  const ctx = createQueueContext();
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(first);
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    const second = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(second);
+    // The previous holder's token names no active lock, so it renews nothing for the new one.
+    assert.equal(renewModelRequestActivity(ctx, first.token), false);
+
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      t.mock.timers.tick(100);
+    } finally {
+      capture.restore();
+    }
+
+    assert.equal(capture.lines.some((line) => line.includes('model_inactivity_timeout')), true, capture.lines.join('\n'));
+    assert.equal(ctx.activeModelRequests.size, 0);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+// Renewal must cost a timestamp write, not a timer swap: it runs on every streamed token.
+test('renewing a model request does not churn timers', async (t) => {
+  useLockClock(t, 100);
+  const ctx = createQueueContext();
+  const clearTimeoutCalls = t.mock.method(globalThis, 'clearTimeout');
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+    const clearsAfterAcquire = clearTimeoutCalls.mock.callCount();
+
+    for (let renewal = 0; renewal < 50; renewal += 1) {
+      assert.equal(renewModelRequestActivity(ctx, lock.token), true);
+    }
+
+    assert.equal(clearTimeoutCalls.mock.callCount(), clearsAfterAcquire, '50 renewals cleared a timer');
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
   } finally {
     t.mock.timers.reset();
     await ctx.inferenceRunFlushQueue.close();
@@ -776,6 +900,53 @@ test('model request acquire clears pending idle unload timer and release resched
       clearTimeout(ctx.idleSummary.timer);
       ctx.idleSummary.timer = null;
     }
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+// The real renewal path: a headless provider stream whose frames arrive slower than the
+// original deadline would allow. Each validated frame is activity, so the same reservation
+// survives several windows; a full window of silence after the stream still expires it.
+test('a headless provider stream renews the model request past its original hold ceiling', async (t) => {
+  useLockClock(t, 100);
+  const ctx = createQueueContext();
+  class SlowStreamingClient {
+    async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
+      throw new Error('not used');
+    }
+    async *streamSse(_options: SseStreamOptions): AsyncGenerator<SseFrame> {
+      for (let frame = 0; frame < 5; frame += 1) {
+        t.mock.timers.tick(80);
+        yield { event: 'message', data: JSON.stringify({ choices: [{ delta: { content: `t${frame} ` } }] }) };
+      }
+      yield { event: 'message', data: '[DONE]' };
+    }
+  }
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+    const config = readConfig(ctx.configPath);
+    const response = await new InferenceClient(new SlowStreamingClient()).chat({
+      config,
+      baseUrl: DEAD_BASE_URL,
+      model: 'local',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+      maxTokens: 64,
+      allowedToolNames: [],
+      retry: false,
+      activityObserver: { recordActivity: () => { renewModelRequestActivity(ctx, lock.token); } },
+    });
+    assert.equal(response.text, 't0 t1 t2 t3 t4 ');
+    // 400ms of streaming against a 100ms window, and the reservation is untouched.
+    assert.deepEqual([...ctx.activeModelRequests.keys()], [lock.token]);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeRequests[0]?.startedAtUtc, lock.startedAtUtc);
+
+    t.mock.timers.tick(100);
+    assert.equal(ctx.activeModelRequests.size, 0, 'a full silent window after the stream expires the lock');
+    assert.equal(releaseModelRequest(ctx, lock.token), false);
+  } finally {
+    t.mock.timers.reset();
     await ctx.inferenceRunFlushQueue.close();
   }
 });

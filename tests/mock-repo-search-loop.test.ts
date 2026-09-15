@@ -365,6 +365,49 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
   }
 });
 
+// The real request path with no live-text subscriber: every streamed frame still reaches the
+// writer as activity, while the text itself is neither built nor forwarded.
+test('runTaskLoop reports streamed provider frames as writer activity without live text', async () => {
+  const frames = ['done', ' —', ' streamed', ' headless'];
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    for (const text of frames) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+    }
+    res.write('data: [DONE]\n\n');
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  const progress = new CollectingProgressWriter<RepoSearchProgressEvent>([], false);
+
+  try {
+    const result = await runTaskLoop(
+      { id: 'task-headless-activity', question: 'Say done.' },
+      {
+        ...MOCK_LOOP_DEFAULTS,
+        baseUrl,
+        model: 'mock-model',
+        config: mockLoopConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl }] } } }),
+        maxTurns: 2,
+        minToolCallsBeforeFinish: 0,
+        progressWriter: progress,
+      },
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(progress.activity, frames.length);
+    assert.equal(progress.events.some((event) => ['thinking', 'answer', 'narration', 'progress_update'].includes(event.kind)), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;

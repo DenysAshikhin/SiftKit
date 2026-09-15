@@ -365,3 +365,50 @@ test('inference streaming client captures a max-token finish_reason from the fin
 
   assert.deepEqual(response.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
 });
+
+// Activity is observed on every validated provider frame, with no live-text subscriber at all:
+// a headless run renews ownership from the frames themselves, never from delivered text.
+test('inference streaming client reports each valid frame to the activity observer', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { reasoning_content: 'thinking ' } }] },
+    { choices: [{ delta: { content: 'answer ' } }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
+  ]);
+  const observer = { activity: 0, recordActivity() { this.activity += 1; } };
+
+  await new InferenceClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+    activityObserver: observer,
+  });
+
+  assert.equal(observer.activity, 3);
+});
+
+test('inference streaming client does not report invalid or error frames as activity', async () => {
+  class InvalidFrameClient extends StreamingHttpClient {
+    override async *streamSse(): AsyncGenerator<SseFrame> {
+      yield { event: 'message', data: 'not json' };
+      yield { event: 'message', data: JSON.stringify({ choices: [{ delta: { content: 'ok' } }] }) };
+      yield { event: 'message', data: JSON.stringify({ error: { message: 'boom', code: 500 } }) };
+    }
+  }
+  const observer = { activity: 0, recordActivity() { this.activity += 1; } };
+
+  await assert.rejects(() => new InferenceClient(new InvalidFrameClient([])).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+    retry: false,
+    activityObserver: observer,
+  }));
+
+  assert.equal(observer.activity, 1);
+});
