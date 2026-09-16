@@ -39,11 +39,15 @@ export function completionBody(requestId: string): string {
 }
 
 /** Polls a condition the production code drives on its own timers, e.g. a deferred drain. */
-export async function waitForCondition(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+export async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 2_000,
+  note?: string,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) {
-      throw new Error(`Condition still false after ${timeoutMs}ms`);
+      throw new Error(`Condition still false after ${timeoutMs}ms${note === undefined ? '' : `: ${note}`}`);
     }
     await delay(10);
   }

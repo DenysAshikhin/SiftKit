@@ -1,7 +1,6 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { z } from 'zod';
 
 import {
   InferenceRunFlushQueue,
@@ -16,16 +15,41 @@ import {
 } from '../src/state/inference-runs.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { waitForCondition } from './helpers/deferred-shutdown-fixture.js';
+import { flushQueueInternals, installLateAckFlushWorker } from './helpers/flush-worker-fixture.js';
+import { countLogRows } from './helpers/runtime-database-probe.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
-type FlushQueueInternals = {
-  runningRunId: string | null;
-  draining: boolean;
-};
+/**
+ * Makes the *reporting* path fail: `ServerLogger` writes to stdout synchronously, so a sink that
+ * throws on the matching line is a report that failed after the database write had already
+ * committed — the one failure the restore-and-retry path must never treat as a rejected transaction.
+ * Everything else passes through, so the test reporter's own output is untouched.
+ */
+function failReportingOn(t: TestContext, marker: string): void {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+    if (text.includes(marker)) {
+      throw new Error('injected reporting failure');
+    }
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
+  };
+  t.after(() => {
+    process.stdout.write = originalWrite;
+  });
+}
 
-/** Reaches the drain state the queue never exposes, so close() can be driven deterministically. */
-function flushQueueInternals(queue: InferenceRunFlushQueue): FlushQueueInternals {
-  return z.custom<FlushQueueInternals>((value) => value instanceof InferenceRunFlushQueue).parse(queue);
+/** Committed chunk rows for `runId`, read straight from the runtime database. */
+function committedRows(runId: string): number {
+  return countLogRows(getRuntimeDatabase(), runId);
 }
 
 test('inference run flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
@@ -370,6 +394,228 @@ test('a run past the pending high-water mark flushes despite an active model req
       assert.equal(text.engine_stdout.length, chunk.length * chunkCount, 'no log data may be dropped');
     } finally {
       await flushQueue.close();
+    }
+  });
+});
+
+// Restore-and-retry is justified only by a rejected transaction. A report that fails after the worker
+// acked used to land in that same catch: it restored already-committed chunk text to the pending
+// buffer, wrote it a second time, and moved both counters for one batch.
+test('a report that fails after a committed flush never rewrites the batch', async t => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'hello\n' });
+    const queue = new InferenceRunFlushQueue();
+    failReportingOn(t, 'flush_done');
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(() => queue.drainNow(), /injected reporting failure/u, 'the failure still surfaces');
+
+      assert.equal(committedRows(run.id), 1, 'the batch was written exactly once');
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, 'hello\n');
+      assert.equal(getInferenceRunPendingLogChunkStats(run.id).totalCharacters, 0, 'nothing was restored to the buffer');
+      assert.deepEqual(queue.getSnapshot(), {
+        pendingCount: 0, runningRunId: null, scheduled: false, completedCount: 1, failedCount: 0,
+      }, 'one batch can never advance both counters');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+// An escaped failure ends that pass, not the queue: the items behind it must not wait for some
+// unrelated enqueue to kick the drain again.
+test('a report that fails stops that pass without stalling the runs behind it', async t => {
+  await withTestEnvAndServer(async () => {
+    const runs = ['first', 'second', 'third'].map(purpose => createInferenceRun({ backend: 'exl3', purpose }));
+    for (const run of runs) {
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'batch\n' });
+    }
+    const queue = new InferenceRunFlushQueue();
+    failReportingOn(t, 'flush_done');
+    try {
+      for (const run of runs) {
+        assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      }
+
+      await waitForCondition(() => runs.every(run => committedRows(run.id) === 1), 5_000);
+      assert.equal(queue.getSnapshot().completedCount, 3);
+      assert.equal(queue.getSnapshot().failedCount, 0, 'a failed report is not a failed write');
+      for (const run of runs) {
+        assert.equal(committedRows(run.id), 1, `run ${run.id} wrote its batch once`);
+      }
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+// A shutdown that joins a drain already in flight only polls queue state. If the failed batch was the
+// last one the queue genuinely looks idle, so the recorded failure has to be what it finds.
+test('a shutdown that joins a drain in flight still gets its failure', async t => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'joined\n' });
+    const queue = new InferenceRunFlushQueue();
+    failReportingOn(t, 'flush_done');
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      const inFlight = queue.drainNow();
+      const settled = inFlight.then(() => null, (error: Error) => error);
+
+      await assert.rejects(() => queue.drainForShutdown(2_000), /injected reporting failure/u);
+      assert.match(String(await settled), /injected reporting failure/u);
+      assert.equal(committedRows(run.id), 1, 'and the batch itself was still written once');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+// The drain a timer starts has no caller to receive the failure. It is recorded for whoever waits on
+// the queue, and written straight to stderr — a handler that reported through the logger could throw
+// again on the same sink and come back as the unhandled rejection this path exists to remove.
+test('a report that fails in a timer-started drain is recorded and reported on stderr', async t => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'retried\n' });
+    const queue = new InferenceRunFlushQueue();
+    const blocker = new Database(getRuntimeDatabasePath());
+    blocker.pragma('busy_timeout = 1');
+    blocker.exec('BEGIN IMMEDIATE');
+    const stderr = OutputCapture.start(process.stderr);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await queue.drainNow();
+      assert.equal(queue.getSnapshot().failedCount, 1, 'the rejected transaction took the legitimate retry path');
+      blocker.exec('ROLLBACK');
+      blocker.close();
+      failReportingOn(t, 'flush_done');
+
+      // The retry runs from `scheduleDrain(250)`, so nothing here awaits the failing drain.
+      await waitForCondition(() => committedRows(run.id) === 1, 5_000);
+      await waitForCondition(() => stderr.lines.join('\n').includes('Inference run flush drain failed'), 5_000);
+      assert.match(stderr.lines.join('\n'), /Inference run flush drain failed: injected reporting failure/u);
+      await assert.rejects(() => queue.waitForIdle(100), /injected reporting failure/u);
+    } finally {
+      stderr.restore();
+      await queue.close();
+    }
+  });
+});
+
+// The budget is a bound on total shutdown persistence time, not on its tail. It used to start after the
+// first drain pass, so the flush a stalled worker never acknowledged ran unbounded and shutdown
+// reported nothing.
+test('the shutdown budget bounds the first flush and its acknowledgement', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'slow\n' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50 });
+    installLateAckFlushWorker(queue, 250);
+    const stdout = OutputCapture.start(process.stdout);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      const startedAtMs = Date.now();
+      await assert.rejects(
+        () => queue.drainForShutdown(25),
+        /flush acknowledgement not received within budget/u,
+        'a budget that excludes the first flush is not a budget',
+      );
+      const elapsedMs = Date.now() - startedAtMs;
+      assert.ok(elapsedMs <= 125, `a 25ms budget was overrun by ${elapsedMs}ms`);
+      assert.equal(getInferenceRunPendingLogChunkStats(run.id).totalCharacters, 0,
+        'an abandoned batch is never restored to the buffer');
+      assert.deepEqual(queue.getSnapshot(), {
+        pendingCount: 0, runningRunId: run.id, scheduled: false, completedCount: 0, failedCount: 0,
+      }, 'the batch stays the worker\'s, and neither counter claims to know its outcome');
+
+      await queue.close();
+      assert.match(stdout.lines.join('\n'), /flush_close_timeout/u,
+        'and close() says which handle it had to give up on instead of leaking it quietly');
+    } finally {
+      stdout.restore();
+      await queue.close();
+    }
+  });
+});
+
+// The bound must not be eager: a flush that makes it inside the budget is a success, not a suspect.
+test('an acknowledgement that is slow but inside the budget still flushes exactly once', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'patient\n' });
+    const queue = new InferenceRunFlushQueue();
+    installLateAckFlushWorker(queue, 120);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await queue.drainForShutdown(2_000);
+      assert.equal(committedRows(run.id), 1, 'a batch the worker acknowledged was written once');
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, 'patient\n');
+      assert.deepEqual(queue.getSnapshot(), {
+        pendingCount: 0, runningRunId: null, scheduled: false, completedCount: 1, failedCount: 0,
+      });
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+// A late acknowledgement may still commit, so restoring the batch would write it twice — defect #2
+// arriving by a different route. The batch stays the worker's, and the next flush of that run must
+// carry only its own text.
+test('an acknowledgement that arrives after the budget never replays the batch', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'abandoned\n' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50 });
+    installLateAckFlushWorker(queue, 150);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(
+        () => queue.drainForShutdown(25),
+        /flush acknowledgement not received within budget/u,
+      );
+      // The whole point of not restoring: the worker gets there afterwards, on its own.
+      await waitForCondition(() => committedRows(run.id) === 1, 5_000,
+        'the batch the worker still owned committed once it got there');
+
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'later\n' });
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await queue.drainNow();
+      assert.equal(committedRows(run.id), 2, 'the abandoned batch was not queued up behind it');
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, 'abandoned\nlater\n');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+// Between batches the deadline costs one comparison, and checking it before the hand-off is what keeps
+// an unspent budget from consuming a batch it can no longer await.
+test('a budget already spent rejects with the batch still owned by the queue', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'unspent\n' });
+    const queue = new InferenceRunFlushQueue();
+    installLateAckFlushWorker(queue, 250);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(
+        () => queue.drainForShutdown(0),
+        /Timed out draining inference run flush queue/u,
+      );
+      assert.equal(committedRows(run.id), 0, 'nothing was handed to the worker');
+      assert.equal(getInferenceRunPendingLogChunkStats(run.id).totalCharacters, 'unspent\n'.length,
+        'and nothing was consumed, so nothing needed restoring');
+      assert.equal(queue.getSnapshot().pendingCount, 1);
+      assert.equal(queue.getSnapshot().runningRunId, null);
+      assert.equal(queue.getSnapshot().failedCount, 0, 'an unspent budget is not a failed write');
+
+      // The rejection reschedules the leftover rather than leaving it buffered, so it still lands.
+      await waitForCondition(() => committedRows(run.id) === 1, 5_000);
+    } finally {
+      await queue.close();
     }
   });
 });

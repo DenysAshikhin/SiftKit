@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { toError } from '../lib/errors.js';
 import { sleep } from '../lib/time.js';
 import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
 import type { InferenceBackendId } from '../config/types.js';
@@ -23,6 +24,18 @@ export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 /** How often the queue re-checks drain state while waiting on the worker. */
 const POLL_INTERVAL_MS = 10;
 const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;
+
+function normalizeTimeoutMs(timeoutMs: number): number {
+  return Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
+}
+
+/**
+ * The worker never acknowledged the batch inside the shutdown budget. Distinct from a failed flush:
+ * its transaction may still commit, so the batch has to stay the worker's — restoring it would write
+ * the same chunk text a second time.
+ */
+class FlushAcknowledgementTimeoutError extends Error {
+}
 
 type InferenceRunFlushQueueItem = {
   runId: string;
@@ -78,6 +91,15 @@ export class InferenceRunFlushQueue {
   private lastModelRequestFinishedAtMs: number | null = null;
   private completedCount = 0;
   private failedCount = 0;
+  /**
+   * The first drain failure that escaped the retry scope, kept until the process ends. Only a failure
+   * the restore-and-retry path could not justify lands here — a rejected transaction is retried, not
+   * recorded — so this is a batch whose outcome nobody was told about, and `waitForIdle` hands it to
+   * the next caller that waits on the queue rather than letting it go quiet. `isIdle` deliberately
+   * ignores it: an empty queue is still empty, and the idempotency assertion after a good drain has
+   * to keep meaning that.
+   */
+  private drainFailure: Error | null = null;
   private worker: Worker | null = null;
   private nextWorkerMessageId = 1;
   private closed = false;
@@ -95,17 +117,23 @@ export class InferenceRunFlushQueue {
 
   /**
    * Shutdown: cancels the delayed drain, flushes every pending batch now and awaits each
-   * acknowledgement. An in-flight batch completes first. A batch that keeps failing is a
-   * bounded wait that rejects, so shutdown reports the loss instead of dropping it silently.
+   * acknowledgement, all of it inside `timeoutMs`. A batch the worker does not acknowledge in time is
+   * left with the worker, since it may still commit, and the wait rejects so shutdown reports the loss
+   * instead of dropping it silently.
    */
   async drainForShutdown(timeoutMs: number): Promise<void> {
     this.shuttingDown = true;
     this.clearDrainTimer();
     this.scheduled = false;
+    // The clock starts before the work. Started after the first drain pass — which the shutdown flag
+    // drives to completion — the budget bounded only the retry tail, and the flush and acknowledgement
+    // a stalled worker never returned ran unbounded.
+    const budgetMs = normalizeTimeoutMs(timeoutMs);
+    const deadlineMs = Date.now() + budgetMs;
     if (!this.draining) {
-      await this.drainNow();
+      await this.drainNow(deadlineMs);
     }
-    await this.waitForIdle(timeoutMs);
+    await this.waitForIdleUntil(deadlineMs, budgetMs);
   }
 
   async close(): Promise<void> {
@@ -197,20 +225,41 @@ export class InferenceRunFlushQueue {
     };
   }
 
+  /** The drain state as the two budget failures report it. */
+  private getSnapshotFields(): string {
+    const snapshot = this.getSnapshot();
+    return `pendingCount=${snapshot.pendingCount} runningRunId=${snapshot.runningRunId} `
+      + `scheduled=${snapshot.scheduled} completedCount=${snapshot.completedCount} `
+      + `failedCount=${snapshot.failedCount}`;
+  }
+
   async waitForIdle(timeoutMs: number = DEFAULT_IDLE_WAIT_TIMEOUT_MS): Promise<void> {
-    const normalizedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
-    const deadline = Date.now() + normalizedTimeoutMs;
-    while (!this.isIdle()) {
-      if (Date.now() >= deadline) {
-        const snapshot = this.getSnapshot();
+    const budgetMs = normalizeTimeoutMs(timeoutMs);
+    await this.waitForIdleUntil(Date.now() + budgetMs, budgetMs);
+  }
+
+  /**
+   * Waits against a deadline someone else started. The shutdown budget is a bound on total persistence
+   * time, so the drain and this wait share one deadline rather than each getting a fresh budget.
+   */
+  private async waitForIdleUntil(deadlineMs: number, budgetMs: number): Promise<void> {
+    while (true) {
+      // Hand a failure back as soon as it exists rather than at the deadline. Waiting cannot help:
+      // if the failed batch was the last one the queue genuinely looks idle from here, so a shutdown
+      // that joined a drain already in flight would resolve green over unsaved log text.
+      if (this.drainFailure !== null) {
+        throw this.drainFailure;
+      }
+      if (this.isIdle()) {
+        return;
+      }
+      if (Date.now() >= deadlineMs) {
         throw new Error(
-          `Timed out waiting for inference run flush queue idle after ${normalizedTimeoutMs}ms: `
-          + `pendingCount=${snapshot.pendingCount} runningRunId=${snapshot.runningRunId} `
-          + `scheduled=${snapshot.scheduled} completedCount=${snapshot.completedCount} `
-          + `failedCount=${snapshot.failedCount}`,
+          `Timed out waiting for inference run flush queue idle after ${budgetMs}ms: `
+          + this.getSnapshotFields(),
         );
       }
-      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(1, deadlineMs - Date.now())));
     }
   }
 
@@ -221,17 +270,32 @@ export class InferenceRunFlushQueue {
       && this.runningRunId === null;
   }
 
-  async drainNow(): Promise<void> {
+  /**
+   * Drains every pending batch. `deadlineMs`, when given, is the shutdown budget: it bounds each
+   * acknowledgement as well as the gaps between batches, and expiring it fails the drain rather than
+   * quietly leaving work behind.
+   */
+  async drainNow(deadlineMs: number | null = null): Promise<void> {
     if (this.draining || this.closed) {
       return;
     }
     this.scheduled = false;
     this.draining = true;
+    let failure: Error | null = null;
     try {
       while (this.pendingOrder.length > 0) {
         const nextRunId = this.pendingOrder[0];
         if (!nextRunId) {
           continue;
+        }
+        // Checked before the hand-off, not after it: past the deadline there is no acknowledgement
+        // left to wait for, and the batch is still in `pendingOrder`, so this is the one expiry that
+        // can be enforced without touching a batch at all.
+        if (deadlineMs !== null && Date.now() >= deadlineMs) {
+          throw new Error(
+            `Timed out draining inference run flush queue within its shutdown budget before `
+            + `run ${nextRunId}: ${this.getSnapshotFields()}`,
+          );
         }
         const item = this.pendingByRunId.get(nextRunId);
         if (!item) {
@@ -263,20 +327,32 @@ export class InferenceRunFlushQueue {
         this.runningRunId = runId;
         const startedAtMs = Date.now();
         const waitMs = startedAtMs - item.enqueuedAtMs;
+        // The `try` covers the persistence call and nothing else. Restore-and-retry is justified only
+        // by a rejected transaction: once the worker has acked the batch is durable, so a throw from
+        // the reporting path below must surface rather than be mistaken for a failed write — being
+        // mistaken for one put the committed chunk text back in the buffer and wrote it a second time.
+        let flushFailure: Error | null = null;
+        let abandonedToWorker = false;
         try {
-          await this.flushInWorker(runId, item.entries);
-          const durationMs = Date.now() - startedAtMs;
-          this.completedCount += 1;
-          serverLogger.dim({
-            scope: item.backend,
-            id: runId,
-            event: 'flush_done',
-            fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
-              + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount}`,
-          });
+          await this.flushInWorker(runId, item.entries, deadlineMs);
         } catch (error) {
-          const durationMs = Date.now() - startedAtMs;
-          const message = error instanceof Error ? error.message : String(error);
+          abandonedToWorker = error instanceof FlushAcknowledgementTimeoutError;
+          flushFailure = toError(error);
+        } finally {
+          // An abandoned batch stays running as far as the queue is concerned: that is what tells
+          // `close()` there is a handle to wait for, instead of terminating it over an open sqlite fd.
+          if (!abandonedToWorker) {
+            this.runningRunId = null;
+          }
+        }
+        const durationMs = Date.now() - startedAtMs;
+        if (flushFailure !== null) {
+          if (abandonedToWorker) {
+            // No restore, no retry, and neither counter moves: the outcome is genuinely unknown, so it
+            // is reported by the rejection instead of counted as a write that failed and was handed
+            // back. `ownDrainFailure` still gets it, so a waiter cannot read this as a clean drain.
+            throw flushFailure;
+          }
           item.attempts += 1;
           if (item.entries) {
             restoreInferenceRunPendingLogChunks(runId, item.entries);
@@ -290,17 +366,59 @@ export class InferenceRunFlushQueue {
             id: runId,
             event: 'flush_retry',
             fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
-              + `attempt=${item.attempts} pending_chars=${pendingStats.totalCharacters} error=${JSON.stringify(message)}`,
+              + `attempt=${item.attempts} pending_chars=${pendingStats.totalCharacters} error=${JSON.stringify(flushFailure.message)}`,
           });
           this.scheduleDrain(250);
           break;
-        } finally {
-          this.runningRunId = null;
         }
+        this.completedCount += 1;
+        serverLogger.dim({
+          scope: item.backend,
+          id: runId,
+          event: 'flush_done',
+          fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
+            + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount}`,
+        });
       }
+    } catch (error) {
+      failure = toError(error);
     } finally {
       this.draining = false;
     }
+    if (failure !== null) {
+      this.ownDrainFailure(failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * A drain failure belongs to the queue, not to whichever call site happened to await it. It is
+   * recorded first, so a caller that only polls state still finds it, and the remaining `pendingOrder`
+   * items are rescheduled: an escaped failure ends this pass, not the queue, and without this the
+   * leftovers sat until some unrelated `enqueue` kicked the drain.
+   */
+  private ownDrainFailure(error: Error): void {
+    if (this.drainFailure === null) {
+      this.drainFailure = error;
+    }
+    if (this.pendingOrder.length > 0 && !this.closed) {
+      this.scheduleDrain(0);
+    }
+  }
+
+  /**
+   * A drain started by a timer has no caller to receive the failure, so it would land as an unhandled
+   * rejection. `drainNow` has already owned it; all that is left is to say so, and to say it on stderr
+   * rather than through the logger — the failure that arrives here can be the logger's own sink
+   * throwing, and a handler that rethrows is exactly the unhandled rejection this replaces.
+   */
+  private drainFromTimer(): void {
+    this.drainNow().then(
+      () => undefined,
+      (error: Error) => {
+        process.stderr.write(`[siftKitStatus] Inference run flush drain failed: ${error.message}\n`);
+      },
+    );
   }
 
   private getIdleWaitMs(fallbackStartedAtMs: number, pendingCharacters: number): number {
@@ -314,11 +432,28 @@ export class InferenceRunFlushQueue {
     return Math.max(0, this.idleDelayMs - (Date.now() - lastFinishedAtMs));
   }
 
-  private flushInWorker(runId: string, entries: InferenceRunPendingLogChunkEntry[]): Promise<void> {
+  private flushInWorker(
+    runId: string,
+    entries: InferenceRunPendingLogChunkEntry[],
+    deadlineMs: number | null,
+  ): Promise<void> {
     const worker = this.getWorker();
     const id = this.nextWorkerMessageId;
     this.nextWorkerMessageId += 1;
+    const startedAtMs = Date.now();
     return new Promise<void>((resolve, reject) => {
+      let ackTimer: NodeJS.Timeout | null = null;
+      // Detaching is left to the acknowledgement or the worker error even once the budget has expired.
+      // The batch is still the worker's to finish, and a Worker that emits `error` with no listener
+      // crashes the process outright.
+      const cleanup = (): void => {
+        if (ackTimer !== null) {
+          clearTimeout(ackTimer);
+          ackTimer = null;
+        }
+        worker.off('message', onMessage);
+        worker.off('error', onError);
+      };
       const onMessage = (message: FlushWorkerResponse): void => {
         if (message.id !== id) {
           return;
@@ -334,12 +469,20 @@ export class InferenceRunFlushQueue {
         cleanup();
         reject(error);
       };
-      const cleanup = (): void => {
-        worker.off('message', onMessage);
-        worker.off('error', onError);
-      };
       worker.on('message', onMessage);
       worker.on('error', onError);
+      if (deadlineMs !== null) {
+        ackTimer = setTimeout(() => {
+          ackTimer = null;
+          reject(new FlushAcknowledgementTimeoutError(
+            `Inference run flush acknowledgement not received within budget after `
+            + `${Date.now() - startedAtMs}ms for run ${runId}: ${this.getSnapshotFields()}`,
+          ));
+        }, Math.max(0, deadlineMs - Date.now()));
+        if (typeof ackTimer.unref === 'function') {
+          ackTimer.unref();
+        }
+      }
       worker.postMessage({
         id,
         runId,
@@ -381,7 +524,7 @@ export class InferenceRunFlushQueue {
     if (delayMs > 0) {
       const timer = setTimeout(() => {
         this.drainTimer = null;
-        void this.drainNow();
+        this.drainFromTimer();
       }, delayMs);
       if (typeof timer.unref === 'function') {
         timer.unref();
@@ -390,7 +533,7 @@ export class InferenceRunFlushQueue {
       return;
     }
     setImmediate(() => {
-      void this.drainNow();
+      this.drainFromTimer();
     });
   }
 }

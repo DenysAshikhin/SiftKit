@@ -5,13 +5,13 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { z } from '../src/lib/zod.js';
-import { findNearestSiftKitRepoRoot, moduleDirname } from '../src/lib/paths.js';
 import {
   createInferenceRun,
   readInferenceRunLogTextByStream,
   type InferenceRunPendingLogChunkEntry,
 } from '../src/state/inference-runs.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getFlushWorkerPath } from './helpers/flush-worker-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const FlushWorkerResponseSchema = z.object({
@@ -19,14 +19,6 @@ const FlushWorkerResponseSchema = z.object({
   ok: z.boolean(),
   errorMessage: z.string().optional(),
 });
-
-function getFlushWorkerPath(): string {
-  const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
-  if (packageRoot === null) {
-    throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
-  }
-  return path.join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
-}
 
 async function flushInWorker(request: {
   runId: string;
