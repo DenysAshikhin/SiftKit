@@ -10,6 +10,7 @@ import {
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
+import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.js';
 import { serverLogger } from './server-logger.js';
 
 /**
@@ -22,13 +23,6 @@ export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 /** How often the queue re-checks drain state while waiting on the worker. */
 const POLL_INTERVAL_MS = 10;
 const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;
-
-/**
- * How long `close` gives an in-flight flush to finish. Terminating the worker mid-flush kills
- * the thread with its sqlite handle open, and the fd then survives until process exit, holding
- * the directory that contains the database.
- */
-const DEFAULT_CLOSE_FLUSH_WAIT_MS = 2000;
 
 type InferenceRunFlushQueueItem = {
   runId: string;
@@ -65,6 +59,11 @@ export type InferenceRunFlushQueueSnapshot = {
 
 export class InferenceRunFlushQueue {
   private readonly idleDelayMs: number;
+  /**
+   * How long `close` gives an in-flight flush to finish, so the worker is never terminated with its
+   * sqlite handle open: that fd survives until process exit and holds the directory containing the
+   * database. The default is shared with the shutdown watchdog that supervises this wait.
+   */
   private readonly closeFlushWaitMs: number;
   private readonly pendingByRunId = new Map<string, InferenceRunFlushQueueItem>();
   private readonly pendingOrder: string[] = [];
@@ -88,10 +87,10 @@ export class InferenceRunFlushQueue {
     this.idleDelayMs = Number.isFinite(configuredIdleDelayMs)
       ? Math.max(0, Math.trunc(configuredIdleDelayMs))
       : 0;
-    const configuredCloseFlushWaitMs = Number(options.closeFlushWaitMs ?? DEFAULT_CLOSE_FLUSH_WAIT_MS);
+    const configuredCloseFlushWaitMs = Number(options.closeFlushWaitMs ?? SHUTDOWN_CLOSE_FLUSH_WAIT_MS);
     this.closeFlushWaitMs = Number.isFinite(configuredCloseFlushWaitMs)
       ? Math.max(0, Math.trunc(configuredCloseFlushWaitMs))
-      : DEFAULT_CLOSE_FLUSH_WAIT_MS;
+      : SHUTDOWN_CLOSE_FLUSH_WAIT_MS;
   }
 
   /**

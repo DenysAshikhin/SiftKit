@@ -71,6 +71,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
       drainScheduled: false,
       drainTimer: null,
       drainRunning: false,
+      persistenceFailedCount: 0,
       lastModelRequestFinishedAtMs: null,
       serverStartedAtMs: 0,
       idleDelayMs: 0,

@@ -17,7 +17,7 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { getActiveModelPreset } from '../config/getters.js';
-import { toError } from '../lib/errors.js';
+import { toError, getErrorMessage } from '../lib/errors.js';
 import {
   getStatusPath,
   getConfigPath,
@@ -53,6 +53,7 @@ import { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import { RepoAgentSessionManager } from './repo-agent-sessions.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
+import { SHUTDOWN_PERSISTENCE_TIMEOUT_MS } from './shutdown-budget.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
@@ -137,8 +138,6 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 const INFERENCE_RUN_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const INFERENCE_RUN_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
-/** Bounded wait for each shutdown persistence stage; a stage that cannot finish fails shutdown loudly. */
-const SHUTDOWN_PERSISTENCE_TIMEOUT_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const ASSISTANT_DRAIN_INTERVAL_MS = 20_000;
@@ -297,6 +296,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       drainScheduled: false,
       drainTimer: null,
       drainRunning: false,
+      persistenceFailedCount: 0,
       lastModelRequestFinishedAtMs: null,
       serverStartedAtMs: Date.now(),
       idleDelayMs: getTerminalMetadataIdleDelayMs(options),
@@ -510,18 +510,42 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     // direct jobs that wait on them, then artifacts — release its lease while the handle is
     // open, then close only its path. Completion is persistence, not an idle-delay race.
     void (async () => {
-      await server.waitForRequestsIdle();
-      await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
-      await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
-      await flushDeferredArtifacts(ctx);
-      clearIdleSummaryTimer(ctx);
-      await ctx.inferenceRunFlushQueue.close();
-      if (ctx.idleSummary.database) {
-        ctx.idleSummary.database.close();
-        ctx.idleSummary.database = null;
+      let failure: Error | null = null;
+      try {
+        await server.waitForRequestsIdle();
+        await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
+        await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
+        await flushDeferredArtifacts(ctx);
+        clearIdleSummaryTimer(ctx);
+      } catch (error) {
+        failure = toError(error);
       }
-      chatRuntimeOwner.release();
-      closeRuntimeDatabase(runtimeDatabasePath);
+      // Cleanup runs whether or not the stages succeeded. A rejected stage that skipped it leaves
+      // the flush worker's sqlite handle open until process exit, and on Windows that handle holds
+      // the directory containing the database. The order is the documented one — release the lease
+      // while the handle is open, then close the path — so the steps are awaited one after another
+      // and never in parallel. A cleanup failure is reported on stderr and never replaces the stage
+      // error that preceded it; it only becomes the rejection value when the stages themselves
+      // succeeded, because then it is the only failure there is.
+      const cleanupFailures: Error[] = [];
+      try { await ctx.inferenceRunFlushQueue.close(); }
+      catch (error) { cleanupFailures.push(toError(error)); }
+      try {
+        if (ctx.idleSummary.database) {
+          ctx.idleSummary.database.close();
+          ctx.idleSummary.database = null;
+        }
+      }
+      catch (error) { cleanupFailures.push(toError(error)); }
+      try { chatRuntimeOwner.release(); }
+      catch (error) { cleanupFailures.push(toError(error)); }
+      try { closeRuntimeDatabase(runtimeDatabasePath); }
+      catch (error) { cleanupFailures.push(toError(error)); }
+      for (const cleanupFailure of cleanupFailures) {
+        process.stderr.write(`[siftKitStatus] Shutdown cleanup failed: ${getErrorMessage(cleanupFailure)}\n`);
+      }
+      if (failure) throw failure;
+      if (cleanupFailures.length > 0) throw cleanupFailures[0];
     })().then(resolveShutdownPromise, (error) => rejectShutdownPromise(toError(error)));
   });
   return server;

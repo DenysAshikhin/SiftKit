@@ -1,3 +1,4 @@
+import { getErrorMessage, toError } from '../lib/errors.js';
 import { sleep, formatElapsed } from '../lib/time.js';
 import { mergeToolTypeStats } from '../line-read-guidance.js';
 import { recordWebSearchUsage } from './web-search-usage.js';
@@ -90,7 +91,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
       metadata.toolStats,
     );
   }
-  ctx.metrics = normalizeMetrics({
+  const nextMetrics = normalizeMetrics({
     ...ctx.metrics,
     inputCharactersTotal: ctx.metrics.inputCharactersTotal + inputCharactersDelta,
     outputCharactersTotal: ctx.metrics.outputCharactersTotal + outputCharactersDelta,
@@ -114,8 +115,17 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     toolStats,
     updatedAtUtc: new Date().toISOString(),
   });
-  writeMetrics(ctx.metricsPath, ctx.metrics);
-  persistStatusRunLog(ctx, job, taskKind);
+  // `metricsPath` *is* the runtime database, so the run row and the aggregate totals are one unit
+  // of work rather than two writes in a hopeful order: either both land and the in-memory
+  // aggregates advance, or nothing changes and the failure reaches the caller. Writing the row
+  // first *inside* the transaction and assigning memory only after it commits is what makes that
+  // true — reordering the two statements alone would only move the disagreement, because the row
+  // would commit and a failed totals write would still leave the totals understating the row.
+  ctx.runtimeDatabase.transaction(() => {
+    persistStatusRunLog(ctx, job, taskKind);
+    writeMetrics(ctx.metricsPath, nextMetrics);
+  }).immediate();
+  ctx.metrics = nextMetrics;
   recordWebSearchUsage(ctx.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
   if (job.requestCompleted) {
     ctx.idleSummary.pending = true;
@@ -341,6 +351,13 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
   const item = ctx.terminalMetadata.queue.shift();
   try {
     if (item) processTerminalMetadataItem(ctx, item);
+  } catch {
+    // The deliberate swallow lives here, in the background drain, and it costs the item: it is
+    // already shifted off the queue and `finalizeTerminal` has already run, so resubmitting the
+    // same request id resolves as a duplicate and persists nothing. There is no retry path — a
+    // timer callback cannot let the error escape (it would be an unhandled rejection), so the loss
+    // is only made countable here. Shutdown never swallows; see `flushTerminalMetadataForShutdown`.
+    ctx.terminalMetadata.persistenceFailedCount += 1;
   } finally {
     ctx.terminalMetadata.drainRunning = false;
     if (ctx.terminalMetadata.queue.length > 0) {
@@ -371,15 +388,20 @@ function processTerminalMetadataItem(ctx: ServerContext, item: TerminalMetadataQ
       id: item.requestId,
       event: 'terminal_metadata_process_failed',
       fields: `state=${item.terminalState} duration_ms=${Date.now() - startedAt} `
-        + `error=${error instanceof Error ? error.message : String(error)}`,
+        + `error=${JSON.stringify(getErrorMessage(error))}`,
     });
+    // Logging is not a verdict. Whoever called this decides whether a lost write is survivable:
+    // the background drain swallows and counts, shutdown propagates. Deciding that here is what
+    // let a rejected insert empty the queue and report a clean shutdown over zero saved rows.
+    throw toError(error);
   }
 }
 
 /**
  * Shutdown: cancels the idle-delay timer and processes every queued item and direct job now, in
  * order, through the same routines the timer would have used. Inference logs must already be
- * drained; nothing here waits on them.
+ * drained; nothing here waits on them. Both loops propagate: at shutdown there is no later chance
+ * to retry a lost write, so the only correct outcome for a failed one is a rejected shutdown.
  */
 export async function flushTerminalMetadataForShutdown(ctx: ServerContext, timeoutMs: number): Promise<void> {
   cancelScheduledTerminalMetadataDrain(ctx);

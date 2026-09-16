@@ -63,6 +63,11 @@ export type TerminalMetadataState = {
   drainScheduled: boolean;
   drainTimer: NodeJS.Timeout | null;
   drainRunning: boolean;
+  /**
+   * Queued items the background drain could not persist. The item is gone — it is already off the
+   * queue and its run is finalised, so nothing retries it — and this is the only trace it left.
+   */
+  persistenceFailedCount: number;
   lastModelRequestFinishedAtMs: number | null;
   /** Set once at context construction; model quiet counts from here until the first request finishes. */
   serverStartedAtMs: number;
