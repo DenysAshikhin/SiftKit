@@ -26,15 +26,18 @@ export function withRuntimeDatabaseConnection<T>(databasePath: string, run: (dat
 /**
  * Make every write to `table` fail with `name` as the SQLite message. Both events are covered
  * because an upsert runs its UPDATE triggers on the conflict path and its INSERT triggers otherwise.
+ * `when` narrows the trigger to the rows a test cares about, so a write can be failed *mid-batch*.
  */
 export function installRejectingTrigger(
   database: RuntimeDatabase,
   table: string,
   name: string,
   events: readonly WriteEvent[] = WRITE_EVENTS,
+  when: string | null = null,
 ): void {
   for (const event of events) {
     database.exec(`CREATE TRIGGER ${name}_${event.toLowerCase()} BEFORE ${event} ON ${table} `
+      + (when === null ? '' : `WHEN ${when} `)
       + `BEGIN SELECT RAISE(ABORT, '${name}'); END;`);
   }
 }
@@ -54,9 +57,10 @@ export function installRejectingTriggerOnFile(
   table: string,
   name: string,
   events: readonly WriteEvent[] = WRITE_EVENTS,
+  when: string | null = null,
 ): void {
   withRuntimeDatabaseConnection(databasePath, database => {
-    installRejectingTrigger(database, table, name, events);
+    installRejectingTrigger(database, table, name, events, when);
   });
 }
 

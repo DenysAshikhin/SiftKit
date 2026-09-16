@@ -16,7 +16,7 @@ import type { ExtendedServer } from '../src/status-server/server-types.js';
 import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { getAddressInfo, requestJson } from './helpers/dashboard-http.js';
-import { installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 // The server defers its history prune to an immediate, which can land after a test has restored
@@ -30,14 +30,23 @@ type ShutdownHarness = {
   shutdown(): void;
 };
 
+type StartOptions = {
+  readonly idleSummaryDelayMs?: number;
+  readonly terminalMetadataIdleDelayMs?: number;
+};
+
 /** The real status server, booted in a throwaway runtime root with no managed engine. */
-function startServer(t: TestContext): ShutdownHarness {
+function startServer(t: TestContext, options: StartOptions = {}): ShutdownHarness {
   const runtime = new IsolatedRuntime();
   runtime.start();
   writeConfig(getRuntimeDatabasePath(), getDefaultServerConfig());
   const previousPort = process.env.SIFTKIT_STATUS_PORT;
   process.env.SIFTKIT_STATUS_PORT = '0';
-  const server = startStatusServer({ disableManagedEngineStartup: true });
+  const server = startStatusServer({
+    disableManagedEngineStartup: true,
+    idleSummaryDelayMs: options.idleSummaryDelayMs,
+    terminalMetadataIdleDelayMs: options.terminalMetadataIdleDelayMs,
+  });
   let closeRequested = false;
   t.after(async () => {
     if (!closeRequested) server.close();
@@ -71,6 +80,19 @@ async function postPendingTerminalMetadata(server: ExtendedServer, requestId: st
     method: 'POST',
     body: JSON.stringify({ running: false, requestId, taskKind: 'summary', terminalState: 'completed', outputTokens: 4 }),
   });
+}
+
+/**
+ * The same, for a request that was actually started: only a run the server saw running can finish,
+ * and finishing one is what arms the idle-summary timer.
+ */
+async function postCompletedTerminalMetadata(server: ExtendedServer, requestId: string): Promise<void> {
+  const address = getAddressInfo(server);
+  await requestJson(`http://127.0.0.1:${address.port}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 200 }),
+  });
+  await postPendingTerminalMetadata(server, requestId);
 }
 
 test('a successful shutdown releases the chat lease and closes the runtime database', async t => {
@@ -114,4 +136,55 @@ test('the persistence failure is what shutdown reports when a cleanup step fails
   assert.equal(leaseIsReleased(), false, 'the cleanup step was attempted, and failed');
   assert.equal(await removeDirectoryWithRetries(getRuntimeRoot()), true,
     'the steps after the failing one still ran');
+});
+
+/** Committed idle-summary snapshots, read after the server has closed its own handle. */
+function idleSummarySnapshotCount(): number {
+  return withRuntimeDatabaseConnection(getRuntimeDatabasePath(), database => {
+    const row = JsonRecordReader.asObject(database.prepare('SELECT COUNT(*) AS count FROM idle_summary_snapshots').get());
+    return Number(row?.count);
+  });
+}
+
+/** Committed `run_logs` rows for one request id, read over the server's own handle. */
+function runLogCount(requestId: string): number {
+  return withRuntimeDatabaseConnection(getRuntimeDatabasePath(), database => countRunLogs(database, requestId));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// The metadata item that succeeds arms the idle-summary timer, and the one after it is the one that
+// fails. Cancelling that timer is cleanup, not a persistence stage: left armed, it fires after
+// shutdown has closed the database, reopens it through the path it was closed with, and writes a
+// snapshot into the file shutdown was supposed to be done with.
+const IDLE_SUMMARY_DELAY_MS = 1_500;
+
+test('a shutdown that fails to persist never writes an idle summary into its closed database', async t => {
+  const harness = startServer(t, {
+    idleSummaryDelayMs: IDLE_SUMMARY_DELAY_MS,
+    // Both items have to still be queued when the shutdown drain starts, because the arming happens
+    // inside that drain: the first item commits, and only the next one is failed.
+    terminalMetadataIdleDelayMs: 60_000,
+  });
+  await harness.server.startupPromise;
+  await postCompletedTerminalMetadata(harness.server, 'idle-summary-armed');
+  // Only the item that is to be written needs a run the server saw: an unfinished second run would
+  // keep the server non-idle, and an idle summary is only ever armed for an idle server.
+  await postPendingTerminalMetadata(harness.server, 'idle-summary-rejected');
+  installRejectingTriggerOnFile(getRuntimeDatabasePath(), 'run_logs', 'reject_run_logs', ['INSERT'],
+    "NEW.request_id = 'idle-summary-rejected'");
+  assert.equal(runLogCount('idle-summary-armed'), 0, 'neither item may be written before the shutdown drain');
+
+  harness.shutdown();
+  await assert.rejects(() => harness.server.waitForShutdown(), /reject_run_logs/u);
+
+  assert.equal(runLogCount('idle-summary-armed'), 1,
+    'the item before the failing one did get written, which is what armed the timer');
+  await delay(IDLE_SUMMARY_DELAY_MS + 500);
+  assert.equal(idleSummarySnapshotCount(), 0,
+    'a timer shutdown cancelled cannot write into the database shutdown closed');
 });

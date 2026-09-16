@@ -516,7 +516,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
         await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
         await flushDeferredArtifacts(ctx);
-        clearIdleSummaryTimer(ctx);
       } catch (error) {
         failure = toError(error);
       }
@@ -528,6 +527,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       // error that preceded it; it only becomes the rejection value when the stages themselves
       // succeeded, because then it is the only failure there is.
       const cleanupFailures: Error[] = [];
+      // First, and ahead of a queue close that can wait on a slow worker: the metadata item that
+      // succeeded above armed the idle-summary timer, and a timer that outlives this cleanup reopens
+      // the database it closes below through the very path it was closed with, and writes into it.
+      clearIdleSummaryTimer(ctx);
       try { await ctx.inferenceRunFlushQueue.close(); }
       catch (error) { cleanupFailures.push(toError(error)); }
       try {

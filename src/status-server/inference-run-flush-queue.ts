@@ -443,6 +443,10 @@ export class InferenceRunFlushQueue {
     const startedAtMs = Date.now();
     return new Promise<void>((resolve, reject) => {
       let ackTimer: NodeJS.Timeout | null = null;
+      // Set once the budget has expired without a reply: the batch is still the worker's to finish, and
+      // the answer that eventually arrives has nothing left to settle — only the running state to hand
+      // back, which is what `close()` is waiting on.
+      let acknowledgementExpired = false;
       // Detaching is left to the acknowledgement or the worker error even once the budget has expired.
       // The batch is still the worker's to finish, and a Worker that emits `error` with no listener
       // crashes the process outright.
@@ -459,6 +463,10 @@ export class InferenceRunFlushQueue {
           return;
         }
         cleanup();
+        if (acknowledgementExpired) {
+          this.releaseAbandonedRun(runId, startedAtMs);
+          return;
+        }
         if (message.ok) {
           resolve();
         } else {
@@ -467,6 +475,10 @@ export class InferenceRunFlushQueue {
       };
       const onError = (error: Error): void => {
         cleanup();
+        if (acknowledgementExpired) {
+          this.releaseAbandonedRun(runId, startedAtMs);
+          return;
+        }
         reject(error);
       };
       worker.on('message', onMessage);
@@ -474,6 +486,7 @@ export class InferenceRunFlushQueue {
       if (deadlineMs !== null) {
         ackTimer = scheduleUnrefTimer(() => {
           ackTimer = null;
+          acknowledgementExpired = true;
           reject(new FlushAcknowledgementTimeoutError(
             `Inference run flush acknowledgement not received within budget after `
             + `${Date.now() - startedAtMs}ms for run ${runId}: ${this.getSnapshotFields()}`,
@@ -486,6 +499,25 @@ export class InferenceRunFlushQueue {
         databasePath: getRuntimeDatabasePath(),
         entries,
       });
+    });
+  }
+
+  /**
+   * Hands back the running state an abandoned batch left behind, once its reply has proved the batch is
+   * over. Nothing is restored, retried or recounted: the drain that gave up on the batch reported the
+   * unknown outcome, and the guard is what keeps a reply that arrives after the queue moved on from
+   * clearing a flush that started in the meantime.
+   */
+  private releaseAbandonedRun(runId: string, startedAtMs: number): void {
+    if (this.runningRunId !== runId) {
+      return;
+    }
+    this.runningRunId = null;
+    serverLogger.warning({
+      scope: 'flush',
+      id: runId,
+      event: 'flush_late_ack',
+      fields: `duration_ms=${Date.now() - startedAtMs}`,
     });
   }
 

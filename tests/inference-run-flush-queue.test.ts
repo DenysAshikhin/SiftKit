@@ -621,3 +621,38 @@ test('a budget already spent rejects with the batch still owned by the queue', a
     }
   });
 });
+
+// An abandoned batch stays the queue's to wait for, and its acknowledgement does eventually arrive —
+// that is what proves the write landed. `close()` waits on the same batch, so a reply that went
+// unclaimed left close() burning its whole budget and reporting a timeout for a flush that had
+// already been written and answered.
+test('an acknowledgement that arrives late releases the batch close() is waiting on', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'belated\n' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 2_000 });
+    installLateAckFlushWorker(queue, 150);
+    const stdout = OutputCapture.start(process.stdout);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(
+        () => queue.drainForShutdown(25),
+        /flush acknowledgement not received within budget/u,
+      );
+      assert.equal(queue.getSnapshot().runningRunId, run.id,
+        'the batch stays owned by the queue until its reply arrives');
+
+      const startedAtMs = Date.now();
+      await queue.close();
+      const elapsedMs = Date.now() - startedAtMs;
+      assert.equal(committedRows(run.id), 1, 'the batch the worker answered was written');
+      assert.equal(queue.getSnapshot().runningRunId, null, 'and its answer leaves nothing running');
+      assert.ok(elapsedMs < 1_000, `close() waited ${elapsedMs}ms for a batch that had been answered`);
+      assert.doesNotMatch(stdout.lines.join('\n'), /flush_close_timeout/u,
+        'a queue whose batch was answered cannot report that it never was');
+    } finally {
+      stdout.restore();
+      await queue.close();
+    }
+  });
+});
