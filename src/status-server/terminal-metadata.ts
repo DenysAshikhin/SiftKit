@@ -1,5 +1,14 @@
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { sleep, formatElapsed } from '../lib/time.js';
+import {
+  clearUnrefTimer,
+  deferredDrainWaitMs,
+  elapsedIdleWaitMs,
+  getPollSleepMs,
+  idleTimeoutError,
+  normalizeTimeoutMs,
+  scheduleUnrefTimer,
+} from './idle-drain.js';
 import { mergeToolTypeStats } from '../line-read-guidance.js';
 import { recordWebSearchUsage } from './web-search-usage.js';
 import { parseStatusMetadata, parseStatusMetadataRecord } from './status-file.js';
@@ -171,24 +180,26 @@ export function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: Deferr
     try { applyDeferredTerminalMetadata(ctx, job); }
     finally { ctx.terminalMetadata.pendingDirectJobs -= 1; }
   };
-  const timer = setTimeout(run, 25);
-  if (typeof timer.unref === 'function') {
-    timer.unref();
-  }
+  const timer = scheduleUnrefTimer(run, 25);
   ctx.terminalMetadata.directJobs.set(timer, run);
 }
 
 function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: number): number {
   if (ctx.activeModelRequests.size > 0 || ctx.modelRequestQueue.length > 0) {
-    return Math.max(1, Math.min(1000, ctx.terminalMetadata.idleDelayMs || 1000));
+    return deferredDrainWaitMs(ctx.terminalMetadata.idleDelayMs);
   }
-  const lastFinishedAtMs = ctx.terminalMetadata.lastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
-  const idleWaitMs = Math.max(0, ctx.terminalMetadata.idleDelayMs - (Date.now() - lastFinishedAtMs));
+  const idleWaitMs = elapsedIdleWaitMs(
+    ctx.terminalMetadata.idleDelayMs,
+    ctx.terminalMetadata.lastModelRequestFinishedAtMs,
+    fallbackStartedAtMs,
+  );
   if (idleWaitMs > 0) {
     return idleWaitMs;
   }
+  // The one rule that is this writer's own: metadata must not be persisted before the inference-log
+  // batches it describes have landed.
   if (!ctx.inferenceRunFlushQueue.isIdle()) {
-    return Math.max(1, Math.min(1000, ctx.terminalMetadata.idleDelayMs || 1000));
+    return deferredDrainWaitMs(ctx.terminalMetadata.idleDelayMs);
   }
   return 0;
 }
@@ -198,21 +209,15 @@ function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0):
     return;
   }
   ctx.terminalMetadata.drainScheduled = true;
-  const timer = setTimeout(() => {
+  ctx.terminalMetadata.drainTimer = scheduleUnrefTimer(() => {
     ctx.terminalMetadata.drainTimer = null;
     drainTerminalMetadataQueue(ctx);
-  }, Math.max(0, Math.trunc(delayMs)));
-  if (typeof timer.unref === 'function') {
-    timer.unref();
-  }
-  ctx.terminalMetadata.drainTimer = timer;
+  }, delayMs);
 }
 
 function cancelScheduledTerminalMetadataDrain(ctx: ServerContext): void {
-  if (ctx.terminalMetadata.drainTimer !== null) {
-    clearTimeout(ctx.terminalMetadata.drainTimer);
-    ctx.terminalMetadata.drainTimer = null;
-  }
+  clearUnrefTimer(ctx.terminalMetadata.drainTimer);
+  ctx.terminalMetadata.drainTimer = null;
   ctx.terminalMetadata.drainScheduled = false;
 }
 
@@ -432,21 +437,19 @@ export async function waitForTerminalMetadataIdle(
   timeoutMs: number,
   minimumCompletedRequestCount: number = ctx.metrics.completedRequestCount,
 ): Promise<void> {
-  const normalizedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
+  const budgetMs = normalizeTimeoutMs(timeoutMs);
   const normalizedMinimumCount = Number.isFinite(minimumCompletedRequestCount)
     ? Math.max(0, Math.trunc(minimumCompletedRequestCount))
     : 0;
-  const deadline = Date.now() + normalizedTimeoutMs;
+  const deadline = Date.now() + budgetMs;
   while (!isTerminalMetadataIdle(ctx, normalizedMinimumCount)) {
     if (Date.now() >= deadline) {
       const nextRequestId = ctx.terminalMetadata.queue[0]?.requestId ?? 'none';
-      throw new Error(
-        `Timed out waiting for terminal metadata after ${normalizedTimeoutMs}ms: `
-        + `queue=${ctx.terminalMetadata.queue.length} direct=${ctx.terminalMetadata.pendingDirectJobs} scheduled=${ctx.terminalMetadata.drainScheduled} `
+      throw idleTimeoutError('terminal metadata', budgetMs,
+        `queue=${ctx.terminalMetadata.queue.length} direct=${ctx.terminalMetadata.pendingDirectJobs} scheduled=${ctx.terminalMetadata.drainScheduled} `
         + `running=${ctx.terminalMetadata.drainRunning} request=${nextRequestId} `
-        + `completed=${ctx.metrics.completedRequestCount} expected=${normalizedMinimumCount}`,
-      );
+        + `completed=${ctx.metrics.completedRequestCount} expected=${normalizedMinimumCount}`);
     }
-    await sleep(Math.min(10, Math.max(1, deadline - Date.now())));
+    await sleep(getPollSleepMs(deadline));
   }
 }

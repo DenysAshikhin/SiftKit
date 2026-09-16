@@ -487,7 +487,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       setImmediate(() => runRuntimeHistoryPrune(repoAgentRunStore));
     } catch (error) {
       rejectStartupPromise(toError(error));
-      process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${getErrorMessage(error)}\n`);
       server.close(() => process.exit(1));
     }
   });

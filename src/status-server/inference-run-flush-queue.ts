@@ -11,6 +11,16 @@ import {
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
+import {
+  clearUnrefTimer,
+  deferredDrainWaitMs,
+  elapsedIdleWaitMs,
+  getPollSleepMs,
+  IDLE_POLL_INTERVAL_MS,
+  idleTimeoutError,
+  normalizeTimeoutMs,
+  scheduleUnrefTimer,
+} from './idle-drain.js';
 import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.js';
 import { serverLogger } from './server-logger.js';
 
@@ -21,13 +31,7 @@ import { serverLogger } from './server-logger.js';
  */
 export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 
-/** How often the queue re-checks drain state while waiting on the worker. */
-const POLL_INTERVAL_MS = 10;
 const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;
-
-function normalizeTimeoutMs(timeoutMs: number): number {
-  return Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
-}
 
 /**
  * The worker never acknowledged the batch inside the shutdown budget. Distinct from a failed flush:
@@ -146,7 +150,7 @@ export class InferenceRunFlushQueue {
     }
     const deadline = Date.now() + this.closeFlushWaitMs;
     while (this.runningRunId !== null && Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(IDLE_POLL_INTERVAL_MS);
     }
     const abandonedRunId = this.runningRunId;
     if (abandonedRunId !== null) {
@@ -254,12 +258,9 @@ export class InferenceRunFlushQueue {
         return;
       }
       if (Date.now() >= deadlineMs) {
-        throw new Error(
-          `Timed out waiting for inference run flush queue idle after ${budgetMs}ms: `
-          + this.getSnapshotFields(),
-        );
+        throw idleTimeoutError('inference run flush queue idle', budgetMs, this.getSnapshotFields());
       }
-      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(1, deadlineMs - Date.now())));
+      await sleep(getPollSleepMs(deadlineMs));
     }
   }
 
@@ -426,10 +427,9 @@ export class InferenceRunFlushQueue {
       return 0;
     }
     if (this.activeModelRequest || this.modelRequestQueueLength > 0) {
-      return Math.max(1, Math.min(1000, this.idleDelayMs || 1000));
+      return deferredDrainWaitMs(this.idleDelayMs);
     }
-    const lastFinishedAtMs = this.lastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
-    return Math.max(0, this.idleDelayMs - (Date.now() - lastFinishedAtMs));
+    return elapsedIdleWaitMs(this.idleDelayMs, this.lastModelRequestFinishedAtMs, fallbackStartedAtMs);
   }
 
   private flushInWorker(
@@ -448,7 +448,7 @@ export class InferenceRunFlushQueue {
       // crashes the process outright.
       const cleanup = (): void => {
         if (ackTimer !== null) {
-          clearTimeout(ackTimer);
+          clearUnrefTimer(ackTimer);
           ackTimer = null;
         }
         worker.off('message', onMessage);
@@ -472,16 +472,13 @@ export class InferenceRunFlushQueue {
       worker.on('message', onMessage);
       worker.on('error', onError);
       if (deadlineMs !== null) {
-        ackTimer = setTimeout(() => {
+        ackTimer = scheduleUnrefTimer(() => {
           ackTimer = null;
           reject(new FlushAcknowledgementTimeoutError(
             `Inference run flush acknowledgement not received within budget after `
             + `${Date.now() - startedAtMs}ms for run ${runId}: ${this.getSnapshotFields()}`,
           ));
-        }, Math.max(0, deadlineMs - Date.now()));
-        if (typeof ackTimer.unref === 'function') {
-          ackTimer.unref();
-        }
+        }, deadlineMs - Date.now());
       }
       worker.postMessage({
         id,
@@ -510,10 +507,8 @@ export class InferenceRunFlushQueue {
   }
 
   private clearDrainTimer(): void {
-    if (this.drainTimer !== null) {
-      clearTimeout(this.drainTimer);
-      this.drainTimer = null;
-    }
+    clearUnrefTimer(this.drainTimer);
+    this.drainTimer = null;
   }
 
   private scheduleDrain(delayMs: number): void {
@@ -522,14 +517,10 @@ export class InferenceRunFlushQueue {
     }
     this.scheduled = true;
     if (delayMs > 0) {
-      const timer = setTimeout(() => {
+      this.drainTimer = scheduleUnrefTimer(() => {
         this.drainTimer = null;
         this.drainFromTimer();
       }, delayMs);
-      if (typeof timer.unref === 'function') {
-        timer.unref();
-      }
-      this.drainTimer = timer;
       return;
     }
     setImmediate(() => {
