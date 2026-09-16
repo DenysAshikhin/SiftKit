@@ -438,8 +438,10 @@ test('a report that fails stops that pass without stalling the runs behind it', 
         assert.equal(queue.enqueue(run.id, 'exl3'), true);
       }
 
-      await waitForCondition(() => runs.every(run => committedRows(run.id) === 1), 5_000);
-      assert.equal(queue.getSnapshot().completedCount, 3);
+      // Waits on the queue having taken the acknowledgements, not on the rows being visible: the
+      // worker commits before it answers, so a committed row does not yet mean the drain saw it.
+      await waitForCondition(() => queue.getSnapshot().completedCount === 3, 5_000,
+        'every run behind the failing report still got its drain');
       assert.equal(queue.getSnapshot().failedCount, 0, 'a failed report is not a failed write');
       for (const run of runs) {
         assert.equal(committedRows(run.id), 1, `run ${run.id} wrote its batch once`);
