@@ -38,10 +38,9 @@ test('an attached stream adopts its committed view and queue without a speculati
   assert.deepEqual(transitions[1], { kind: 'queue', sessionId: 's1', queue: CAPTURE.queue });
 });
 
-test('an incomplete transfer is never adopted, and a body that ends inside one is a failure', async () => {
+test('an incomplete transfer is never adopted, and a body that ends inside one is an interruption', async () => {
   const transitions = await collect(streamOf(ATTACHED.slice(0, -1)));
-  assert.deepEqual(transitions.map((transition) => transition.kind), ['failure']);
-  assert.equal(transitions[0]?.kind === 'failure' && transitions[0].message, 'Chat stream ended before its terminal record');
+  assert.deepEqual(transitions, [{ kind: 'interrupted', sessionId: 's1', message: 'Chat stream ended before its terminal record' }]);
 });
 
 test('thinking rows are filtered from adopted views when thinking is disabled', async () => {

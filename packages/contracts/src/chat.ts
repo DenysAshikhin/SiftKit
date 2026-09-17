@@ -540,13 +540,6 @@ export const ChatStreamTextDeltaSchema = z.object({
 });
 export type ChatStreamTextDelta = z.infer<typeof ChatStreamTextDeltaSchema>;
 
-export const ChatStreamProgressSchema = z.object({
-  turn: z.number().int().nonnegative(),
-  text: z.string().min(1),
-  elapsedMs: z.number().nonnegative(),
-});
-export type ChatStreamProgress = z.infer<typeof ChatStreamProgressSchema>;
-
 export const ChatStreamApprovalSchema = z.object({
   runId: z.string().uuid(),
   approvalId: z.string().uuid(),

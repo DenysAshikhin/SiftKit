@@ -52,11 +52,11 @@ test('chat transcript reducer replaces progress and upserts tool lifecycle state
   }, metadata);
   messages = reduceChatTranscript(messages, {
     kind: 'progress',
-    progress: { turn: 1, text: 'Step 1 of 2', elapsedMs: 10 },
+    delta: { turn: 1, offset: 0, text: 'Step 1 of 2' },
   }, metadata);
   messages = reduceChatTranscript(messages, {
     kind: 'progress',
-    progress: { turn: 1, text: 'Step 2 of 2', elapsedMs: 20 },
+    delta: { turn: 1, offset: 0, text: 'Step 2 of 2' },
   }, metadata);
   messages = reduceChatTranscript(messages, {
     kind: 'tool',
@@ -112,7 +112,7 @@ test('stopped transcript finalization preserves partial output and terminals run
   }, metadata);
   messages = reduceChatTranscript(messages, {
     kind: 'progress',
-    progress: { turn: 1, text: 'Working', elapsedMs: 12 },
+    delta: { turn: 1, offset: 0, text: 'Working' },
   }, metadata);
   messages = reduceChatTranscript(messages, {
     kind: 'tool',
@@ -353,4 +353,35 @@ test('user rows carry their admitted image metadata from the event, live and reb
     message: { id: '4f9c1f9a-0000-4000-8000-000000000003', turn: 1, boundary: 'post_tool_batch', content: 'and this', images: ['data:image/png;base64,AAAA'], imageMeta },
   }, metadata);
   assert.deepEqual(queued[1]?.imageMeta, imageMeta);
+});
+
+test('chat transcript reducer folds progress deltas onto one row and a new turn replaces it', () => {
+  let messages: ChatTranscriptMessage[] = [];
+  messages = reduceChatTranscript(messages, {
+    kind: 'progress',
+    delta: { turn: 1, offset: 0, text: 'Step 1 of 2' },
+  }, metadata);
+  messages = reduceChatTranscript(messages, {
+    kind: 'progress',
+    delta: { turn: 1, offset: 11, text: 'read' },
+  }, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.kind, message.content]), [
+    ['test-progress', 'assistant_progress', 'Step 1 of 2read'],
+  ]);
+
+  messages = reduceChatTranscript(messages, {
+    kind: 'progress',
+    delta: { turn: 2, offset: 0, text: 'next turn' },
+  }, metadata);
+  assert.deepEqual(messages.map((message) => [message.id, message.content]), [
+    ['test-progress', 'next turn'],
+  ]);
+
+  messages = reduceChatTranscript(messages, { kind: 'completed' }, metadata);
+  assert.deepEqual(messages, []);
+});
+
+test('an empty progress delta creates no row, like the other text channels', () => {
+  const messages = reduceChatTranscript([], { kind: 'progress', delta: { turn: 1, offset: 0, text: '' } }, metadata);
+  assert.deepEqual(messages, []);
 });

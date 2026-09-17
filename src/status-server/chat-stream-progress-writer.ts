@@ -1,4 +1,4 @@
-import { ChatStreamTextDeltaSchema } from '@siftkit/contracts';
+import { ChatStreamTextDeltaSchema, type ChatTextDeltaKind } from '@siftkit/contracts';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
 import { LiveTextDeltaTracker, LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from './live-text-delta.js';
@@ -7,11 +7,11 @@ import type { ChatOperationBroadcast } from './chat-operation-broadcast.js';
 import type { ChatTurnPhaseTracker } from './chat-turn-phase-tracker.js';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
 
-
 /** Coalesces live text; the recorder owns the transcript and commits each emitted delta before readers wake. */
 export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   private readonly thinkingDeltas = new LiveTextDeltaTracker();
   private readonly narrationDeltas = new LiveTextDeltaTracker();
+  private readonly progressDeltas = new LiveTextDeltaTracker();
   private readonly answerDeltas = new LiveTextDeltaTracker();
   private flushTimer: NodeJS.Timeout | null = null;
   private flushFailure: Error | null = null;
@@ -38,6 +38,11 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
       this.emitDueDeltas(false);
       return;
     }
+    if (event.kind === 'progress_update') {
+      this.progressDeltas.pushSnapshot(event.turn, event.progressText, Date.now());
+      this.emitDueDeltas(false);
+      return;
+    }
     if (event.kind === 'answer') {
       if (this.streamAnswer) {
         this.phaseTracker?.observeAnswer(event.answerText);
@@ -49,8 +54,6 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     this.flushPending();
     if (event.kind === 'context_warning') {
       this.recorder.recordPresentation({ kind: 'warning', warning: event.warningText });
-    } else if (event.kind === 'progress_update') {
-      this.recorder.recordDisplay({ kind: 'progress', progress: { turn: event.turn, text: event.progressText, elapsedMs: event.elapsedMs } });
     } else if (event.kind === 'usage') {
       this.recorder.recordDisplay({ kind: 'usage', usage: toChatStreamUsageEvent(event) });
     } else if (event.kind === 'prompt') {
@@ -72,10 +75,11 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     const now = Date.now();
     this.emitTrackerDeltas(this.thinkingDeltas, 'thinking', now, force);
     this.emitTrackerDeltas(this.narrationDeltas, 'narration', now, force);
+    this.emitTrackerDeltas(this.progressDeltas, 'progress', now, force);
     this.emitTrackerDeltas(this.answerDeltas, 'answer', now, force);
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    if (this.thinkingDeltas.hasPending() || this.narrationDeltas.hasPending() || this.answerDeltas.hasPending()) {
+    if (this.thinkingDeltas.hasPending() || this.narrationDeltas.hasPending() || this.progressDeltas.hasPending() || this.answerDeltas.hasPending()) {
       this.flushTimer = setTimeout(() => {
         this.flushTimer = null;
         try { this.emitDueDeltas(true); }
@@ -87,7 +91,7 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     }
   }
 
-  private emitTrackerDeltas(tracker: LiveTextDeltaTracker, kind: 'thinking' | 'narration' | 'answer', now: number, force: boolean): void {
+  private emitTrackerDeltas(tracker: LiveTextDeltaTracker, kind: ChatTextDeltaKind, now: number, force: boolean): void {
     for (let delta = tracker.takeDue(now, force); delta !== null; delta = tracker.takeDue(now, force)) {
       this.recorder.recordDisplay({ kind, delta: ChatStreamTextDeltaSchema.parse(delta) });
       this.broadcast.publish();

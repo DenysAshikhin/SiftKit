@@ -250,7 +250,7 @@ function metadataOf() {
   return ChatTextRowMetadataSchema.strip().parse(message('answer', 'partial'));
 }
 
-test('streamed snapshots preserve partial text on transport failure and use the separate Stop key', async () => {
+test('streamed snapshots survive a transport interruption with the separate Stop key and no visible error', async () => {
   const controlOperationId = '4f9c1f9a-0000-4000-8000-000000000010';
   async function* stream(): AsyncGenerator<ChatStreamEvent> {
     for (const frame of chatSnapshotFrames(chatProjectionCapture({ operationId, operationKind: 'message', controlOperationId, cursor: { operationId, sequence: 4 },
@@ -259,17 +259,17 @@ test('streamed snapshots preserve partial text on transport failure and use the 
   }
   let store = new ChatSessionRuntimeStore().ensureSession('s1', '')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'unsent draft' });
-  let adopted = false;
+  const kinds: string[] = [];
   for await (const transition of toRuntimeTransitions('s1', { kind: 'attached' }, stream(), true)) {
     store = store.apply(transition);
-    if (transition.kind === 'snapshot') {
-      adopted = true;
-      assert.deepEqual(store.get('s1').activity, { kind: 'local', operationKind: 'message', operationId: controlOperationId });
-    }
+    kinds.push(transition.kind);
   }
-  assert.equal(adopted, true);
+  assert.deepEqual(kinds, ['snapshot', 'queue', 'interrupted']);
+  // The run is still live on the server, so the Stop key keeps its control id and no error is shown.
+  assert.deepEqual(store.get('s1').activity, { kind: 'local', operationKind: 'message', operationId: controlOperationId });
   assert.equal(store.get('s1').liveMessages[0]?.content, 'partial');
-  assert.equal(store.get('s1').error, 'connection lost');
+  assert.equal(store.get('s1').error, null);
+  assert.equal(store.get('s1').awaitingResponse, false);
   assert.equal(store.get('s1').draft, 'unsent draft');
 });
 

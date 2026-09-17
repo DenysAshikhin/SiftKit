@@ -594,9 +594,9 @@ async function buildChatStreamHttpError(response: Response): Promise<never> {
 }
 
 /** What a 404 means to the caller: a real failure, or "there is nothing running to latch onto". */
-type ChatStreamNotFound = 'error' | 'idle';
+export type ChatStreamNotFound = 'error' | 'idle';
 
-async function* consumeChatStream(
+export async function* consumeChatStream(
   url: string,
   init: RequestInit,
   notFound: ChatStreamNotFound,

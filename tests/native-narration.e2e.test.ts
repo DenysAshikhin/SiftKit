@@ -57,13 +57,10 @@ test('cli renderer prints one line per progress_update', () => {
   assert.match(lines[0] ?? '', /t12\/100 progress "GREEN: wiring render"/u);
 });
 
-test('server log body renders progress_update with turn and text', () => {
+test('progress_update is neither server-logged nor rendered as a log body', () => {
   const event: RepoSearchProgressEvent = {
     kind: 'progress_update', taskId: 't1', turn: 12, maxTurns: 100, progressText: 'GREEN: wiring render', elapsedMs: 61_000,
   };
-  assert.equal(isServerLoggedProgressEvent(event), true);
-  const body = buildRepoSearchProgressLogBody(event);
-  assert.equal(body?.event, 'progress');
-  assert.match(body?.fields ?? '', /t12\/100 {2}elapsed=/u);
-  assert.match(body?.fields ?? '', /"GREEN: wiring render"/u);
+  assert.equal(isServerLoggedProgressEvent(event), false);
+  assert.equal(buildRepoSearchProgressLogBody(event), null);
 });

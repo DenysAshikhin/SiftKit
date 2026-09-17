@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import test from 'node:test';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
-import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
 import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.js';
 import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.js';
 import { applyChatProjectionRecords, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
 import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
@@ -18,22 +13,8 @@ const NO_LIVE_BINDING = { approval: null, controlOperationId: null, activeOperat
 const TRANSFER_ID = '4f9c1f9a-1111-4000-8000-000000000001';
 
 function fixture() {
-  const root = createManagedTempDir('chat-journal-attach-');
-  const at = new Date().toISOString();
-  saveChatSession(root, {
-    id: 'session', title: 'Attach', modelPresetId: 'model', modelPreset: mockModelPreset(),
-    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: at, updatedAtUtc: at, messages: [],
-  });
-  const databasePath = join(root, 'runtime.sqlite');
-  const recorder = ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
-    operationId: randomUUID(), sessionId: 'session', ownerEpoch: 'test-owner', operationKind: 'repo-agent',
-    userMessageId: 'accepted-user', content: 'Find the answer', images: [], imageMeta: [], retainedHistoryRevision: 0,
-    startedAtUtc: at, settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
-      approval: 'interactive', maxTurns: 200, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
-    },
-  });
-  return { recorder, database: getRuntimeDatabase(databasePath), reader: new ChatOperationSnapshotReader(recorder.operationId) };
+  const { database, recorder } = beginRepoAgentTestRun('chat-journal-attach-');
+  return { recorder, database, reader: new ChatOperationSnapshotReader(recorder.operationId) };
 }
 
 test('a snapshot transfer retains more than 8 MiB in bounded frames and freezes the committed high-water view', () => {

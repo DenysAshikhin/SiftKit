@@ -197,7 +197,6 @@ const SERVER_LOGGED_PROGRESS_KINDS = new Set<RepoSearchProgressEvent['kind']>([
   'tool_start',
   'context_warning',
   'approval_auto',
-  'progress_update',
 ]);
 
 export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boolean {
@@ -209,8 +208,6 @@ export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boo
  * live text and are never server-logged, so they must not fall through to the default fan-out.
  * The map is exhaustive over the event union on purpose: a new kind fails to compile here
  * instead of silently defaulting to being forwarded to every subscriber.
- * `progress_update` is deliberately in both this map and SERVER_LOGGED_PROGRESS_KINDS: the
- * repo-agent session treats it as live text, the plain repo-search run path logs it.
  */
 const LIVE_TEXT_PROGRESS_KINDS: Record<RepoSearchProgressEvent['kind'], boolean> = {
   thinking: true,
@@ -256,13 +253,6 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent): 
       // An approval carries no maxTurns, so the turn stands alone here.
       fields: `t${Math.max(1, Math.trunc(event.turn))}  ${event.verdict}${toolName ? `: ${toolName}` : ''}${reason ? ` — ${reason}` : ''}`,
       severity: 'warning',
-    };
-  }
-  if (event.kind === 'progress_update') {
-    return {
-      event: 'progress',
-      fields: `${turnLabel(event)}  elapsed=${formatElapsed(event.elapsedMs)}  "${normalizeRepoSearchCommandForLog(event.progressText)}"`,
-      severity: 'normal',
     };
   }
   if (event.kind === 'llm_start' || event.kind === 'llm_end') {

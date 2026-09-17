@@ -4,7 +4,6 @@ import {
   ChatAnswerCompletionSchema,
   ChatRunTerminalCauseSchema,
   type ChatRunTerminalCause,
-  ChatStreamProgressSchema,
   ChatStreamQueuedUserMessageSchema,
   ChatStreamTextDeltaSchema,
   ChatStreamToolEventSchema,
@@ -48,7 +47,7 @@ export const ChatTranscriptEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('thinking'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('narration'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('answer'), delta: ChatStreamTextDeltaSchema }),
-  z.strictObject({ kind: z.literal('progress'), progress: ChatStreamProgressSchema }),
+  z.strictObject({ kind: z.literal('progress'), delta: ChatStreamTextDeltaSchema }),
   z.strictObject({ kind: z.literal('tool'), tool: ChatStreamToolEventSchema }),
   z.strictObject({ kind: z.literal('usage'), usage: ChatStreamUsageEventSchema }),
   z.strictObject({ kind: z.literal('user_message'), message: ChatStreamQueuedUserMessageSchema }),
@@ -103,6 +102,17 @@ export function applyChatStreamTextDelta(previous: string, delta: ChatStreamText
   return previous;
 }
 
+/** Every transcript event that carries a text delta; the writer's live channels are exactly these. */
+export type ChatTextDeltaKind = Extract<ChatTranscriptEvent, { delta: ChatStreamTextDelta }>['kind'];
+
+const TEXT_ROW_KIND = {
+  thinking: 'assistant_thinking',
+  narration: 'assistant_narration',
+  progress: 'assistant_progress',
+  answer: 'assistant_answer',
+} as const satisfies Record<ChatTextDeltaKind, ChatTranscriptMessage['kind']>;
+type TextRowKind = (typeof TEXT_ROW_KIND)[ChatTextDeltaKind];
+
 function upsertMessage(
   messages: readonly ChatTranscriptMessage[],
   message: ChatTranscriptMessage,
@@ -114,7 +124,7 @@ function upsertMessage(
 
 function textMessage(
   id: string,
-  kind: 'assistant_thinking' | 'assistant_narration' | 'assistant_progress' | 'assistant_answer',
+  kind: TextRowKind,
   content: string,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage {
@@ -138,7 +148,7 @@ function textMessage(
 
 function reduceTextEvent(
   messages: readonly ChatTranscriptMessage[],
-  event: Extract<ChatTranscriptEvent, { kind: 'thinking' | 'narration' | 'answer' }>,
+  event: Extract<ChatTranscriptEvent, { delta: ChatStreamTextDelta }>,
   metadata: ChatTranscriptMetadata,
 ): ChatTranscriptMessage[] {
   const narrationId = buildChatMessageId(metadata.messageIdPrefix, { kind: 'narration', turn: event.delta.turn });
@@ -148,33 +158,17 @@ function reduceTextEvent(
       && (message.kind === 'assistant_narration' || message.kind === 'assistant_progress' || message.kind === 'assistant_answer')
     ))
     : undefined;
-  const id = promotedNarration?.id ?? buildChatMessageId(metadata.messageIdPrefix, { kind: event.kind, turn: event.delta.turn });
+  // Progress is one row for the whole run; a new turn arrives as `offset: 0` and replaces the bar text.
+  const id = promotedNarration?.id ?? buildChatMessageId(metadata.messageIdPrefix,
+    event.kind === 'progress' ? { kind: 'progress' } : { kind: event.kind, turn: event.delta.turn });
   const existing = messages.find((message) => message.id === id);
   const content = applyChatStreamTextDelta(existing?.content ?? '', event.delta);
   if (!content && !existing && event.kind !== 'answer') return [...messages];
 
-  const kind = event.kind === 'thinking'
-    ? 'assistant_thinking'
-    : event.kind === 'narration'
-      ? 'assistant_narration'
-      : 'assistant_answer';
+  const kind = TEXT_ROW_KIND[event.kind];
   return upsertMessage(messages, existing
     ? ChatTranscriptMessageSchema.parse({ ...existing, kind, content })
     : textMessage(id, kind, content, metadata));
-}
-
-function reduceProgressEvent(
-  messages: readonly ChatTranscriptMessage[],
-  event: Extract<ChatTranscriptEvent, { kind: 'progress' }>,
-  metadata: ChatTranscriptMetadata,
-): ChatTranscriptMessage[] {
-  const message = textMessage(
-    buildChatMessageId(metadata.messageIdPrefix, { kind: 'progress' }),
-    'assistant_progress',
-    event.progress.text,
-    metadata,
-  );
-  return upsertMessage(messages, message);
 }
 
 function reduceToolEvent(
@@ -344,10 +338,9 @@ export function reduceChatTranscript(
       kind: 'assistant_answer',
     }));
   }
-  if (event.kind === 'thinking' || event.kind === 'narration' || event.kind === 'answer') {
+  if (event.kind === 'thinking' || event.kind === 'narration' || event.kind === 'answer' || event.kind === 'progress') {
     return reduceTextEvent(messages, event, metadata);
   }
-  if (event.kind === 'progress') return reduceProgressEvent(messages, event, metadata);
   if (event.kind === 'usage') return reduceUsageEvent(messages, event, metadata);
   if (event.kind === 'user_message') return reduceUserMessageEvent(messages, event.message, metadata);
   if (event.kind === 'submission') return reduceUserMessageEvent(messages, event.message, metadata);

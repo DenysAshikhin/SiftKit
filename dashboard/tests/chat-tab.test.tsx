@@ -7,12 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ChatSessionResponseSchema, DurableChatApprovalSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
-import { ChatStreamReader } from '../src/lib/chat-stream-parser';
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
 import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
 import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.js';
 import { ChatMessageQueueResponseSchema } from '@siftkit/contracts';
 import { ChatTab } from '../src/tabs/ChatTab';
+import { consumeChatStream } from '../src/api';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
 import { buildUsageFrame } from './usage-frame';
@@ -99,13 +99,11 @@ function readTokenBadges(html: string): string[] {
   return [...html.matchAll(/<span class="msg-tokens"[^>]*>([^<]*)<\/span>/gu)].map((match) => match[1] ?? '');
 }
 
-async function* readHttpChat(url: string, signal: AbortSignal, body?: Record<string, string | number | boolean>) {
-  const response = await fetch(url, body ? {
+/** The real client's stream path, so a rejected route surfaces exactly as the dashboard sees it. */
+function readHttpChat(url: string, signal: AbortSignal, body?: Record<string, string | number | boolean>) {
+  return consumeChatStream(url, body ? {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
-  } : { signal });
-  assert.equal(response.status, 200);
-  assert.ok(response.body);
-  yield* new ChatStreamReader(response.body.getReader()).events();
+  } : { signal }, 'error');
 }
 
 async function readThrough(
@@ -1690,12 +1688,12 @@ test('the activity ring disappears into Internal Logic when final answer streami
 
 test('raw streamed model progress renders only inside closed Internal Logic', () => {
   const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_PROGRESS' }, [
-    { kind: 'progress', progress: { turn: 1, text: 'PROGRESS_MARKER_ONE', elapsedMs: 500 } },
+    { kind: 'progress', delta: { turn: 1, offset: 0, text: 'PROGRESS_MARKER_ONE' } },
     { kind: 'tool', tool: {
       kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4,
       activityKind: 'command', activitySubject: { kind: 'none' }, command: 'TOOL_MARKER', promptTokenCount: 0,
     } },
-    { kind: 'progress', progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } },
+    { kind: 'progress', delta: { turn: 2, offset: 0, text: 'PROGRESS_MARKER_TWO' } },
   ]);
   const html = render({
     selectedSessionId: SESSION_B.id,

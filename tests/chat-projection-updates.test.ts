@@ -1,19 +1,14 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import { ChatProjectionCaptureSchema, ChatTranscriptMessageSchema, type ChatProjectionCapture, type ChatProjectionRecord, type ChatStreamUsageEvent, type ChatTranscriptMessage } from '@siftkit/contracts';
-import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { saveChatSession } from '../src/state/chat-sessions.js';
 import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
-import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
 import { ChatOperationSnapshotReader } from '../src/status-server/chat-operation-snapshot.js';
 import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../src/status-server/chat-projection-encoder.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { mockModelPreset } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
 import { applyChatProjectionRecords, asWireView, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
 
 const NO_LIVE_BINDING = { approval: null, controlOperationId: null, activeOperation: null };
@@ -22,20 +17,10 @@ const AT = '2026-09-10T12:09:36.905Z';
 const MIB = 1024 * 1024;
 
 function fixture() {
-  const root = createManagedTempDir('chat-projection-updates-');
-  saveChatSession(root, {
-    id: 'session', title: 'Updates', modelPresetId: 'model', modelPreset: mockModelPreset(),
-    presetId: 'repo-agent', mode: 'repo-search', planRepoRoot: 'C:/repo', createdAtUtc: AT, updatedAtUtc: AT, messages: [],
-  });
-  const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
-  const recorder = ChatRunRecorder.begin(database, {
-    operationId: randomUUID(), sessionId: 'session', ownerEpoch: 'test-owner', operationKind: 'repo-agent',
-    userMessageId: 'accepted-user', content: 'Find the answer', images: [toDataUrl('image/png', rasterBuffer('png', 8, 8))],
+  const { database, recorder } = beginRepoAgentTestRun('chat-projection-updates-', {
+    startedAtUtc: AT,
+    images: [toDataUrl('image/png', rasterBuffer('png', 8, 8))],
     imageMeta: [{ width: 8, height: 8, originalWidth: 8, originalHeight: 8, mime: 'image/png', byteLength: 1, tokenEstimate: 1, resized: false, caption: null }],
-    retainedHistoryRevision: 0, startedAtUtc: AT, settings: {
-      operationKind: 'repo-agent', mode: 'repo-search', presetId: 'repo-agent', modelPresetId: 'model', model: 'mock', repoRoot: 'C:/repo',
-      approval: 'interactive', maxTurns: 200, thinkingEnabled: true, webSearchEnabled: false, contextWindowTokens: 4096,
-    },
   });
   const reader = new ChatOperationSnapshotReader(recorder.operationId);
   return { database, recorder, reader, capture: () => reader.capture(database, NO_LIVE_BINDING) };
