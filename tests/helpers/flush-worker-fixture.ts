@@ -1,79 +1,47 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { Worker } from 'node:worker_threads';
-import { z } from 'zod';
 
-import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-flush-queue.js';
+import { TEST_BUILD_ROOT } from '../../src/test-runner/test-build-state.js';
+import type { InferenceRunFlushWorkerLaunch } from '../../src/status-server/inference-run-flush-queue.js';
+
 import { findNearestSiftKitRepoRoot, moduleDirname } from '../../src/lib/paths.js';
 
-/** Where the built flush worker lands — the same path the queue resolves in production. */
-export function getFlushWorkerPath(): string {
+/** The package root this test tree belongs to â€” the same one the queue resolves its worker from. */
+function getSiftKitPackageRoot(): string {
   const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
   if (packageRoot === null) {
     throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
   }
-  return join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
+  return packageRoot;
 }
 
-export type FlushQueueInternals = {
-  runningRunId: string | null;
-  draining: boolean;
-  worker: Worker | null;
-  getWorker: () => Worker;
-};
-
-/**
- * Reaches the state the queue deliberately never exposes. `getWorker` is included because it is the
- * only seam a flush can be made slow through: the real worker yields the writer in 1ms, so no amount
- * of database contention produces a *late* acknowledgement, and late acknowledgements are what the
- * shutdown budget has to survive. Shadowing the prototype method leaves the production path untouched.
- */
-export function flushQueueInternals(queue: InferenceRunFlushQueue): FlushQueueInternals {
-  return z.custom<FlushQueueInternals>((value) => value instanceof InferenceRunFlushQueue).parse(queue);
+/** Where the built flush worker lands â€” the same path the queue resolves in production. */
+export function getFlushWorkerPath(): string {
+  return join(getSiftKitPackageRoot(), 'dist', 'status-server', 'inference-run-flush-worker.js');
 }
 
 /**
- * Proxies the real flush worker and holds its reply for `ackDelayMs`. The batch is written by the real
- * worker before the reply is held back, so a delayed acknowledgement is exactly what it looks like: a
- * commit whose outcome arrived too late to be believed, never a failed write.
+ * The late-acknowledgement worker entrypoint, compiled. `tsc -p tsconfig.test-build.json` emits every
+ * non-entry file under `tests/` beside the bundled test entries, so a suite run spawns that module; a
+ * run against the source tree (`tsx --test <file>`) spawns the TypeScript itself.
  */
-const LATE_ACK_WORKER_SCRIPT = `
-const { parentPort, workerData, Worker } = require('node:worker_threads');
-const child = new Worker(workerData.workerPath);
-child.unref();
-let lastRequestId = 0;
-parentPort.on('message', (request) => {
-  lastRequestId = request.id;
-  child.postMessage(request);
-});
-child.on('message', (response) => {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.ackDelayMs);
-  parentPort.postMessage(response);
-});
-child.on('error', (error) => {
-  parentPort.postMessage({ id: lastRequestId, ok: false, errorMessage: String(error) });
-});
-parentPort.on('close', () => {
-  void child.terminate();
-});
-`;
+function getLateAckFlushWorkerModulePath(): string {
+  const packageRoot = getSiftKitPackageRoot();
+  const compiled = join(packageRoot, TEST_BUILD_ROOT, 'tests', 'fixtures', 'late-ack-flush-worker.js');
+  return existsSync(compiled)
+    ? compiled
+    : join(packageRoot, 'tests', 'fixtures', 'late-ack-flush-worker.ts');
+}
 
 /**
- * Swaps the queue's flush worker for one that acknowledges `ackDelayMs` late. It fills the worker slot
- * itself, so `close()` still finds the handle and still performs its in-flight wait.
+ * A flush worker launch whose replies arrive `ackDelayMs` late. Late acknowledgements are what the
+ * shutdown budget has to survive, and the shipped worker answers in about a millisecond, so no amount
+ * of database contention produces one: the delay has to sit between the queue and that worker, which
+ * is precisely what the launch descriptor puts there.
  */
-export function installLateAckFlushWorker(queue: InferenceRunFlushQueue, ackDelayMs: number): void {
-  const internals = flushQueueInternals(queue);
-  internals.getWorker = (): Worker => {
-    const existing = internals.worker;
-    if (existing !== null) {
-      return existing;
-    }
-    const worker = new Worker(LATE_ACK_WORKER_SCRIPT, {
-      eval: true,
-      workerData: { workerPath: getFlushWorkerPath(), ackDelayMs },
-    });
-    worker.unref();
-    internals.worker = worker;
-    return worker;
+export function lateAckFlushWorker(ackDelayMs: number): InferenceRunFlushWorkerLaunch {
+  return {
+    modulePath: getLateAckFlushWorkerModulePath(),
+    data: { workerPath: getFlushWorkerPath(), ackDelayMs },
   };
 }

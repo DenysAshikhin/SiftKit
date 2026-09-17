@@ -21,6 +21,7 @@ import {
   normalizeTimeoutMs,
   scheduleUnrefTimer,
 } from './idle-drain.js';
+import { FlushWorkerResponseSchema, type FlushWorkerResponse } from './inference-run-flush-messages.js';
 import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.js';
 import { serverLogger } from './server-logger.js';
 
@@ -30,6 +31,15 @@ import { serverLogger } from './server-logger.js';
  * this point the memory cost outweighs it. No log data is dropped either way.
  */
 export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
+
+/** Where the shipped flush worker lands, resolved from this module so a relocated package still finds it. */
+function getShippedFlushWorkerPath(): string {
+  const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
+  if (packageRoot === null) {
+    throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
+  }
+  return join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
+}
 
 const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;
 
@@ -49,21 +59,26 @@ type InferenceRunFlushQueueItem = {
   entries: InferenceRunPendingLogChunkEntry[] | null;
 };
 
+/**
+ * How the queue starts its flush worker: the module to run, and the data handed to it. Unset is the
+ * shipped worker with no data. Naming a module is the seam that puts another worker between the
+ * queue and its writes; the queue only forwards `data`, and the module validates it.
+ */
+export type InferenceRunFlushWorkerLaunch = {
+  readonly modulePath: string;
+  readonly data?: Readonly<Record<string, string | number | boolean>>;
+};
+
 export type InferenceRunFlushQueueOptions = {
   idleDelayMs?: number;
   closeFlushWaitMs?: number;
+  flushWorker?: InferenceRunFlushWorkerLaunch;
 };
 
 export type InferenceRunModelRequestState = {
   active: boolean;
   queueLength: number;
   lastFinishedAtMs?: number | null;
-};
-
-type FlushWorkerResponse = {
-  id: number;
-  ok: boolean;
-  errorMessage?: string;
 };
 
 export type InferenceRunFlushQueueSnapshot = {
@@ -76,6 +91,7 @@ export type InferenceRunFlushQueueSnapshot = {
 
 export class InferenceRunFlushQueue {
   private readonly idleDelayMs: number;
+  private readonly flushWorkerLaunch: InferenceRunFlushWorkerLaunch | null;
   /**
    * How long `close` gives an in-flight flush to finish, so the worker is never terminated with its
    * sqlite handle open: that fd survives until process exit and holds the directory containing the
@@ -90,6 +106,12 @@ export class InferenceRunFlushQueue {
   private shuttingDown = false;
   private draining = false;
   private runningRunId: string | null = null;
+  /**
+   * The worker message id of the batch that owns `runningRunId`. The run id cannot carry that
+   * ownership on its own: a run drained twice in a row leaves `runningRunId` holding the same value
+   * for both batches, and the first batch's late reply would then clear the second one's state.
+   */
+  private runningMessageId: number | null = null;
   private activeModelRequest = false;
   private modelRequestQueueLength = 0;
   private lastModelRequestFinishedAtMs: number | null = null;
@@ -117,6 +139,7 @@ export class InferenceRunFlushQueue {
     this.closeFlushWaitMs = Number.isFinite(configuredCloseFlushWaitMs)
       ? Math.max(0, Math.trunc(configuredCloseFlushWaitMs))
       : SHUTDOWN_CLOSE_FLUSH_WAIT_MS;
+    this.flushWorkerLaunch = options.flushWorker ?? null;
   }
 
   /**
@@ -344,6 +367,7 @@ export class InferenceRunFlushQueue {
           // `close()` there is a handle to wait for, instead of terminating it over an open sqlite fd.
           if (!abandonedToWorker) {
             this.runningRunId = null;
+            this.runningMessageId = null;
           }
         }
         const durationMs = Date.now() - startedAtMs;
@@ -437,9 +461,12 @@ export class InferenceRunFlushQueue {
     entries: InferenceRunPendingLogChunkEntry[],
     deadlineMs: number | null,
   ): Promise<void> {
-    const worker = this.getWorker();
     const id = this.nextWorkerMessageId;
     this.nextWorkerMessageId += 1;
+    // The batch is owned by its message id from here on: every later hand-back of the running state
+    // attributes a reply to it, because a run id cannot distinguish this batch from the next one.
+    this.runningMessageId = id;
+    const worker = this.getWorker();
     const startedAtMs = Date.now();
     return new Promise<void>((resolve, reject) => {
       let ackTimer: NodeJS.Timeout | null = null;
@@ -458,25 +485,31 @@ export class InferenceRunFlushQueue {
         worker.off('message', onMessage);
         worker.off('error', onError);
       };
-      const onMessage = (message: FlushWorkerResponse): void => {
-        if (message.id !== id) {
+      // The port carries whatever the worker posted; the schema is what turns it into a reply.
+      const onMessage = (posted: FlushWorkerResponse): void => {
+        const parsed = FlushWorkerResponseSchema.safeParse(posted);
+        if (!parsed.success) {
+          // A reply that does not speak the protocol answers no batch, so it cannot settle this one.
+          return;
+        }
+        if (parsed.data.id !== id) {
           return;
         }
         cleanup();
         if (acknowledgementExpired) {
-          this.releaseAbandonedRun(runId, startedAtMs);
+          this.releaseAbandonedRun(id, runId, startedAtMs);
           return;
         }
-        if (message.ok) {
+        if (parsed.data.ok) {
           resolve();
         } else {
-          reject(new Error(message.errorMessage || 'inference run flush worker failed'));
+          reject(new Error(parsed.data.errorMessage || 'inference run flush worker failed'));
         }
       };
       const onError = (error: Error): void => {
         cleanup();
         if (acknowledgementExpired) {
-          this.releaseAbandonedRun(runId, startedAtMs);
+          this.releaseAbandonedRun(id, runId, startedAtMs);
           return;
         }
         reject(error);
@@ -503,34 +536,49 @@ export class InferenceRunFlushQueue {
   }
 
   /**
-   * Hands back the running state an abandoned batch left behind, once its reply has proved the batch is
-   * over. Nothing is restored, retried or recounted: the drain that gave up on the batch reported the
-   * unknown outcome, and the guard is what keeps a reply that arrives after the queue moved on from
-   * clearing a flush that started in the meantime.
+   * Hands back the running state an abandoned batch left behind, once its reply has proved that batch
+   * is over. Nothing is restored, retried or recounted: the drain that gave up on the batch reported
+   * the unknown outcome, so the reply is always reported — it is the only evidence the write landed.
+   * The message id is what keeps that reply from clearing a flush that started in the meantime,
+   * including a newer batch of the *same* run, whose `runningRunId` this reply cannot tell apart from
+   * its own: the report still goes out, the hand-back is skipped.
    */
-  private releaseAbandonedRun(runId: string, startedAtMs: number): void {
-    if (this.runningRunId !== runId) {
+  private releaseAbandonedRun(messageId: number, runId: string, startedAtMs: number): void {
+    this.reportLateAcknowledgement(runId, Date.now() - startedAtMs);
+    if (this.runningMessageId !== messageId) {
       return;
     }
+    this.runningMessageId = null;
     this.runningRunId = null;
-    serverLogger.warning({
-      scope: 'flush',
-      id: runId,
-      event: 'flush_late_ack',
-      fields: `duration_ms=${Date.now() - startedAtMs}`,
-    });
+  }
+
+  /**
+   * Reporting runs inside a worker event handler, where a throw escapes as an uncaught exception that
+   * no cleanup of ours will ever see — and the failure most likely to be thrown here is the logger's
+   * own stdout sink. A lost report is not a lost flush, so the report gets one last chance on stderr
+   * (precedent: `drainFromTimer`) and nothing else.
+   */
+  private reportLateAcknowledgement(runId: string, durationMs: number): void {
+    try {
+      serverLogger.warning({
+        scope: 'flush',
+        id: runId,
+        event: 'flush_late_ack',
+        fields: `duration_ms=${durationMs}`,
+      });
+    } catch (error) {
+      process.stderr.write(
+        `[siftKitStatus] Inference run flush late acknowledgement went unreported: ${toError(error).message}\n`,
+      );
+    }
   }
 
   private getWorker(): Worker {
     if (this.worker) {
       return this.worker;
     }
-    const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
-    if (packageRoot === null) {
-      throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
-    }
-    const workerPath = join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
-    this.worker = new Worker(workerPath);
+    const launch = this.flushWorkerLaunch ?? { modulePath: getShippedFlushWorkerPath() };
+    this.worker = new Worker(launch.modulePath, { workerData: launch.data });
     this.worker.unref();
     this.worker.on('exit', () => {
       this.worker = null;

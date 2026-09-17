@@ -6,7 +6,7 @@ import { formatTimestamp } from '../lib/text-format.js';
 
 const InferenceRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
 export type InferenceRunStatus = z.infer<typeof InferenceRunStatusSchema>;
-const InferenceRunStreamKindSchema = z.enum([
+export const InferenceRunStreamKindSchema = z.enum([
   'launcher_stdout',
   'launcher_stderr',
   'engine_stdout',

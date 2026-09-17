@@ -4,19 +4,7 @@ import {
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.js';
-
-type FlushWorkerRequest = {
-  id: number;
-  runId: string;
-  databasePath: string;
-  entries: InferenceRunPendingLogChunkEntry[];
-};
-
-type FlushWorkerResponse = {
-  id: number;
-  ok: boolean;
-  errorMessage?: string;
-};
+import { FlushWorkerRequestSchema, type FlushWorkerRequest, type FlushWorkerResponse } from './inference-run-flush-messages.js';
 
 function handleFlushRequest(message: FlushWorkerRequest, entries: InferenceRunPendingLogChunkEntry[]): FlushWorkerResponse {
   const database = getRuntimeDatabase(message.databasePath);
@@ -26,7 +14,15 @@ function handleFlushRequest(message: FlushWorkerRequest, entries: InferenceRunPe
   return { id: message.id, ok: true };
 }
 
-parentPort?.on('message', (message: FlushWorkerRequest) => {
+parentPort?.on('message', (posted: FlushWorkerRequest) => {
+  const parsed = FlushWorkerRequestSchema.safeParse(posted);
+  if (!parsed.success) {
+    // No valid `id` means no batch to answer, so this cannot be reported as a failed flush. Say what
+    // arrived instead of handing the queue a reply it cannot attribute to anything.
+    process.stderr.write(`inference run flush worker received an invalid request: ${parsed.error.message}\n`);
+    return;
+  }
+  const message = parsed.data;
   // Answer an empty batch without opening the database: nothing to write, nothing to create.
   const entries = message.entries.filter((entry) => entry.chunkText.length > 0);
   if (entries.length === 0) {

@@ -16,7 +16,7 @@ import {
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import { waitForCondition } from './helpers/deferred-shutdown-fixture.js';
-import { flushQueueInternals, installLateAckFlushWorker } from './helpers/flush-worker-fixture.js';
+import { lateAckFlushWorker } from './helpers/flush-worker-fixture.js';
 import { countLogRows } from './helpers/runtime-database-probe.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
@@ -176,15 +176,18 @@ test('inference run flush queue records another flush requested while the same r
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'busy\n' });
-    const queue = new InferenceRunFlushQueue();
-    const internals = flushQueueInternals(queue);
-    internals.runningRunId = run.id;
-    internals.draining = true;
+    // A flush has to be genuinely in flight for this to mean anything, so the run is drained through
+    // a worker that keeps its reply back until the second enqueue has been observed.
+    const queue = new InferenceRunFlushQueue({ flushWorker: lateAckFlushWorker(250) });
 
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await waitForCondition(() => queue.getSnapshot().runningRunId === run.id, 5_000,
+        'the first batch is with the worker');
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'again\n' });
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
       assert.equal(queue.getSnapshot().pendingCount, 1);
-      assert.equal(queue.getSnapshot().scheduled, false);
+      assert.equal(queue.getSnapshot().scheduled, false, 'a drain in flight does not schedule a second one');
     } finally {
       await queue.close();
     }
@@ -192,16 +195,23 @@ test('inference run flush queue records another flush requested while the same r
 });
 
 test('inference run flush queue idle wait fails with state diagnostics at its ceiling', async () => {
-  const queue = new InferenceRunFlushQueue();
-  const internals = flushQueueInternals(queue);
-  internals.runningRunId = 'run-stuck';
-  internals.draining = true;
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'ceiling\n' });
+    const queue = new InferenceRunFlushQueue({ flushWorker: lateAckFlushWorker(250) });
 
-  await assert.rejects(
-    queue.waitForIdle(25),
-    /pendingCount=0 runningRunId=run-stuck scheduled=false completedCount=0 failedCount=0/u,
-  );
-  await queue.close();
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await waitForCondition(() => queue.getSnapshot().runningRunId === run.id, 5_000,
+        'the wait has to run out against a batch that is actually running');
+      await assert.rejects(
+        () => queue.waitForIdle(25),
+        new RegExp(`pendingCount=0 runningRunId=${run.id} scheduled=false completedCount=0 failedCount=0`, 'u'),
+      );
+    } finally {
+      await queue.close();
+    }
+  });
 });
 
 test('inference run flush queue waits for model-request idle delay before draining', async () => {
@@ -320,12 +330,11 @@ test('closing the queue reports an in-flight flush that outlives the wait budget
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'stuck\n' });
-    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 40 });
+    // The reply arrives after the close budget, which is how a flush is still in flight when close()
+    // starts: the batch itself is written, and only its outcome is late.
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 40, flushWorker: lateAckFlushWorker(500) });
     assert.equal(queue.enqueue(run.id, 'exl3'), true);
-    await queue.waitForIdle();
-
-    const internals = flushQueueInternals(queue);
-    internals.runningRunId = 'run-stuck';
+    await waitForCondition(() => queue.getSnapshot().runningRunId === run.id, 5_000);
 
     const capture = OutputCapture.start(process.stdout);
     try {
@@ -336,7 +345,7 @@ test('closing the queue reports an in-flight flush that outlives the wait budget
     const lines = capture.lines;
 
     assert.equal(
-      lines.some((line) => line.includes('flush_close_timeout') && line.includes('run-stuc')),
+      lines.some((line) => line.includes('flush_close_timeout') && line.includes(run.id.slice(0, 8))),
       true,
       lines.join('\n'),
     );
@@ -513,8 +522,7 @@ test('the shutdown budget bounds the first flush and its acknowledgement', async
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'slow\n' });
-    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50 });
-    installLateAckFlushWorker(queue, 250);
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50, flushWorker: lateAckFlushWorker(250) });
     const stdout = OutputCapture.start(process.stdout);
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
@@ -547,8 +555,7 @@ test('an acknowledgement that is slow but inside the budget still flushes exactl
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'patient\n' });
-    const queue = new InferenceRunFlushQueue();
-    installLateAckFlushWorker(queue, 120);
+    const queue = new InferenceRunFlushQueue({ flushWorker: lateAckFlushWorker(120) });
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
       await queue.drainForShutdown(2_000);
@@ -570,8 +577,7 @@ test('an acknowledgement that arrives after the budget never replays the batch',
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'abandoned\n' });
-    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50 });
-    installLateAckFlushWorker(queue, 150);
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 50, flushWorker: lateAckFlushWorker(150) });
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
       await assert.rejects(
@@ -599,8 +605,7 @@ test('a budget already spent rejects with the batch still owned by the queue', a
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'unspent\n' });
-    const queue = new InferenceRunFlushQueue();
-    installLateAckFlushWorker(queue, 250);
+    const queue = new InferenceRunFlushQueue({ flushWorker: lateAckFlushWorker(250) });
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
       await assert.rejects(
@@ -630,8 +635,7 @@ test('an acknowledgement that arrives late releases the batch close() is waiting
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'belated\n' });
-    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 2_000 });
-    installLateAckFlushWorker(queue, 150);
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 2_000, flushWorker: lateAckFlushWorker(150) });
     const stdout = OutputCapture.start(process.stdout);
     try {
       assert.equal(queue.enqueue(run.id, 'exl3'), true);
@@ -652,6 +656,72 @@ test('an acknowledgement that arrives late releases the batch close() is waiting
         'a queue whose batch was answered cannot report that it never was');
     } finally {
       stdout.restore();
+      await queue.close();
+    }
+  });
+});
+
+// The running state says which batch the worker still owns, and a run drained twice leaves it holding
+// the same run id for both of them. Attributing a late reply by run id let the abandoned batch's reply
+// clear the newer one, so close() returned in milliseconds over a drain still in flight and terminated
+// the worker with its write unfinished.
+test('a late acknowledgement cannot clear a newer batch of the same run', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'abandoned\n' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 2_000, flushWorker: lateAckFlushWorker(300) });
+    const stdout = OutputCapture.start(process.stdout);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(
+        () => queue.drainForShutdown(25),
+        /flush acknowledgement not received within budget/u,
+      );
+
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'newer\n' });
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      const newerDrain = queue.drainNow();
+
+      // The abandoned batch's reply is the event that matters: it lands while the newer batch is
+      // still waiting for its own, which is the moment a run-id guard mistakes for an idle queue.
+      await waitForCondition(() => stdout.lines.join('\n').includes('flush_late_ack'), 5_000,
+        'the abandoned batch answered');
+      assert.equal(queue.getSnapshot().runningRunId, run.id,
+        'a reply to the abandoned batch is not an answer for the newer one');
+
+      await newerDrain;
+      assert.equal(committedRows(run.id), 2, 'both batches were written, each exactly once');
+      assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, 'abandoned\nnewer\n');
+    } finally {
+      stdout.restore();
+      await queue.close();
+    }
+  });
+});
+
+// A late reply is handled inside a worker event handler, where a throw escapes as an uncaught
+// exception that no cleanup of ours ever sees. Reporting is the only thing there that can fail, so it
+// has to fail alone: the batch still gets handed back, and the lost report says so on stderr.
+test('a late acknowledgement whose report cannot be written is still released', async t => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'unreported\n' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 2_000, flushWorker: lateAckFlushWorker(150) });
+    failReportingOn(t, 'flush_late_ack');
+    const stderr = OutputCapture.start(process.stderr);
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await assert.rejects(
+        () => queue.drainForShutdown(25),
+        /flush acknowledgement not received within budget/u,
+      );
+
+      await waitForCondition(() => queue.getSnapshot().runningRunId === null, 5_000,
+        'the reply still handed the batch back with its report broken');
+      assert.equal(committedRows(run.id), 1, 'and the batch it answered was written');
+      assert.match(stderr.lines.join('\n'), /went unreported: injected reporting failure/u);
+    } finally {
+      stderr.restore();
       await queue.close();
     }
   });
