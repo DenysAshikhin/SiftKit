@@ -6,7 +6,7 @@ import { createTestChatSession } from './helpers/chat-sessions.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS } from '../src/state/chat-runtime-owner.js';
+import { ChatRuntimeOwner, CHAT_OWNER_LEASE_MS } from '../src/state/chat-runtime-owner.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { closeOrphanedChatRun, recoverInterruptedChatRuns, reconcileChatSession } from '../src/status-server/chat-run-recovery.js';
 import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
@@ -63,7 +63,7 @@ test('a durable Stop request survives a crash before terminal closure and aborts
   const databasePath = join(root, 'runtime.sqlite');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
   const database = getRuntimeDatabase(databasePath);
-  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
+  recoverInterruptedChatRuns(owner, 'server_restart');
   const store = new ChatJournalStore(database);
   assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'user_stop');
   const events = store.readAfter(recorder.operationId, 0, 500);
@@ -90,11 +90,11 @@ test('startup retries projection and queue cleanup after the terminal event alre
   assert.throws(() => recorder.readSession(), /queue projection blocked/u);
   database.exec('DROP TRIGGER refuse_queue_projection');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
-  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
+  recoverInterruptedChatRuns(owner, 'server_restart');
   assert.equal(queue.listDelivered(session.id, 'request').length, 0);
   assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'completed');
   assert.equal(buildRecoveredChatHistory(database, session.id).messages.filter(message => message.content === 'durable steering').length, 1);
-  assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart'), []);
+  assert.deepEqual(recoverInterruptedChatRuns(owner, 'server_restart'), []);
 });
 
 test('one corrupt orphan is reported without preventing healthy sessions from recovering', () => {
@@ -109,7 +109,7 @@ test('one corrupt orphan is reported without preventing healthy sessions from re
   const database = getRuntimeDatabase(databasePath);
   database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='context_initialized'").run(broken.operationId);
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
-  const reports = recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
+  const reports = recoverInterruptedChatRuns(owner, 'server_restart');
   assert.ok(reports.some(report => report.operationId === broken.operationId && report.status === 'recovery_failed'));
   assert.equal(new ChatJournalStore(database).readRun(healthy.operationId)?.terminalCause, 'server_restart');
   assert.equal(new ChatJournalStore(database).readRun(broken.operationId)?.terminalCause, null);
@@ -181,7 +181,7 @@ test('startup closes an orphaned started tool as uncertain without losing its su
   const databasePath = join(root, 'runtime.sqlite');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process');
   const database = getRuntimeDatabase(databasePath);
-  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
+  recoverInterruptedChatRuns(owner, 'server_restart');
   const store = new ChatJournalStore(database);
   assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'server_restart');
   const history = buildRecoveredChatHistory(database, session.id);
@@ -189,7 +189,7 @@ test('startup closes an orphaned started tool as uncertain without losing its su
   assert.equal(history.messages[0]?.content, 'find target');
   assert.match(String(history.messages.find(message => message.role === 'tool')?.content), /Outcome uncertain/);
   const committed = store.readRun(recorder.operationId)?.latestSequence;
-  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
+  recoverInterruptedChatRuns(owner, 'server_restart');
   assert.equal(store.readRun(recorder.operationId)?.latestSequence, committed);
   assert.throws(() => recorder.recordToolStarted({ call, startedAtUtc: new Date().toISOString() }), /owner|fenced/u);
 });
@@ -202,14 +202,31 @@ test('an orphan closed for a lost lease is terminal as storage_failure with the 
   const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
   const owner = ChatRuntimeOwner.acquire(database, 'replacement');
   const store = new ChatJournalStore(database);
-  const report = closeOrphanedChatRun(database, store, { operationId: recorder.operationId, sessionId: session.id }, owner.ownerEpoch, 'lease_lost');
+  const report = closeOrphanedChatRun(database, { operationId: recorder.operationId, sessionId: session.id }, owner.ownerEpoch, 'lease_lost');
   assert.notEqual(report.status, 'recovery_failed');
   const run = store.readRun(recorder.operationId);
   assert.equal(run?.terminalCause, 'storage_failure');
   assert.equal(run?.ownerEpoch, owner.ownerEpoch);
   const finished = store.readAfter(recorder.operationId, 0, 500).find(envelope => envelope.event.kind === 'run_finished')?.event;
   assert.equal(finished?.kind === 'run_finished' ? finished.detail : null, 'The owning server lost its database lease.');
-  assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart'), []);
+  assert.deepEqual(recoverInterruptedChatRuns(owner, 'server_restart'), []);
+});
+
+test('orphan recovery renews the lease it holds, so a long pass cannot fence out its own owner', () => {
+  const root = createManagedTempDir('chat-recovery-lease-renew-');
+  const config = getDefaultConfigObject();
+  for (const sessionId of ['a-orphan', 'b-orphan']) {
+    const recorder = createTestChatRunRecorder(root, { ...createTestChatSession(root), id: sessionId }, config);
+    recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'interrupted' }] });
+  }
+  const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
+  // A lease with only a fifth of its TTL left: what the renewal before an unbounded pass leaves behind.
+  const owner = ChatRuntimeOwner.acquire(database, 'replacement', Date.now() - CHAT_OWNER_LEASE_MS + CHAT_OWNER_LEASE_MS / 5);
+  const reports = recoverInterruptedChatRuns(owner, 'server_restart');
+  assert.equal(reports.length, 2);
+  assert.equal(reports.some(report => report.status === 'recovery_failed'), false);
+  // Every orphan boundary extended the lease, so it outlives the window it started the pass inside.
+  owner.assertOwned(Date.now() + CHAT_OWNER_LEASE_MS - CHAT_OWNER_LEASE_MS / 5);
 });
 
 test('a running server re-acquires its lease after it expires and closes the run the loss orphaned', async t => {
@@ -230,14 +247,11 @@ test('a running server re-acquires its lease after it expires and closes the run
   });
   recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,
     messages: [{ role: 'user', content: 'accepted before the lease expired', chatMessageId: recorder.userMessageId }] });
-  // Expire the row in place: what an owner whose heartbeat stalled for the whole lease TTL finds on its next tick.
+  // Expire the row in place, then take the tick a stalled owner would have taken. Awaiting it covers
+  // both the re-acquire and the orphan closure it defers, so no wall clock is spent on the 5 s interval.
   database.prepare('UPDATE chat_runtime_owner SET lease_expires_at_utc=? WHERE id=1').run(new Date(0).toISOString());
-  const deadline = Date.now() + 4 * CHAT_OWNER_HEARTBEAT_MS;
-  let after = readOwner();
-  while (after.epoch === before.epoch && Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, 250));
-    after = readOwner();
-  }
+  assert.equal(await harness.heartbeatChatOwner(), 'reacquired');
+  const after = readOwner();
   assert.equal(after.epoch, before.epoch + 1);
   assert.notEqual(after.owner_id, before.owner_id);
   assert.ok(Date.parse(after.lease_expires_at_utc) > Date.now());

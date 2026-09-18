@@ -18,6 +18,7 @@ import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
 import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
 import type { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
+import type { ChatOwnerHeartbeatOutcome } from './chat-run-recovery.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
@@ -91,6 +92,13 @@ export type EngineBootstrapState = {
   warning: string | null;
 };
 
+/**
+ * What one heartbeat tick did. `recovery_failed` is the tick's own outcome rather than the lease's: the
+ * lease came back and only closing what the loss abandoned threw, so the tick reported the failure and
+ * has already started this server's shutdown.
+ */
+export type ChatOwnerTickOutcome = ChatOwnerHeartbeatOutcome | 'recovery_failed';
+
 export type ExtendedServer = Server & {
   shutdownEngineForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;
@@ -98,6 +106,11 @@ export type ExtendedServer = Server & {
   waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
   /** Resolves once close() has drained writers, released the owner, and closed its database. */
   waitForShutdown(): Promise<void>;
+  /**
+   * One chat owner heartbeat tick on demand, resolved once the work it started has settled. This is the
+   * tick the interval runs: a `fenced` or `recovery_failed` outcome has also closed the server.
+   */
+  runChatOwnerHeartbeat(): Promise<ChatOwnerTickOutcome>;
 };
 
 export type StartStatusServerOptions = {

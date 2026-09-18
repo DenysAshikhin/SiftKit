@@ -42,9 +42,12 @@ function recoverRecordedQueue(runtimeRoot: string): void {
   const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
   const database = getRuntimeDatabase(databasePath);
   const row = database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get();
-  const owner = row === undefined ? null : ChatRuntimeOwnerSchema.parse(row);
-  const epoch = owner ? `${owner.owner_id}:${owner.epoch}` : ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process').ownerEpoch;
-  recoverInterruptedChatRuns(database, epoch, 'server_restart');
+  const held = row === undefined ? null : ChatRuntimeOwnerSchema.parse(row);
+  // Take the lease outright when no earlier "process" left one; otherwise restart on the row's identity.
+  const owner = held === null
+    ? ChatRuntimeOwner.acquire(database, 'new-process')
+    : new ChatRuntimeOwner(database, held.owner_id, held.epoch);
+  recoverInterruptedChatRuns(owner, 'server_restart');
 }
 
 test('restart fails an unfinished Force intent and preserves its pending messages', t => {

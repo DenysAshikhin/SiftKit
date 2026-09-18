@@ -2,22 +2,31 @@
  * Shutdown cleanup contract (`docs/shutdown-persistence-bugs-2026-09-15.md` §5): the close handler
  * drains its writers and then *always* releases the flush worker, the chat lease and the runtime
  * database handle. A persistence stage that rejects must not skip the steps that free them — on
- * Windows a handle left open holds the directory that contains `runtime.sqlite`.
+ * Windows a handle left open holds the directory that contains `runtime.sqlite`. A shutdown the chat
+ * owner heartbeat starts itself is closed the same way: the failure is reported, then `close()` runs
+ * these same drains, instead of rejecting out of the interval and taking the process with it.
  */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
-import { getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
+import { ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
+import { getChatSessionPath, readChatSessionFromPath, type ChatSession } from '../src/state/chat-sessions.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { getRuntimeRoot } from '../src/status-server/paths.js';
-import type { ExtendedServer } from '../src/status-server/server-types.js';
+import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
+import { serverLogger } from '../src/status-server/server-logger.js';
+import type { ChatOwnerTickOutcome, ExtendedServer } from '../src/status-server/server-types.js';
 import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 import { getDefaultServerConfig } from './helpers/mock-config.js';
-import { getAddressInfo, requestJson } from './helpers/dashboard-http.js';
+import { getAddressInfo, asObject, requestJson } from './helpers/dashboard-http.js';
 import { countRunLogs, installRejectingTriggerOnFile, withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 // The server defers its history prune to an immediate, which can land after a test has restored
 // the working directory — and a prune that then resolves the repo's own runtime database trips the
@@ -187,4 +196,82 @@ test('a shutdown that fails to persist never writes an idle summary into its clo
   await delay(IDLE_SUMMARY_DELAY_MS + 500);
   assert.equal(idleSummarySnapshotCount(), 0,
     'a timer shutdown cancelled cannot write into the database shutdown closed');
+});
+
+/** Admits a run this process will never finish, so the tick's deferred recovery has an orphan to close. */
+async function admitOrphanedChatRun(server: ExtendedServer): Promise<void> {
+  const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  const owner = ChatRuntimeOwnerSchema.parse(database.prepare('SELECT * FROM chat_runtime_owner WHERE id = 1').get());
+  const session = await createChatSession(server, 'lease recovery');
+  const recorder = ChatRunRecorder.begin(database, {
+    operationId: randomUUID(), sessionId: session.id, ownerEpoch: `${owner.owner_id}:${owner.epoch}`,
+    operationKind: 'message', userMessageId: randomUUID(), content: 'accepted before the lease expired',
+    images: [], imageMeta: [], retainedHistoryRevision: 0,
+    settings: buildChatRunSettings({ session, config: getDefaultConfigObject(), operationKind: 'message',
+      presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
+    startedAtUtc: new Date().toISOString(),
+  });
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,
+    messages: [{ role: 'user', content: 'accepted before the lease expired', chatMessageId: recorder.userMessageId }] });
+}
+
+/** A dashboard chat session, created over HTTP so the server itself owns its row. */
+async function createChatSession(server: ExtendedServer, title: string): Promise<ChatSession> {
+  const created = await requestJson(`http://127.0.0.1:${getAddressInfo(server).port}/dashboard/chat/sessions`, {
+    method: 'POST', body: JSON.stringify({ title }),
+  });
+  assert.equal(created.statusCode, 200);
+  const session = readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), String(asObject(created.body.session).id)));
+  if (session === null) throw new Error('The chat session created over HTTP could not be read back.');
+  return session;
+}
+
+// The lease came back, so this process is still the owner; only closing what the loss abandoned threw.
+// That is a recovery bug it cannot work around, but the operator must not pay for it with the writes
+// this server still holds: the tick reports it on both streams and closes, and the process ends on its
+// own terms with every drain run, rather than on an unhandled rejection that kills the engine too.
+test('a heartbeat whose lease-loss recovery failed reports it and shuts down through the persistence drains', async t => {
+  const harness = startServer(t, { terminalMetadataIdleDelayMs: 60_000 });
+  await harness.server.startupPromise;
+  await postCompletedTerminalMetadata(harness.server, 'lease-recovery-shutdown');
+  assert.equal(runLogCount('lease-recovery-shutdown'), 0, 'the queued metadata is not written before a drain');
+  await admitOrphanedChatRun(harness.server);
+  // Recovery writes its record once inside the orphan's closure and again in the failure path that
+  // follows it, so failing that one write escapes both — which is what the tick has to survive.
+  installRejectingTriggerOnFile(getRuntimeDatabasePath(), 'chat_session_recovery', 'reject_session_recovery');
+  // Expire the lease in place: the next tick loses it, takes it back under a new epoch, and then fails
+  // closing the run the loss abandoned.
+  withRuntimeDatabaseConnection(getRuntimeDatabasePath(), database => {
+    database.prepare('UPDATE chat_runtime_owner SET lease_expires_at_utc = ? WHERE id = 1').run(new Date(0).toISOString());
+  });
+
+  const errors = t.mock.method(serverLogger, 'error', () => {});
+  const stderr = OutputCapture.start(process.stderr);
+  let outcome: ChatOwnerTickOutcome | undefined;
+  try {
+    outcome = await harness.server.runChatOwnerHeartbeat();
+  } finally {
+    stderr.restore();
+  }
+
+  assert.equal(outcome, 'recovery_failed');
+  assert.deepEqual(errors.mock.calls.map(call => call.arguments[0]?.event), ['owner_lease_lost', 'owner_recovery_failed']);
+  assert.match(String(errors.mock.calls[1]?.arguments[0]?.fields), /reject_session_recovery/u);
+  assert.match(stderr.lines.join('\n'), /Chat owner recovery failed after re-acquiring the lease.*shutting down/u);
+  assert.match(stderr.lines.join('\n'), /reject_session_recovery/u);
+
+  // Resolves only once close() has drained every writer and released the handles, which is the whole
+  // point of closing here instead of crashing: the queued persistence still lands.
+  await harness.server.waitForShutdown();
+  assert.equal(runLogCount('lease-recovery-shutdown'), 1, 'the terminal metadata queued before the failure was written');
+  assert.equal(leaseIsReleased(), true, 'the closed server released its chat lease');
+
+  // Closing again — the signal a supervisor sends over a shutdown already running — waits that shutdown
+  // out instead of emitting 'close' a second time and re-running the drain over the handles it closed.
+  const lateClose = OutputCapture.start(process.stderr);
+  harness.server.close();
+  await delay(250);
+  lateClose.restore();
+  assert.deepEqual(lateClose.lines.filter(line => /Shutdown (?:cleanup )?failed/u.test(line)), [],
+    'a second close reported nothing, because it did not shut anything down twice');
 });

@@ -27,10 +27,10 @@ export function streamRecordedChatOperation(
     ? ctx.chatSessionOperations.getBroadcast(sessionId)
     : null;
   // No live lease holds this run and its journal never finished: nothing will ever finish it,
-  // so close it under this owner now and let the subscriber transfer its terminal record.
+  // so close it under this owner now and let the subscriber transfer its terminal record. Why the
+  // run was abandoned is not knowable here, so the closure only says no owner is left to finish it.
   if (!broadcast && run.terminalCause === null) {
-    closeOrphanedChatRun(ctx.runtimeDatabase, new ChatJournalStore(ctx.runtimeDatabase),
-      { operationId: runOperationId, sessionId }, ctx.chatRunOwnerEpoch, 'lease_lost');
+    closeOrphanedChatRun(ctx.runtimeDatabase, { operationId: runOperationId, sessionId }, ctx.chatRunOwnerEpoch, 'abandoned');
   }
   const writer = new SseResponseWriter(req, res);
   writer.open();

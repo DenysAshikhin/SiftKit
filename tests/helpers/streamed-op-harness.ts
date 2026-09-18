@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { TestContext } from 'node:test';
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
+import type { ChatOwnerTickOutcome } from '../../src/status-server/server-types.js';
 import type { StatusEngineService } from '../../src/status-server/engine-service.js';
 import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
 import { getConfigPath } from '../../src/config/index.js';
@@ -14,6 +15,11 @@ import { createManagedTempDir } from './temp-dirs.js';
 
 export type StreamedOperationHarness = {
   baseUrl: string;
+  /**
+   * One chat owner heartbeat tick now, as the 5 s interval would, resolved once the work it started has
+   * settled. As in production, a `fenced` or `recovery_failed` outcome has also closed this server.
+   */
+  heartbeatChatOwner: () => Promise<ChatOwnerTickOutcome>;
   /** Stops the server and starts a fresh one over the same runtime root, as a process restart would. */
   restart: () => Promise<void>;
   close: () => Promise<void>;
@@ -105,6 +111,7 @@ export async function startHarness(
   let closed = false;
   const harness: StreamedOperationHarness = {
     baseUrl: publishBaseUrl(),
+    heartbeatChatOwner: () => server.runChatOwnerHeartbeat(),
     async restart() {
       await stopServer();
       closeAllRuntimeDatabases();

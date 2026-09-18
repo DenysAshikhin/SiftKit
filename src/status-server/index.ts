@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatMessageQueue } from './chat-message-queue.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
-import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner } from './chat-run-recovery.js';
+import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner, type ChatOwnerHeartbeatOutcome } from './chat-run-recovery.js';
 import { serverLogger } from './server-logger.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 /**
@@ -48,7 +48,7 @@ import {
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory, getRuntimeDatabasePath } from '../state/runtime-db.js';
-import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS } from '../state/chat-runtime-owner.js';
+import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS, CHAT_OWNER_HEARTBEAT_LATE_MS } from '../state/chat-runtime-owner.js';
 import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
 import { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import { RepoAgentSessionManager } from './repo-agent-sessions.js';
@@ -73,6 +73,7 @@ import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capabilit
 import { ManagedTabbyRuntime } from './managed-tabby.js';
 import { ModelIdleController } from './model-idle-controller.js';
 import type {
+  ChatOwnerTickOutcome,
   ExtendedServer,
   StartStatusServerOptions,
   ServerContext,
@@ -317,21 +318,40 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
-  recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch, 'server_restart');
+  recoverInterruptedChatRuns(chatRuntimeOwner, 'server_restart');
   let lastHeartbeatMs = Date.now();
-  const chatOwnerHeartbeat = setInterval(() => {
+  // A tick that ends this process's chat work says so on stderr, where a supervisor looks, and then
+  // closes: the ordinary close is what runs every persistence drain this server still owes.
+  const stopAfterLeaseLoss = (reason: string): void => {
+    clearInterval(chatOwnerHeartbeat);
+    process.stderr.write(`[siftKitStatus] ${reason}; shutting down.\n`);
+    server.close();
+  };
+  const runChatOwnerHeartbeat = async (): Promise<ChatOwnerTickOutcome> => {
     const nowMs = Date.now();
     // A tick this late is how a lease dies under a process that looks healthy; say so before it does.
-    if (nowMs - lastHeartbeatMs > CHAT_OWNER_HEARTBEAT_MS * 2) {
+    if (nowMs - lastHeartbeatMs > CHAT_OWNER_HEARTBEAT_LATE_MS) {
       serverLogger.warning({ scope: 'chat', id: ctx.chatRuntimeOwner.ownerEpoch, event: 'heartbeat_late', fields: `gap_ms=${nowMs - lastHeartbeatMs}` });
     }
     lastHeartbeatMs = nowMs;
-    if (heartbeatChatRuntimeOwner(ctx) !== 'fenced') return;
+    let outcome: ChatOwnerHeartbeatOutcome;
+    try {
+      outcome = await heartbeatChatRuntimeOwner(ctx);
+    } catch (error) {
+      // The lease was back and only closing what the loss abandoned threw — a recovery bug this process
+      // cannot work around, and one the next tick would only repeat. Reported on both streams, then the
+      // ordinary close: rejecting out of the interval would take the engine and the assistant down with it.
+      const failure = toError(error);
+      serverLogger.error({ scope: 'chat', id: ctx.chatRuntimeOwner.ownerEpoch, event: 'owner_recovery_failed', fields: failure.message });
+      stopAfterLeaseLoss(`Chat owner recovery failed after re-acquiring the lease: ${failure.message}`);
+      return 'recovery_failed';
+    }
+    if (outcome !== 'fenced') return outcome;
     // Another live owner holds this database: this process can never do chat work again, so stop it.
-    clearInterval(chatOwnerHeartbeat);
-    process.stderr.write('[siftKitStatus] Chat runtime lease fenced out by another live owner; shutting down.\n');
-    ctx.server?.close();
-  }, CHAT_OWNER_HEARTBEAT_MS);
+    stopAfterLeaseLoss('Chat runtime lease fenced out by another live owner');
+    return outcome;
+  };
+  const chatOwnerHeartbeat = setInterval(() => { void runChatOwnerHeartbeat(); }, CHAT_OWNER_HEARTBEAT_MS);
   chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
   const managedTabbyRuntime = new ManagedTabbyRuntime(
@@ -415,6 +435,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       },
       startupPromise,
       waitForShutdown: (): Promise<void> => shutdownPromise,
+      runChatOwnerHeartbeat: (): Promise<ChatOwnerTickOutcome> => runChatOwnerHeartbeat(),
     },
   ) satisfies ExtendedServer;
 
@@ -458,7 +479,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       });
     };
     if (closeRequested) {
-      originalClose(afterClose);
+      // A second close — a signal arriving over a shutdown the chat owner heartbeat already started — must
+      // not reach `originalClose`: closing an already closed server emits 'close' again, and the handler
+      // would run the whole drain a second time over the handles the first one had already closed.
+      afterClose();
       return server;
     }
     closeRequested = true;

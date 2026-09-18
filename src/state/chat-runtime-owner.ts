@@ -3,6 +3,8 @@ import type { RuntimeDatabase } from './database-handle.js';
 
 export const CHAT_OWNER_LEASE_MS = 30_000;
 export const CHAT_OWNER_HEARTBEAT_MS = 5_000;
+/** A tick arriving this far behind its schedule has already eaten most of one renewal's slack. */
+export const CHAT_OWNER_HEARTBEAT_LATE_MS = CHAT_OWNER_LEASE_MS / 3;
 export const ChatRuntimeOwnerSchema = z.object({
   owner_id: z.string(), epoch: z.number().int().positive(), heartbeat_at_utc: z.string().datetime(), lease_expires_at_utc: z.string().datetime(),
 });

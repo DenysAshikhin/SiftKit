@@ -6,6 +6,12 @@ import { saveChatSession, type ChatSession } from '../../src/state/chat-sessions
 import { buildChatRunSettings, ChatRunRecorder, type ChatRunRecorderStart } from '../../src/status-server/chat-run-recorder.js';
 import { importChatSessionBaseline } from '../../src/status-server/chat-history-import.js';
 import { getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { ChatRuntimeOwner } from '../../src/state/chat-runtime-owner.js';
+import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
+import type { ServerContext } from '../../src/status-server/server-types.js';
+import { createTestServerContext } from './server-context-fixture.js';
+import { createTestChatSession } from './chat-sessions.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import { mockModelPreset } from './mock-config.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
@@ -27,6 +33,26 @@ export function createTestChatRunRecorder(runtimeRoot: string, session: ChatSess
       webSearchEnabled: settings.webSearchEnabled ?? session.webSearchEnabled === true,
     }),
   });
+}
+
+/**
+ * One admitted, context-initialized run held by a live registry lease on a fresh runtime, with the
+ * owner lease and server context a heartbeat would find. Tests that drive the owner lease share it.
+ */
+export function admittedChatRun(prefix: string) {
+  const root = createManagedTempDir(prefix);
+  const session = createTestChatSession(root);
+  const recorder = createTestChatRunRecorder(root, session, getDefaultConfigObject());
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'find target' }] });
+  const operations = new ChatSessionOperationRegistry();
+  const acquired = operations.acquire(session.id, 'repo-search', randomUUID(), Date.now());
+  if (acquired.kind !== 'acquired') throw new Error('Expected operation lease.');
+  acquired.lease.recorder = recorder;
+  const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
+  const chatRuntimeOwner = ChatRuntimeOwner.acquire(database, 'owner');
+  const ctx: ServerContext = { ...createTestServerContext(join(root, 'config.json'), root),
+    chatRuntimeOwner, chatRunOwnerEpoch: chatRuntimeOwner.ownerEpoch, chatSessionOperations: operations };
+  return { root, session, recorder, operations, database, chatRuntimeOwner, ctx };
 }
 
 /** A repo-agent run on a fresh temp runtime for tests that drive the recorder directly. */

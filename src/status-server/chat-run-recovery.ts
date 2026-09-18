@@ -17,10 +17,13 @@ import { toError } from '../lib/errors.js';
 export type ChatOwnerHeartbeatOutcome = 'renewed' | 'reacquired' | 'fenced';
 
 /**
- * Renew this process's lease. On loss, fence admitted model waiters and engines as before, then
- * take a fresh epoch and close what the loss orphaned; only another live owner stops that.
+ * Renew this process's lease. On loss, fence admitted model waiters and engines as before, then take
+ * a fresh epoch and report the re-acquire; closing what the loss abandoned happens after the tick has
+ * been handed back, because a closure replays whole journals and must never delay the next renewal.
+ * A failure in that closure propagates: this process then holds a lease it cannot clean up, and only the
+ * caller can say what that costs it.
  */
-export function heartbeatChatRuntimeOwner(ctx: ServerContext): ChatOwnerHeartbeatOutcome {
+export async function heartbeatChatRuntimeOwner(ctx: ServerContext): Promise<ChatOwnerHeartbeatOutcome> {
   try {
     ctx.chatRuntimeOwner.renew();
     return 'renewed';
@@ -44,11 +47,12 @@ export function heartbeatChatRuntimeOwner(ctx: ServerContext): ChatOwnerHeartbea
   ctx.chatRuntimeOwner = next;
   ctx.chatRunOwnerEpoch = next.ownerEpoch;
   serverLogger.warning({ scope: 'chat', id: next.ownerEpoch, event: 'owner_lease_reacquired', fields: '' });
-  // The aborted runs now belong to the old epoch; close them as lease losses so attach and admission see a terminal journal.
-  try { recoverInterruptedChatRuns(ctx.runtimeDatabase, next.ownerEpoch, 'lease_lost'); }
-  catch (error) {
-    serverLogger.error({ scope: 'chat', id: next.ownerEpoch, event: 'owner_recovery_failed', fields: toError(error).message });
-  }
+  // The aborted runs now belong to a dead epoch, and closing them is the heaviest work in the codebase:
+  // full journal replays, with no bound on how long they take. Hand the tick back before starting them,
+  // then close them under whatever lease this process holds at that point — recoverInterruptedChatRuns
+  // renews it at every orphan boundary, so a long pass cannot fence out the owner doing the work.
+  await new Promise<void>(resolve => setImmediate(resolve));
+  recoverInterruptedChatRuns(ctx.chatRuntimeOwner, 'lease_lost');
   return 'reacquired';
 }
 
@@ -83,19 +87,22 @@ function scanOrphan(store: ChatJournalStore, operationId: string): OrphanScan {
   return scan;
 }
 
-export type ChatOrphanReason = 'server_restart' | 'lease_lost';
+export type ChatOrphanReason = 'server_restart' | 'lease_lost' | 'abandoned';
 
 /** What an orphan is closed as, by why its owner stopped writing. */
 const ORPHAN_CLOSURES = {
   server_restart: { terminalCause: 'server_restart', detail: 'The owning server stopped.' },
   lease_lost: { terminalCause: 'storage_failure', detail: 'The owning server lost its database lease.' },
+  // The attach path cannot know why nobody finished the run, so it says only what it can see.
+  abandoned: { terminalCause: 'storage_failure', detail: 'The run was closed with no owner to finish it.' },
 } as const satisfies Record<ChatOrphanReason, Pick<Parameters<ChatRunRecorder['finish']>[0], 'terminalCause' | 'detail'>>;
 
 /** Adopt one run nobody will finish, close it under `ownerEpoch`, and reconcile its projection. */
 export function closeOrphanedChatRun(
-  database: RuntimeDatabase, store: ChatJournalStore, orphan: { operationId: string; sessionId: string },
+  database: RuntimeDatabase, orphan: { operationId: string; sessionId: string },
   ownerEpoch: string, reason: ChatOrphanReason,
 ): ChatRecoveryReport {
+  const store = new ChatJournalStore(database);
   const closure = ORPHAN_CLOSURES[reason];
   try {
     database.transaction(() => {
@@ -153,14 +160,25 @@ export function closeOrphanedChatRun(
   }
 }
 
-export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch: string, reason: ChatOrphanReason): ChatRecoveryReport[] {
+/**
+ * Close every run this database holds for a dead owner, then settle the queues they left behind.
+ * Each closure replays the run's whole journal, so the lease is renewed at every orphan boundary:
+ * a long recovery must never run down the lease of the owner that is doing the work.
+ */
+export function recoverInterruptedChatRuns(owner: ChatRuntimeOwner, reason: ChatOrphanReason): ChatRecoveryReport[] {
+  const database = owner.database;
+  const ownerEpoch = owner.ownerEpoch;
   assertRecoveryOwner(database, ownerEpoch);
   const store = new ChatJournalStore(database);
   const orphans = z.array(z.object({ operation_id: z.string(), session_id: z.string() })).parse(database.prepare(`
     SELECT operation_id, session_id FROM chat_runs WHERE record_kind='execution' AND terminal_cause IS NULL AND owner_epoch != ?
     ORDER BY session_id, run_order
   `).all(ownerEpoch));
-  const reports = orphans.map(orphan => closeOrphanedChatRun(database, store, { operationId: orphan.operation_id, sessionId: orphan.session_id }, ownerEpoch, reason));
+  const reports: ChatRecoveryReport[] = [];
+  for (const orphan of orphans) {
+    owner.renew();
+    reports.push(closeOrphanedChatRun(database, { operationId: orphan.operation_id, sessionId: orphan.session_id }, ownerEpoch, reason));
+  }
   const queue = new ChatMessageQueueStore(database);
   const terminalDeliveries = z.array(z.object({ session_id: z.string() })).parse(database.prepare(`
     SELECT DISTINCT p.session_id FROM chat_pending_messages p WHERE p.state='delivered'
