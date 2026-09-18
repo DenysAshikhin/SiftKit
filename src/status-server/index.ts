@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatMessageQueue } from './chat-message-queue.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
-import { recoverInterruptedChatRuns, renewChatRuntimeOwner } from './chat-run-recovery.js';
+import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner } from './chat-run-recovery.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 /**
  * Status server entry point: creates the server context, wires together the
@@ -318,7 +318,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   };
   recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch, 'server_restart');
   const chatOwnerHeartbeat = setInterval(() => {
-    if (!renewChatRuntimeOwner(chatRuntimeOwner, ctx.chatSessionOperations)) clearInterval(chatOwnerHeartbeat);
+    if (heartbeatChatRuntimeOwner(ctx) === 'fenced') clearInterval(chatOwnerHeartbeat);
   }, CHAT_OWNER_HEARTBEAT_MS);
   chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);

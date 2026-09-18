@@ -125,9 +125,9 @@ export type ServerContext = {
   /** This process's stable runtime connection; chat dependencies never re-resolve it by cwd. */
   readonly runtimeDatabasePath: string;
   readonly runtimeDatabase: RuntimeDatabase;
-  /** Identifies this process as the writer of the chat journal. */
-  readonly chatRunOwnerEpoch: string;
-  readonly chatRuntimeOwner: import('../state/chat-runtime-owner.js').ChatRuntimeOwner;
+  /** Reassigned by the owner heartbeat when the lease is lost and re-acquired under a new epoch. */
+  chatRunOwnerEpoch: string;
+  chatRuntimeOwner: import('../state/chat-runtime-owner.js').ChatRuntimeOwner;
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;

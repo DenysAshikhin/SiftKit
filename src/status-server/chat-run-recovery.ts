@@ -1,7 +1,9 @@
 import { CHAT_RECOVERY_ISSUE_DETAIL_MAX_CHARS, ChatRecoveryReportSchema, type ChatRecoveryIssue, type ChatRecoveryReport } from '@siftkit/contracts';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 import { z } from '../lib/zod.js';
-import { ChatRuntimeOwnerSchema, type ChatRuntimeOwner } from '../state/chat-runtime-owner.js';
+import { randomUUID } from 'node:crypto';
+import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../state/chat-runtime-owner.js';
+import type { ServerContext } from './server-types.js';
 import { ChatJournalIntegrityError, ChatRecoveryInvariantError, ChatJournalStore } from '../state/chat-journal.js';
 import type { ChatJournalEvent, ChatRun } from '../state/chat-journal-schema.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
@@ -9,27 +11,45 @@ import { ChatRunRecorder } from './chat-run-recorder.js';
 import { buildRecoveredChatHistory, ChatContextReplay } from './chat-context-replay.js';
 import { reconcileChatRun, rebuildChatRun } from './chat-run-projection.js';
 import { buildUserContent } from '../llm-protocol/image-attachments.js';
-import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import { serverLogger } from './server-logger.js';
 import { toError } from '../lib/errors.js';
 
-/** Fence admitted model waiters as well as engines when this process loses its database lease. */
-export function renewChatRuntimeOwner(owner: ChatRuntimeOwner, operations: ChatSessionOperationRegistry): boolean {
+export type ChatOwnerHeartbeatOutcome = 'renewed' | 'reacquired' | 'fenced';
+
+/**
+ * Renew this process's lease. On loss, fence admitted model waiters and engines as before, then
+ * take a fresh epoch and close what the loss orphaned; only another live owner stops that.
+ */
+export function heartbeatChatRuntimeOwner(ctx: ServerContext): ChatOwnerHeartbeatOutcome {
   try {
-    owner.renew();
-    return true;
+    ctx.chatRuntimeOwner.renew();
+    return 'renewed';
   } catch (error) {
     const failure = toError(error);
-    serverLogger.error({ scope: 'chat', id: owner.ownerEpoch, event: 'owner_lease_lost', fields: failure.message });
-    for (const operation of operations.listActive()) {
+    serverLogger.error({ scope: 'chat', id: ctx.chatRuntimeOwner.ownerEpoch, event: 'owner_lease_lost', fields: failure.message });
+    for (const operation of ctx.chatSessionOperations.listActive()) {
       operation.recorder?.abortForStorageFailure(failure);
       try { operation.abort?.(); }
       catch (abortError) {
         serverLogger.error({ scope: 'chat', id: operation.operationId, event: 'owner_abort_failed', fields: toError(abortError).message });
       }
     }
-    return false;
   }
+  let next: ChatRuntimeOwner;
+  try { next = ChatRuntimeOwner.acquire(ctx.runtimeDatabase, randomUUID()); }
+  catch (error) {
+    serverLogger.error({ scope: 'chat', id: ctx.chatRuntimeOwner.ownerEpoch, event: 'owner_fenced', fields: toError(error).message });
+    return 'fenced';
+  }
+  ctx.chatRuntimeOwner = next;
+  ctx.chatRunOwnerEpoch = next.ownerEpoch;
+  serverLogger.warning({ scope: 'chat', id: next.ownerEpoch, event: 'owner_lease_reacquired', fields: '' });
+  // The aborted runs now belong to the old epoch; close them as lease losses so attach and admission see a terminal journal.
+  try { recoverInterruptedChatRuns(ctx.runtimeDatabase, next.ownerEpoch, 'lease_lost'); }
+  catch (error) {
+    serverLogger.error({ scope: 'chat', id: next.ownerEpoch, event: 'owner_recovery_failed', fields: toError(error).message });
+  }
+  return 'reacquired';
 }
 
 function assertRecoveryOwner(database: RuntimeDatabase, ownerEpoch: string): void {
