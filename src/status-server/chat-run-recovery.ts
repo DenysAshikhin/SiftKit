@@ -63,28 +63,33 @@ function scanOrphan(store: ChatJournalStore, operationId: string): OrphanScan {
   return scan;
 }
 
-export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch: string): ChatRecoveryReport[] {
-  assertRecoveryOwner(database, ownerEpoch);
-  const store = new ChatJournalStore(database);
-  const orphans = z.array(z.object({ operation_id: z.string(), session_id: z.string() })).parse(database.prepare(`
-    SELECT operation_id, session_id FROM chat_runs WHERE record_kind='execution' AND terminal_cause IS NULL AND owner_epoch != ?
-    ORDER BY session_id, run_order
-  `).all(ownerEpoch));
-  const reports: ChatRecoveryReport[] = [];
-  for (const orphan of orphans) {
-    try {
+export type ChatOrphanReason = 'server_restart' | 'lease_lost';
+
+/** What an orphan is closed as, by why its owner stopped writing. */
+const ORPHAN_CLOSURES = {
+  server_restart: { terminalCause: 'server_restart', detail: 'The owning server stopped.' },
+  lease_lost: { terminalCause: 'storage_failure', detail: 'The owning server lost its database lease.' },
+} as const satisfies Record<ChatOrphanReason, Pick<Parameters<ChatRunRecorder['finish']>[0], 'terminalCause' | 'detail'>>;
+
+/** Adopt one run nobody will finish, close it under `ownerEpoch`, and reconcile its projection. */
+export function closeOrphanedChatRun(
+  database: RuntimeDatabase, store: ChatJournalStore, orphan: { operationId: string; sessionId: string },
+  ownerEpoch: string, reason: ChatOrphanReason,
+): ChatRecoveryReport {
+  const closure = ORPHAN_CLOSURES[reason];
+  try {
     database.transaction(() => {
       assertRecoveryOwner(database, ownerEpoch);
-      database.prepare('UPDATE chat_runs SET owner_epoch=? WHERE operation_id=? AND terminal_cause IS NULL').run(ownerEpoch, orphan.operation_id);
-      const recorder = ChatRunRecorder.resume(database, orphan.operation_id, ownerEpoch);
-      const scan = scanOrphan(store, orphan.operation_id);
+      database.prepare('UPDATE chat_runs SET owner_epoch=? WHERE operation_id=? AND terminal_cause IS NULL').run(ownerEpoch, orphan.operationId);
+      const recorder = ChatRunRecorder.resume(database, orphan.operationId, ownerEpoch);
+      const scan = scanOrphan(store, orphan.operationId);
       const stopped = scan.stopped;
       for (const approvalId of scan.unresolvedApprovalIds) {
         recorder.recordApprovalResolved({ approvalId, outcome: stopped ? 'aborted' : 'interrupted', decision: null,
-          reason: stopped ? 'Stopped by user.' : 'The owning server stopped.', decidedAtUtc: new Date().toISOString() });
+          reason: stopped ? 'Stopped by user.' : closure.detail, decidedAtUtc: new Date().toISOString() });
       }
       if (!scan.initialized) {
-        const prior = buildRecoveredChatHistory(database, orphan.session_id, orphan.operation_id);
+        const prior = buildRecoveredChatHistory(database, orphan.sessionId, orphan.operationId);
         const started = scan.started;
         if (prior.status === 'recovery_failed' || started === null || scan.sawTool) {
           throw new Error('Orphaned run has incomplete context evidence; continuation requires repair.');
@@ -97,7 +102,7 @@ export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch
       }
       // A fresh bounded replay over the committed head, including the initialization just written.
       const replay = new ChatContextReplay();
-      for (const envelope of store.readAll(orphan.operation_id)) replay.apply(envelope);
+      for (const envelope of store.readAll(orphan.operationId)) replay.apply(envelope);
       const contextLength = replay.rawContextLength;
       const replayed = replay.finish();
       if (replayed.status === 'recovery_failed') throw new Error('Orphaned run has corrupt context evidence.');
@@ -107,26 +112,35 @@ export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch
         turnBoundary: replayed.turnBoundary, reason: 'interruption_closed', coalescedToolCallIds: [],
         queueMessageIds: scan.delivered.map(message => message.id),
       });
-      recorder.finish({ terminalCause: stopped ? 'user_stop' : 'server_restart',
-        detail: stopped ? 'Stopped by user.' : 'The owning server stopped.', usage: null, recoveryStatus: 'recovery_needed' });
-      new ChatMessageQueueStore(database).setPaused(orphan.session_id, true);
+      recorder.finish({ terminalCause: stopped ? 'user_stop' : closure.terminalCause,
+        detail: stopped ? 'Stopped by user.' : closure.detail, usage: null, recoveryStatus: 'recovery_needed' });
+      new ChatMessageQueueStore(database).setPaused(orphan.sessionId, true);
     }).immediate();
-    const report = reconcileChatRun(database, orphan.operation_id);
+    const report = reconcileChatRun(database, orphan.operationId);
     if (report.status !== 'recovery_failed') {
-      const run = store.readRun(orphan.operation_id);
-      if (run?.requestId) new ChatMessageQueueStore(database).deleteIncorporated(orphan.session_id, run.requestId);
+      const run = store.readRun(orphan.operationId);
+      if (run?.requestId) new ChatMessageQueueStore(database).deleteIncorporated(orphan.sessionId, run.requestId);
     }
-    recordSessionRecovery(database, orphan.session_id, store.listSessionRuns(orphan.session_id), [report]);
-    reports.push(report);
-    } catch (error) {
-      assertRecoveryOwner(database, ownerEpoch);
-      const run = store.readRun(orphan.operation_id);
-      if (!run) throw error;
-      const report = failedRecovery(run, [recoveryIssue(run.operationId, error instanceof Error ? error : new Error('Orphan recovery failed.'))]);
-      reports.push(report);
-      recordSessionRecovery(database, orphan.session_id, store.listSessionRuns(orphan.session_id), [report]);
-    }
+    recordSessionRecovery(database, orphan.sessionId, store.listSessionRuns(orphan.sessionId), [report]);
+    return report;
+  } catch (error) {
+    assertRecoveryOwner(database, ownerEpoch);
+    const run = store.readRun(orphan.operationId);
+    if (!run) throw error;
+    const report = failedRecovery(run, [recoveryIssue(run.operationId, error instanceof Error ? error : new Error('Orphan recovery failed.'))]);
+    recordSessionRecovery(database, orphan.sessionId, store.listSessionRuns(orphan.sessionId), [report]);
+    return report;
   }
+}
+
+export function recoverInterruptedChatRuns(database: RuntimeDatabase, ownerEpoch: string, reason: ChatOrphanReason): ChatRecoveryReport[] {
+  assertRecoveryOwner(database, ownerEpoch);
+  const store = new ChatJournalStore(database);
+  const orphans = z.array(z.object({ operation_id: z.string(), session_id: z.string() })).parse(database.prepare(`
+    SELECT operation_id, session_id FROM chat_runs WHERE record_kind='execution' AND terminal_cause IS NULL AND owner_epoch != ?
+    ORDER BY session_id, run_order
+  `).all(ownerEpoch));
+  const reports = orphans.map(orphan => closeOrphanedChatRun(database, store, { operationId: orphan.operation_id, sessionId: orphan.session_id }, ownerEpoch, reason));
   const queue = new ChatMessageQueueStore(database);
   const terminalDeliveries = z.array(z.object({ session_id: z.string() })).parse(database.prepare(`
     SELECT DISTINCT p.session_id FROM chat_pending_messages p WHERE p.state='delivered'

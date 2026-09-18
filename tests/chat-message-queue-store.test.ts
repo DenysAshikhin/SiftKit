@@ -44,7 +44,7 @@ function recoverRecordedQueue(runtimeRoot: string): void {
   const row = database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get();
   const owner = row === undefined ? null : ChatRuntimeOwnerSchema.parse(row);
   const epoch = owner ? `${owner.owner_id}:${owner.epoch}` : ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process').ownerEpoch;
-  recoverInterruptedChatRuns(database, epoch);
+  recoverInterruptedChatRuns(database, epoch, 'server_restart');
 }
 
 test('restart fails an unfinished Force intent and preserves its pending messages', t => {

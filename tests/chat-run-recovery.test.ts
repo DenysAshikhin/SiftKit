@@ -8,7 +8,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
-import { recoverInterruptedChatRuns, reconcileChatSession } from '../src/status-server/chat-run-recovery.js';
+import { closeOrphanedChatRun, recoverInterruptedChatRuns, reconcileChatSession } from '../src/status-server/chat-run-recovery.js';
 import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
 import { startHarness } from './helpers/streamed-op-harness.js';
 import { requestJson, asObject, asObjectArray } from './helpers/dashboard-http.js';
@@ -63,7 +63,7 @@ test('a durable Stop request survives a crash before terminal closure and aborts
   const databasePath = join(root, 'runtime.sqlite');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
   const database = getRuntimeDatabase(databasePath);
-  recoverInterruptedChatRuns(database, owner.ownerEpoch);
+  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
   const store = new ChatJournalStore(database);
   assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'user_stop');
   const events = store.readAfter(recorder.operationId, 0, 500);
@@ -90,11 +90,11 @@ test('startup retries projection and queue cleanup after the terminal event alre
   assert.throws(() => recorder.readSession(), /queue projection blocked/u);
   database.exec('DROP TRIGGER refuse_queue_projection');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
-  recoverInterruptedChatRuns(database, owner.ownerEpoch);
+  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
   assert.equal(queue.listDelivered(session.id, 'request').length, 0);
   assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'completed');
   assert.equal(buildRecoveredChatHistory(database, session.id).messages.filter(message => message.content === 'durable steering').length, 1);
-  assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch), []);
+  assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart'), []);
 });
 
 test('one corrupt orphan is reported without preventing healthy sessions from recovering', () => {
@@ -109,7 +109,7 @@ test('one corrupt orphan is reported without preventing healthy sessions from re
   const database = getRuntimeDatabase(databasePath);
   database.prepare("UPDATE chat_run_events SET payload_digest='corrupt' WHERE operation_id=? AND kind='context_initialized'").run(broken.operationId);
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
-  const reports = recoverInterruptedChatRuns(database, owner.ownerEpoch);
+  const reports = recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
   assert.ok(reports.some(report => report.operationId === broken.operationId && report.status === 'recovery_failed'));
   assert.equal(new ChatJournalStore(database).readRun(healthy.operationId)?.terminalCause, 'server_restart');
   assert.equal(new ChatJournalStore(database).readRun(broken.operationId)?.terminalCause, null);
@@ -181,7 +181,7 @@ test('startup closes an orphaned started tool as uncertain without losing its su
   const databasePath = join(root, 'runtime.sqlite');
   const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'new-process');
   const database = getRuntimeDatabase(databasePath);
-  recoverInterruptedChatRuns(database, owner.ownerEpoch);
+  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
   const store = new ChatJournalStore(database);
   assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'server_restart');
   const history = buildRecoveredChatHistory(database, session.id);
@@ -189,7 +189,25 @@ test('startup closes an orphaned started tool as uncertain without losing its su
   assert.equal(history.messages[0]?.content, 'find target');
   assert.match(String(history.messages.find(message => message.role === 'tool')?.content), /Outcome uncertain/);
   const committed = store.readRun(recorder.operationId)?.latestSequence;
-  recoverInterruptedChatRuns(database, owner.ownerEpoch);
+  recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart');
   assert.equal(store.readRun(recorder.operationId)?.latestSequence, committed);
   assert.throws(() => recorder.recordToolStarted({ call, startedAtUtc: new Date().toISOString() }), /owner|fenced/u);
+});
+
+test('an orphan closed for a lost lease is terminal as storage_failure with the lease detail', () => {
+  const root = createManagedTempDir('chat-lease-lost-orphan-');
+  const session = createTestChatSession(root);
+  const recorder = createTestChatRunRecorder(root, session, getDefaultConfigObject());
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0, messages: [{ role: 'user', content: 'find target' }] });
+  const database = getRuntimeDatabase(join(root, 'runtime.sqlite'));
+  const owner = ChatRuntimeOwner.acquire(database, 'replacement');
+  const store = new ChatJournalStore(database);
+  const report = closeOrphanedChatRun(database, store, { operationId: recorder.operationId, sessionId: session.id }, owner.ownerEpoch, 'lease_lost');
+  assert.notEqual(report.status, 'recovery_failed');
+  const run = store.readRun(recorder.operationId);
+  assert.equal(run?.terminalCause, 'storage_failure');
+  assert.equal(run?.ownerEpoch, owner.ownerEpoch);
+  const finished = store.readAfter(recorder.operationId, 0, 500).find(envelope => envelope.event.kind === 'run_finished')?.event;
+  assert.equal(finished?.kind === 'run_finished' ? finished.detail : null, 'The owning server lost its database lease.');
+  assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart'), []);
 });

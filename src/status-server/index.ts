@@ -316,7 +316,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
-  recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch);
+  recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch, 'server_restart');
   const chatOwnerHeartbeat = setInterval(() => {
     if (!renewChatRuntimeOwner(chatRuntimeOwner, ctx.chatSessionOperations)) clearInterval(chatOwnerHeartbeat);
   }, CHAT_OWNER_HEARTBEAT_MS);
