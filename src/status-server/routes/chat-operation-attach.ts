@@ -8,6 +8,7 @@ import { SseResponseWriter } from '../sse-response-writer.js';
 import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import { ChatJournalStore } from '../../state/chat-journal.js';
+import { closeOrphanedChatRun } from '../chat-run-recovery.js';
 
 export function streamRecordedChatOperation(
   ctx: ServerContext,
@@ -25,6 +26,12 @@ export function streamRecordedChatOperation(
   const broadcast = lease?.recorder?.operationId === runOperationId
     ? ctx.chatSessionOperations.getBroadcast(sessionId)
     : null;
+  // No live lease holds this run and its journal never finished: nothing will ever finish it,
+  // so close it under this owner now and let the subscriber transfer its terminal record.
+  if (!broadcast && run.terminalCause === null) {
+    closeOrphanedChatRun(ctx.runtimeDatabase, new ChatJournalStore(ctx.runtimeDatabase),
+      { operationId: runOperationId, sessionId }, ctx.chatRunOwnerEpoch, 'lease_lost');
+  }
   const writer = new SseResponseWriter(req, res);
   writer.open();
   const subscriber = new ChatOperationSseSubscriber(writer, {

@@ -10,6 +10,7 @@ import { ChatStreamReader } from '../dashboard/src/lib/chat-stream-parser.js';
 import { ImageMetadataSchema, type ImageMetadata } from '@siftkit/contracts';
 import { closeAllRuntimeDatabases, getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { ChatRuntimeOwnerSchema } from '../src/state/chat-runtime-owner.js';
+import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { deleteChatMessageImage, getChatSessionPath, readChatSessionFromPath, saveChatSession } from '../src/state/chat-sessions.js';
 import { getRuntimeRoot, getConfigPath } from '../src/status-server/paths.js';
 import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
@@ -196,4 +197,24 @@ test('attach does not invent a run for a session with no accepted operation', as
   const sessionId = String(asObject(created.body.session).id);
   const response = await fetch(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}/operation/stream`);
   assert.equal(response.status, 404);
+});
+
+test('attach closes a run whose lease vanished before its journal finished and transfers the terminal record', async t => {
+  const harness = await startHarness('chat-attach-lost-lease-', t);
+  const created = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'attach' }) });
+  const sessionId = String(asObject(created.body.session).id);
+  const recorder = begin(sessionId);
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,
+    messages: [{ role: 'user', content: 'accepted prompt', chatMessageId: recorder.userMessageId }] });
+  recorder.recordDisplay({ kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial answer' } });
+  // No lease holds this run and nothing will ever finish it: exactly what a lost owner lease leaves behind.
+  const first = await attach(harness, sessionId);
+  assert.equal(first.failure, null);
+  assert.equal(first.terminal?.terminalCause, 'storage_failure');
+  assert.deepEqual(first.views[0]?.snapshot.messages.map(message => message.content), ['accepted prompt', 'partial answer']);
+  const store = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath()));
+  assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'storage_failure');
+  const second = await attach(harness, sessionId);
+  assert.equal(second.failure, null);
+  assert.equal(second.terminal?.terminalCause, 'storage_failure');
 });
