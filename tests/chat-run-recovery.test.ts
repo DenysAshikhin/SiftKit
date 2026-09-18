@@ -6,7 +6,7 @@ import { createTestChatSession } from './helpers/chat-sessions.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
-import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
+import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS } from '../src/state/chat-runtime-owner.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { closeOrphanedChatRun, recoverInterruptedChatRuns, reconcileChatSession } from '../src/status-server/chat-run-recovery.js';
 import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
@@ -210,4 +210,39 @@ test('an orphan closed for a lost lease is terminal as storage_failure with the 
   const finished = store.readAfter(recorder.operationId, 0, 500).find(envelope => envelope.event.kind === 'run_finished')?.event;
   assert.equal(finished?.kind === 'run_finished' ? finished.detail : null, 'The owning server lost its database lease.');
   assert.deepEqual(recoverInterruptedChatRuns(database, owner.ownerEpoch, 'server_restart'), []);
+});
+
+test('a running server re-acquires its lease after it expires and closes the run the loss orphaned', async t => {
+  const harness = await startHarness('chat-lease-reacquire-', t);
+  const created = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'lease' }) });
+  assert.equal(created.statusCode, 200);
+  const sessionId = String(asObject(created.body.session).id);
+  const session = readChatSessionFromPath(getChatSessionPath(getRuntimeRoot(), sessionId));
+  assert.ok(session);
+  const database = getRuntimeDatabase(getRuntimeDatabasePath());
+  const readOwner = () => ChatRuntimeOwnerSchema.parse(database.prepare('SELECT * FROM chat_runtime_owner WHERE id=1').get());
+  const before = readOwner();
+  const recorder = ChatRunRecorder.begin(database, {
+    operationId: randomUUID(), sessionId, ownerEpoch: `${before.owner_id}:${before.epoch}`, operationKind: 'message',
+    userMessageId: randomUUID(), content: 'accepted before the lease expired', images: [], imageMeta: [], retainedHistoryRevision: 0,
+    settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()), operationKind: 'message', presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
+    startedAtUtc: new Date().toISOString(),
+  });
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 0,
+    messages: [{ role: 'user', content: 'accepted before the lease expired', chatMessageId: recorder.userMessageId }] });
+  // Expire the row in place: what an owner whose heartbeat stalled for the whole lease TTL finds on its next tick.
+  database.prepare('UPDATE chat_runtime_owner SET lease_expires_at_utc=? WHERE id=1').run(new Date(0).toISOString());
+  const deadline = Date.now() + 4 * CHAT_OWNER_HEARTBEAT_MS;
+  let after = readOwner();
+  while (after.epoch === before.epoch && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    after = readOwner();
+  }
+  assert.equal(after.epoch, before.epoch + 1);
+  assert.notEqual(after.owner_id, before.owner_id);
+  assert.ok(Date.parse(after.lease_expires_at_utc) > Date.now());
+  assert.equal(new ChatJournalStore(database).readRun(recorder.operationId)?.terminalCause, 'storage_failure');
+  const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`);
+  assert.equal(response.statusCode, 200);
+  assert.equal(asObjectArray(asObject(response.body.session).messages).filter(message => message.content === 'accepted before the lease expired').length, 1);
 });

@@ -3,6 +3,7 @@ import { ChatMessageQueue } from './chat-message-queue.js';
 import { ChatMessageQueueStore } from '../state/chat-message-queue.js';
 import { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
 import { recoverInterruptedChatRuns, heartbeatChatRuntimeOwner } from './chat-run-recovery.js';
+import { serverLogger } from './server-logger.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 /**
  * Status server entry point: creates the server context, wires together the
@@ -317,8 +318,19 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
   };
   recoverInterruptedChatRuns(runtimeDatabase, chatRuntimeOwner.ownerEpoch, 'server_restart');
+  let lastHeartbeatMs = Date.now();
   const chatOwnerHeartbeat = setInterval(() => {
-    if (heartbeatChatRuntimeOwner(ctx) === 'fenced') clearInterval(chatOwnerHeartbeat);
+    const nowMs = Date.now();
+    // A tick this late is how a lease dies under a process that looks healthy; say so before it does.
+    if (nowMs - lastHeartbeatMs > CHAT_OWNER_HEARTBEAT_MS * 2) {
+      serverLogger.warning({ scope: 'chat', id: ctx.chatRuntimeOwner.ownerEpoch, event: 'heartbeat_late', fields: `gap_ms=${nowMs - lastHeartbeatMs}` });
+    }
+    lastHeartbeatMs = nowMs;
+    if (heartbeatChatRuntimeOwner(ctx) !== 'fenced') return;
+    // Another live owner holds this database: this process can never do chat work again, so stop it.
+    clearInterval(chatOwnerHeartbeat);
+    process.stderr.write('[siftKitStatus] Chat runtime lease fenced out by another live owner; shutting down.\n');
+    ctx.server?.close();
   }, CHAT_OWNER_HEARTBEAT_MS);
   chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
@@ -540,7 +552,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         }
       }
       catch (error) { cleanupFailures.push(toError(error)); }
-      try { chatRuntimeOwner.release(); }
+      try { ctx.chatRuntimeOwner.release(); }
       catch (error) { cleanupFailures.push(toError(error)); }
       try { closeRuntimeDatabase(runtimeDatabasePath); }
       catch (error) { cleanupFailures.push(toError(error)); }
