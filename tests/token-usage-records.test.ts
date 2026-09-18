@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -6,9 +7,9 @@ import { foldTurnTokenRecords } from '../src/repo-search/engine/turn-token-recor
 
 test('tracker retains one record per turn and snapshot equals the fold of those records', async () => {
   const tracker = new TokenUsageTracker(undefined, true);
-  await tracker.recordModelResponse({ text: 'abcd'.repeat(10), thinkingText: 'xy'.repeat(20) }, 500, 1);
+  await tracker.recordModelResponse({ throughput: emptyInferenceThroughput(), text: 'abcd'.repeat(10), thinkingText: 'xy'.repeat(20) }, 500, 1);
   tracker.addToolTokens(30, 1);
-  await tracker.recordModelResponse({ text: 'z'.repeat(8), thinkingText: '' }, 600, 2);
+  await tracker.recordModelResponse({ throughput: emptyInferenceThroughput(), text: 'z'.repeat(8), thinkingText: '' }, 600, 2);
 
   const records = tracker.turnRecords();
   assert.equal(records.length, 2);
@@ -27,14 +28,14 @@ test('tracker retains one record per turn and snapshot equals the fold of those 
 
 test('tracker records the generated character count so the streaming tail can be calibrated', async () => {
   const tracker = new TokenUsageTracker(undefined, true);
-  await tracker.recordModelResponse({ text: 'abcdefgh', thinkingText: 'ijkl' }, 100, 1);
+  await tracker.recordModelResponse({ throughput: emptyInferenceThroughput(), text: 'abcdefgh', thinkingText: 'ijkl' }, 100, 1);
   assert.equal(tracker.turnRecords()[0].generatedChars, 12);
 });
 
 test('tool tokens attach to the turn that produced them, not to the run', async () => {
   const tracker = new TokenUsageTracker(undefined, true);
-  await tracker.recordModelResponse({ text: 'a', thinkingText: '' }, 10, 1);
-  await tracker.recordModelResponse({ text: 'b', thinkingText: '' }, 10, 2);
+  await tracker.recordModelResponse({ throughput: emptyInferenceThroughput(), text: 'a', thinkingText: '' }, 10, 1);
+  await tracker.recordModelResponse({ throughput: emptyInferenceThroughput(), text: 'b', thinkingText: '' }, 10, 2);
   tracker.addToolTokens(7, 2);
   tracker.addToolTokens(5, 2);
   const records = tracker.turnRecords();

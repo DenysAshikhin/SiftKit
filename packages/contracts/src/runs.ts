@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { InferenceBackendIdSchema } from './config.js';
 import { JsonDataSchema, JsonObjectSchema } from './primitives.js';
+import { RunOperationTypeSchema } from './operation-types.js';
 
 export const RunGroupFilterSchema = z.enum(['', 'summary', 'repo_search', 'planner', 'chat', 'other']);
 export type RunGroupFilter = z.infer<typeof RunGroupFilterSchema>;
@@ -21,14 +22,6 @@ export const RunLogDeleteResponseSchema = z.object({
   ok: z.boolean(), deletedCount: z.number(), deletedRunIds: z.array(z.string()),
 });
 export type RunLogDeleteResponse = z.infer<typeof RunLogDeleteResponseSchema>;
-
-/**
- * Canonical operation identity of a run. `kind` (`run_kind`) stays the coarse dashboard grouping;
- * this field preserves the original operation before that grouping collapses `repo-agent` into
- * `repo_search`. Null means "not recorded" (legacy row or a non-operation run kind), never a default.
- */
-export const RunOperationTypeSchema = z.enum(['summary', 'repo-search', 'repo-agent', 'plan', 'chat']);
-export type RunOperationType = z.infer<typeof RunOperationTypeSchema>;
 
 export const RunRecordSchema = z.object({
   id: z.string(), kind: z.string(), status: z.string(),

@@ -8,6 +8,11 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
+import {
+  calculateThroughputRate,
+  emptyInferenceThroughput,
+  readTabbyThroughput,
+} from '../src/lib/inference-throughput.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
@@ -30,6 +35,7 @@ test('recordModelResponse counts output and thinking locally, ignoring provider 
   const resolved = await tracker.recordModelResponse({
     text: 'x'.repeat(80),
     thinkingText: 'y'.repeat(400),
+    throughput: emptyInferenceThroughput(),
     promptCacheTokens: 50, promptEvalTokens: 60,
     promptEvalDurationMs: 11, generationDurationMs: 22,
     speculativeAcceptedTokens: 16, speculativeGeneratedTokens: 20,
@@ -54,6 +60,7 @@ test('regression: provider-shaped usage fields cannot influence resolved counts'
   const providerShaped = {
     text: 'z'.repeat(200),
     thinkingText: '',
+    throughput: emptyInferenceThroughput(),
     completionTokens: 2, usageThinkingTokens: 3, promptTokens: 999999,
   };
   const withBogus = await tracker.recordModelResponse(providerShaped, 10, 1);
@@ -63,19 +70,19 @@ test('regression: provider-shaped usage fields cannot influence resolved counts'
 
 test('recordModelResponse estimates completion/thinking tokens when usage is missing', async () => {
   const tracker = new TokenUsageTracker(undefined);
-  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking' }, 0, 1);
+  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking', throughput: emptyInferenceThroughput() }, 0, 1);
   assert.ok(resolved.completionTokens > 0);
   assert.ok(resolved.thinkingTokens > 0);
   assert.equal(resolved.completionTokensEstimated, true);
   assert.equal(resolved.thinkingTokensEstimated, true);
-  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '' }, 0, 1);
+  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '', throughput: emptyInferenceThroughput() }, 0, 1);
   assert.deepEqual(empty, {
     completionTokens: 0,
     thinkingTokens: 0,
     completionTokensEstimated: false,
     thinkingTokensEstimated: false,
   });
-  const absent = await tracker.recordModelResponse({}, 0, 1);
+  const absent = await tracker.recordModelResponse({ throughput: emptyInferenceThroughput() }, 0, 1);
   assert.deepEqual(absent, {
     completionTokens: 0,
     thinkingTokens: 0,
@@ -117,6 +124,7 @@ test('recordModelResponse uses the server tokenizer for text and thinking', asyn
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',
       thinkingText: 'exact thinking',
+      throughput: emptyInferenceThroughput(),
     }, 0, 1);
 
     assert.deepEqual(resolved, {
@@ -137,6 +145,7 @@ test('negative or non-finite usage fields are ignored', async () => {
   const resolved = await tracker.recordModelResponse({
     text: '   ',
     thinkingText: '   ',
+    throughput: emptyInferenceThroughput(),
     promptCacheTokens: Number.NaN,
     promptEvalTokens: -1,
     promptEvalDurationMs: -1,
@@ -163,7 +172,61 @@ test('negative or non-finite usage fields are ignored', async () => {
     generationDurationMs: 0,
     speculativeAcceptedTokens: 0,
     speculativeGeneratedTokens: 0,
+    throughput: emptyInferenceThroughput(),
   });
+});
+
+test('decode throughput comes from the backend emitted count, not from retokenized narration', async () => {
+  const tracker = new TokenUsageTracker(undefined);
+  // The investigated run: 28,036 emitted tokens (tool-call markup and reasoning included) over
+  // 1,189.48 s, while the narration+thinking attribution stayed at 19,650 tokens.
+  const observed = readTabbyThroughput({ usage: {
+    prompt_tokens: 35_414, prompt_tokens_details: { cached_tokens: 251_392 },
+    prompt_time: 48.73, prompt_tokens_per_sec: 726.739_175_046_2,
+    completion_tokens: 28_036, completion_time: 1_189.48,
+    completion_tokens_per_sec: 23.569_963_345_3,
+  } });
+  await tracker.recordModelResponse({ text: '', thinkingText: '', throughput: observed }, 0, 1);
+  tracker.addOutputTokens(19_650, 1);
+
+  const snapshot = tracker.snapshot();
+  assert.equal(snapshot.outputTokens + snapshot.thinkingTokens, 19_650);
+  assert.ok(Math.abs((calculateThroughputRate(snapshot.throughput.decode) ?? Number.NaN) - 23.569_963_345_3) < 1e-9);
+  assert.ok(Math.abs((calculateThroughputRate(snapshot.throughput.pp) ?? Number.NaN) - 726.739_175_046_2) < 1e-9);
+});
+
+test('a tool-only answer still reports positive decode throughput', async () => {
+  const tracker = new TokenUsageTracker(undefined);
+  const observed = readTabbyThroughput({ usage: {
+    prompt_tokens: 500, prompt_tokens_details: { cached_tokens: 500 },
+    prompt_time: 0.2, prompt_tokens_per_sec: 0,
+    completion_tokens: 420, completion_time: 21,
+    completion_tokens_per_sec: 20,
+  } });
+  await tracker.recordModelResponse({ text: '', thinkingText: '', throughput: observed }, 0, 1);
+
+  const snapshot = tracker.snapshot();
+  assert.equal(snapshot.outputTokens, 0);
+  assert.equal(snapshot.throughput.decode.tokenCount, 420);
+  assert.equal(calculateThroughputRate(snapshot.throughput.decode), 20);
+});
+
+test('throughput accumulates once per recorded model response', async () => {
+  const tracker = new TokenUsageTracker(undefined);
+  const first = readTabbyThroughput({ usage: {
+    completion_tokens: 10, completion_time: 1, completion_tokens_per_sec: 10,
+  } });
+  const second = readTabbyThroughput({ usage: {
+    completion_tokens: 90, completion_time: 3, completion_tokens_per_sec: 30,
+  } });
+  await tracker.recordModelResponse({ text: 'a', thinkingText: '', throughput: first }, 0, 1);
+  await tracker.recordModelResponse({ text: 'b', thinkingText: '', throughput: second }, 0, 2);
+
+  const snapshot = tracker.snapshot();
+  assert.equal(snapshot.throughput.decode.requestCount, 2);
+  assert.equal(snapshot.throughput.decode.tokenCount, 100);
+  assert.equal(calculateThroughputRate(snapshot.throughput.decode), 25);
+  assert.equal(calculateThroughputRate(snapshot.throughput.pp), null);
 });
 
 test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and floored at zero', () => {

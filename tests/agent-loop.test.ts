@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -159,6 +160,7 @@ function stubUsage(promptTokens: number | null): InferenceUsage {
     thinkingTokens: 0,
     promptCacheTokens: null,
     promptEvalTokens: promptTokens,
+    throughput: emptyInferenceThroughput(),
   };
 }
 

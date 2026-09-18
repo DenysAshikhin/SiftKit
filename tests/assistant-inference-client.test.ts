@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -63,7 +64,8 @@ class RecordingBackend implements AssistantChatBackend {
       classification: 'narration',
       reasoningText: '',
       toolCalls: [],
-      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 0 },
+      usage: {
+    throughput: emptyInferenceThroughput(), promptTokens: 1, completionTokens: 1, totalTokens: 2, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 0 },
       raw: {},
       stop: CLEAN_STREAM_STOP,
     };

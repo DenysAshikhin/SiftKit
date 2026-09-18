@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -58,6 +59,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
     reasoningText: 'thinking',
     toolCalls: message.tool_calls || [],
     usage: {
+    throughput: emptyInferenceThroughput(),
       promptTokens: 3,
       completionTokens: 4,
       totalTokens: 7,
@@ -156,7 +158,8 @@ class CapturingHttpClient {
     this.requests.push({ url: options.url, body: options.body });
     const frames = this.frameSets.shift() ?? [JSON.stringify({
       choices: [{ delta: { content: 'ok', reasoning_content: 'think' } }],
-      usage: { prompt_tokens: 3, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 2 } },
+      usage: {
+    throughput: emptyInferenceThroughput(), prompt_tokens: 3, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 2 } },
     })];
     if (frames instanceof Error) {
       throw frames;
@@ -319,6 +322,7 @@ test('inference client covers streamed request and response normalization branch
     JSON.stringify({
       choices: [{ delta: { content: 'fallback text', reasoning_content: 'reason trace' } }],
       usage: {
+    throughput: emptyInferenceThroughput(),
         prompt_tokens: 11,
         completion_tokens: 13,
         total_tokens: 24,
@@ -579,6 +583,7 @@ test('inference client covers usage cache, top-level thinking tokens, and top-le
         },
       }],
       usage: {
+    throughput: emptyInferenceThroughput(),
         prompt_tokens: 9,
         prompt_tokens_details: { cached_tokens: 3 },
         completion_tokens: 5,
@@ -612,6 +617,7 @@ test('inference client covers prompt-token cache fallback, empty response normal
     [JSON.stringify({
       choices: [{ delta: { content: 'answer', reasoning_content: 'trace' } }],
       usage: {
+    throughput: emptyInferenceThroughput(),
         prompt_tokens: 8,
         completion_tokens: 4,
         prompt_tokens_details: { cached_tokens: 3 },

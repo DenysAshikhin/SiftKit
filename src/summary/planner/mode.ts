@@ -26,6 +26,8 @@ import {
 } from '../../providers/inference.js';
 import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
+import { emptyInferenceThroughput } from '../../lib/inference-throughput.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
 import { getErrorMessage, toError } from '../../lib/errors.js';
 import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import { NativePlannerToolCallError } from '../../planner-protocol/native-actions.js';
@@ -237,6 +239,8 @@ type SummaryPlannerProviderResponse = {
   thinkingTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  /** Canonical backend throughput observation of this provider request. */
+  throughput: InferenceThroughput;
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
@@ -471,6 +475,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         thinkingTokens: response.thinkingTokens,
         promptCacheTokens: response.promptCacheTokens,
         promptEvalTokens: response.promptEvalTokens,
+        throughput: response.throughput,
       },
       raw: {
         requestDurationMs: response.requestDurationMs,
@@ -569,6 +574,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         thinkingTokens,
         promptCacheTokens,
         promptEvalTokens,
+        throughput: response.usage?.throughput ?? emptyInferenceThroughput(),
         requestDurationMs: providerDurationMs,
         providerDurationMs,
         statusRunningMs,

@@ -28,10 +28,14 @@ import { REPO_TOOL_ARGUMENT_SCHEMAS, type RepoToolName } from './repo-tool-argum
 import {
   EXPOSED_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
+import { emptyInferenceThroughput } from '../lib/inference-throughput.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
 
 export type PlannerActionResponse = {
   text: string;
   rawText: string;
+  /** Canonical backend throughput observation of this request (or of its merged continuation). */
+  throughput: InferenceThroughput;
   narrationText: string;
   classification: LiveContentSnapshot['classification'];
   thinkingText: string;
@@ -448,6 +452,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         thinkingText: '',
         toolCalls: [],
         mockExhausted: true,
+        // A mock provider has no backend to compare against.
+        throughput: emptyInferenceThroughput(),
         stop: CLEAN_STREAM_STOP,
       };
     }
@@ -466,6 +472,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       toolCalls: mock.toolCalls,
       mockExhausted: false,
       nextMockResponseIndex: index + 1,
+      throughput: emptyInferenceThroughput(),
       stop: mock.stop,
     };
   }
@@ -568,6 +575,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     promptEvalTokens: response.usage.promptEvalTokens,
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
     generationDurationMs: response.usage.generationDurationMs ?? null,
+    throughput: response.usage.throughput,
     speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
     ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),

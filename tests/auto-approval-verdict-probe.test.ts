@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import assert from 'node:assert/strict';
 import { existsSync, rmSync } from 'node:fs';
 import http from 'node:http';
@@ -95,7 +96,7 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
       classification: 'narration',
       thinkingText: '',
       toolCalls: [],
-      mockExhausted: false,
+      mockExhausted: false, throughput: emptyInferenceThroughput(),
       stop: CLEAN_STREAM_STOP,
     });
   }

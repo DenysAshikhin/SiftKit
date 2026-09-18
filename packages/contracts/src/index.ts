@@ -1,4 +1,6 @@
 export * from './primitives.js';
+export * from './operation-types.js';
+export * from './inference-throughput.js';
 export * from './runs.js';
 export * from './metrics.js';
 export * from './idle-summary.js';

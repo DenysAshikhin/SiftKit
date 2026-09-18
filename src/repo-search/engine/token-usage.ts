@@ -1,4 +1,6 @@
+import type { InferenceThroughput } from '@siftkit/contracts';
 import type { SiftConfig } from '../../config/index.js';
+import { emptyInferenceThroughput, mergeInferenceThroughput } from '../../lib/inference-throughput.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 import {
@@ -15,6 +17,8 @@ export type ModelUsageResponse = {
   generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  /** Canonical backend throughput observation; the only evidence used for PP/decode rates. */
+  throughput: InferenceThroughput;
 };
 
 export type ResolvedResponseTokens = {
@@ -37,6 +41,7 @@ export type TokenUsageSnapshot = {
   generationDurationMs: number;
   speculativeAcceptedTokens: number;
   speculativeGeneratedTokens: number;
+  throughput: InferenceThroughput;
 };
 
 export class TokenUsageTracker {
@@ -47,6 +52,7 @@ export class TokenUsageTracker {
   private generationDurationMs = 0;
   private speculativeAcceptedTokens = 0;
   private speculativeGeneratedTokens = 0;
+  private throughput = emptyInferenceThroughput();
   private readonly config: SiftConfig | undefined;
 
   constructor(config: SiftConfig | undefined, useEstimatedTokensOnly = false) {
@@ -115,6 +121,8 @@ export class TokenUsageTracker {
     if (Number.isFinite(response.speculativeGeneratedTokens) && Number(response.speculativeGeneratedTokens) >= 0) {
       this.speculativeGeneratedTokens += Number(response.speculativeGeneratedTokens);
     }
+    // Accumulated once per request, independently of content classification and retokenization.
+    this.throughput = mergeInferenceThroughput([this.throughput, response.throughput]);
     return {
       completionTokens: completion.tokenCount,
       thinkingTokens: thinking.tokenCount,
@@ -150,6 +158,7 @@ export class TokenUsageTracker {
       generationDurationMs: this.generationDurationMs,
       speculativeAcceptedTokens: this.speculativeAcceptedTokens,
       speculativeGeneratedTokens: this.speculativeGeneratedTokens,
+      throughput: this.throughput,
     };
   }
 

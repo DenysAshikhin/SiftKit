@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import test, { before, after } from 'node:test';
 import { IsolatedRuntime } from './helpers/isolated-runtime.js';
 
@@ -71,7 +72,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
         classification: 'narration',
         thinkingText: '',
         toolCalls: [],
-        mockExhausted: false,
+        mockExhausted: false, throughput: emptyInferenceThroughput(),
         stop: CLEAN_STREAM_STOP,
       }),
     },
@@ -330,7 +331,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
               type: 'function',
               function: { name: 'run', arguments: '{"command":"Get-Content secret.txt"}' },
             }],
-            mockExhausted: false,
+            mockExhausted: false, throughput: emptyInferenceThroughput(),
             stop: CLEAN_STREAM_STOP,
           }
           : {
@@ -340,7 +341,7 @@ test('auto mode: a tool-bearing verdict cannot auto-approve', async () => {
             classification: 'narration',
             thinkingText: '',
             toolCalls: [],
-            mockExhausted: false,
+            mockExhausted: false, throughput: emptyInferenceThroughput(),
             stop: CLEAN_STREAM_STOP,
           });
       },
@@ -382,7 +383,8 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
           ...(reasoning === null ? {} : { reasoning_content: reasoning }),
         },
       }],
-      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+      usage: {
+    throughput: emptyInferenceThroughput(), prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
     };
   }
 
@@ -400,7 +402,8 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
           }],
         },
       }],
-      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+      usage: {
+    throughput: emptyInferenceThroughput(), prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
     };
   }
 
@@ -542,7 +545,7 @@ test('auto mode journals the reviewer verdict before it authorizes the tool', as
       requestApprovalVerdict: () => Promise.resolve({
         text: '{"verdict":"approve","reason":"task-scoped write"}',
         rawText: '', narrationText: '', classification: 'narration', thinkingText: '',
-        toolCalls: [], mockExhausted: false, stop: CLEAN_STREAM_STOP,
+        toolCalls: [], mockExhausted: false, throughput: emptyInferenceThroughput(), stop: CLEAN_STREAM_STOP,
       }),
     },
     progressWriter: writer,

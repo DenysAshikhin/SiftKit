@@ -1,3 +1,4 @@
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -14,6 +15,8 @@ const usage = {
   thinkingTokens: 0,
   promptCacheTokens: null,
   promptEvalTokens: 1,
+
+    throughput: emptyInferenceThroughput(),
 };
 
 const controller: SummaryPlannerLoopController = {

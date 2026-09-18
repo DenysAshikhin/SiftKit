@@ -30,6 +30,11 @@ import { readStreamErrorFrame } from './stream-error-frame.js';
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
 import {
+  mergeInferenceThroughput,
+  observeTabbyThroughput,
+  unmeasuredInferenceThroughput,
+} from '../lib/inference-throughput.js';
+import {
   StreamStopSchema,
   THINKING_BUDGET_EARLY_STOP_REASON,
   type JsonObject,
@@ -309,6 +314,8 @@ export class InferenceClient {
         generationDurationMs: sumFinite(streamed.usage.generationDurationMs, continuation.usage.generationDurationMs),
         speculativeAcceptedTokens: sumFinite(streamed.usage.speculativeAcceptedTokens, continuation.usage.speculativeAcceptedTokens),
         speculativeGeneratedTokens: sumFinite(streamed.usage.speculativeGeneratedTokens, continuation.usage.speculativeGeneratedTokens),
+        // Two physical requests, one logical request: each is counted exactly once.
+        throughput: mergeInferenceThroughput([streamed.usage.throughput, continuation.usage.throughput]),
       },
     };
   }
@@ -371,6 +378,9 @@ export class InferenceClient {
     let generationDurationMs: number | null = null;
     let speculativeAcceptedTokens: number | null = null;
     let speculativeGeneratedTokens: number | null = null;
+    // Cumulative usage frames of this one request fold into a single observation. The request is
+    // counted even when no usage ever arrives, so a completed request cannot pass unaudited.
+    let throughput = unmeasuredInferenceThroughput();
     let earlyStopReason: string | null = null;
     let backendEosReason: string | null = null;
     let finishReason: string | null = null;
@@ -447,6 +457,7 @@ export class InferenceClient {
         const speculativeUsage = getSpeculativeUsageFromResponseBody(packet);
         speculativeAcceptedTokens = speculativeUsage.speculativeAcceptedTokens ?? speculativeAcceptedTokens;
         speculativeGeneratedTokens = speculativeUsage.speculativeGeneratedTokens ?? speculativeGeneratedTokens;
+        throughput = observeTabbyThroughput(throughput, packet);
 
         const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
         const choice = isRecord(firstChoice) ? firstChoice : undefined;
@@ -552,6 +563,7 @@ export class InferenceClient {
         generationDurationMs: generationDuration,
         speculativeAcceptedTokens,
         speculativeGeneratedTokens,
+        throughput,
       },
       raw: {},
       stop: StreamStopSchema.parse({ earlyStopReason, backendEosReason, finishReason }),

@@ -682,6 +682,7 @@ export class TaskLoop {
         generationDurationMs: response.generationDurationMs ?? null,
         speculativeAcceptedTokens: response.speculativeAcceptedTokens ?? null,
         speculativeGeneratedTokens: response.speculativeGeneratedTokens ?? null,
+        throughput: response.throughput,
       },
       raw: {
         text: response.text,

@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from '@siftkit/contracts';
+import { InferenceThroughputSchema, type ReasoningEffort } from '@siftkit/contracts';
 import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 
@@ -85,19 +85,26 @@ export type InferenceChatRequest = {
   response_prefix?: string;
 };
 
-export type InferenceUsage = {
-  promptTokens: number | null;
-  completionTokens: number | null;
-  totalTokens: number | null;
-  outputTokens: number | null;
-  thinkingTokens: number | null;
-  promptCacheTokens: number | null;
-  promptEvalTokens: number | null;
-  promptEvalDurationMs?: number | null;
-  generationDurationMs?: number | null;
-  speculativeAcceptedTokens?: number | null;
-  speculativeGeneratedTokens?: number | null;
-};
+/**
+ * Normalized usage of one physical request (or of a merged logical request). `throughput` is the
+ * canonical backend observation — raw emitted counts, backend durations and the backend's own
+ * reported rates — and is required, so no construction path can drop it.
+ */
+export const InferenceUsageSchema = z.strictObject({
+  promptTokens: z.number().nullable(),
+  completionTokens: z.number().nullable(),
+  totalTokens: z.number().nullable(),
+  outputTokens: z.number().nullable(),
+  thinkingTokens: z.number().nullable(),
+  promptCacheTokens: z.number().nullable(),
+  promptEvalTokens: z.number().nullable(),
+  promptEvalDurationMs: z.number().finite().nonnegative().nullable().optional(),
+  generationDurationMs: z.number().finite().nonnegative().nullable().optional(),
+  speculativeAcceptedTokens: z.number().finite().nonnegative().nullable().optional(),
+  speculativeGeneratedTokens: z.number().finite().nonnegative().nullable().optional(),
+  throughput: InferenceThroughputSchema,
+});
+export type InferenceUsage = z.infer<typeof InferenceUsageSchema>;
 
 export type LiveContentClassification = 'undecided' | 'narration' | 'tool_control';
 
