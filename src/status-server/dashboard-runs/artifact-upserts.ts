@@ -14,6 +14,7 @@ import {
 } from './types.js';
 import { parseOptionalIsoDate } from './run-records.js';
 import type { RunIdentity } from './run-identity.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -68,10 +69,10 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
       operation_type, operation_preset_id, model_preset_id, operation_preset_json, model_preset_json,
       terminal_state,
       started_at_utc, finished_at_utc, title, model, backend, repo_root,
-      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, prompt_eval_duration_ms, generation_duration_ms, speculative_accepted_tokens, speculative_generated_tokens, duration_ms, provider_duration_ms, wall_duration_ms,
+      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, prompt_eval_duration_ms, generation_duration_ms, speculative_accepted_tokens, speculative_generated_tokens, duration_ms, provider_duration_ms, wall_duration_ms, throughput_json,
       request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
       source_paths_json, flushed_at_utc, source_deleted_at_utc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(run_id) DO UPDATE SET
       request_id = excluded.request_id,
       run_kind = CASE WHEN excluded.run_kind = 'unknown' THEN run_logs.run_kind ELSE excluded.run_kind END,
@@ -101,6 +102,7 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
       duration_ms = COALESCE(excluded.duration_ms, run_logs.duration_ms),
       provider_duration_ms = COALESCE(excluded.provider_duration_ms, run_logs.provider_duration_ms),
       wall_duration_ms = COALESCE(excluded.wall_duration_ms, run_logs.wall_duration_ms),
+      throughput_json = COALESCE(excluded.throughput_json, run_logs.throughput_json),
       request_json = COALESCE(excluded.request_json, run_logs.request_json),
       planner_debug_json = COALESCE(excluded.planner_debug_json, run_logs.planner_debug_json),
       failed_request_json = COALESCE(excluded.failed_request_json, run_logs.failed_request_json),
@@ -139,6 +141,7 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     row.durationMs,
     row.providerDurationMs,
     row.wallDurationMs,
+    row.throughput === null ? null : JSON.stringify(row.throughput),
     row.requestJson,
     row.plannerDebugJson,
     row.failedRequestJson,
@@ -265,6 +268,7 @@ export function upsertRunArtifactPayload(options: {
     generationDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.generationDurationMs),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
+    throughput: InferenceThroughputSchema.nullable().optional().parse(options.artifactPayload?.throughput) ?? null,
     durationMs: toNullableNonNegativeInteger(options.artifactPayload?.wallDurationMs) ?? toNullableNonNegativeInteger(options.artifactPayload?.requestDurationMs),
     providerDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.providerDurationMs) ?? toNullableNonNegativeInteger(options.artifactPayload?.requestDurationMs),
     wallDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.wallDurationMs),
@@ -307,6 +311,7 @@ export function upsertRepoSearchRun(options: {
   generationDurationMs: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  throughput?: InferenceThroughput | null;
 }): void {
   const runKind: RunLogKind = options.taskKind === 'plan' ? 'plan' : 'repo_search';
   const runGroup: RunLogGroup = options.taskKind === 'plan' ? 'planner' : 'repo_search';
@@ -334,6 +339,7 @@ export function upsertRepoSearchRun(options: {
     generationDurationMs: toNullableNonNegativeInteger(options.generationDurationMs),
     speculativeAcceptedTokens: toNullableNonNegativeInteger(options.speculativeAcceptedTokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(options.speculativeGeneratedTokens),
+    throughput: options.throughput ?? null,
     durationMs: toNullableNonNegativeInteger(options.requestDurationMs),
     providerDurationMs: toNullableNonNegativeInteger(options.requestDurationMs),
     wallDurationMs: null,

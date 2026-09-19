@@ -10,6 +10,7 @@ import {
   computeRequiredGenerationMs,
 } from '../src/llm-protocol/stream-deadline.js';
 import { buildStreamingTestConfig, contentFrame } from './helpers/streaming-client.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 test('required generation time is derived from the throughput floor', () => {
   assert.equal(MIN_EXPECTED_TOKENS_PER_SECOND, 20);
@@ -47,6 +48,7 @@ test('a stream exceeding its total deadline is aborted', async () => {
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -66,6 +68,7 @@ test('a maxTokens budget larger than the deadline is rejected up front', async (
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],

@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { invokeSummaryCore } from '../src/summary/core-runner.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -80,6 +81,8 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
     assert.equal(typeof result.decision.output, 'string');
     assert.ok(result.decision.output.length > 0);
     assert.notEqual(result.completionMetrics, null);
+    // The mock provider makes no model call, so the fold holds zero requests rather than zeros.
+    assert.deepEqual(result.completionMetrics?.throughput, emptyInferenceThroughput());
   } finally {
     tempEnv.cleanup();
   }

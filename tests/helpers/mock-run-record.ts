@@ -30,6 +30,7 @@ const BASE_RUN_RECORD: RunRecord = {
   durationMs: null,
   providerDurationMs: null,
   wallDurationMs: null,
+  throughput: null,
   rawPaths: {},
 };
 

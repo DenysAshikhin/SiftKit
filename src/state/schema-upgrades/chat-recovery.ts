@@ -3,6 +3,7 @@ import {
   CHAT_JOURNAL_SCHEMA_SQL,
   CHAT_MESSAGES_COLUMNS,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
+  CHAT_MESSAGES_COLUMNS_ADDED_BY_INFERENCE_THROUGHPUT,
   CHAT_MESSAGES_SCHEMA_SQL,
 } from '../runtime-schema.js';
 import type { RuntimeDatabase } from '../database-handle.js';
@@ -39,7 +40,11 @@ export function rebuildChatMessagesTable(database: RuntimeDatabase): void {
   // Resolve that documented historical column during migration, never in runtime reads.
   const hasHistoricalLimit = existing.includes('tool_call_limit');
   const unexpected = existing.filter((column) => !canonical.has(column) && column !== 'tool_call_limit');
-  const added = new Set<string>(CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY);
+  // Columns introduced by this or a later upgrade have no source in a marker-67 table.
+  const added = new Set<string>([
+    ...CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
+    ...CHAT_MESSAGES_COLUMNS_ADDED_BY_INFERENCE_THROUGHPUT,
+  ]);
   const missing = CHAT_MESSAGES_COLUMNS.filter(
     (column) => !existing.includes(column) && !added.has(column),
   );

@@ -10,6 +10,7 @@ import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { buildReasoningDeltas, startFakeChatServer } from './helpers/fake-chat-server.js';
 import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const VERDICT = '{"verdict":"deny","reason":"introduces a remote-execution dropper"}';
 const transcript: ChatMessage[] = [
@@ -41,6 +42,7 @@ function verdictOptions(baseUrl: string) {
     config: exl3Config(baseUrl),
     baseUrl,
     model: 'mock',
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...baseVerdictOptions(transcript, captureExecutingForVerdict(transcript)),
     timeoutMs: 30_000,
   };

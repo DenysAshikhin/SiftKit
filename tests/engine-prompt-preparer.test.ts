@@ -21,6 +21,7 @@ import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { toProtocolTools } from '../src/providers/inference.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
@@ -51,6 +52,7 @@ function makePreparer(
     transcript,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     compactor: new TranscriptCompactor({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl: DEAD_BASE_URL,
       model: 'mock-model',

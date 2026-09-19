@@ -32,6 +32,7 @@ import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { createJsonLogger } from '../src/repo-search/logging.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -61,6 +62,7 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const { scorecard } = await runRepoSearch({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
                                           plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
@@ -85,6 +87,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 test('repo-search executes a native web_search tool when allowed', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const { scorecard } = await runRepoSearch({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'repo-search',
@@ -142,6 +145,7 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
       question: 'Find relative imports.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
       repoRoot,
@@ -183,6 +187,7 @@ test('runTaskLoop accumulates thinking tokens across turns on every token-bearin
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -237,6 +242,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -276,6 +282,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -305,6 +312,7 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -342,6 +350,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -383,6 +392,7 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 2,
@@ -455,6 +465,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         question: 'Find git status.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
@@ -500,6 +511,7 @@ test('runTaskLoop executes find and read natively', async () => {
         question: 'List files, then read the sample file.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 3,
@@ -550,6 +562,7 @@ test('runTaskLoop executes ls at repository root natively', async () => {
         question: 'List repository root files.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
@@ -598,6 +611,7 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
         question: 'List runner files.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
@@ -651,6 +665,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
           question: 'Trigger a provider request failure.',
         },
         {
+          throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
           ...MOCK_LOOP_DEFAULTS,
           baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
@@ -694,6 +709,7 @@ test('runTaskLoop counts non-zero command exits as command failures without fail
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -730,6 +746,7 @@ test('runTaskLoop counts exit code 1 from non-search commands as a command failu
       question: 'Check git log.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -756,6 +773,7 @@ test('runTaskLoop stops on finish action', async () => {
       question: 'Find planner tool names.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 3,
@@ -780,6 +798,7 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
       question: 'Find planner prompt and prompt budget helpers.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -822,6 +841,7 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       question: 'Find planner tools.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -858,6 +878,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       question: 'Find planner prompt location.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       // Above the post-budget strike count (3 slack turns) so the run reaches
@@ -895,6 +916,7 @@ test('runTaskLoop strikes out a model that ignores the limit-reached notice', as
       question: 'Find planner prompt location.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 3,
@@ -928,6 +950,7 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       question: 'Track tool usage.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -974,6 +997,7 @@ test('runTaskLoop records line-read stats for read windows', async () => {
         question: 'Read a file section.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
@@ -1071,6 +1095,7 @@ test('runTaskLoop sends append-only chat requests without removed slot or cache 
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
@@ -1197,6 +1222,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
@@ -1258,6 +1284,7 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       question: 'Find planner prompt location.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       // Above the post-budget strike count (3 slack turns) so the run reaches
@@ -1321,6 +1348,7 @@ test('155k planner generation uses the current prompt position without the remov
         question: 'Find planner prompt location.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
@@ -1402,6 +1430,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         question: 'Find planner prompt location.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
@@ -1476,6 +1505,7 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -1511,6 +1541,7 @@ test('runTaskLoop counts a multi-call batch as one tool-budget turn and leaves a
   const result = await runTaskLoop(
     { id: 'task-batch-budget', question: 'Exercise the batch budget.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
@@ -1552,6 +1583,7 @@ test('runTaskLoop does not hand back tool turns for turns that spent no tool bat
   const result = await runTaskLoop(
     { id: 'task-turn-budget-drift', question: 'Exercise the turn budget.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 5,

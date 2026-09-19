@@ -26,6 +26,7 @@ import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixt
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const basePreset = mockModelPreset();
 const visionOff = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'exl3', VisionEnabled: false });
@@ -168,6 +169,7 @@ test('repo-search puts the image part on the first user message it sends', async
     await runTaskLoop(
       { id: 'img', question: 'what is this?' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         model: 'mock',

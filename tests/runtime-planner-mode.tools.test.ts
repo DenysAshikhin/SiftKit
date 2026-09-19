@@ -24,6 +24,7 @@ import {
 import { asObject } from './helpers/dashboard-http.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 const TOOL_STEP_ARGUMENTS = {
   filters: [
@@ -82,7 +83,6 @@ test('json_filter auto-selects sole top-level array when collectionPath is omitt
   assert.equal(result.matchedCount, 2);
   assert.match(result.text, /"request_id":"req-1"/u);
 });
-
 test('json_filter picks the best matching top-level array when collectionPath is omitted', () => {
   const inputText = JSON.stringify({
     widgetRoots: [
@@ -299,6 +299,7 @@ test('inference provider preserves planner tool actions from empty-content tool_
       const config = await loadConfig({ ensure: true });
 
       const summary = await generateInferenceResponse({
+        throughputAudit: TEST_THROUGHPUT_AUDIT,
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
@@ -351,6 +352,7 @@ test('inference provider preserves planner tool batches from empty-content tool_
       const config = await loadConfig({ ensure: true });
 
       const summary = await generateInferenceResponse({
+        throughputAudit: TEST_THROUGHPUT_AUDIT,
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',

@@ -6,6 +6,7 @@ import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { DeferredArtifactSchema, type DeferredArtifact } from '../state/status-artifacts.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
@@ -124,6 +125,10 @@ export type StatusMetadata = {
   promptEvalTokens: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  /** Canonical fold reported by the finished operation; null when nothing was measured. */
+  throughput: InferenceThroughput | null;
+  promptEvalDurationMs: number | null;
+  generationDurationMs: number | null;
   requestDurationMs: number | null;
   providerDurationMs: number | null;
   wallDurationMs: number | null;
@@ -166,6 +171,9 @@ function createEmptyStatusMetadata(): StatusMetadata {
     promptEvalTokens: null,
     speculativeAcceptedTokens: null,
     speculativeGeneratedTokens: null,
+    throughput: null,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
     requestDurationMs: null,
     providerDurationMs: null,
     wallDurationMs: null,
@@ -349,6 +357,16 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
     }
     if (Number.isFinite(parsed.speculativeGeneratedTokens) && Number(parsed.speculativeGeneratedTokens) >= 0) {
       metadata.speculativeGeneratedTokens = Number(parsed.speculativeGeneratedTokens);
+    }
+    const throughput = InferenceThroughputSchema.safeParse(parsed.throughput);
+    if (throughput.success) {
+      metadata.throughput = throughput.data;
+    }
+    if (Number.isFinite(parsed.promptEvalDurationMs) && Number(parsed.promptEvalDurationMs) >= 0) {
+      metadata.promptEvalDurationMs = Number(parsed.promptEvalDurationMs);
+    }
+    if (Number.isFinite(parsed.generationDurationMs) && Number(parsed.generationDurationMs) >= 0) {
+      metadata.generationDurationMs = Number(parsed.generationDurationMs);
     }
     if (Number.isFinite(parsed.requestDurationMs) && Number(parsed.requestDurationMs) >= 0) {
       metadata.requestDurationMs = Number(parsed.requestDurationMs);

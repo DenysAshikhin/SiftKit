@@ -19,6 +19,7 @@ const BASE_MESSAGE: ChatMessage = {
 const SESSION_SHELL = {
   id: 's1',
   title: 'S',
+  modelPresetId: 'test-model',
   model: 'test-model',
   contextWindowTokens: 100,
   planRepoRoot: 'C:/repo',
@@ -27,6 +28,7 @@ const SESSION_SHELL = {
   mode: 'chat',
   createdAtUtc: '2026-08-08T00:00:00.000Z',
   updatedAtUtc: '2026-08-08T00:00:00.000Z',
+  sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
 };
 
 function sessionWith(messages: ChatSession['messages']): ChatSession {

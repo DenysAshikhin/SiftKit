@@ -92,6 +92,7 @@ export const CHAT_MESSAGES_SCHEMA_SQL = `
     images TEXT,
     image_meta TEXT,
     removed_image_count INTEGER,
+    throughput_json TEXT,
     PRIMARY KEY (session_id, id)
   );
 `;
@@ -152,6 +153,7 @@ export const CHAT_MESSAGES_COLUMNS = [
   'images',
   'image_meta',
   'removed_image_count',
+  'throughput_json',
 ] as const;
 
 /**
@@ -159,6 +161,9 @@ export const CHAT_MESSAGES_COLUMNS = [
  * rest and leaves these null for rows that predate the journal.
  */
 export const CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY = ['tool_call_execution_state'] as const;
+
+/** Column the 72 -> 73 inference-throughput upgrade adds; absent from every older table. */
+export const CHAT_MESSAGES_COLUMNS_ADDED_BY_INFERENCE_THROUGHPUT = ['throughput_json'] as const;
 
 /**
  * The durable chat journal. `chat_run_events` is the authority for Web conversation and execution
@@ -331,7 +336,8 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       completed_request_count INTEGER NOT NULL,
       task_totals_json TEXT NOT NULL,
       tool_stats_json TEXT NOT NULL,
-      updated_at_utc TEXT
+      updated_at_utc TEXT,
+      throughput_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS observed_budget_state (
@@ -589,6 +595,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       started_at_utc TEXT,
       completed_at_utc TEXT,
       updated_at_utc TEXT NOT NULL,
+      throughput_json TEXT,
       UNIQUE(session_id, case_index, prompt_index, repeat_index)
     );
     CREATE INDEX IF NOT EXISTS idx_benchmark_attempts_session_order
@@ -653,7 +660,8 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
       repo_search_transcript_jsonl TEXT,
       source_paths_json TEXT NOT NULL DEFAULT '[]',
       flushed_at_utc TEXT NOT NULL,
-      source_deleted_at_utc TEXT
+      source_deleted_at_utc TEXT,
+      throughput_json TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_group_started ON run_logs(run_group, started_at_utc DESC);
@@ -683,7 +691,8 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
         compression_ratio REAL,
         request_duration_ms_total INTEGER NOT NULL,
         avg_request_ms REAL,
-        avg_tokens_per_second REAL
+        avg_tokens_per_second REAL,
+        throughput_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_idle_summary_snapshots_emitted
         ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);

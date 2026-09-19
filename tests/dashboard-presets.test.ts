@@ -96,6 +96,7 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
     planRepoRoot: process.cwd(),
     createdAtUtc: new Date().toISOString(),
     updatedAtUtc: new Date().toISOString(),
+    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
     messages: [],
   };
 }

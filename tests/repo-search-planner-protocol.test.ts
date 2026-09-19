@@ -8,7 +8,8 @@ import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
+import { serverLogger } from '../src/status-server/server-logger.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
@@ -248,6 +249,7 @@ test('requestRepoSearchPlannerProtocolAction preserves a native batch from multi
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -291,6 +293,7 @@ test('requestRepoSearchPlannerProtocolAction preserves a native batch from strea
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -321,6 +324,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content when
     [{ choices: [{ delta: { content: streamedText } }] }],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -353,6 +357,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
     [{ choices: [{ delta: { content: streamedText } }] }],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -385,6 +390,7 @@ test('requestRepoSearchPlannerProtocolAction leaves rawText untouched when the b
     ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -419,6 +425,7 @@ test('requestRepoSearchPlannerProtocolAction carries a non-loop backend eos_reas
     ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -468,6 +475,7 @@ test('requestRepoSearchPlannerProtocolAction ignores removed legacy timings when
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -506,6 +514,7 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
         await assert.rejects(
           () =>
             requestRepoSearchPlannerProtocolAction({
+              throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
               ...PLANNER_REQUEST_DEFAULTS,
               config: buildTestConfig(),
               baseUrl,
@@ -547,6 +556,7 @@ test('requestRepoSearchPlannerProtocolAction sends native tools without response
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -583,6 +593,7 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 tools without 
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
@@ -625,6 +636,7 @@ test('requestRepoSearchPlannerProtocolAction sends and returns provided native t
     },
     async (baseUrl) => {
       plannerResponse = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -674,6 +686,7 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   });
 
   const captured = await captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...PLANNER_REQUEST_DEFAULTS,
     config,
     baseUrl,
@@ -720,6 +733,7 @@ test('derived planner requests reject every cache-contract divergence before log
       };
       const common = {
         config: buildTestConfig(),
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         baseUrl,
         model: 'test-model',
         timeoutMs: 5_000,
@@ -771,6 +785,7 @@ test('requestApprovalVerdict uses the dedicated non-thinking operation cap', asy
     const config = buildTestConfig({ BaseUrl: baseUrl });
     getActiveModelPreset(config).BaseUrl = baseUrl;
     return requestApprovalVerdict({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model: 'test-model',
@@ -800,6 +815,7 @@ test('approval verdict generation shrinks to what the executing prompt leaves in
     getActiveModelPreset(config).BaseUrl = baseUrl;
     getActiveModelPreset(config).NumCtx = 155_000;
     return requestApprovalVerdict({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model: 'test-model',
@@ -831,6 +847,7 @@ test('requestApprovalVerdict uses the dedicated thinking operation cap', async (
     const config = buildTestConfig({ BaseUrl: baseUrl });
     getActiveModelPreset(config).BaseUrl = baseUrl;
     return requestApprovalVerdict({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model: 'test-model',
@@ -871,6 +888,7 @@ test('approval verdicts extend the measured executing prompt without network tok
       const config = buildTestConfig({ BaseUrl: baseUrl });
       getActiveModelPreset(config).BaseUrl = baseUrl;
       await requestApprovalVerdict({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         config,
         baseUrl,
         model: 'test-model',
@@ -950,6 +968,7 @@ test('context compaction branches from an actual preceding planner request', asy
       };
       const serializedPlanner = serializeProtocolMessages(plannerHistory, true);
       await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
@@ -963,6 +982,7 @@ test('context compaction branches from an actual preceding planner request', asy
       });
       const executing = captureExecutingPlannerRequest(serializedPlanner, flags, tools, 1_000);
       const response = await requestContextCompactionSummary({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
@@ -1012,6 +1032,7 @@ test('context compaction rejects a branch that diverges from its executing plann
 
       await assert.rejects(
         requestContextCompactionSummary({
+          throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
           config: buildTestConfig(),
           baseUrl,
           model: 'mock-model',
@@ -1038,6 +1059,7 @@ test('first compaction request explicitly starts a new cache epoch', async () =>
   };
   const tools = toProtocolTools(resolveRepoSearchPlannerToolDefinitions(['read']));
   const captured = await captureChatRequestBody((baseUrl) => requestContextCompactionSummary({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config: buildTestConfig(),
     baseUrl,
     model: 'mock-model',
@@ -1077,6 +1099,7 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
       await assert.rejects(
         () =>
           requestRepoSearchPlannerProtocolAction({
+            throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
             ...PLANNER_REQUEST_DEFAULTS,
             config: buildTestConfig(),
             baseUrl,
@@ -1097,6 +1120,7 @@ import {
   sanitizeNonInteractiveAllowedTools,
 } from '../src/repo-search/planner-protocol.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 test('interactive tool names extend the exposed surface with write, edit, run', () => {
   assert.deepEqual(
@@ -1132,6 +1156,7 @@ test('requestRepoSearchPlannerProtocolAction reports a backend loop stop as not 
     ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -1148,6 +1173,7 @@ test('requestRepoSearchPlannerProtocolAction reports a backend loop stop as not 
 
 test('mock planner responses can declare an early stop and a backend eos reason', async () => {
   const result = await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...PLANNER_REQUEST_DEFAULTS,
     config: buildTestConfig(),
     baseUrl: DEAD_BASE_URL,
@@ -1166,6 +1192,7 @@ test('mock planner responses can declare an early stop and a backend eos reason'
   assert.deepEqual(result.stop, { earlyStopReason: 'thinking budget exhausted', backendEosReason: 'loop_detected', finishReason: null });
 
   const clean = await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...PLANNER_REQUEST_DEFAULTS,
     config: buildTestConfig(),
     baseUrl: DEAD_BASE_URL,
@@ -1189,6 +1216,7 @@ test('requestRepoSearchPlannerProtocolAction carries and logs a max-token finish
     ],
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...PLANNER_REQUEST_DEFAULTS,
         config: buildTestConfig(),
         baseUrl,
@@ -1214,6 +1242,7 @@ test('requestRepoSearchPlannerProtocolAction carries and logs a max-token finish
 
 test('mock planner responses can declare a max-token finish_reason', async () => {
   const result = await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...PLANNER_REQUEST_DEFAULTS,
     config: buildTestConfig(),
     baseUrl: DEAD_BASE_URL,
@@ -1226,4 +1255,54 @@ test('mock planner responses can declare a max-token finish_reason', async () =>
   });
 
   assert.deepEqual(result.stop, { earlyStopReason: null, backendEosReason: null, finishReason: 'length' });
+});
+
+test('every planner-protocol request audits under the operation identity stamped with its own stage', async (t) => {
+  const errors = t.mock.method(serverLogger, 'error', () => {});
+  await withServer(
+    (req, res) => {
+      req.resume();
+      req.on('end', () => {
+        // The backend's reported decode rate disagrees with its own count and time, so each
+        // physical request produces exactly one red decode line carrying the caller's identity.
+        sendChatCompletionSse(res, {
+          choices: [{ message: { content: '{"verdict":"approve","reason":"ok"}' } }],
+          usage: { ...buildTabbyUsage({ promptTokens: 100, completionTokens: 20 }), completion_tokens_per_sec: 40 },
+        });
+      });
+    },
+    async (baseUrl) => {
+      const config = buildTestConfig({ BaseUrl: baseUrl });
+      getActiveModelPreset(config).BaseUrl = baseUrl;
+      const flags: PlannerThinkingFlags = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
+      const tools = toProtocolTools(TOOL_DEFINITIONS);
+      await requestRepoSearchPlannerProtocolAction({
+        ...PLANNER_REQUEST_DEFAULTS,
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        config,
+        baseUrl,
+        model: 'test-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        timeoutMs: 5000,
+        maxTokens: 64,
+      });
+      await requestApprovalVerdict({
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+        config,
+        baseUrl,
+        model: 'test-model',
+        transcriptMessages: [],
+        pendingMessages: [],
+        question: 'ok?',
+        executing: captureExecutingPlannerRequest([], flags, tools, 1_000),
+        timeoutMs: 5000,
+      });
+    },
+  );
+
+  const lines = errors.mock.calls.map((call) => `${call.arguments[0]?.event ?? ''} ${call.arguments[0]?.fields ?? ''}`);
+  assert.equal(lines.length, 2, lines.join('\n'));
+  assert.match(lines[0] ?? '', /^throughput_mismatch .*operation=summary  operation_id=test-operation  stage=planner_action  scope=request  metric=decode/u);
+  assert.match(lines[1] ?? '', /^throughput_mismatch .*stage=approval_verdict  scope=request  metric=decode/u);
+  assert.equal(errors.mock.calls[0]?.arguments[0]?.id, TEST_THROUGHPUT_AUDIT_OPERATION.requestId);
 });

@@ -3,6 +3,7 @@ import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorde
 import { appendTestProviderEvent } from '../artifacts.js';
 import { buildMockDecision, toMockDecision } from '../mock.js';
 import type { ProviderSummaryMetrics } from '../provider-invoke.js';
+import { emptyInferenceThroughput } from '../../lib/inference-throughput.js';
 import type { SummaryPhase, SummaryProviderId } from '../types.js';
 
 // Sole owner of the SIFTKIT_TEST_PROVIDER_* env seam: only the `mock` backend reads it.
@@ -79,6 +80,7 @@ export async function runMockProvider(options: {
       generationDurationMs: null,
       speculativeAcceptedTokens: null,
       speculativeGeneratedTokens: null,
+      throughput: emptyInferenceThroughput(),
       requestDurationMs: providerDurationMs,
       providerDurationMs,
       statusRunningMs: options.statusRunningMs,

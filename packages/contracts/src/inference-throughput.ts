@@ -39,6 +39,13 @@ export const InferenceThroughputSchema = z.strictObject({
 });
 export type InferenceThroughput = z.infer<typeof InferenceThroughputSchema>;
 
+/** Canonical PP/decode rates exposed by a consumer. */
+export const ThroughputRatesSchema = z.strictObject({
+  promptTokensPerSecond: z.number().finite().nullable(),
+  generationTokensPerSecond: z.number().finite().nullable(),
+});
+export type ThroughputRates = z.infer<typeof ThroughputRatesSchema>;
+
 /** Relative error above which an internal rate and the backend's reported rate are a mismatch. */
 export const THROUGHPUT_MISMATCH_THRESHOLD_PCT = 5 as const;
 
@@ -85,7 +92,8 @@ export type ThroughputAuditScope = z.infer<typeof ThroughputAuditScopeSchema>;
 
 /** Identity a throughput audit must always carry. Omitting it for a real request is a type error. */
 export const ThroughputAuditContextSchema = z.strictObject({
-  operationType: RunOperationTypeSchema,
+  /** Run operation types, plus the mixed label of a runtime-wide aggregate that spans several. */
+  operationType: RunOperationTypeSchema.or(z.literal(MIXED_MODEL_PRESET_LABEL)),
   operationId: z.string(),
   requestId: z.string(),
   stage: z.string(),
@@ -94,6 +102,20 @@ export const ThroughputAuditContextSchema = z.strictObject({
   scope: ThroughputAuditScopeSchema,
 });
 export type ThroughputAuditContext = z.infer<typeof ThroughputAuditContextSchema>;
+
+/**
+ * The identity an audited caller carries: everything about the operation and physical request except
+ * the audit scope, which belongs to the audit call itself rather than to whoever issued the request.
+ */
+export const ThroughputAuditIdentitySchema = ThroughputAuditContextSchema.omit({ scope: true });
+export type ThroughputAuditIdentity = z.infer<typeof ThroughputAuditIdentitySchema>;
+
+/**
+ * The identity a multi-stage operation carries into its request layer: the audit identity minus the
+ * stage, which each wrapper (planner action, approval verdict, compaction, synthesis) supplies itself.
+ */
+export const ThroughputAuditOperationSchema = ThroughputAuditIdentitySchema.omit({ stage: true });
+export type ThroughputAuditOperation = z.infer<typeof ThroughputAuditOperationSchema>;
 
 /** The actual PP/decode rates about to be published by the audited consumer. */
 export const PublishedThroughputRatesSchema = z.strictObject({

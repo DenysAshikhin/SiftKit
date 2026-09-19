@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
 import { InferenceChatMessageSchema } from '../../src/llm-protocol/types.js';
+import { buildTabbyUsage } from './streaming-client.js';
 
 const RequestSchema = z.object({ messages: z.array(InferenceChatMessageSchema) }).loose();
 const TokenRequestSchema = z.object({ text: z.string() });
@@ -71,10 +72,7 @@ export class GatedChatBackend {
   }
 
   finish(response: http.ServerResponse): void {
-    response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: {
-      prompt_tokens: 10, completion_tokens: 220, total_tokens: 230,
-      completion_tokens_details: { reasoning_tokens: 187 },
-    } })}\n\n`);
+    response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: buildTabbyUsage({ promptTokens: 10, completionTokens: 220, reasoningTokens: 187 }) })}\n\n`);
     response.end('data: [DONE]\n\n');
   }
 

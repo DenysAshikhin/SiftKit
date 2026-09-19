@@ -306,6 +306,7 @@ export class TaskLoop {
         logger: options.logger || null,
         abortSignal: options.abortSignal,
         activityObserver: this.progress,
+        throughputAudit: options.throughputAudit,
       }),
       progress: this.progress,
       logger: options.logger || null,
@@ -395,6 +396,7 @@ export class TaskLoop {
       config: this.options.config,
       baseUrl: this.options.baseUrl,
       model: this.options.model,
+      throughputAudit: this.options.throughputAudit,
       transcriptMessages: this.transcript.getMessages(),
       pendingMessages,
       question,
@@ -720,6 +722,7 @@ export class TaskLoop {
         config: this.options.config,
         baseUrl: this.options.baseUrl,
         model: this.options.model,
+        throughputAudit: this.options.throughputAudit,
         messages: serializedMessages,
         timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
         maxTokens: prepared.maxOutputTokens,
@@ -857,6 +860,7 @@ export class TaskLoop {
         logger: this.options.logger || null,
         progress: this.progress,
         tokenUsage: this.tokenUsage,
+        throughputAudit: this.options.throughputAudit,
       });
       const executing = this.executingPlannerRequest;
       if (!executing) {

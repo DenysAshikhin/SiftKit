@@ -1,6 +1,13 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
-import { ImageDataUrlSchema, ImageMetadataSchema, ToolActivityKindSchema, ToolActivitySubjectSchema } from '@siftkit/contracts';
+import {
+  ImageDataUrlSchema,
+  ImageMetadataSchema,
+  InferenceThroughputSchema,
+  ToolActivityKindSchema,
+  ToolActivitySubjectSchema,
+  type InferenceThroughput,
+} from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { ChatGroundingStatusSchema, type ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
@@ -62,6 +69,8 @@ export type RepoSearchTotals = z.infer<typeof RepoSearchTotalsSchema>;
 export const RepoSearchScorecardSchema = z.strictObject({
   totals: RepoSearchTotalsSchema,
   tasks: z.array(RepoSearchTaskResultSchema),
+  /** Null only for archived scorecards written before the canonical fold existed. */
+  throughput: InferenceThroughputSchema.nullable(),
 });
 export type RepoSearchScorecard = z.infer<typeof RepoSearchScorecardSchema>;
 
@@ -145,12 +154,18 @@ function normalizeTotals(value: OptionalJsonValue): RepoSearchTotals {
   });
 }
 
+function normalizeThroughput(value: OptionalJsonValue): InferenceThroughput | null {
+  const parsed = InferenceThroughputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 export function normalizeRepoSearchScorecard(value: OptionalJsonValue): RepoSearchScorecard {
   const reader = JsonRecordReader.fromJsonValue(value);
   const tasksRaw = reader.value('tasks');
   return RepoSearchScorecardSchema.parse({
     totals: normalizeTotals(reader.value('totals')),
     tasks: Array.isArray(tasksRaw) ? tasksRaw.map((entry) => normalizeTask(entry)) : [],
+    throughput: normalizeThroughput(reader.value('throughput')),
   });
 }
 

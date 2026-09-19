@@ -17,9 +17,12 @@ import {
   serializeProtocolMessages,
 } from '../src/repo-search/planner-protocol.js';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     baseUrl: 'http://127.0.0.1:9', // never contacted in mock mode
     model: 'mock-model',
     timeoutMs: 1_000,
@@ -43,6 +46,7 @@ function makeCollectingSynthesizer(
   progressEvents: RepoSearchProgressEvent[],
 ): TerminalSynthesizer {
   return new TerminalSynthesizer({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     baseUrl: 'http://127.0.0.1:9', // never contacted in mock mode
     model: 'mock-model',
     timeoutMs: 1_000,
@@ -74,6 +78,7 @@ function makeStreamingSynthesizer(options: {
     },
   };
   return new TerminalSynthesizer({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     baseUrl: options.baseUrl,
     model: 'mock-model',
     timeoutMs: 1_000,
@@ -285,6 +290,40 @@ test('synthesize retries provider errors and records terminal synthesis failure'
     assert.deepEqual(requestBodies[2], requestBodies[0]);
     assert.ok(loggerEvents.some((event) => event.kind === 'task_terminal_synthesis_retry'));
     assert.ok(loggerEvents.some((event) => event.kind === 'task_terminal_synthesis_failed'));
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('a synthesis attempt rejected as empty still counts toward the run throughput fold', async () => {
+  // The backend decoded tokens for the empty attempt too; the fold is per physical request.
+  let requests = 0;
+  const server = http.createServer((request, response) => {
+    request.resume();
+    request.on('end', () => {
+      requests += 1;
+      sendChatCompletionSse(response, {
+        choices: [{ message: { content: requests === 1 ? '' : 'synthesized answer' } }],
+        usage: buildTabbyUsage({ promptTokens: 50, completionTokens: requests === 1 ? 5 : 40 }),
+      });
+    });
+  });
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+  try {
+    const tokenUsage = new TokenUsageTracker(undefined);
+    const synthesizer = makeStreamingSynthesizer({
+      tokenUsage,
+      baseUrl: getBaseUrl(server),
+      progressEvents: [],
+      loggerEvents: [],
+    });
+    const result = await synthesizer.synthesize({ ...synthesisInput() });
+    assert.equal(result.finalOutput, 'synthesized answer');
+    assert.equal(requests, 2);
+    const { throughput } = tokenUsage.snapshot();
+    assert.equal(throughput.decode.requestCount, 2);
+    assert.equal(throughput.decode.tokenCount, 45);
+    assert.equal(throughput.decode.missingTabbyRequests, 0);
   } finally {
     await closeServer(server);
   }

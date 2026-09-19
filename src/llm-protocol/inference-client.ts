@@ -35,6 +35,11 @@ import {
   unmeasuredInferenceThroughput,
 } from '../lib/inference-throughput.js';
 import {
+  auditInferenceThroughput,
+  UNPUBLISHED_RATES,
+} from '../status-server/inference-throughput-audit.js';
+import type { ThroughputAuditIdentity } from '@siftkit/contracts';
+import {
   StreamStopSchema,
   THINKING_BUDGET_EARLY_STOP_REASON,
   type JsonObject,
@@ -143,6 +148,8 @@ export type InferenceChatOptions = {
   onContentDelta?: (snapshot: LiveContentSnapshot) => void;
   /** Told of every validated, non-error provider frame, whether or not any text is delivered. */
   activityObserver?: InferenceActivityObserver;
+  /** Identity this request's throughput is audited under; mandatory for every request. */
+  throughputAudit: ThroughputAuditIdentity;
 };
 
 /**
@@ -239,6 +246,18 @@ export class InferenceClient {
   }
 
   async chat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
+    const response = await this.runChat(options);
+    // One request-scope audit per logical model request, after final usage normalization: transient
+    // retries and thinking-budget continuations are already merged into exactly one fold by now.
+    auditInferenceThroughput(
+      { ...options.throughputAudit, scope: 'request' },
+      response.usage.throughput,
+      UNPUBLISHED_RATES,
+    );
+    return response;
+  }
+
+  private async runChat(options: InferenceChatOptions): Promise<NormalizedInferenceChatResponse> {
     const baseUrl = options.baseUrl || getConfiguredEngineBaseUrl(options.config);
     const backend = getActiveInferenceBackend(options.config);
     if (backend !== 'exl3') {

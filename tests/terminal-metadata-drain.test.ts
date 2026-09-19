@@ -29,6 +29,8 @@ import {
   installRejectingTrigger,
   removeRejectingTrigger,
 } from './helpers/runtime-database-probe.js';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+import { readMetrics } from '../src/status-server/metrics.js';
 
 test('terminal metadata idle waits for direct deferred jobs before releasing their runtime', async t => {
   const runtime = new IsolatedRuntime();
@@ -178,4 +180,40 @@ test('a write lost in the background drain cannot be recovered by re-posting the
 
   assert.equal(countRunLogs(ctx.runtimeDatabase, 'lost-then-reposted'), 0, 'the duplicate guard persists nothing');
   assert.equal(ctx.terminalMetadata.persistenceFailedCount, 1, 'the re-post is a duplicate, not a second failure');
+});
+
+test('completed terminal metadata folds its throughput into the server metrics exactly once', async t => {
+  const runtime = new IsolatedRuntime();
+  runtime.start();
+  const configPath = getConfigPath();
+  writeConfig(configPath, getDefaultServerConfig());
+  const ctx = { ...createTestServerContext(configPath, getRuntimeRoot()), metricsPath: getRuntimeDatabasePath() };
+  t.after(async () => {
+    await delay(50);
+    clearIdleSummaryTimer(ctx);
+    await ctx.inferenceRunFlushQueue.close();
+    await runtime.close();
+  });
+  const fold = readTabbyThroughput({ usage: {
+    prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 0 },
+    prompt_time: 0.5, prompt_tokens_per_sec: 200,
+    completion_tokens: 40, completion_time: 2, completion_tokens_per_sec: 20,
+  } });
+  const now = new Date().toISOString();
+  const job = (requestId: string, requestCompleted: boolean) => ({
+    requestId, metadata: parseStatusMetadata(JSON.stringify({
+      requestId, running: false, terminalState: 'completed', taskKind: 'chat', outputTokens: 40, throughput: fold,
+    })), startedAtUtc: now, finishedAtUtc: now, elapsedMs: 1, totalElapsedMs: 1,
+    requestCompleted, suppressLogLine: true,
+  });
+  scheduleDeferredTerminalMetadata(ctx, job('fold-1', true));
+  scheduleDeferredTerminalMetadata(ctx, job('fold-2', true));
+  // An intermediate post carries a fold too, but only a completed request joins the totals.
+  scheduleDeferredTerminalMetadata(ctx, job('fold-3', false));
+  await waitForTerminalMetadataIdle(ctx, 1000);
+  assert.equal(ctx.metrics.completedRequestCount, 2);
+  assert.equal(ctx.metrics.throughput.decode.requestCount, 2);
+  assert.equal(ctx.metrics.throughput.decode.tokenCount, 80);
+  assert.equal(ctx.metrics.throughput.decode.durationMs, 4000);
+  assert.deepEqual(readMetrics(ctx.metricsPath).throughput, ctx.metrics.throughput);
 });

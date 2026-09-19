@@ -18,6 +18,7 @@ import {
   type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
 import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 import {
   buildLiveContextTranscript,
   LIVE_PLANNER_MAX_TOKENS,
@@ -78,6 +79,7 @@ test('live provider retains the large prefix through two approvals and an exempt
     const messages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
     const executing = captureExecutingPlannerRequest(messages, thinking, tools, 1_000);
     const response = await requestRepoSearchPlannerProtocolAction({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model,
@@ -113,6 +115,7 @@ test('live provider retains the large prefix through two approvals and an exempt
       }],
     };
     const response = await requestApprovalVerdict({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model,

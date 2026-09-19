@@ -22,6 +22,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 /**
  * Wildly divergent from any prompt this loop can build, so a re-introduced
@@ -89,6 +90,7 @@ async function runOneTurnAgainstServer(options: { plannerTools?: readonly Infere
     const result = await runTaskLoop(
       { id: 'prompt-accounting', question: 'Finish immediately.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions,
         repoRoot: createManagedTempDir('siftkit-prompt-accounting-'),
         model: 'mock-model',

@@ -10,6 +10,7 @@ import { TurnCommandResultEventSchema } from '../src/repo-search/live-snapshot/s
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { parseLoggedEvent } from './helpers/logged-events.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 test('TurnCommandResultEventSchema accepts a rejected command with a null exit code', () => {
   const parsed = TurnCommandResultEventSchema.safeParse({
@@ -87,6 +88,7 @@ test('a rejected read writes a turn_command_result with rejected=true', async ()
       question: 'Read a file that does not exist.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...REJECTION_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,

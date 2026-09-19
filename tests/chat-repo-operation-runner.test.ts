@@ -145,6 +145,10 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
   scorecard.totals.generationDurationMs = 1_000;
   scorecard.totals.speculativeAcceptedTokens = 4;
   scorecard.totals.speculativeGeneratedTokens = 5;
+  scorecard.throughput = {
+    pp: { tokenCount: 10, durationMs: 500, tabbyWeightedTokens: 10, tabbyDurationMs: 500, requestCount: 1, missingInternalRequests: 0, missingTabbyRequests: 0 },
+    decode: { tokenCount: 10, durationMs: 1_000, tabbyWeightedTokens: 10, tabbyDurationMs: 1_000, requestCount: 1, missingInternalRequests: 0, missingTabbyRequests: 0 },
+  };
   task.groundingStatus = 'fetched';
   return {
     requestId: 'engine-request',

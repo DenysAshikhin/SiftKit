@@ -178,6 +178,7 @@ function buildRunLogUpsertRow(overrides: Partial<RunLogUpsertRow> = {}): RunLogU
     generationDurationMs: null,
     speculativeAcceptedTokens: null,
     speculativeGeneratedTokens: null,
+    throughput: null,
     durationMs: null,
     providerDurationMs: null,
     wallDurationMs: null,

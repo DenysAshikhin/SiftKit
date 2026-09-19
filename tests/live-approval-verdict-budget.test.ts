@@ -5,6 +5,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { ApprovalVerdictSchema } from '../src/repo-search/approval-verdict.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import { resolvePlannerThinkingFlags } from '../src/repo-search/engine/task-loop-support.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
@@ -51,6 +52,7 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   const plannerMessages = serializeProtocolMessages(transcript, thinking.reasoningContentEnabled);
   const executing = captureExecutingPlannerRequest(plannerMessages, thinking, tools, 1_000);
   await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model, messages: plannerMessages,
     timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: LIVE_PLANNER_MAX_TOKENS, ...thinking,
     stage: 'planner_action', tools, toolChoice: 'none', responseSchema: null,
@@ -58,6 +60,7 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
 
   // A payload the reviewer must inspect closely: this is what makes a real verdict think.
   const verdict = await requestApprovalVerdict({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model,
     transcriptMessages: transcript, pendingMessages: [],
     question: buildApprovalVerdictQuestion({
@@ -72,6 +75,7 @@ test('a budgeted verdict keeps the planner prefix cached and the next planner tu
   assert.ok(retention(verdict, 'verdict') >= CACHE_RETENTION_FRACTION, `verdict retention ${retention(verdict, 'verdict')}`);
 
   const next = await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config, baseUrl, model,
     messages: serializeProtocolMessages([...transcript, { role: 'user', content: 'Reply with the single word ok again.' }], thinking.reasoningContentEnabled),
     timeoutMs: LIVE_REQUEST_TIMEOUT_MS, maxTokens: LIVE_PLANNER_MAX_TOKENS, ...thinking,

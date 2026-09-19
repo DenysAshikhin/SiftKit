@@ -8,17 +8,41 @@ import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
 import { normalizeModelRuntimePresetArray } from '../src/config/normalization.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import type { ThroughputAuditIdentity, ThroughputAuditOperation } from '@siftkit/contracts';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import type { TaskResult } from '../src/repo-search/engine/task-loop-support.js';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { writeSseResult } from './helpers/sse-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 export type Dict = JsonObject;
+
+/**
+ * The one test identity every fake-backend fixture audits under, so a real request path can never
+ * be exercised without one. Values are stable so assertions on audit lines stay readable.
+ */
+export const TEST_THROUGHPUT_AUDIT: ThroughputAuditIdentity = {
+  operationType: 'summary',
+  operationId: 'test-operation',
+  requestId: 'test-request',
+  stage: 'test_stage',
+  model: 'test-model',
+  presetId: null,
+};
+
+/** The same identity in operation form (no stage) for `runRepoSearch` and `runTaskLoop` callers. */
+export const TEST_THROUGHPUT_AUDIT_OPERATION: ThroughputAuditOperation = {
+  operationType: TEST_THROUGHPUT_AUDIT.operationType,
+  operationId: TEST_THROUGHPUT_AUDIT.operationId,
+  requestId: TEST_THROUGHPUT_AUDIT.requestId,
+  model: TEST_THROUGHPUT_AUDIT.model,
+  presetId: TEST_THROUGHPUT_AUDIT.presetId,
+};
 
 const EMPTY_READ_OVERLAP = {
   byFile: [],
@@ -60,6 +84,7 @@ export function buildMockTaskResult(overrides: Partial<TaskResult> = {}): TaskRe
     speculativeGeneratedTokens: 0,
     toolStats: {},
     readOverlapSummary: EMPTY_READ_OVERLAP,
+    throughput: emptyInferenceThroughput(),
     ...overrides,
   };
 }
@@ -75,6 +100,7 @@ export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResu
     totals: { tasks: 1, passed: 1, failed: 0, commandsExecuted: 0, safetyRejects: 0, invalidResponses: 0 },
     toolStats: {},
     readOverlapSummary: EMPTY_READ_OVERLAP,
+    throughput: emptyInferenceThroughput(),
     verdict: 'pass',
     failureReasons: [],
   };
@@ -233,6 +259,8 @@ export type StubServerOptions = {
   config?: Dict;
   assistantContent?: string | ((parsed: Dict) => string);
   tokenizeTokenCount?: number | ((content: string, parsed: Dict) => number | null);
+  /** Usage block of every chat completion; defaults to a self-consistent Tabby usage. */
+  usage?: JsonObject | ((parsed: Dict) => JsonObject);
 };
 
 export type StubServer = {
@@ -424,7 +452,9 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
           }));
       sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: assistantContent, reasoning_content: '' } }],
-        usage: { prompt_tokens: 100, completion_tokens: 20, completion_tokens_details: { reasoning_tokens: 0 } },
+        usage: typeof options.usage === 'function'
+          ? options.usage(parsed)
+          : (options.usage ?? buildTabbyUsage({ promptTokens: 100, completionTokens: 20 })),
       });
       return;
     }

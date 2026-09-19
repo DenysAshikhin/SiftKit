@@ -385,6 +385,13 @@ export async function condenseChatSession(
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
     logger,
     abortSignal: recorder.abortSignal,
+    throughputAudit: {
+      operationType: 'chat',
+      operationId: session.id,
+      requestId: randomUUID(),
+      model: resolveChatSessionModel(config, session),
+      presetId: session.modelPresetId,
+    },
   });
   // No system message: chat's system prompt is composed per request, and the compactor
   // summarizes everything below the system slot anyway. There is no turn either — this

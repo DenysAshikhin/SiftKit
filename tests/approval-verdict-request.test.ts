@@ -17,6 +17,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { baseVerdictOptions, captureExecutingForVerdict } from './helpers/approval-verdict-fixture.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -35,6 +36,7 @@ function verdictOptions(transcriptMessages: ChatMessage[], executing: ExecutingP
     config: MOCK_CONFIG,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...baseVerdictOptions(transcriptMessages, executing),
     timeoutMs: 5000,
     mockResponses: [{ content: APPROVE_MOCK }],
@@ -125,6 +127,7 @@ test('a task loop refuses an approval verdict before any planner request', async
     const loop = new TaskLoop(
       { id: 'task-1', question: 'q' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
         repoRoot: tempRoot,
         systemContext: createEmptyPresetSystemContext(),

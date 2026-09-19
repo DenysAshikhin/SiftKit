@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ImageDataUrl } from '@siftkit/contracts';
 
 import {
@@ -83,6 +84,7 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
     if (request.abortSignal?.aborted === true) {
       throw new Error('Assistant inference aborted before the request was issued.');
     }
+    const operationId = randomUUID();
     const response = await this.backend.chat({
       config: this.config,
       model: getConfiguredModel(this.config),
@@ -99,6 +101,14 @@ export class DefaultAssistantInferenceClient implements AssistantInferenceClient
       }),
       idleTimeoutSeconds: ASSISTANT_IDLE_TIMEOUT_SECONDS,
       reasoningOverride: 'off',
+      throughputAudit: {
+        operationType: 'assistant',
+        operationId,
+        requestId: operationId,
+        stage: `${request.kind}_${request.role}`,
+        model: getConfiguredModel(this.config),
+        presetId: this.presets.getPreset().id,
+      },
       ...(request.abortSignal === null ? {} : { abortSignal: request.abortSignal }),
     });
     return {

@@ -19,6 +19,7 @@ import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getActiveModelPreset } from '../src/config/index.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 test('llm protocol types model text, reasoning, and tool-call responses', () => {
   assert.equal(INFERENCE_PROTOCOL_FORMAT, 'openai-compatible');
@@ -241,6 +242,7 @@ test('client builds chat request with thinking kwargs and tools', async () => {
   const http = new CapturingHttpClient();
   const client = new InferenceClient(http);
   await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -336,6 +338,7 @@ test('inference client covers streamed request and response normalization branch
   ]]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -424,6 +427,7 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
   };
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config,
     model: '3.6_27B',
     messages: [{ role: 'user', content: 'find it' }],
@@ -457,6 +461,7 @@ test('EXL3 chat requests are serialized for a single Tabby cache slot', async ()
     tools: [],
     maxTokens: 4,
     allowedToolNames: [],
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
   };
 
   const first = client.chat(options);
@@ -480,6 +485,7 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
   ]]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config,
     baseUrl: 'http://127.0.0.1:8098',
     model: '3.6_27B',
@@ -552,6 +558,7 @@ test('inference client covers chat HTTP errors and status success branches', asy
     () => new InferenceClient(new CapturingHttpClient([], [
       new HttpResponseError(500, 'bad chat'),
     ])).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: protocolConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -594,6 +601,7 @@ test('inference client covers usage cache, top-level thinking tokens, and top-le
   ]]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -629,6 +637,7 @@ test('inference client covers prompt-token cache fallback, empty response normal
   const client = new InferenceClient(http);
 
   const response = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: noReasoningConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -646,6 +655,7 @@ test('inference client covers prompt-token cache fallback, empty response normal
   assert.equal(response.usage.thinkingTokens, 2);
 
   const empty = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: protocolConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -666,6 +676,7 @@ test('chat requests send the active preset reasoning effort', async () => {
 
   const http = new CapturingHttpClient();
   await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -690,6 +701,7 @@ test('chat requests omit reasoning effort when the preset has reasoning off', as
 
   const http = new CapturingHttpClient();
   await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],

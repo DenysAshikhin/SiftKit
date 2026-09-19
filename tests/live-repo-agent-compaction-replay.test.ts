@@ -41,6 +41,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { readRuntimeArtifact, upsertRuntimeTextArtifact } from '../src/state/runtime-artifacts.js';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../src/web-search/tool-policy.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const LIVE_REPLAY_ENABLED = process.env.SIFTKIT_TEST_LIVE_REPO_AGENT_COMPACTION_REPLAY === '1';
 const SOURCE_ARTIFACT_ID = 'b3f34f16-ac1a-4a38-a82e-449e578afbe1';
@@ -262,6 +263,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     transcript,
     runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
     compactor: new TranscriptCompactor({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl,
       model,
@@ -339,6 +341,7 @@ test('approximate historical replay compacts the failed repo-agent turn and resu
     : PLANNER_REASONING_BUDGET_MESSAGE;
 
   const response = await requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl,
     model,

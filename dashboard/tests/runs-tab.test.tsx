@@ -15,7 +15,7 @@ function makeRun(overrides: Partial<RunRecord>): RunRecord {
     inputTokens: null, outputTokens: null, thinkingTokens: null,
     toolTokens: null, promptCacheTokens: null, promptEvalTokens: null,
     promptEvalDurationMs: null, generationDurationMs: null,
-    speculativeAcceptedTokens: null, speculativeGeneratedTokens: null,
+    speculativeAcceptedTokens: null, speculativeGeneratedTokens: null, throughput: null,
     durationMs: 134000, providerDurationMs: null, wallDurationMs: null,
     rawPaths: {},
     ...overrides,

@@ -1,6 +1,8 @@
 import type { SiftConfig } from '../config/index.js';
-import { notifyStatusBackend } from '../config/index.js';
+import { getActiveModelPreset, notifyStatusBackend } from '../config/index.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
+import { unmeasuredInferenceThroughput } from '../lib/inference-throughput.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
 import { generateInferenceResponse, type InferenceGenerateResult } from '../providers/inference.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { runMockProvider } from './providers/mock-provider.js';
@@ -25,6 +27,8 @@ export type ProviderSummaryMetrics = {
   generationDurationMs: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  /** Canonical observation of this one physical request; the mock provider reports no request. */
+  throughput: InferenceThroughput;
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
@@ -128,6 +132,15 @@ export async function invokeProviderSummary(options: {
       response = await generateInferenceResponse({
         config: options.config,
         model: options.model,
+        // Leaf, merge and chunk work are separate physical requests under one summary operation id.
+        throughputAudit: {
+          operationType: 'summary',
+          operationId: options.requestId,
+          requestId: options.requestId,
+          stage: options.chunkPath === null ? `summary_${options.phase}` : `summary_${options.phase}_chunk`,
+          model: options.model,
+          presetId: getActiveModelPreset(options.config).id,
+        },
         prompt: options.prompt,
         promptTokenCount: options.promptTokenCount,
         // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
@@ -178,6 +191,8 @@ export async function invokeProviderSummary(options: {
         generationDurationMs,
         speculativeAcceptedTokens,
         speculativeGeneratedTokens,
+        // A request whose usage never arrived is one unmeasured request, never a zero.
+        throughput: response.usage?.throughput ?? unmeasuredInferenceThroughput(),
         requestDurationMs: providerDurationMs,
         providerDurationMs,
         statusRunningMs,

@@ -67,6 +67,7 @@ const SESSION: ChatSession = {
   planRepoRoot: 'C:/repo',
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
+  sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
   messages: [],
 };
 

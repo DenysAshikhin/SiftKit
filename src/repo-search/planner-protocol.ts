@@ -29,7 +29,7 @@ import {
   EXPOSED_REPO_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
 import { emptyInferenceThroughput } from '../lib/inference-throughput.js';
-import type { InferenceThroughput } from '@siftkit/contracts';
+import type { InferenceThroughput, ThroughputAuditOperation } from '@siftkit/contracts';
 
 export type PlannerActionResponse = {
   text: string;
@@ -290,6 +290,8 @@ type PlannerRequestBase = PlannerThinkingFlags & {
   config: SiftConfig;
   baseUrl: string;
   model: string;
+  /** The operation's audit identity; the request layer stamps its own stage onto it. */
+  throughputAudit: ThroughputAuditOperation;
   /**
    * Already-serialized protocol messages — the exact array that is sent. The
    * request layer never re-derives them from a transcript, so a caller that
@@ -508,6 +510,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
         activityObserver: options.activityObserver,
+        throughputAudit: { ...options.throughputAudit, stage: options.stage },
       }),
       {
         maxWaitMs: options.timeoutMs,
@@ -628,6 +631,7 @@ export async function requestApprovalVerdict(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
+  throughputAudit: ThroughputAuditOperation;
   transcriptMessages: readonly ChatMessage[];
   pendingMessages: readonly ChatMessage[];
   question: string;
@@ -661,6 +665,7 @@ export async function requestApprovalVerdict(options: {
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
+    throughputAudit: options.throughputAudit,
     messages: serializedMessages,
     timeoutMs: options.timeoutMs,
     maxTokens: resolveGenerationTokenLimit({
@@ -702,6 +707,7 @@ export async function requestTerminalSynthesis(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
+  throughputAudit: ThroughputAuditOperation;
   messages: readonly ChatMessage[];
   executing: ExecutingPlannerRequest;
   timeoutMs: number;
@@ -716,6 +722,7 @@ export async function requestTerminalSynthesis(options: {
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
+    throughputAudit: options.throughputAudit,
     messages: serializeProtocolMessages(
       options.messages,
       options.executing.flags.reasoningContentEnabled,
@@ -769,6 +776,7 @@ export async function requestContextCompactionSummary(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
+  throughputAudit: ThroughputAuditOperation;
   messages: readonly ChatMessage[];
   instruction: string;
   timeoutMs: number;
@@ -798,6 +806,7 @@ export async function requestContextCompactionSummary(options: {
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
+    throughputAudit: options.throughputAudit,
     messages: serializedMessages,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,

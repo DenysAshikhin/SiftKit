@@ -77,6 +77,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
     planRepoRoot: 'C:/repo',
     createdAtUtc: '2026-06-03T00:00:00.000Z',
     updatedAtUtc: '2026-06-03T00:00:00.000Z',
+    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
     messages: [],
   },
   contextUsage: {

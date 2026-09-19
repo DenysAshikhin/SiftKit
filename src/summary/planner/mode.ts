@@ -540,6 +540,15 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         response = await generateInferenceChatResponse({
           config: this.options.config,
           model: this.options.model,
+          // The planner's own request: same summary operation id, its own stage identity.
+          throughputAudit: {
+            operationType: 'summary',
+            operationId: this.options.requestId,
+            requestId: this.options.requestId,
+            stage: 'summary_planner',
+            model: this.options.model,
+            presetId: null,
+          },
           messages: this.messages,
           // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
           idleTimeoutSeconds: this.options.requestTimeoutSeconds ?? 600,
@@ -656,6 +665,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolStats: toolStatsPayload,
       promptCacheTokens: providerResponse.promptCacheTokens,
       promptEvalTokens: providerResponse.promptEvalTokens,
+      throughput: providerResponse.throughput,
       requestDurationMs: providerResponse.requestDurationMs,
       providerDurationMs: providerResponse.providerDurationMs,
       statusRunningMs: providerResponse.statusRunningMs,

@@ -5,6 +5,7 @@ import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import { buildStreamingTestConfig } from './helpers/streaming-client.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 /** Rejects any blocking request aimed at chat completions. */
 class ChatBlockingDetector {
@@ -28,6 +29,7 @@ test('chat never issues a blocking request to /v1/chat/completions', async () =>
   const client = new InferenceClient(new ChatBlockingDetector());
 
   const response = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: buildStreamingTestConfig(),
     model: 'local',
     messages: [{ role: 'user', content: 'hi' }],

@@ -31,6 +31,7 @@ import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../ch
 import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
+import { auditCompletedChatSessionThroughput } from '../chat-turn-telemetry.js';
 import {
 buildRepoAgentResultMarkdown,
 resolveChatSessionConfig
@@ -258,8 +259,21 @@ export async function executeChatRepoAgentOperation(options: {
     const cause = result.status === 'completed' ? 'completed' : result.status === 'aborted' ? 'user_stop'
       : result.status === 'approval_timeout' ? 'approval_timeout' : 'execution_failure';
     const updatedSession = result.status === 'completed'
-      ? options.recorder.completeAnswer(executionResult ? buildChatAnswerCompletion(executionResult, text) : { content: text })
+      ? options.recorder.completeAnswer(executionResult ? buildChatAnswerCompletion(executionResult, text, {
+        operationType: 'repo-agent',
+        operationId: executionResult.scorecard.runId,
+        requestId: executionResult.requestId,
+        model: executionResult.scorecard.model,
+        presetId: options.session.modelPresetId,
+      }) : { content: text })
       : options.recorder.stop(cause, cause === 'user_stop' ? null : text);
+    if (result.status === 'completed' && executionResult) {
+      auditCompletedChatSessionThroughput(updatedSession, {
+        requestId: executionResult.requestId,
+        model: executionResult.scorecard.model,
+        presetId: options.session.modelPresetId,
+      });
+    }
     return { updatedSession, failure: cause === 'completed' || cause === 'user_stop' ? null : text };
   } finally {
     detach();

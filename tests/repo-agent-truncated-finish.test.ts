@@ -10,7 +10,7 @@ import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-prof
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { parseLoggedEvent, plannerLogMessages, userMessagesOfTurn } from './helpers/logged-events.js';
-import { buildMockScorecard } from './_test-helpers.js';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-truncated-finish-');
 const AGENT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-agent');
@@ -29,6 +29,7 @@ async function runScenario(args: {
   const result = await runTaskLoop(
     { id: args.id, question: 'Do the task.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       runtimeProfile: args.runtimeProfile ?? AGENT_RUNTIME_PROFILE,
       minToolCallsBeforeFinish: 0,

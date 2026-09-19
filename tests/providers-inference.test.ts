@@ -10,7 +10,7 @@ import {
 } from '../src/providers/inference.js';
 import { loadConfig } from '../src/config/index.js';
 import { getErrorMessage } from '../src/lib/errors.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { withTestEnvAndServer, TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
@@ -23,7 +23,6 @@ test('listInferenceModels returns model list from server', async () => {
     assert.ok(models.length >= 1);
   });
 });
-
 test('getInferenceProviderStatus returns reachable status', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
@@ -118,6 +117,7 @@ test('generateInferenceResponse returns text response', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
     const response = await generateInferenceResponse({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config,
       model: 'mock-model',
       prompt: 'Hello, world!',

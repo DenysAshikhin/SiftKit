@@ -13,6 +13,7 @@ import {
   type InferenceThroughput,
   type ThroughputComparison,
   type ThroughputMetric,
+  type ThroughputRates,
 } from '@siftkit/contracts';
 import { z } from './zod.js';
 import type { JsonValue } from './json-types.js';
@@ -206,6 +207,14 @@ function calculateRate(
 /** Internal rate of one metric, or null when it is not comparable. Rates are never rounded here. */
 export function calculateThroughputRate(metric: ThroughputMetric): number | null {
   return calculateRate(metric.tokenCount, metric.durationMs, metric.missingInternalRequests);
+}
+
+/** Canonical rates published for a complete fold. */
+export function calculateThroughputRates(throughput: InferenceThroughput): ThroughputRates {
+  return {
+    promptTokensPerSecond: calculateThroughputRate(throughput.pp),
+    generationTokensPerSecond: calculateThroughputRate(throughput.decode),
+  };
 }
 
 /**

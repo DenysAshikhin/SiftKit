@@ -19,6 +19,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
 const REPO_SEARCH_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
@@ -49,6 +50,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
   const result = await runTaskLoop(
     { id: 'chat', question: 'What is 2+2?' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -72,6 +74,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
   const result = await runTaskLoop(
     { id: 'chat', question: 'What is this repo?' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -106,6 +109,7 @@ test('chat mode streams finish output as answer events', async () => {
   const result = await runTaskLoop(
     { id: 'chat', question: 'Greet me.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -133,6 +137,7 @@ test('non-live writers do not receive the final planner answer event', async () 
   const result = await runTaskLoop(
     { id: 'chat', question: 'Greet me.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -158,6 +163,7 @@ test('tool token totals sum command output tokens', async () => {
   const result = await runTaskLoop(
     { id: 'repo-search', question: 'Find x.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       runtimeProfile: REPO_SEARCH_RUNTIME_PROFILE,
       repoRoot: os.tmpdir(),
@@ -209,6 +215,7 @@ test('chat streams native content as raw progress and safe narration before the 
     const result = await runTaskLoop(
       { id: 'chat', question: 'Greet me.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
@@ -292,6 +299,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
     const result = await runTaskLoop(
       { id: 'chat', question: 'Answer from terminal synthesis.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
@@ -360,6 +368,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
     const result = await runTaskLoop(
       { id: 'chat', question: 'Answer from terminal synthesis.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl, NumCtx: 32000 }] } } }),
@@ -388,6 +397,7 @@ test('chat mode seeds system prompt override and history before the question', a
   await runTaskLoop(
     { id: 'chat', question: 'And now?' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -427,6 +437,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
   const result = await runTaskLoop(
     { id: 'chat', question: 'next question' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -484,6 +495,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
   await runTaskLoop(
     { id: 'chat', question: 'Hi' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
@@ -516,6 +528,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
 
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
   const { scorecard } = await runRepoSearch({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     repoRoot: os.tmpdir(),
     systemContext: createEmptyPresetSystemContext(),
     taskKind: 'chat',
@@ -537,6 +550,7 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
 test('runRepoSearch rejects an undefined task prompt instead of executing self-test work', async () => {
   await assert.rejects(
     () => runRepoSearch({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       taskKind: 'chat',

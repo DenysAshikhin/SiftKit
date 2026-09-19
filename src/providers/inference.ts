@@ -25,6 +25,7 @@ import {
   buildSummaryDecisionJsonSchema,
 } from './structured-output-schema.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
+import type { ThroughputAuditIdentity } from '@siftkit/contracts';
 import { createTracer } from '../lib/trace.js';
 
 function logInferenceError(operation: string, message: string): void {
@@ -362,8 +363,11 @@ export async function generateInferenceResponse(options: {
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
   operationMaxTokens?: number;
+  /** Identity the physical request's throughput is audited under. */
+  throughputAudit: ThroughputAuditIdentity;
 }): Promise<InferenceGenerateResult> {
   return generateInferenceChatResponse({
+    throughputAudit: options.throughputAudit,
     config: options.config,
     model: options.model,
     messages: [
@@ -392,6 +396,8 @@ export async function generateInferenceChatResponse(options: {
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
   operationMaxTokens?: number;
+  /** Identity the physical request's throughput is audited under. */
+  throughputAudit: ThroughputAuditIdentity;
 }): Promise<InferenceGenerateResult> {
   const baseUrl = getConfiguredEngineBaseUrl(options.config);
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
@@ -427,6 +433,7 @@ export async function generateInferenceChatResponse(options: {
       reasoningOverride: options.reasoningOverride,
       allowedToolNames: protocolTools.map((tool) => tool.function.name),
       idleTimeoutSeconds: options.idleTimeoutSeconds,
+      throughputAudit: options.throughputAudit,
     });
   } catch (error) {
     const message = getErrorMessage(error);

@@ -14,6 +14,8 @@ import {
   readTabbyThroughput,
 } from '../src/lib/inference-throughput.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { buildScorecard } from '../src/repo-search/engine.js';
+import { buildMockTaskResult } from './_test-helpers.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
 
@@ -181,7 +183,8 @@ test('decode throughput comes from the backend emitted count, not from retokeniz
   // The investigated run: 28,036 emitted tokens (tool-call markup and reasoning included) over
   // 1,189.48 s, while the narration+thinking attribution stayed at 19,650 tokens.
   const observed = readTabbyThroughput({ usage: {
-    prompt_tokens: 35_414, prompt_tokens_details: { cached_tokens: 251_392 },
+    // Raw prompt total 286,806 = 35,414 newly processed + 251,392 cached.
+    prompt_tokens: 286_806, prompt_tokens_details: { cached_tokens: 251_392 },
     prompt_time: 48.73, prompt_tokens_per_sec: 726.739_175_046_2,
     completion_tokens: 28_036, completion_time: 1_189.48,
     completion_tokens_per_sec: 23.569_963_345_3,
@@ -191,6 +194,7 @@ test('decode throughput comes from the backend emitted count, not from retokeniz
 
   const snapshot = tracker.snapshot();
   assert.equal(snapshot.outputTokens + snapshot.thinkingTokens, 19_650);
+  assert.equal(snapshot.throughput.pp.tokenCount, 35_414);
   assert.ok(Math.abs((calculateThroughputRate(snapshot.throughput.decode) ?? Number.NaN) - 23.569_963_345_3) < 1e-9);
   assert.ok(Math.abs((calculateThroughputRate(snapshot.throughput.pp) ?? Number.NaN) - 726.739_175_046_2) < 1e-9);
 });
@@ -227,6 +231,33 @@ test('throughput accumulates once per recorded model response', async () => {
   assert.equal(snapshot.throughput.decode.tokenCount, 100);
   assert.equal(calculateThroughputRate(snapshot.throughput.decode), 25);
   assert.equal(calculateThroughputRate(snapshot.throughput.pp), null);
+});
+
+test('the scorecard folds task throughput by tokens and time, never by averaging rates', () => {
+  // Two tasks with very different rates: the run rate is the token-weighted fold, not the mean.
+  const slow = readTabbyThroughput({ usage: {
+    prompt_tokens: 286_806, prompt_tokens_details: { cached_tokens: 251_392 },
+    prompt_time: 48.73, prompt_tokens_per_sec: 726.739_175_046_2,
+    completion_tokens: 28_036, completion_time: 1_189.48, completion_tokens_per_sec: 23.569_963_345_3,
+  } });
+  const fast = readTabbyThroughput({ usage: {
+    prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 0 },
+    prompt_time: 0.1, prompt_tokens_per_sec: 1_000,
+    completion_tokens: 964, completion_time: 10.52, completion_tokens_per_sec: 91.634_980_988_6,
+  } });
+  const scorecard = buildScorecard({
+    runId: 'run',
+    model: 'mock-model',
+    tasks: [buildMockTaskResult({ throughput: slow }), buildMockTaskResult({ throughput: fast })],
+  });
+
+  assert.equal(scorecard.throughput.decode.requestCount, 2);
+  assert.equal(scorecard.throughput.decode.tokenCount, 29_000);
+  assert.equal(scorecard.throughput.decode.durationMs, 1_200_000);
+  assert.ok(Math.abs((calculateThroughputRate(scorecard.throughput.decode) ?? Number.NaN) - 29_000 / 1_200) < 1e-9);
+  assert.equal(scorecard.throughput.pp.tokenCount, 35_514);
+  assert.equal(scorecard.throughput.pp.durationMs, 48_830);
+  assert.deepEqual(buildScorecard({ runId: 'run', model: 'mock-model', tasks: [] }).throughput, emptyInferenceThroughput());
 });
 
 test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and floored at zero', () => {

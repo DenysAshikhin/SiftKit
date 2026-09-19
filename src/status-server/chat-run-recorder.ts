@@ -9,7 +9,7 @@ import type {
   ChatApprovalReviewedEvidence,
 } from '../repo-search/engine/chat-run-evidence.js';
 import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.js';
-import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent } from '@siftkit/contracts';
+import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent, type ThroughputAuditOperation } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { toError } from '../lib/errors.js';
 import { getChatSessionPath, readChatSessionFromPath, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
@@ -33,7 +33,8 @@ import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.js
 import { getScorecardTotal } from './chat.js';
 import type { ChatStreamProgressWriter } from './chat-stream-progress-writer.js';
 import { buildRecoveredChatHistory } from './chat-context-replay.js';
-import { getGenerationTokensPerSecond, getPromptTokensPerSecond } from '../lib/telemetry-metrics.js';
+import { calculateThroughputRates } from '../lib/inference-throughput.js';
+import { auditInferenceThroughput } from './inference-throughput-audit.js';
 import { getAbortError, throwIfAborted } from '../lib/abort.js';
 import { admitChatImages } from '../llm-protocol/preset-image-admission.js';
 import { readChatHistoryRevisions } from '../state/chat-history-revisions.js';
@@ -443,8 +444,19 @@ export function buildChatRunSettings(input: {
   });
 }
 
-export function buildChatAnswerCompletion(result: RepoSearchExecutionResult, content: string): ChatAnswerCompletion {
+export function buildChatAnswerCompletion(
+  result: RepoSearchExecutionResult,
+  content: string,
+  audit: ThroughputAuditOperation,
+): ChatAnswerCompletion {
   const totals = result.turnRecords.length > 0 ? foldTurnTokenRecords(result.turnRecords) : null;
+  const throughput = result.scorecard.throughput;
+  const rates = calculateThroughputRates(throughput);
+  auditInferenceThroughput(
+    { ...audit, stage: 'chat_answer', scope: 'published' },
+    throughput,
+    { pp: rates.promptTokensPerSecond, decode: rates.generationTokensPerSecond },
+  );
   return ChatAnswerCompletionSchema.parse({
     content,
     outputTokensEstimate: totals?.outputTokens ?? estimateTokenCount(content),
@@ -452,10 +464,10 @@ export function buildChatAnswerCompletion(result: RepoSearchExecutionResult, con
     thinkingTokens: 0, thinkingTokensEstimated: false,
     promptCacheTokens: getScorecardTotal(result.scorecard, 'promptCacheTokens'),
     promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
-    promptEvalDurationMs: getScorecardTotal(result.scorecard, 'promptEvalDurationMs'),
-    generationDurationMs: getScorecardTotal(result.scorecard, 'generationDurationMs'),
-    promptTokensPerSecond: getPromptTokensPerSecond(getScorecardTotal(result.scorecard, 'promptEvalTokens'), getScorecardTotal(result.scorecard, 'promptEvalDurationMs')),
-    generationTokensPerSecond: getGenerationTokensPerSecond(totals?.outputTokens ?? 0, totals?.thinkingTokens ?? 0, getScorecardTotal(result.scorecard, 'generationDurationMs')),
+    promptEvalDurationMs: throughput.pp.durationMs,
+    generationDurationMs: throughput.decode.durationMs,
+    throughput,
+    ...rates,
     speculativeAcceptedTokens: getScorecardTotal(result.scorecard, 'speculativeAcceptedTokens'),
     speculativeGeneratedTokens: getScorecardTotal(result.scorecard, 'speculativeGeneratedTokens'),
   });

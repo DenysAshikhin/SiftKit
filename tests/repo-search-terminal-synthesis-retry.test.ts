@@ -5,6 +5,7 @@ import { runTaskLoop } from '../src/repo-search/engine.js';
 import { POST_LIMIT_ANSWER_SLACK_TURNS } from '../src/repo-search/engine/task-loop-support.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-syn-loop-');
 
@@ -20,6 +21,7 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
   const result = await runTaskLoop(
     { id: 'task-syn-1', question: 'Any question.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: MAX_INVALID_RESPONSES,
@@ -46,6 +48,7 @@ test('synthesis that returns empty text twice then succeeds on attempt 3 sets fi
   const result = await runTaskLoop(
     { id: 'task-syn-3', question: 'Any question.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: MAX_INVALID_RESPONSES,
@@ -75,6 +78,7 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
     runTaskLoop(
       { id: 'task-syn-fail', question: 'Any question.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         maxTurns: 1,
         maxInvalidResponses: MAX_INVALID_RESPONSES,
@@ -101,6 +105,7 @@ test('synthesis with exhausted mocks throws after 3 attempts (no silent dump fal
     runTaskLoop(
       { id: 'task-syn-exhaust', question: 'Any question.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         maxTurns: 1,
         maxInvalidResponses: 3,

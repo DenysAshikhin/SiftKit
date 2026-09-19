@@ -219,7 +219,8 @@ const server = http.createServer((request, response) => {
     readJsonBody(request, (forwardedRequest) => {
       sendJson(response, 200, {
         choices: [{ message: { content: 'ok' } }],
-        usage: { prompt_tokens: 3, completion_tokens: 1 },
+        // Self-consistent Tabby usage: reported rates equal count / time, so the audit stays quiet.
+        usage: { prompt_tokens: 3, prompt_tokens_details: { cached_tokens: 0 }, prompt_time: 0.1, prompt_tokens_per_sec: 30, completion_tokens: 1, completion_tokens_details: { reasoning_tokens: 0 }, completion_time: 1, completion_tokens_per_sec: 1, total_tokens: 4 },
         forwardedRequest,
       });
     });

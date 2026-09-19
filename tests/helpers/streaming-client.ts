@@ -22,6 +22,36 @@ export function buildStreamingTestConfig(): SiftConfig {
   return config;
 }
 
+export type TabbyUsageInput = {
+  promptTokens: number;
+  cachedTokens?: number;
+  completionTokens: number;
+  reasoningTokens?: number;
+  promptTime?: number;
+  completionTime?: number;
+};
+
+/**
+ * A complete Tabby usage block whose reported rates equal count / time exactly, so a fixture that
+ * emits it audits clean. Prompt rate is over newly processed tokens, as Tabby reports it.
+ */
+export function buildTabbyUsage(input: TabbyUsageInput): JsonObject {
+  const cachedTokens = input.cachedTokens ?? 0;
+  const promptTime = input.promptTime ?? 0.1;
+  const completionTime = input.completionTime ?? 1;
+  return {
+    prompt_tokens: input.promptTokens,
+    prompt_tokens_details: { cached_tokens: cachedTokens },
+    prompt_time: promptTime,
+    prompt_tokens_per_sec: (input.promptTokens - cachedTokens) / promptTime,
+    completion_tokens: input.completionTokens,
+    completion_tokens_details: { reasoning_tokens: input.reasoningTokens ?? 0 },
+    completion_time: completionTime,
+    completion_tokens_per_sec: input.completionTokens / completionTime,
+    total_tokens: input.promptTokens + input.completionTokens,
+  };
+}
+
 /** A single content delta, serialized as the client expects it on the wire. */
 export function contentFrame(text: string): string {
   return JSON.stringify({ choices: [{ delta: { content: text } }] });

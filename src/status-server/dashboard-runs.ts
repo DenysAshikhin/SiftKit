@@ -294,6 +294,8 @@ export {
   type SnapshotTotals,
   type TaskDailyMetrics,
 } from './dashboard-runs/metrics.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
+import { parseJsonValueText } from '../lib/json.js';
 
 export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): DailyMetrics[] {
   void runtimeRoot;
@@ -303,6 +305,10 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
+
+function parseSnapshotThroughputJson(text: string | null | undefined): InferenceThroughput | null {
+  return typeof text === 'string' && text.trim() ? InferenceThroughputSchema.parse(parseJsonValueText(text)) : null;
+}
 
 export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | null): IdleSummarySnapshotRow | null {
   if (!row || typeof row !== 'object') {
@@ -345,6 +351,7 @@ export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | 
     chunkThresholdCharacters: null,
     taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
     toolStats: parseSnapshotToolStatsJson(row.tool_stats_json),
+    throughput: parseSnapshotThroughputJson(row.throughput_json),
     summaryText: '',
   };
   snapshot.summaryText = buildIdleSummarySnapshotMessage(snapshot);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TaskMetricKindSchema, MetricTotalsSchema, ToolTypeStatsSchema } from './metrics.js';
+import { InferenceThroughputSchema } from './inference-throughput.js';
 
 const SnapshotTaskTotalsSchema = z.record(TaskMetricKindSchema, MetricTotalsSchema);
 const SnapshotToolStatsSchema = z.record(TaskMetricKindSchema, z.record(z.string(), ToolTypeStatsSchema));
@@ -17,6 +18,7 @@ export const IdleSummarySnapshotRowSchema = z.object({
   avgTokensPerSecond: z.number().nullable(),
   inputCharactersPerContextToken: z.number().nullable(), chunkThresholdCharacters: z.number().nullable(),
   taskTotals: SnapshotTaskTotalsSchema, toolStats: SnapshotToolStatsSchema,
+  throughput: InferenceThroughputSchema.nullable(),
   summaryText: z.string(),
 });
 export type IdleSummarySnapshotRow = z.infer<typeof IdleSummarySnapshotRowSchema>;

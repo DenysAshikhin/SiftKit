@@ -28,6 +28,7 @@ import {
   restoreDashboardTestEnv,
   restoreDashboardTestRepo,
 } from './dashboard-test-repo.js';
+import { buildTabbyUsage } from './streaming-client.js';
 
 interface PendingChatRequest {
   sessionId: string;
@@ -386,7 +387,7 @@ export class DashboardModelQueueHarness {
       id: `chatcmpl-${pending.sessionId}`,
       object: 'chat.completion.chunk',
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      usage: buildTabbyUsage({ promptTokens: 10, completionTokens: 5 }),
     })}\n\n`);
     pending.response.write('data: [DONE]\n\n');
     pending.response.end();

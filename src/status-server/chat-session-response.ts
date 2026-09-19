@@ -3,18 +3,21 @@ import type { SiftConfig } from '../config/types.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import { buildChatPromptContext } from './chat-prompt-context.js';
 import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.js';
+import { buildChatSessionThroughput } from './chat-turn-telemetry.js';
 
 export function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return { ...session, promptContext: buildChatPromptContext(config, session) };
 }
 
 export function toWireChatSession(config: SiftConfig, session: ChatSession) {
+  const messages = (session.messages ?? []).map(message => PersistedChatTranscriptMessageSchema.parse({ ...message, sourceRunId: message.sourceRunId ?? null }));
   return ChatSessionSchema.parse({
     id: session.id, title: session.title, modelPresetId: session.modelPresetId,
     model: resolveChatSessionModel(config, session), contextWindowTokens: resolveChatSessionContextWindow(config, session),
     thinkingEnabled: session.thinkingEnabled, webSearchEnabled: session.webSearchEnabled, presetId: session.presetId,
     mode: session.mode, planRepoRoot: session.planRepoRoot, createdAtUtc: session.createdAtUtc, updatedAtUtc: session.updatedAtUtc,
-    messages: (session.messages ?? []).map(message => PersistedChatTranscriptMessageSchema.parse({ ...message, sourceRunId: message.sourceRunId ?? null })),
+    messages,
+    sessionThroughput: buildChatSessionThroughput(messages).rates,
     promptContext: session.promptContext,
   });
 }

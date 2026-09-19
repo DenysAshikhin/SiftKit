@@ -21,6 +21,13 @@ import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js'
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+
+const TYPED_THROUGHPUT = readTabbyThroughput({ usage: {
+  prompt_tokens: 12, prompt_tokens_details: { cached_tokens: 2 },
+  prompt_time: 0.04, prompt_tokens_per_sec: 250,
+  completion_tokens: 5, completion_time: 0.05, completion_tokens_per_sec: 100,
+} });
 import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
 import Database from 'better-sqlite3';
 import {
@@ -433,6 +440,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
         answerEndedAtUtc: '2026-01-01T00:00:05.000Z',
         speculativeAcceptedTokens: 6,
         speculativeGeneratedTokens: 8,
+        throughput: TYPED_THROUGHPUT,
         thinkingContent: 'thinking',
         toolCallCommand: 'rg -n Dict src',
         toolCallActivityKind: 'search',
@@ -461,6 +469,8 @@ test('chat session persistence keeps typed tool and timing fields', () => {
     assert.equal(reloaded?.messages?.[0]?.groundingStatus, 'fetched');
     assert.equal(reloaded?.messages?.[0]?.promptEvalDurationMs, 40);
     assert.equal(reloaded?.messages?.[0]?.generationTokensPerSecond, 20);
+    assert.deepEqual(reloaded?.messages?.[0]?.throughput, TYPED_THROUGHPUT);
+    assert.deepEqual(reloaded?.messages?.[0]?.throughput, TYPED_THROUGHPUT);
   });
 });
 

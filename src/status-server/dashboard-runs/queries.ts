@@ -45,6 +45,7 @@ const RUN_LOG_LIST_SELECT_COLUMNS = `
   generation_duration_ms,
   speculative_accepted_tokens,
   speculative_generated_tokens,
+  throughput_json,
   duration_ms,
   provider_duration_ms,
   wall_duration_ms
@@ -78,6 +79,7 @@ const RUN_LOG_DETAIL_SELECT_COLUMNS = `
   generation_duration_ms,
   speculative_accepted_tokens,
   speculative_generated_tokens,
+  throughput_json,
   duration_ms,
   provider_duration_ms,
   wall_duration_ms,

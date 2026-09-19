@@ -31,6 +31,7 @@ import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import type { FullJsonResponse, SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 let queueContextIndex = 0;
@@ -927,6 +928,7 @@ test('a headless provider stream renews the model request past its original hold
     assert.ok(lock);
     const config = readConfig(ctx.configPath);
     const response = await new InferenceClient(new SlowStreamingClient()).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config,
       baseUrl: DEAD_BASE_URL,
       model: 'local',

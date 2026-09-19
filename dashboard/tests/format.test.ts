@@ -106,6 +106,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
     mode: 'chat',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    sessionThroughput: { promptTokensPerSecond: 10, generationTokensPerSecond: 150 / 16.5 },
     messages: [
       {
         id: 'assistant-1',
@@ -181,6 +182,7 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
     mode: 'chat',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: 160 / 14 },
     messages: [
       {
         id: 'assistant-1',
@@ -256,6 +258,7 @@ test('getSessionTelemetryStats returns null rates when the session has no timing
     mode: 'chat',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
     messages: [],
   } satisfies ChatSession;
 
@@ -269,4 +272,28 @@ test('getSessionTelemetryStats returns null rates when the session has no timing
     promptTokensPerSecond: null,
     generationTokensPerSecond: null,
   });
+});
+
+test('getSessionTelemetryStats uses the canonical rates published on the session', () => {
+  const session = {
+    id: 'session-throughput',
+    title: 'Session',
+    modelPresetId: 'test-model',
+    model: 'test-model',
+    contextWindowTokens: 100,
+    planRepoRoot: 'C:/repo',
+    presetId: 'chat',
+    mode: 'chat',
+    createdAtUtc: '2026-04-16T11:00:00.000Z',
+    updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    sessionThroughput: {
+      promptTokensPerSecond: 23.57,
+      generationTokensPerSecond: 16.52,
+    },
+    messages: [],
+  } satisfies ChatSession;
+
+  const stats = getSessionTelemetryStats(session);
+  assert.equal(stats.promptTokensPerSecond, 23.57);
+  assert.equal(stats.generationTokensPerSecond, 16.52);
 });

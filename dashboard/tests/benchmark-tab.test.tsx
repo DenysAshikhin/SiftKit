@@ -29,7 +29,7 @@ const ATTEMPT = {
   managedPresetId: 'managed', managedPresetLabel: 'Managed', caseIndex: 0, promptIndex: 0, repeatIndex: 0,
   status: 'completed', outputText: 'Found repo-search execution.', error: null, runId: 'run-1', managedRunId: 'managed-run-1',
   durationMs: 1200, promptTokensPerSecond: 100, generationTokensPerSecond: 42, acceptanceRate: 0.5,
-  outputTokens: 50, thinkingTokens: 5, speculativeAcceptedTokens: 10, speculativeGeneratedTokens: 20,
+  outputTokens: 50, thinkingTokens: 5, speculativeAcceptedTokens: 10, speculativeGeneratedTokens: 20, throughput: null,
   outputQualityScore: null, toolUseQualityScore: 8, reviewNotes: null, reviewedBy: null, reviewedAtUtc: null,
   startedAtUtc: '2026-05-13T12:00:00.000Z', completedAtUtc: '2026-05-13T12:00:02.000Z', updatedAtUtc: '2026-05-13T12:00:02.000Z',
 } satisfies DashboardBenchmarkAttempt;

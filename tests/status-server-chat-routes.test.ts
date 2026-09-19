@@ -28,6 +28,7 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { ScorecardSchema } from '../src/repo-search/engine.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 
@@ -178,6 +179,7 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
         totalOverlapLines: 0,
         overlapRatePct: 0,
       },
+      throughput: emptyInferenceThroughput(),
     }],
     totals: {},
     toolStats: {},
@@ -188,6 +190,7 @@ function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): Re
       totalOverlapLines: 0,
       overlapRatePct: 0,
     },
+    throughput: emptyInferenceThroughput(),
     verdict: 'pass',
     failureReasons: [],
   });

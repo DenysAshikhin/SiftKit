@@ -2,7 +2,7 @@ import { z } from '../../lib/zod.js';
 import { InferenceBackendIdSchema } from '../../config/types.js';
 import type { InferenceBackendId } from '../../config/types.js';
 import type { JsonObject } from '../../lib/json-types.js';
-import type { RunOperationType } from '@siftkit/contracts';
+import type { InferenceThroughput, RunOperationType } from '@siftkit/contracts';
 
 export type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
 
@@ -57,6 +57,7 @@ export const RunLogDbRowSchema = z.object({
   generation_duration_ms: z.number().nullable(),
   speculative_accepted_tokens: z.number().nullable(),
   speculative_generated_tokens: z.number().nullable(),
+  throughput_json: z.string().nullish(),
   duration_ms: z.number().nullable(),
   provider_duration_ms: z.number().nullable(),
   wall_duration_ms: z.number().nullable(),
@@ -97,6 +98,7 @@ export type RunLogUpsertRow = {
   generationDurationMs: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  throughput: InferenceThroughput | null;
   durationMs: number | null;
   providerDurationMs: number | null;
   wallDurationMs: number | null;

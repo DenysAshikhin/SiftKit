@@ -14,8 +14,17 @@ import {
   seedBenchmarkQuestionPresets,
   updateBenchmarkAttemptGrade,
   updateBenchmarkQuestionPreset,
+  updateBenchmarkAttempt,
+  readBenchmarkAttempt,
 } from '../src/state/dashboard-benchmark.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { readTabbyThroughput } from '../src/lib/inference-throughput.js';
+
+const BENCHMARK_FOLD = readTabbyThroughput({ usage: {
+  prompt_tokens: 210, prompt_tokens_details: { cached_tokens: 10 },
+  prompt_time: 4, prompt_tokens_per_sec: 50,
+  completion_tokens: 100, completion_time: 5, completion_tokens_per_sec: 20,
+} });
 
 function createTempDatabasePath(): string {
   const tempRoot = createManagedTempDir('siftkit-dashboard-benchmark-');
@@ -81,6 +90,7 @@ test('dashboard benchmark runner derives attempt metrics from dashboard run reco
     generationDurationMs: 5000,
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
+    throughput: BENCHMARK_FOLD,
     durationMs: 10000,
     providerDurationMs: 9500,
     wallDurationMs: 10050,
@@ -96,6 +106,7 @@ test('dashboard benchmark runner derives attempt metrics from dashboard run reco
     thinkingTokens: 20,
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
+    throughput: BENCHMARK_FOLD,
   });
 });
 
@@ -159,6 +170,11 @@ test('dashboard benchmark session plan creates case-prompt-repeat attempts in or
     assert.equal(graded?.outputQualityScore, 8);
     assert.equal(graded?.toolUseQualityScore, 7);
     assert.equal(graded?.reviewedBy, 'codex');
+
+    // The fold persists as JSON on the attempt; an attempt never measured stays null.
+    const measured = updateBenchmarkAttempt({ databasePath, attemptId: session.attempts[0].id, throughput: BENCHMARK_FOLD });
+    assert.deepEqual(measured?.throughput, BENCHMARK_FOLD);
+    assert.equal(readBenchmarkAttempt(session.attempts[1].id, databasePath)?.throughput, null);
 
     assert.throws(() => updateBenchmarkAttemptGrade({
       databasePath,

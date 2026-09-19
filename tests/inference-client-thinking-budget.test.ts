@@ -26,6 +26,7 @@ import {
 import type { SiftConfig } from '../src/config/types.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { TEST_THROUGHPUT_AUDIT, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 // Request 1 streams enough reasoning to blow a tiny ReasoningBudget (10 x 8 = 80
 // chars exceed it under the 2.5 chars/token estimate), then the finish action;
@@ -57,6 +58,7 @@ function budgetedConfig(
 
 async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise<Awaited<ReturnType<typeof requestRepoSearchPlannerProtocolAction>>> {
   return requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl,
     model: 'mock',
@@ -107,6 +109,7 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
   const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await new InferenceClient().chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: budgetedConfig(),
       baseUrl: fake.baseUrl,
       model: 'mock',
@@ -136,6 +139,7 @@ function requestCompactionSummary(
     preserveThinking: false,
   };
   return requestContextCompactionSummary({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl: fake.baseUrl,
     model: 'mock',
@@ -213,6 +217,7 @@ test('planner reasoningBudgetMessage overrides the preset message in the continu
   const fake = await startFakeChatServer(FINISH_STREAM);
   try {
     const response = await requestRepoSearchPlannerProtocolAction({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config: budgetedConfig(),
       baseUrl: fake.baseUrl,
       model: 'mock',
@@ -247,6 +252,7 @@ async function runBudgetedTaskLoop(
   await runTaskLoop(
     { id: loopKind, question: 'hi' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),

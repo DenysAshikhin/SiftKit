@@ -11,6 +11,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 const CONTENT = 'x'.repeat(400);
 const REASONING = 'y'.repeat(200);
@@ -54,6 +55,7 @@ test('generateInferenceChatResponse reports locally counted tokens, not provider
   const fake = await startFakeServer();
   try {
     const result = await generateInferenceChatResponse({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: mockConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: fake.baseUrl, NumCtx: 32000 }] } } }),
       model: 'mock',
       messages: [{ role: 'user', content: USER_MESSAGE }],

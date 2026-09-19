@@ -14,6 +14,7 @@ import {
   ToolActivitySubjectSchema,
   ChatSessionSchema,
   ChatRunTerminalCauseSchema,
+  InferenceThroughputSchema,
 } from '@siftkit/contracts';
 import type { ImageMetadata, PersistedChatTranscriptMessage } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
@@ -95,6 +96,7 @@ const MessageRowSchema = z.object({
   answer_ended_at_utc: z.string().nullable(),
   speculative_accepted_tokens: z.number().nullable(),
   speculative_generated_tokens: z.number().nullable(),
+  throughput_json: z.string().nullable(),
   thinking_content: z.string().nullable(),
   tool_call_command: z.string().nullable(),
   tool_call_activity_kind: z.string().nullable(),
@@ -221,6 +223,7 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     answerEndedAtUtc: row.answer_ended_at_utc,
     speculativeAcceptedTokens: row.speculative_accepted_tokens,
     speculativeGeneratedTokens: row.speculative_generated_tokens,
+    throughput: row.throughput_json === null ? null : InferenceThroughputSchema.parse(parseJsonValueText(row.throughput_json)),
     thinkingContent: row.thinking_content,
     toolCallCommand: row.tool_call_command,
     toolCallActivityKind: kind === 'assistant_tool_call'
@@ -337,6 +340,7 @@ const CHAT_MESSAGE_SELECT_COLUMNS = [
   'answer_ended_at_utc',
   'speculative_accepted_tokens',
   'speculative_generated_tokens',
+  'throughput_json',
   'thinking_content',
   'tool_call_command',
   'tool_call_activity_kind',
@@ -722,6 +726,7 @@ export function insertChatMessages(
       answer_ended_at_utc,
       speculative_accepted_tokens,
       speculative_generated_tokens,
+      throughput_json,
       thinking_content,
       tool_call_command,
       tool_call_activity_kind,
@@ -752,7 +757,7 @@ export function insertChatMessages(
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(session_id, id) DO UPDATE SET
       ${CHAT_MESSAGES_COLUMNS.filter(column => column !== 'session_id' && column !== 'id')
@@ -792,6 +797,7 @@ export function insertChatMessages(
       typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
       toNullableNonNegativeInteger(message.speculativeAcceptedTokens),
       toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
+      message.throughput == null ? null : JSON.stringify(message.throughput),
       typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
       typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
       messageKind === 'assistant_tool_call'

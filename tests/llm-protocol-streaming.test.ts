@@ -14,6 +14,7 @@ import type { SiftConfig } from '../src/config/types.js';
 import { InferenceClient } from '../src/llm-protocol/inference-client.js';
 import type { LiveContentSnapshot } from '../src/llm-protocol/live-content-classifier.js';
 import { CLEAN_STREAM_STOP } from '../src/llm-protocol/types.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 class StreamingHttpClient {
   readonly requests: SseStreamOptions[] = [];
@@ -85,6 +86,7 @@ for (const scenario of [
       } },
     ]);
     const response = await new InferenceClient(http).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: streamingConfig, model: 'local', messages: [{ role: 'user', content: 'hello' }],
       tools: [], maxTokens: 64, allowedToolNames: [],
     });
@@ -115,6 +117,7 @@ test('inference streaming client assembles reasoning, content, timings, and nati
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -159,6 +162,7 @@ test('streaming client requests include_usage and captures a final usage-only ch
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -183,6 +187,7 @@ test('inference streaming client does not reinterpret JSON in reasoning as an ac
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -202,6 +207,7 @@ test('inference streaming client separates malformed raw control text from safe 
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -222,6 +228,7 @@ test('inference streaming client converts transient HTTP stream errors', async (
 
   await assert.rejects(
     () => new InferenceClient(http).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -259,6 +266,7 @@ test('inference streaming client covers empty packets, thinking fallback, and ma
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -281,6 +289,7 @@ test('inference streaming client covers empty packets, thinking fallback, and ma
 test('inference streaming client rejects an empty stream as degenerate', async () => {
   await assert.rejects(
     () => new InferenceClient(new StreamingHttpClient([])).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -301,6 +310,7 @@ test('inference streaming client wraps non-error stream failures', async () => {
 
   await assert.rejects(
     () => new InferenceClient(new StringThrowingStreamingClient([])).chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: streamingConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
@@ -319,6 +329,7 @@ test('inference streaming client captures the backend eos_reason from the final 
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -337,6 +348,7 @@ test('inference streaming client omits backendEosReason when no frame carries eo
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -355,6 +367,7 @@ test('inference streaming client captures a max-token finish_reason from the fin
   ]);
 
   const response = await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -377,6 +390,7 @@ test('inference streaming client reports each valid frame to the activity observ
   const observer = { activity: 0, recordActivity() { this.activity += 1; } };
 
   await new InferenceClient(http).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
@@ -400,6 +414,7 @@ test('inference streaming client does not report invalid or error frames as acti
   const observer = { activity: 0, recordActivity() { this.activity += 1; } };
 
   await assert.rejects(() => new InferenceClient(new InvalidFrameClient([])).chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { JsonObjectSchema } from './primitives.js';
+import { InferenceThroughputSchema } from './inference-throughput.js';
 
 export const DashboardBenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type DashboardBenchmarkTaskKind = z.infer<typeof DashboardBenchmarkTaskKindSchema>;
@@ -42,6 +43,7 @@ export const DashboardBenchmarkAttemptSchema = z.object({
   durationMs: z.number().nullable(), promptTokensPerSecond: z.number().nullable(), generationTokensPerSecond: z.number().nullable(),
   acceptanceRate: z.number().nullable(), outputTokens: z.number().nullable(), thinkingTokens: z.number().nullable(),
   speculativeAcceptedTokens: z.number().nullable(), speculativeGeneratedTokens: z.number().nullable(),
+  throughput: InferenceThroughputSchema.nullable(),
   outputQualityScore: z.number().nullable(), toolUseQualityScore: z.number().nullable(),
   reviewNotes: z.string().nullable(), reviewedBy: z.string().nullable(), reviewedAtUtc: z.string().nullable(),
   startedAtUtc: z.string().nullable(), completedAtUtc: z.string().nullable(), updatedAtUtc: z.string(),

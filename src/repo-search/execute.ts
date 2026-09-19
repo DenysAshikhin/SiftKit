@@ -427,6 +427,14 @@ export async function executeRepoSearchRequest(
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,
       logger: runLogger,
+      // The engine stamps the model it actually resolves; only the requested override is known here.
+      throughputAudit: {
+        operationType: executionTaskKind,
+        operationId: requestId,
+        requestId,
+        model: request.model ?? null,
+        presetId: identity.modelPresetId ?? null,
+      },
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
@@ -469,6 +477,7 @@ export async function executeRepoSearchRequest(
       maxTurns: request.maxTurns ?? null,
       verdict: scorecard?.verdict ?? 'unknown',
       totals: scorecard?.totals ?? null,
+      throughput: scorecard?.throughput ?? null,
       transcriptPath: transcriptUri,
       scorecard,
     };
@@ -532,6 +541,9 @@ export async function executeRepoSearchRequest(
       promptEvalTokens,
       speculativeAcceptedTokens,
       speculativeGeneratedTokens,
+      throughput: scorecard.throughput,
+      promptEvalDurationMs,
+      generationDurationMs,
       requestDurationMs: Date.now() - startedAt,
       startedAt: Date.now(),
       timingRecorder,
@@ -563,6 +575,7 @@ export async function executeRepoSearchRequest(
       generationDurationMs,
       speculativeAcceptedTokens,
       speculativeGeneratedTokens,
+      throughput: scorecard.throughput,
     }, timingRecorder);
     traceRepoSearch(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
@@ -612,6 +625,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       error: message,
+      throughput: null,
       transcriptPath: transcriptUri,
     };
     const artifactPayload = JsonObjectSchema.parse(artifact);
@@ -687,6 +701,7 @@ export async function executeRepoSearchRequest(
       promptEvalTokens: null,
       promptEvalDurationMs: null,
       generationDurationMs: null,
+      throughput: null,
     }, timingRecorder);
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
     serverLogger.error({

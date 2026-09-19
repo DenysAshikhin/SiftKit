@@ -28,6 +28,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 function message(id: string, content: string): ChatQueueEnqueueInput {
   return { id, content, images: [], options: { operationKind: 'message' } };
@@ -141,6 +142,7 @@ test('the next actual provider request includes the complete tool batch followed
   try {
     const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
     const result = await runTaskLoop({ id: 'provider-queue', question: 'original task' }, {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...createMockLoopDefaults('siftkit-provider-queue-'),
       baseUrl, config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ BaseUrl: baseUrl }] } } }),
       timeoutMs: 5000, maxTurns: 2, minToolCallsBeforeFinish: 0,
@@ -210,6 +212,7 @@ test('task loop delivers queued messages after the complete tool batch before th
   const result = await runTaskLoop(
     { id: 'queue-loop', question: 'inspect the repository' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...defaults,
       maxTurns: 2,
       minToolCallsBeforeFinish: 0,

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { HttpResponseError, type FullJsonResponse, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { InferenceClient } from '../src/llm-protocol/inference-client.js';
+import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 import {
   RawFrameHttpClient,
   RecordingLogger,
@@ -26,6 +27,7 @@ test('malformed stream frames are logged rather than silently skipped', async ()
   ]));
 
   const response = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: buildStreamingTestConfig(),
     model: 'local',
     messages: [{ role: 'user', content: 'hi' }],
@@ -47,6 +49,7 @@ test('a stream that yields no frames throws rather than returning empty text', a
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -69,6 +72,7 @@ test('a stream ending without [DONE] throws', async () => {
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -108,6 +112,7 @@ test('a transient failure before the first frame is retried', async () => {
   const client = new InferenceClient(http);
 
   const response = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: buildStreamingTestConfig(),
     model: 'local',
     messages: [{ role: 'user', content: 'hi' }],
@@ -127,6 +132,7 @@ test('retry: false propagates a transient failure without a second attempt', asy
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -148,6 +154,7 @@ test('an error frame surfaces the server message instead of a missing-sentinel e
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -187,6 +194,7 @@ test('a context_length_exceeded frame throws ProviderContextLengthError', async 
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -211,6 +219,7 @@ test('an error frame arriving after content deltas still throws', async () => {
 
   await assert.rejects(
     client.chat({
+      throughputAudit: TEST_THROUGHPUT_AUDIT,
       config: buildStreamingTestConfig(),
       model: 'local',
       messages: [{ role: 'user', content: 'hi' }],
@@ -235,6 +244,7 @@ test('a clean stream with no error key is unaffected by error-frame detection', 
   ]));
 
   const response = await client.chat({
+    throughputAudit: TEST_THROUGHPUT_AUDIT,
     config: buildStreamingTestConfig(),
     model: 'local',
     messages: [{ role: 'user', content: 'hi' }],

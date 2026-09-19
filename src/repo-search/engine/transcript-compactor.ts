@@ -11,6 +11,7 @@ import type { JsonLogger } from '../types.js';
 import type { InferenceActivityObserver } from '../../lib/progress-writer.js';
 import { TokenUsageTracker } from './token-usage.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+import type { ThroughputAuditOperation } from '@siftkit/contracts';
 import {
   COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
   splitCompactionGenerationTokens,
@@ -85,6 +86,7 @@ export class TranscriptCompactor {
     logger: JsonLogger | null;
     abortSignal: AbortSignal | undefined;
     activityObserver?: InferenceActivityObserver;
+    throughputAudit: ThroughputAuditOperation;
   }) {}
 
   private get tokenCountConfig(): SiftConfig | undefined {
@@ -229,6 +231,7 @@ export class TranscriptCompactor {
           config: this.options.config,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
+          throughputAudit: this.options.throughputAudit,
           messages: historyMessages,
           instruction,
           timeoutMs: this.options.timeoutMs,

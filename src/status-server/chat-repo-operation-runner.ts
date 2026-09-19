@@ -25,6 +25,7 @@ import {
 ChatTurnPhaseTracker,
 type ChatTurnPhaseTimestamps,
 } from './chat-turn-phase-tracker.js';
+import { auditCompletedChatSessionThroughput } from './chat-turn-telemetry.js';
 import {
 buildPlanMarkdownFromRepoSearch,
 buildPlanRequestPrompt,
@@ -161,11 +162,22 @@ export class ChatRepoOperationRunner {
     progress.observeAnswer(assistantContent);
     const failure = getChatRunFailure(engineResult);
     const updatedSession = request.recorder.completeAnswer({
-      ...buildChatAnswerCompletion(engineResult, assistantContent),
+      ...buildChatAnswerCompletion(engineResult, assistantContent, {
+        operationType: operation,
+        operationId: engineResult.scorecard.runId,
+        requestId: engineResult.requestId,
+        model: engineResult.scorecard.model,
+        presetId: selected.session.modelPresetId,
+      }),
       requestDurationMs: Date.now() - startedAt,
       ...progress.snapshot(),
       groundingStatus: operation === 'repo-search' ? normalizeRepoSearchScorecard(engineResult.scorecard).tasks[0]?.groundingStatus ?? null : null,
     }, failure ? 'execution_failure' : 'completed', failure);
+    auditCompletedChatSessionThroughput(updatedSession, {
+      requestId: engineResult.requestId,
+      model: engineResult.scorecard.model,
+      presetId: selected.session.modelPresetId,
+    });
     return {
       updatedSession,
       failure: getChatRunFailure(engineResult),

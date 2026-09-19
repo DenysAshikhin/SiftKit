@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ModelRuntimePresetSchema } from './config.js';
 import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
+import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.js';
 
 /** How a run ended. These stay distinct: a stop is not a failure and a restart is not a completion. */
 export const ChatRunTerminalCauseSchema = z.enum([
@@ -164,6 +165,8 @@ const ChatMessageBaseSchema = z.object({
   thinkingStartedAtUtc: z.string().nullable().optional(), thinkingEndedAtUtc: z.string().nullable().optional(),
   answerStartedAtUtc: z.string().nullable().optional(), answerEndedAtUtc: z.string().nullable().optional(),
   speculativeAcceptedTokens: z.number().nullable().optional(), speculativeGeneratedTokens: z.number().nullable().optional(),
+  // Optional like its sibling telemetry so every stored journal and checkpoint stays valid.
+  throughput: InferenceThroughputSchema.nullable().optional(),
   thinkingContent: z.string().nullable().optional(),
   toolCallCommand: z.string().nullable().optional(), toolCallActivityKind: ToolActivityKindSchema.optional(), toolCallActivitySubject: ToolActivitySubjectSchema.optional(), toolCallTurn: z.number().nullable().optional(),
   toolCallMaxTurns: z.number().nullable().optional(), toolCallExitCode: z.number().nullable().optional(),
@@ -254,7 +257,7 @@ export const ChatTextRowMetadataSchema = ChatMessageBaseSchema.pick({
   promptCacheTokens: true, promptEvalTokens: true, promptTokensPerSecond: true, generationTokensPerSecond: true,
   requestDurationMs: true, promptEvalDurationMs: true, generationDurationMs: true, requestStartedAtUtc: true,
   thinkingStartedAtUtc: true, thinkingEndedAtUtc: true, answerStartedAtUtc: true, answerEndedAtUtc: true,
-  speculativeAcceptedTokens: true, speculativeGeneratedTokens: true, groundingStatus: true,
+  speculativeAcceptedTokens: true, speculativeGeneratedTokens: true, throughput: true, groundingStatus: true,
   runTerminalCause: true, runTerminalDetail: true,
 }).extend({ kind: ChatTextRowKindSchema }).strict();
 export type ChatTextRowMetadata = z.infer<typeof ChatTextRowMetadataSchema>;
@@ -296,6 +299,7 @@ export const ChatSessionSchema = z.object({
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: ChatSessionModeSchema.optional(), planRepoRoot: z.string(),
   createdAtUtc: z.string(), updatedAtUtc: z.string(),
+  sessionThroughput: ThroughputRatesSchema,
   messages: z.array(PersistedChatTranscriptMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;

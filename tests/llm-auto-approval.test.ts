@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { runTaskLoop } from '../src/repo-search/engine.js';
+import { buildScorecard, runTaskLoop } from '../src/repo-search/engine.js';
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import {
   CLIENT_ABORT_MESSAGE,
@@ -36,6 +36,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
@@ -154,6 +155,7 @@ function makeAutoLoopOptions(
     runtimeProfile: RUNTIME_PROFILE,
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     maxTurns: 4,
     minToolCallsBeforeFinish: 0,
     mockResponses,
@@ -452,6 +454,7 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
   try {
     const gate = new ApprovalGateHarness(new SilentProgressWriter(), { mode: 'auto', decisionTimeoutMs: UNREACHED_GATE_TIMEOUT_MS }).gate;
     const result = await runTaskLoop(makeTask('execute the cache-chain test actions'), {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: tempRoot,
       model: 'mock-model',
       baseUrl,
@@ -477,6 +480,9 @@ test('auto mode over HTTP byte-preserves two approval overlays and an exempt rea
     assert.equal(fs.readFileSync(path.join(tempRoot, 'second.txt'), 'utf8'), 'follow-up');
     assert.equal(plannerBodies.length, 4);
     assert.equal(verdictBodies.length, 2);
+    const scorecard = buildScorecard({ runId: 'run-1', model: 'mock-model', tasks: [result] });
+    assert.equal(scorecard.throughput.pp.requestCount, 4);
+    assert.equal(scorecard.throughput.decode.requestCount, 4);
 
     const expectedApprovalArgs = [
       { path: 'first.txt', content: largeToolContent },

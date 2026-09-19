@@ -53,6 +53,7 @@ import {
   sendJson,
 } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
+import { mergeInferenceThroughput } from '../../lib/inference-throughput.js';
 
 type StatusPostMetadata = ReturnType<typeof parseStatusMetadata>;
 type StatusPostDeferredMetadata = ReturnType<typeof parseStatusMetadataRecord>;
@@ -506,6 +507,9 @@ class StatusPostRequestHandler {
       statusRunningMsTotal: this.ctx.metrics.statusRunningMsTotal + (metadata.statusRunningMs ?? 0),
       terminalStatusMsTotal: this.ctx.metrics.terminalStatusMsTotal + (metadata.terminalStatusMs ?? 0),
       completedRequestCount: this.ctx.metrics.completedRequestCount + (timing.requestCompleted ? 1 : 0),
+      throughput: timing.requestCompleted && metadata.throughput !== null
+        ? mergeInferenceThroughput([this.ctx.metrics.throughput, metadata.throughput])
+        : this.ctx.metrics.throughput,
       taskTotals,
       toolStats,
       updatedAtUtc: new Date().toISOString(),

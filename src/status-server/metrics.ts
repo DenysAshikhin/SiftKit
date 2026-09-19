@@ -3,6 +3,9 @@ import { z } from '../lib/zod.js';
 import { JsonObjectSchema, type JsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { parseJsonValueText } from '../lib/json.js';
+import { emptyInferenceThroughput } from '../lib/inference-throughput.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 
 export type { MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
@@ -56,6 +59,8 @@ export type Metrics = {
   completedRequestCount: number;
   taskTotals: TaskTotals;
   toolStats: ToolStatsByTask;
+  /** Canonical fold of every completed request's throughput since the totals were last reset. */
+  throughput: InferenceThroughput;
   updatedAtUtc: string | null;
   inputCharactersPerContextToken?: number | null;
   chunkThresholdCharacters?: number | null;
@@ -125,6 +130,7 @@ export function getDefaultMetrics(): Metrics {
     completedRequestCount: 0,
     taskTotals: getDefaultTaskTotals(),
     toolStats: getDefaultToolStats(),
+    throughput: emptyInferenceThroughput(),
     updatedAtUtc: null,
   };
 }
@@ -323,6 +329,8 @@ export function normalizeMetrics(input: JsonValue): Metrics {
   metrics.completedRequestCount = totals.completedRequestCount;
   metrics.taskTotals = normalizeTaskTotals(record.taskTotals);
   metrics.toolStats = normalizeToolStats(record.toolStats);
+  // Absent means never measured (an older row); anything present must be a valid fold.
+  metrics.throughput = record.throughput == null ? emptyInferenceThroughput() : InferenceThroughputSchema.parse(record.throughput);
   if (typeof record.updatedAtUtc === 'string' && record.updatedAtUtc.trim()) {
     metrics.updatedAtUtc = record.updatedAtUtc;
   }
@@ -354,6 +362,7 @@ export function readMetrics(metricsPath: string): Metrics {
       completed_request_count,
       task_totals_json,
       tool_stats_json,
+      throughput_json,
       updated_at_utc
     FROM runtime_metrics_totals
     WHERE id = 1
@@ -396,6 +405,7 @@ export function readMetrics(metricsPath: string): Metrics {
         return {};
       }
     })(),
+    throughput: typeof metricsRow.throughput_json === 'string' ? parseJsonValueText(metricsRow.throughput_json) : null,
     updatedAtUtc: typeof metricsRow.updated_at_utc === 'string' ? metricsRow.updated_at_utc : null,
   });
 }
@@ -427,9 +437,10 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       completed_request_count,
       task_totals_json,
       tool_stats_json,
-     updated_at_utc
+      throughput_json,
+      updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       schema_version = excluded.schema_version,
@@ -453,6 +464,7 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       completed_request_count = excluded.completed_request_count,
       task_totals_json = excluded.task_totals_json,
       tool_stats_json = excluded.tool_stats_json,
+      throughput_json = excluded.throughput_json,
       updated_at_utc = excluded.updated_at_utc
   `).run(
     normalized.schemaVersion,
@@ -476,6 +488,7 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
     normalized.completedRequestCount,
     JSON.stringify(normalized.taskTotals),
     JSON.stringify(normalized.toolStats),
+    JSON.stringify(normalized.throughput),
     normalized.updatedAtUtc,
   );
 }

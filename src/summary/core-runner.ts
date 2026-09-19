@@ -46,6 +46,8 @@ import type {
 } from './types.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
+import { emptyInferenceThroughput, mergeInferenceThroughput } from '../lib/inference-throughput.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
 
 export type SummaryCompletionMetrics = {
   promptCharacterCount: number;
@@ -59,6 +61,8 @@ export type SummaryCompletionMetrics = {
   generationDurationMs: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  /** Fold of every provider attempt this core invocation issued, retried attempts included. */
+  throughput: InferenceThroughput;
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
@@ -122,6 +126,7 @@ function toSummaryCompletionMetrics(
   phase: SummaryPhase,
   chunkPath: string | null,
   metrics: ProviderSummaryMetrics,
+  throughput: InferenceThroughput,
 ): SummaryCompletionMetrics {
   const countOutputTokensAsThinking = phase === 'leaf' && chunkPath !== null;
   return {
@@ -138,6 +143,7 @@ function toSummaryCompletionMetrics(
     generationDurationMs: metrics.generationDurationMs,
     speculativeAcceptedTokens: metrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: metrics.speculativeGeneratedTokens,
+    throughput,
     requestDurationMs: metrics.requestDurationMs,
     providerDurationMs: metrics.providerDurationMs,
     statusRunningMs: metrics.statusRunningMs,
@@ -163,6 +169,8 @@ function isEmptyDecisionOutputError(error: Error): boolean {
 class SummaryCoreRunner {
   private readonly options: InvokeSummaryCoreOptions;
   private providerMetrics: ProviderSummaryMetrics | null = null;
+  /** Every completed provider attempt folds here; other metrics keep the latest attempt only. */
+  private throughput = emptyInferenceThroughput();
 
   constructor(options: InvokeSummaryCoreOptions) {
     this.options = options;
@@ -468,6 +476,7 @@ class SummaryCoreRunner {
       providerSpan?.end();
     }
     this.providerMetrics = providerResult.metrics;
+    this.throughput = mergeInferenceThroughput([this.throughput, providerResult.metrics.throughput]);
     return providerResult.text;
   }
 
@@ -523,7 +532,7 @@ class SummaryCoreRunner {
 
   private completionMetrics(state: SummaryCoreState): SummaryCompletionMetrics | null {
     return this.providerMetrics
-      ? toSummaryCompletionMetrics(state.phase, this.options.chunkPath ?? null, this.providerMetrics)
+      ? toSummaryCompletionMetrics(state.phase, this.options.chunkPath ?? null, this.providerMetrics, this.throughput)
       : null;
   }
 
@@ -546,6 +555,10 @@ class SummaryCoreRunner {
       thinkingTokens: this.providerMetrics?.thinkingTokens ?? null,
       promptCacheTokens: this.providerMetrics?.promptCacheTokens ?? null,
       promptEvalTokens: this.providerMetrics?.promptEvalTokens ?? null,
+      promptEvalDurationMs: this.providerMetrics?.promptEvalDurationMs ?? null,
+      generationDurationMs: this.providerMetrics?.generationDurationMs ?? null,
+      // Attempted work is reported when any completed; a failure before any request stays null.
+      throughput: this.throughput.decode.requestCount > 0 ? this.throughput : null,
       requestDurationMs: this.providerMetrics?.requestDurationMs ?? null,
       providerDurationMs: this.providerMetrics?.providerDurationMs ?? null,
       statusRunningMs: this.providerMetrics?.statusRunningMs ?? null,

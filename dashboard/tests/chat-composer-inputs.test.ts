@@ -11,11 +11,13 @@ import type { ChatSession } from '../src/types';
 const SESSION: ChatSession = {
   id: 's1',
   title: 'Session',
+  modelPresetId: 'default',
   model: null,
   contextWindowTokens: 100,
   planRepoRoot: 'C:/repo',
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
+  sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
   messages: [],
 };
 

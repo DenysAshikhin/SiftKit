@@ -90,6 +90,15 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
+      // The probe is its own evaluation operation: one verdict request under the probe's id, never
+      // attributed to the run it replays.
+      throughputAudit: {
+        operationType: 'evaluation',
+        operationId: 'approval-verdict-probe',
+        requestId: 'auto-approval-verdict-probe',
+        model: this.options.model,
+        presetId: null,
+      },
       transcriptMessages: messages,
       pendingMessages,
       question,

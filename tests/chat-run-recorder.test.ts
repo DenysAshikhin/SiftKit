@@ -13,7 +13,7 @@ import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
 import { reconcileChatRun } from '../src/status-server/chat-run-projection.js';
 import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
-import { ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
+import { buildChatAnswerCompletion, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
 import type { RuntimeDatabase } from '../src/state/database-handle.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
@@ -31,10 +31,105 @@ import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { createInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
+import { buildChatSessionThroughput } from '../src/status-server/chat-turn-telemetry.js';
 
 const SESSION_ID = 'recorder-session';
 const OWNER_EPOCH = 'owner-a:1';
 const AT = '2026-09-10T11:04:54.755Z';
+
+function measuredThroughput(tabbyDecodeTokens = 28_036): InferenceThroughput {
+  return {
+    pp: {
+      tokenCount: 35_414,
+      durationMs: 48_730,
+      tabbyWeightedTokens: 35_414,
+      tabbyDurationMs: 48_730,
+      requestCount: 1,
+      missingInternalRequests: 0,
+      missingTabbyRequests: 0,
+    },
+    decode: {
+      tokenCount: 28_036,
+      durationMs: 1_189_480,
+      tabbyWeightedTokens: tabbyDecodeTokens,
+      tabbyDurationMs: 1_189_480,
+      requestCount: 1,
+      missingInternalRequests: 0,
+      missingTabbyRequests: 0,
+    },
+  };
+}
+
+function executionResult(throughput: InferenceThroughput): RepoSearchExecutionResult {
+  return {
+    requestId: 'run-1',
+    transcriptPath: '',
+    artifactPath: '',
+    scorecard: { ...buildMockScorecard('answer'), throughput },
+    turnRecords: [],
+  };
+}
+
+test('chat answer completion publishes and audits canonical fold rates', () => {
+  const capture = OutputCapture.start(process.stdout);
+  try {
+    const completion = buildChatAnswerCompletion(
+      executionResult(measuredThroughput()),
+      'answer',
+      { ...TEST_THROUGHPUT_AUDIT_OPERATION, operationType: 'chat', operationId: 'run-1', requestId: 'run-1' },
+    );
+    assert.equal(completion.promptTokensPerSecond, 35_414 / 48.73);
+    assert.equal(completion.generationTokensPerSecond, 28_036 / 1_189.48);
+    assert.equal(completion.promptEvalDurationMs, 48_730);
+    assert.equal(completion.generationDurationMs, 1_189_480);
+    assert.equal(capture.lines.length, 0);
+
+    buildChatAnswerCompletion(
+      executionResult(measuredThroughput(14_018)),
+      'answer',
+      { ...TEST_THROUGHPUT_AUDIT_OPERATION, operationType: 'chat', operationId: 'run-2', requestId: 'run-2' },
+    );
+    assert.equal(capture.lines.filter(line => line.includes('throughput_mismatch') && line.includes('stage=chat_answer')).length, 1);
+  } finally {
+    capture.restore();
+  }
+});
+
+test('chat session throughput merges only measured assistant answer folds', () => {
+  const first = measuredThroughput();
+  const second = measuredThroughput();
+  second.pp.tokenCount = 100;
+  second.pp.durationMs = 10_000;
+  second.pp.tabbyWeightedTokens = 100;
+  second.pp.tabbyDurationMs = 10_000;
+  second.decode.tokenCount = 200;
+  second.decode.durationMs = 20_000;
+  second.decode.tabbyWeightedTokens = 200;
+  second.decode.tabbyDurationMs = 20_000;
+  const base = {
+    role: 'assistant' as const,
+    content: 'answer',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 1,
+    thinkingTokens: 0,
+    createdAtUtc: AT,
+  };
+  const session = buildChatSessionThroughput([
+    { ...base, id: 'answer-1', kind: 'assistant_answer', throughput: first },
+    { ...base, id: 'tool-1', kind: 'assistant_tool_call', throughput: second, toolCallCommand: 'read x', toolCallActivityKind: 'read', toolCallActivitySubject: { kind: 'file', value: 'x' }, toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0, toolCallStatus: 'done', toolCallExecutionState: 'completed' },
+    { ...base, id: 'historical', kind: 'assistant_answer', throughput: null },
+    { ...base, id: 'answer-2', kind: 'assistant_answer', throughput: second },
+  ]);
+
+  assert.equal(session.throughput.pp.tokenCount, 35_514);
+  assert.equal(session.throughput.decode.tokenCount, 28_236);
+  assert.equal(session.rates.promptTokensPerSecond, 35_514 / 58.73);
+  assert.equal(session.rates.generationTokensPerSecond, 28_236 / 1_209.48);
+});
 
 const SETTINGS = {
   operationKind: 'repo-agent',
@@ -148,6 +243,7 @@ test('a storage abort reaches the model loop before it prepares another provider
   const { databasePath } = openSessionDatabase('chat-storage-loop-abort-');
   const recorder = beginRecorder(databasePath);
   const loop = new TaskLoop({ id: 'storage-abort', question: 'stop on failed storage' }, {
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     ...createMockLoopDefaults('chat-storage-loop-'), evidenceRecorder: recorder,
     mockResponses: [{ content: 'must not be requested' }], mockCommandResults: {},
   });

@@ -13,6 +13,7 @@ import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { parseLoggedEvent } from './helpers/logged-events.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-live-collector-');
 
@@ -223,6 +224,7 @@ test('collector counters agree with the task result for one run', async () => {
   const result = await runTaskLoop(
     { id: 'task-live-counters', question: 'Read target file and search.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -297,6 +299,7 @@ test('a screened call counts as a safety reject in both the task result and the 
   const result = await runTaskLoop(
     { id: 'task-live-safety', question: 'Read a file that does not exist.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,

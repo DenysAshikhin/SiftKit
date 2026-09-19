@@ -29,7 +29,7 @@ function makeRun() {
     toolTokens: null, promptCacheTokens: null, promptEvalTokens: null,
     promptEvalDurationMs: null, generationDurationMs: null,
     speculativeAcceptedTokens: null, speculativeGeneratedTokens: null,
-    durationMs: null, providerDurationMs: null, wallDurationMs: null, rawPaths: {},
+    durationMs: null, providerDurationMs: null, wallDurationMs: null, throughput: null, rawPaths: {},
   };
 }
 // A post-migration repo-agent run: legacy kind keeps it in the repo_search group, while the

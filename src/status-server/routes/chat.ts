@@ -60,7 +60,7 @@ import {
 ChatStreamProgressWriter,
 } from '../chat-stream-progress-writer.js';
 import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
-import { countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
+import { auditCompletedChatSessionThroughput, countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
 import { reconcileChatSession } from '../chat-run-recovery.js';
 import {
 buildChatSystemContent,
@@ -355,11 +355,22 @@ async function runChatEngineTurn(options: {
   const failure = getChatRunFailure(result);
   options.progressWriter.flushPending();
   const updatedSession = options.recorder.completeAnswer({
-    ...buildChatAnswerCompletion(result, assistantContent),
+    ...buildChatAnswerCompletion(result, assistantContent, {
+      operationType: 'chat',
+      operationId: result.scorecard.runId,
+      requestId: result.requestId,
+      model: result.scorecard.model,
+      presetId: selected.session.modelPresetId,
+    }),
     ...phaseTimestamps,
     requestDurationMs: Date.now() - options.startedAtMs,
     groundingStatus: getChatGroundingStatus(result.scorecard),
   }, failure ? 'execution_failure' : 'completed', failure);
+  auditCompletedChatSessionThroughput(updatedSession, {
+    requestId: result.requestId,
+    model: result.scorecard.model,
+    presetId: selected.session.modelPresetId,
+  });
   ingestAssistantMemoryTurn(memory, selected.preset, selected.session.id, phaseTimestamps.requestStartedAtUtc ?? new Date().toISOString(), updatedSession.messages ?? []);
   return { updatedSession, failure };
 }

@@ -13,6 +13,7 @@ import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { TokenUsageTracker } from './token-usage.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
+import type { ThroughputAuditOperation } from '@siftkit/contracts';
 
 const MAX_SYNTHESIS_ATTEMPTS = 3;
 
@@ -28,6 +29,7 @@ export class TerminalSynthesizer {
     logger: JsonLogger | null;
     progress: ProgressReporter;
     tokenUsage: TokenUsageTracker;
+    throughputAudit: ThroughputAuditOperation;
   }) {}
 
   async synthesize(input: {
@@ -84,6 +86,7 @@ export class TerminalSynthesizer {
           config: this.options.config,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
+          throughputAudit: this.options.throughputAudit,
           messages: terminalMessages,
           executing: input.executing,
           timeoutMs: this.options.timeoutMs,

@@ -8,6 +8,7 @@ import { runRepoSearch } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
   const definitions = buildSummaryPlannerToolDefinitions(['find_text']);
@@ -29,6 +30,7 @@ test('repo-search rejects presets that disable the repo command tool', async () 
   assert.deepEqual(plannerToolDefinitions, []);
   await assert.rejects(
     () => runRepoSearch({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: process.cwd(),
       systemContext: createEmptyPresetSystemContext(),
       taskKind: 'repo-search',
@@ -46,6 +48,7 @@ test('repo-search rejects presets that disable the repo command tool', async () 
 test('repo-search rejects presets that resolve to an empty allowed-tools list', async () => {
   await assert.rejects(
     () => runRepoSearch({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       repoRoot: process.cwd(),
       systemContext: createEmptyPresetSystemContext(),
       taskKind: 'repo-search',

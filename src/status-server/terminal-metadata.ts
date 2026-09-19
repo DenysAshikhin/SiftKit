@@ -13,6 +13,7 @@ import { mergeToolTypeStats } from '../line-read-guidance.js';
 import { recordWebSearchUsage } from './web-search-usage.js';
 import { parseStatusMetadata, parseStatusMetadataRecord } from './status-file.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
+import { mergeInferenceThroughput } from '../lib/inference-throughput.js';
 import {
   buildStatusRequestLogBody,
   updateRunLogSpeculativeMetricsByRequestId,
@@ -120,6 +121,10 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     statusRunningMsTotal: ctx.metrics.statusRunningMsTotal + statusRunningMsDelta,
     terminalStatusMsTotal: ctx.metrics.terminalStatusMsTotal + terminalStatusMsDelta,
     completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
+    // The fold joins the totals once, with the request that completed; unmeasured stays out.
+    throughput: job.requestCompleted && metadata.throughput !== null
+      ? mergeInferenceThroughput([ctx.metrics.throughput, metadata.throughput])
+      : ctx.metrics.throughput,
     taskTotals,
     toolStats,
     updatedAtUtc: new Date().toISOString(),

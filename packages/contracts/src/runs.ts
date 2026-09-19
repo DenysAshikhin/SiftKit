@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { InferenceBackendIdSchema } from './config.js';
 import { JsonDataSchema, JsonObjectSchema } from './primitives.js';
 import { RunOperationTypeSchema } from './operation-types.js';
+import { InferenceThroughputSchema } from './inference-throughput.js';
 
 export const RunGroupFilterSchema = z.enum(['', 'summary', 'repo_search', 'planner', 'chat', 'other']);
 export type RunGroupFilter = z.infer<typeof RunGroupFilterSchema>;
@@ -35,6 +36,8 @@ export const RunRecordSchema = z.object({
   promptEvalDurationMs: z.number().nullable(), generationDurationMs: z.number().nullable(),
   speculativeAcceptedTokens: z.number().nullable(), speculativeGeneratedTokens: z.number().nullable(),
   durationMs: z.number().nullable(), providerDurationMs: z.number().nullable(), wallDurationMs: z.number().nullable(),
+  /** Canonical fold of the run's model requests; null for runs recorded before it existed. */
+  throughput: InferenceThroughputSchema.nullable(),
   rawPaths: JsonObjectSchema,
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;

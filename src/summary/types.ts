@@ -2,6 +2,7 @@ import { z } from '../lib/zod.js';
 import type { SiftConfig } from '../config/index.js';
 import type { SummaryProgressEvent } from './progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
+import type { InferenceThroughput } from '@siftkit/contracts';
 import {
   SummaryClassificationSchema,
   type SummaryClassification,
@@ -147,6 +148,9 @@ export type SummaryFailureContext = {
   thinkingTokens?: number | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
+  throughput?: InferenceThroughput | null;
   requestDurationMs?: number | null;
   providerDurationMs?: number | null;
   wallDurationMs?: number | null;

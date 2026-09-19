@@ -1,4 +1,4 @@
-import { ActiveStatusRunSchema } from '@siftkit/contracts';
+import { ActiveStatusRunSchema, type InferenceThroughput } from '@siftkit/contracts';
 import { httpClient, HttpTimeoutError } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
@@ -217,6 +217,10 @@ export type NotifyStatusBackendOptions = {
   promptEvalTokens?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  /** Canonical fold of the finished operation; absent while running or when nothing was measured. */
+  throughput?: InferenceThroughput | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
   requestDurationMs?: number | null;
   providerDurationMs?: number | null;
   wallDurationMs?: number | null;
@@ -325,6 +329,15 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonO
   }
   if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
     body.requestDurationMs = options.requestDurationMs;
+  }
+  if (!options.running && options.throughput !== undefined && options.throughput !== null) {
+    body.throughput = options.throughput;
+  }
+  if (!options.running && options.promptEvalDurationMs !== undefined && options.promptEvalDurationMs !== null) {
+    body.promptEvalDurationMs = options.promptEvalDurationMs;
+  }
+  if (!options.running && options.generationDurationMs !== undefined && options.generationDurationMs !== null) {
+    body.generationDurationMs = options.generationDurationMs;
   }
   const timingFields = {
     providerDurationMs: options.providerDurationMs,

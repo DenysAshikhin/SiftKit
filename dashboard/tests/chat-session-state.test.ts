@@ -20,8 +20,9 @@ function msg(overrides: Partial<ChatMessage>): ChatMessage {
 
 function session(messages: ChatMessage[]): ChatSession {
   return {
-    id: 's1', title: 'S', model: null, contextWindowTokens: 32000,
+    id: 's1', title: 'S', modelPresetId: 'default', model: null, contextWindowTokens: 32000, planRepoRoot: 'C:/repo',
     createdAtUtc: '2026-07-19T00:00:00Z', updatedAtUtc: '2026-07-19T00:00:00Z',
+    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
     messages,
   };
 }

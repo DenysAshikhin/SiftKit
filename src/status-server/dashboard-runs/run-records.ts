@@ -5,7 +5,8 @@ import { parseJsonValueText } from '../../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
 import type { JsonlEvent } from '../../state/jsonl-transcript.js';
-import { RunOperationTypeSchema, type RunOperationType } from '@siftkit/contracts';
+import { InferenceThroughputSchema, RunOperationTypeSchema, type InferenceThroughput, type RunOperationType } from '@siftkit/contracts';
+import { getErrorMessage } from '../../lib/errors.js';
 import type { RunLogDbRow, RunRecord } from './types.js';
 
 function optionalStringField(value: OptionalJsonValue): string | null {
@@ -54,6 +55,7 @@ export function normalizeRunRecord(record: JsonObject): RunRecord {
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
     providerDurationMs: Number.isFinite(record.providerDurationMs) ? Number(record.providerDurationMs) : null,
     wallDurationMs: Number.isFinite(record.wallDurationMs) ? Number(record.wallDurationMs) : null,
+    throughput: record.throughput == null ? null : InferenceThroughputSchema.parse(record.throughput),
     rawPaths: JsonRecordReader.asObject(record.rawPaths) || {},
   };
 }
@@ -129,6 +131,18 @@ export function normalizeStatusForRunRecord(terminalState: string): string {
   return 'running';
 }
 
+/** Malformed stored JSON is a persistence bug: it throws with the run id instead of reading as unmeasured. */
+function parseRunLogThroughput(text: string | null | undefined, runId: string): InferenceThroughput | null {
+  if (typeof text !== 'string' || !text.trim()) {
+    return null;
+  }
+  try {
+    return InferenceThroughputSchema.parse(parseJsonValueText(text));
+  } catch (error) {
+    throw new Error(`Run ${runId} has malformed throughput_json: ${getErrorMessage(error)}`);
+  }
+}
+
 export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
   return normalizeRunRecord({
     id: String(row.run_id || ''),
@@ -157,6 +171,7 @@ export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
     durationMs: toNullableNonNegativeInteger(row.wall_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
     providerDurationMs: toNullableNonNegativeInteger(row.provider_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
     wallDurationMs: toNullableNonNegativeInteger(row.wall_duration_ms),
+    throughput: parseRunLogThroughput(row.throughput_json, String(row.run_id || '')),
     rawPaths: {},
   });
 }

@@ -7,6 +7,7 @@ import { z } from '../src/lib/zod.js';
 import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 
 import {
   runTaskLoop,
@@ -37,6 +38,7 @@ import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -86,7 +88,7 @@ function modelPresetReasoning(reasoning: 'on' | 'off', presetFields: Partial<Mod
 // irrelevant, so partial literals are structurally checked and cast in one place.
 const MockTaskResultSchema = z.custom<TaskResult>((value) => typeof value === 'object' && value !== null);
 function mockTaskResult(task: DeepPartial<TaskResult>): TaskResult {
-  return MockTaskResultSchema.parse(task);
+  return MockTaskResultSchema.parse({ throughput: emptyInferenceThroughput(), ...task });
 }
 
 function createTempRepoRoot(gitignoreText = '') {
@@ -102,6 +104,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
       question: 'Any question.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
@@ -123,6 +126,7 @@ test('runTaskLoop reports the configured turn cap on the result', async () => {
       question: 'Any question.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       minToolCallsBeforeFinish: 0,
@@ -146,6 +150,7 @@ test('runTaskLoop returns invalid native arguments on the failing call before a 
       question: 'Any question.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 3,
@@ -197,6 +202,7 @@ test('runTaskLoop nudges unrecoverable responses without inventing a tool call',
       question: 'Any question.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 3,
@@ -234,6 +240,7 @@ test('runTaskLoop treats a finish with empty narration as an invalid response an
   const result = await runTaskLoop(
     { id: 'empty-narration', question: 'Answer.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 3,
@@ -325,6 +332,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
@@ -390,6 +398,7 @@ test('runTaskLoop reports streamed provider frames as writer activity without li
     const result = await runTaskLoop(
       { id: 'task-headless-activity', question: 'Say done.' },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
@@ -423,6 +432,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -473,6 +483,7 @@ test('runTaskLoop advances overlapping read calls to the next unread span', asyn
       question: 'Read target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -519,6 +530,7 @@ test('runTaskLoop replays effective read range after native unread expansion', a
       question: 'Read target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -577,6 +589,7 @@ test('runTaskLoop replays only the returned read range after fitting an oversize
       question: 'read file',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -637,6 +650,7 @@ test('runTaskLoop bounds the unread read span at the next returned range', async
       question: 'Read target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -676,6 +690,7 @@ test('runTaskLoop rejects a read whose whole range was already returned', async 
       question: 'Read target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
@@ -723,6 +738,7 @@ test('runTaskLoop forces finish after repeated exhausted reads', async () => {
       question: 'Read target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 8,
@@ -765,6 +781,7 @@ test('runTaskLoop truncates oversized find output with omitted file count', asyn
       question: 'List files.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 3,
@@ -805,6 +822,7 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
       question: 'Read a large file section.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 2,
@@ -918,6 +936,7 @@ test('runTaskLoop fails before any provider request when the repo-agent summariz
           question: 'Q'.repeat(20000),
         },
         {
+          throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
           ...MOCK_LOOP_DEFAULTS,
           // Only compacting loop kinds reach the summarization prompt at all; repo-search
           // stops and answers instead.
@@ -958,6 +977,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
       question: 'Find planner budget references.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 1,
@@ -991,6 +1011,7 @@ test('runTaskLoop compacts an overflowing repo-agent history and continues from 
       question: 'Find planner references.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       // repo-search answers on overflow; only a compacting loop kind resumes from a summary.
       runtimeProfile: new RepoSearchRuntimeProfile('repo-agent'),
@@ -1051,6 +1072,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
@@ -1101,6 +1123,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       question: oversizedQuestion,
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
@@ -1150,6 +1173,7 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
       question: 'Find planner prompt and prompt budget helpers.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
@@ -1201,6 +1225,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('off', { NumCtx: 32000 }),
@@ -1239,6 +1264,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('on', { NumCtx: 32000 }),
@@ -1301,6 +1327,7 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('off', { NumCtx: 32000 }),
@@ -1337,6 +1364,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('off', { NumCtx: 32000 }),
@@ -1441,6 +1469,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
@@ -1512,6 +1541,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
@@ -1574,6 +1604,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         question: 'Find planner text.',
       },
       {
+        throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
         ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
@@ -1607,6 +1638,7 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
@@ -1639,6 +1671,7 @@ test('runTaskLoop blocks an identical typed Git call as an exact duplicate', asy
       question: 'Find port defaults.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
@@ -1681,6 +1714,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       question: 'Read two files.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 6,
@@ -1729,6 +1763,7 @@ test('runTaskLoop with ExpandReads disabled skips returned lines but stops at th
       question: 'Read a file twice.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       config: mockLoopConfig({ ...modelPresetReasoning('off'), ExpandReads: false }),
@@ -1770,6 +1805,7 @@ test('runTaskLoop does not compact different commands that happen to return the 
       question: 'Find runner port.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
@@ -1824,6 +1860,7 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 12,
       maxInvalidResponses: 3,
@@ -1856,6 +1893,7 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('on', { NumCtx: 32000 }),
@@ -1907,6 +1945,7 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       question: 'Find planner text.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
         ...modelPresetReasoning('off', { NumCtx: 32000 }),
@@ -1985,6 +2024,7 @@ test('mock planner strips think block from response text', async () => {
   await runTaskLoop(
     { id: 'task-strip', question: 'q' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
       mockResponses: [{ thinking: 'hidden', content: 'done' }],
@@ -2001,6 +2041,7 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
   const result = await runTaskLoop(
     { id: 'task-turns', question: 'Find planner text.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
@@ -2028,6 +2069,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
   const result = await runTaskLoop(
     { id: 'task-turns-pruned', question: 'Find planner text.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
@@ -2068,6 +2110,7 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
   const result = await runTaskLoop(
     { id: 'task-dup-turn', question: 'Find planner text.' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
@@ -2093,6 +2136,7 @@ test('runTaskLoop records turn thinking for an invalid-parse turn', async () => 
   const result = await runTaskLoop(
     { id: 'task-invalid-think', question: 'q' },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
@@ -2119,6 +2163,7 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
       question: 'Read and edit target file.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 6,
@@ -2163,6 +2208,7 @@ test('runTaskLoop keeps read history across a typed read-only Git call', async (
       question: 'Read target file around a git call.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 6,
@@ -2210,6 +2256,7 @@ test('runTaskLoop lets a read repeat after run invalidates every window with Exp
       question: 'Read target file around a run call.',
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       config: mockLoopConfig({ ...modelPresetReasoning('off'), ExpandReads: false }),
@@ -2253,6 +2300,7 @@ test('runTaskLoop forces a repo-search answer when the prompt outgrows the conte
       question: 'Q'.repeat(20000),
     },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -2321,6 +2369,7 @@ async function runHistoryLoop(options: {
   return runTaskLoop(
     { id: `task-single-reserve-${options.taskKind}`, question: BLIND_ZONE_QUESTION },
     {
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       ...MOCK_LOOP_DEFAULTS,
       runtimeProfile: new RepoSearchRuntimeProfile(options.taskKind),
       maxTurns: 6,

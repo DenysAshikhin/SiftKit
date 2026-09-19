@@ -44,7 +44,8 @@ import type { PresetSystemContext } from '../preset-system-context.js';
 import type { RepoSearchTaskKind } from './task-kind.js';
 import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
 import { IDENTIFIED_TOOL_RESULT_FORMAT } from './live-snapshot/schemas.js';
-import { RunOperationTypeSchema } from '@siftkit/contracts';
+import { InferenceThroughputSchema, RunOperationTypeSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
+import { mergeInferenceThroughput } from '../lib/inference-throughput.js';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
 import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
 
@@ -69,6 +70,8 @@ export const ScorecardSchema = z.object({
   totals: z.record(z.string(), z.number()),
   toolStats: z.record(z.string(), ToolTypeStatsSchema),
   readOverlapSummary: ReadOverlapSummarySchema,
+  /** The run's throughput: every task's fold merged by tokens and time, never averaged rates. */
+  throughput: InferenceThroughputSchema,
   verdict: z.enum(['pass', 'fail']),
   failureReasons: z.array(z.string()),
 });
@@ -115,6 +118,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     totals,
     toolStats,
     readOverlapSummary,
+    throughput: mergeInferenceThroughput(options.tasks.map((task) => task.throughput)),
     verdict: totals.failed === 0 ? 'pass' : 'fail',
     failureReasons,
   };
@@ -152,6 +156,8 @@ export async function runRepoSearch(options: {
   historyMessages?: ChatMessage[];
   thinkingEnabledOverride?: boolean;
   taskPrompt: string | undefined;
+  /** The run's audit identity; every planner, approval, compaction and synthesis request under it. */
+  throughputAudit: ThroughputAuditOperation;
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
@@ -226,6 +232,8 @@ export async function runRepoSearch(options: {
       model,
       baseUrl,
       config,
+      // Every request under this run audits under the model the run resolved, not the raw override.
+      throughputAudit: { ...options.throughputAudit, model },
       totalContextTokens: getConfiguredEngineNumCtx(config),
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       maxTurns: runtimeProfile.resolveMaxTurns(options.maxTurns, DEFAULT_MAX_TURNS),

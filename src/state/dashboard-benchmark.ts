@@ -3,6 +3,7 @@ import { z } from '../lib/zod.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema, type JsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 
 const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type BenchmarkTaskKind = z.infer<typeof BenchmarkTaskKindSchema>;
@@ -84,6 +85,7 @@ export type BenchmarkAttemptRecord = {
   thinkingTokens: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  throughput: InferenceThroughput | null;
   outputQualityScore: number | null;
   toolUseQualityScore: number | null;
   reviewNotes: string | null;
@@ -316,6 +318,14 @@ function normalizeCase(row: JsonObject | undefined): BenchmarkCaseRecord | null 
   };
 }
 
+function parseAttemptThroughput(text: string | null | undefined): InferenceThroughput | null {
+  return typeof text === 'string' && text.trim() ? InferenceThroughputSchema.parse(parseJsonValueText(text)) : null;
+}
+
+function serializeThroughput(value: InferenceThroughput | null): string | null {
+  return value === null ? null : JSON.stringify(value);
+}
+
 function normalizeAttempt(row: JsonObject | undefined): BenchmarkAttemptRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
@@ -347,6 +357,7 @@ function normalizeAttempt(row: JsonObject | undefined): BenchmarkAttemptRecord |
     thinkingTokens: readNullableNumber(row.thinking_tokens),
     speculativeAcceptedTokens: readNullableNumber(row.speculative_accepted_tokens),
     speculativeGeneratedTokens: readNullableNumber(row.speculative_generated_tokens),
+    throughput: parseAttemptThroughput(z.string().nullish().parse(row.throughput_json)),
     outputQualityScore: readNullableNumber(row.output_quality_score),
     toolUseQualityScore: readNullableNumber(row.tool_use_quality_score),
     reviewNotes: readNullableText(row.review_notes),
@@ -727,6 +738,7 @@ export function updateBenchmarkAttempt(options: {
   thinkingTokens?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  throughput?: InferenceThroughput | null;
   startedAtUtc?: string | null;
   completedAtUtc?: string | null;
 }): BenchmarkAttemptRecord | null {
@@ -749,6 +761,7 @@ export function updateBenchmarkAttempt(options: {
         thinking_tokens = ?,
         speculative_accepted_tokens = ?,
         speculative_generated_tokens = ?,
+        throughput_json = ?,
         started_at_utc = ?,
         completed_at_utc = ?,
         updated_at_utc = ?
@@ -767,6 +780,7 @@ export function updateBenchmarkAttempt(options: {
     options.thinkingTokens === undefined ? existing.thinkingTokens : options.thinkingTokens,
     options.speculativeAcceptedTokens === undefined ? existing.speculativeAcceptedTokens : options.speculativeAcceptedTokens,
     options.speculativeGeneratedTokens === undefined ? existing.speculativeGeneratedTokens : options.speculativeGeneratedTokens,
+    serializeThroughput(options.throughput === undefined ? existing.throughput : options.throughput),
     options.startedAtUtc === undefined ? existing.startedAtUtc : options.startedAtUtc,
     options.completedAtUtc === undefined ? existing.completedAtUtc : options.completedAtUtc,
     nowUtc(),

@@ -6,6 +6,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import type { JsonObject } from '../src/lib/json-types.js';
+import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
 type FakeInferenceServer = { baseUrl: string; lastBody: () => string; close: () => Promise<void> };
 
@@ -51,6 +52,7 @@ function startFakeInferenceServer(): Promise<FakeInferenceServer> {
 
 async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<typeof requestRepoSearchPlannerProtocolAction>>> {
   return requestRepoSearchPlannerProtocolAction({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config: mockOfflineSiftConfig(),
     baseUrl,
     model: 'mock',

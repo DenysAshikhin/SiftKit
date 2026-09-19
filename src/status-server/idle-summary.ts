@@ -14,6 +14,7 @@ import { z } from '../lib/zod.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
+import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -57,6 +58,8 @@ export type IdleSummarySnapshot = {
   chunkThresholdCharacters: number | null;
   taskTotals: SnapshotTaskTotals;
   toolStats: SnapshotToolStats;
+  /** Fold of the completed requests behind these totals; null for snapshots taken before it existed. */
+  throughput: InferenceThroughput | null;
 };
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
@@ -339,6 +342,7 @@ export function buildIdleSummarySnapshot(metrics: JsonObject, emittedAt: Date = 
     chunkThresholdCharacters,
     taskTotals,
     toolStats,
+    throughput: InferenceThroughputSchema.nullable().optional().parse(metrics.throughput) ?? null,
   };
 }
 
@@ -403,8 +407,9 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
       compression_ratio,
       request_duration_ms_total,
       avg_request_ms,
-      avg_tokens_per_second
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      avg_tokens_per_second,
+      throughput_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     snapshot.emittedAtUtc,
     snapshot.completedRequestCount,
@@ -425,7 +430,8 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
     normalizeSqlNumber(snapshot.compressionRatio),
     snapshot.requestDurationMsTotal,
     normalizeSqlNumber(snapshot.avgRequestMs),
-    normalizeSqlNumber(snapshot.avgTokensPerSecond)
+    normalizeSqlNumber(snapshot.avgTokensPerSecond),
+    snapshot.throughput === null ? null : JSON.stringify(snapshot.throughput),
   );
 }
 
@@ -480,6 +486,7 @@ export const IdleSummarySnapshotDbRowSchema = z.object({
   task_totals_json: sqlTextColumn,
   tool_stats_json: sqlTextColumn,
   summary_text: sqlTextColumn,
+  throughput_json: sqlTextColumn,
 });
 
 export type IdleSummarySnapshotDbRow = z.infer<typeof IdleSummarySnapshotDbRowSchema>;
@@ -560,7 +567,7 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
              input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total,
              prompt_eval_tokens_total, speculative_accepted_tokens_total, speculative_generated_tokens_total,
              task_totals_json, tool_stats_json, saved_tokens, saved_percent, compression_ratio,
-             request_duration_ms_total, avg_request_ms, avg_tokens_per_second
+             request_duration_ms_total, avg_request_ms, avg_tokens_per_second, throughput_json
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)
     .all(limit));

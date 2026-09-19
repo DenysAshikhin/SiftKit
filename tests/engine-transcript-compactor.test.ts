@@ -17,11 +17,11 @@ import {
   resolveRepoSearchPlannerToolDefinitions,
 } from '../src/repo-search/planner-protocol.js';
 import { findPlannerContextViolation, type ChatMessage } from '../src/repo-search/planner-chat-message.js';
-import { buildMockScorecard } from './_test-helpers.js';
+import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 import type { MockPlannerResponseInput } from '../src/planner-protocol/mock-response.js';
 import { toProtocolTools } from '../src/providers/inference.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../src/lib/context-token-budget.js';
@@ -50,6 +50,7 @@ function makeCompactor(mockResponses: MockPlannerResponseInput[] | undefined, to
   const config = mockOfflineSiftConfig();
   const budget = new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens, maxTurns: 45 });
   return new TranscriptCompactor({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
@@ -160,6 +161,7 @@ test('chat compaction sends only completed history to the real summary request',
   ];
   try {
     const compactor = new TranscriptCompactor({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
       config,
       baseUrl: `http://127.0.0.1:${address.port}`,
       model: 'mock-model',
@@ -198,6 +200,61 @@ test('chat compaction sends only completed history to the real summary request',
     assert.deepEqual(captured.tools, PLANNER_TOOLS);
     assert.equal(captured.tool_choice, 'none');
     assert.equal(captured.max_tokens, 15_000);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test('a summary attempt rejected as empty still counts toward the run throughput fold', async () => {
+  let requests = 0;
+  const server = http.createServer((request, response) => {
+    request.resume();
+    request.on('end', () => {
+      requests += 1;
+      sendChatCompletionSse(response, {
+        choices: [{ message: { content: requests === 1 ? '' : 'SUMMARY' } }],
+        usage: buildTabbyUsage({ promptTokens: 80, completionTokens: requests === 1 ? 3 : 27 }),
+      });
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error?: Error) => error ? reject(error) : resolve());
+  });
+  const address = getAddressInfo(server);
+  const config = mockOfflineSiftConfig();
+  const tokenUsage = new TokenUsageTracker(config, true);
+  try {
+    const compactor = new TranscriptCompactor({
+      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
+      config,
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      model: 'mock-model',
+      timeoutMs: 5_000,
+      totalContextTokens: 32_000,
+      compactionReserveTokens: new TurnBudget({ compactionReserveTokens: PROMPT_COMPACTION_RESERVE_TOKENS, totalContextTokens: 32_000, maxTurns: 45 }).compactionReserveTokens,
+      useEstimatedTokensOnly: true,
+      mockResponses: undefined,
+      tokenUsage,
+      logger: null,
+      abortSignal: undefined,
+    });
+    const result = await compactor.compact({
+      taskId: 't1',
+      turn: 2,
+      messages: transcript(),
+      mockResponseIndex: 0,
+      retention: { kind: 'latest_user' },
+      cacheOrigin: NEW_EPOCH,
+    });
+    assert.equal(result.summaryText, 'SUMMARY');
+    assert.equal(requests, 2);
+    // Both physical requests decoded tokens on the backend, so both belong to the run fold.
+    const { throughput } = tokenUsage.snapshot();
+    assert.equal(throughput.decode.requestCount, 2);
+    assert.equal(throughput.decode.tokenCount, 30);
+    assert.equal(throughput.decode.missingTabbyRequests, 0);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
@@ -271,6 +328,7 @@ test('a completed-history image consumes the structured summary budget', async (
   const logged: Array<Record<string, JsonSerializable>> = [];
   const config = mockOfflineSiftConfig();
   const compactor = new TranscriptCompactor({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
@@ -314,6 +372,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
   const logged: Array<Record<string, JsonSerializable>> = [];
   const config = mockOfflineSiftConfig();
   const compactor = new TranscriptCompactor({
+    throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
     config,
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',

@@ -1,5 +1,5 @@
 import type { ServerContext } from './server-types.js';
-import { InferenceBackendIdSchema } from '@siftkit/contracts';
+import { InferenceBackendIdSchema, type InferenceThroughput } from '@siftkit/contracts';
 import { normalizeConfig, writeConfig } from './config-store.js';
 import { flushDeferredArtifacts } from './server-ops.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
@@ -46,6 +46,7 @@ export type BenchmarkAttemptMetrics = {
   thinkingTokens: number | null;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
+  throughput: InferenceThroughput | null;
 };
 
 const activeJobs = new Map<string, ActiveBenchmarkJob>();
@@ -129,6 +130,7 @@ export function buildBenchmarkAttemptMetrics(
     thinkingTokens: run.thinkingTokens,
     speculativeAcceptedTokens: run.speculativeAcceptedTokens,
     speculativeGeneratedTokens: run.speculativeGeneratedTokens,
+    throughput: run.throughput,
   };
 }
 
@@ -206,6 +208,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
     thinkingTokens: metrics.thinkingTokens,
     speculativeAcceptedTokens: metrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: metrics.speculativeGeneratedTokens,
+    throughput: metrics.throughput,
   });
   return { outputText: response.outputText, runId: response.runId, metrics };
 }
@@ -257,6 +260,7 @@ async function runBenchmarkJob(ctx: ServerContext, detail: BenchmarkSessionDetai
           thinkingTokens: result.metrics.thinkingTokens,
           speculativeAcceptedTokens: result.metrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: result.metrics.speculativeGeneratedTokens,
+          throughput: result.metrics.throughput,
           completedAtUtc: new Date().toISOString(),
         });
         log(job, sessionId, attempt.id, `Completed attempt ${attempt.id}.\n`);

@@ -119,6 +119,30 @@ test('a text request carries no tools and no image content of any kind', async (
   assert.ok(!serialized.includes('data:image'));
 });
 
+test('every completion is audited under its own assistant identity', async () => {
+  const backend = new RecordingBackend('{"ok":true}');
+  const config = mockSiftConfig({});
+  const client = buildClient(config, backend);
+  await client.complete({
+    kind: 'text',
+    role: 'conversation_memory_extractor',
+    systemPrompt: 'Extract.',
+    userText: 'I use PowerShell.',
+    responseSchemaName: 'assistant_conversation_candidates',
+    responseJsonSchema: { type: 'object' },
+    abortSignal: null,
+  });
+  const audit = backend.requests[0]?.throughputAudit;
+  assert.ok(audit);
+  assert.equal(audit.operationType, 'assistant');
+  assert.equal(audit.stage, 'text_conversation_memory_extractor');
+  // One completion is one operation: the request id is the operation id, never a fake shared one.
+  assert.equal(audit.requestId, audit.operationId);
+  assert.ok(audit.operationId.length > 0);
+  assert.equal(audit.presetId, getActiveModelPreset(config).id);
+  assert.equal(audit.model, getActiveModelPreset(config).Model);
+});
+
 test('the response format pins the supplied JSON schema', async () => {
   const backend = new RecordingBackend('{"ok":true}');
   const client = buildClient(mockSiftConfig({}), backend);

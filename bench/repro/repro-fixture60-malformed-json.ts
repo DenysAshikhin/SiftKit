@@ -169,7 +169,6 @@ export function parseArgs(argv: string[]): ReproArgs {
 
   return parsed;
 }
-
 function getTimestamp(): string {
   const current = new Date();
   const yyyy = current.getFullYear();
@@ -438,6 +437,7 @@ export async function runFixture60MalformedJsonRepro(
         });
         const promptTokenCount = await countInferenceTokens(config, prompt);
         const response = await generateInferenceResponse({
+          throughputAudit: { operationType: 'evaluation', operationId: 'bench-repro', requestId: 'bench-repro', stage: 'repro', model: 'test-model', presetId: null },
           config,
           model,
           prompt,

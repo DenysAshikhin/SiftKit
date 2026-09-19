@@ -14,9 +14,7 @@ import type { ChatTurn } from './chatTurns.js';
 
 const {
   getAcceptanceRate,
-  getGenerationTokensPerSecond,
   getPromptCacheHitRate,
-  getPromptTokensPerSecond,
 } = telemetryMetrics;
 
 export type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -193,31 +191,6 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       generationTokensPerSecond: null,
     };
   }
-  const getIsoTime = (value: string | null | undefined): number | null => {
-    if (typeof value !== 'string' || !value.trim()) {
-      return null;
-    }
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-  const getPromptTokensForTurn = (message: ChatMessage, previousMessage: ChatMessage | null): number | null => {
-    if (Number.isFinite(message.promptEvalTokens) && Number(message.promptEvalTokens) >= 0) {
-      return Number(message.promptEvalTokens);
-    }
-    if (
-      previousMessage
-      && previousMessage.role === 'user'
-      && Number.isFinite(previousMessage.inputTokensEstimate)
-      && Number(previousMessage.inputTokensEstimate) >= 0
-    ) {
-      return Number(previousMessage.inputTokensEstimate);
-    }
-    return null;
-  };
-  let promptDurationMsTotal = 0;
-  let promptTokensForRateTotal = 0;
-  let outputDurationMsTotal = 0;
-  let generatedTokensForRateTotal = 0;
   const promptCacheTokens = session.messages.reduce((sum, message) => (
     Number.isFinite(message.promptCacheTokens) && Number(message.promptCacheTokens) >= 0
       ? sum + Number(message.promptCacheTokens)
@@ -238,61 +211,6 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       ? sum + Number(message.speculativeGeneratedTokens)
       : sum
   ), 0);
-  for (let index = 0; index < session.messages.length; index += 1) {
-    const message = session.messages[index];
-    if (!message) {
-      continue;
-    }
-    if (message.role !== 'assistant') {
-      continue;
-    }
-    const previousMessage = index > 0 ? (session.messages[index - 1] ?? null) : null;
-    const requestStartedAt = getIsoTime(message.requestStartedAtUtc);
-    const thinkingStartedAt = getIsoTime(message.thinkingStartedAtUtc);
-    const answerStartedAt = getIsoTime(message.answerStartedAtUtc);
-    const answerEndedAt = getIsoTime(message.answerEndedAtUtc);
-    const generationStartedAt = thinkingStartedAt ?? answerStartedAt;
-    const promptTokens = getPromptTokensForTurn(message, previousMessage);
-    const promptTokensPerSecond = Number.isFinite(message.promptTokensPerSecond) && Number(message.promptTokensPerSecond) > 0
-      ? Number(message.promptTokensPerSecond)
-      : null;
-    const promptDurationMs = (
-      promptTokensPerSecond !== null && promptTokens !== null
-        ? (promptTokens / promptTokensPerSecond) * 1000
-        : Number.isFinite(message.promptEvalDurationMs) && Number(message.promptEvalDurationMs) > 0
-        ? Number(message.promptEvalDurationMs)
-        : (requestStartedAt !== null && generationStartedAt !== null && generationStartedAt > requestStartedAt)
-            ? generationStartedAt - requestStartedAt
-            : null
-    );
-    if (promptDurationMs !== null && promptDurationMs > 0 && promptTokens !== null) {
-      promptDurationMsTotal += promptDurationMs;
-      promptTokensForRateTotal += promptTokens;
-    }
-    const thinkingTokens = Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0
-      ? Number(message.thinkingTokens)
-      : 0;
-    const outputTokensForDirectRate = Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0
-      ? Number(message.outputTokensEstimate)
-      : 0;
-    const generationTokensPerSecond = Number.isFinite(message.generationTokensPerSecond) && Number(message.generationTokensPerSecond) > 0
-      ? Number(message.generationTokensPerSecond)
-      : null;
-    const generatedTokens = thinkingTokens + outputTokensForDirectRate;
-    const generationDurationMs = (
-      generationTokensPerSecond !== null && generatedTokens > 0
-        ? (generatedTokens / generationTokensPerSecond) * 1000
-        : Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
-        ? Number(message.generationDurationMs)
-        : (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt)
-            ? answerEndedAt - generationStartedAt
-            : null
-    );
-    if (generationDurationMs !== null && generationDurationMs > 0) {
-      outputDurationMsTotal += generationDurationMs;
-      generatedTokensForRateTotal += generatedTokens;
-    }
-  }
   return {
     promptCacheTokens,
     promptEvalTokens,
@@ -300,8 +218,8 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     speculativeAcceptedTokens,
     speculativeGeneratedTokens,
     acceptanceRate: getAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens),
-    promptTokensPerSecond: getPromptTokensPerSecond(promptTokensForRateTotal, promptDurationMsTotal),
-    generationTokensPerSecond: getGenerationTokensPerSecond(generatedTokensForRateTotal, 0, outputDurationMsTotal),
+    promptTokensPerSecond: session.sessionThroughput.promptTokensPerSecond,
+    generationTokensPerSecond: session.sessionThroughput.generationTokensPerSecond,
   };
 }
 

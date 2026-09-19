@@ -25,6 +25,7 @@ import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 import type { ChatMessageQueueDelivery } from './queue-delivery.js';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
+import { InferenceThroughputSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -213,6 +214,8 @@ export const TaskResultSchema = z.object({
   speculativeGeneratedTokens: z.number(),
   toolStats: z.record(z.string(), ToolTypeStatsSchema),
   readOverlapSummary: ReadOverlapSummarySchema,
+  /** Canonical per-request fold of every model call the task made, rejected attempts included. */
+  throughput: InferenceThroughputSchema,
 });
 export type TaskResult = z.infer<typeof TaskResultSchema>;
 
@@ -237,6 +240,8 @@ export type RunTaskLoopOptions = {
   baseUrl: string;
   /** The loop's single source of model, samplers and budgets — mock runs supply one too. */
   config: SiftConfig;
+  /** The run's audit identity; every planner, approval, compaction and synthesis request under it. */
+  throughputAudit: ThroughputAuditOperation;
   totalContextTokens?: number;
   timeoutMs?: number;
   maxTurns?: number;
