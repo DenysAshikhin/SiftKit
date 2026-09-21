@@ -2,32 +2,34 @@
 
 ## Installed deployment
 
-- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `92198cca1aa48f83121027f5b9058c24d7c2d894`.
-- ExLlamaV3 source: `C:\AI\exl3\prod\src`, branch `deployment/pr341-zerocopy-on-dev`, based on official `dev` at `a35258345595ac606d32e02388e32bc9f2946c4b` with PR341's zero-copy streamed prefill re-implemented against `dev`. This tree is build provenance only; it is **not** an editable import. Per-file provenance is in `C:\AI\exl3\manifests\prod-port-manifest.md`.
+- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `production-upstream` tracking official `main` at `53da7919d4e45c63f4acbcbbc00cbe0f60a1ce65` (2026-09-14).
+- ExLlamaV3 source: `C:\AI\exl3\prod\src`, branch `production-pr389` at `7940b78`. It contains official `dev` at `8271af4` (latest fetched 2026-09-21), plus draft [#389](https://github.com/turboderp-org/exllamav3/pull/389) at `b2d2404`, including [#386](https://github.com/turboderp-org/exllamav3/pull/386). The source checkout records build provenance; the venv imports the installed wheel.
 - Base interpreter: `C:\AI\exl3\python\cpython-3.14.7-windows-x86_64-none\python.exe`, installed without PATH or registry changes.
 - Python: `C:\AI\exl3\prod\venv\Scripts\python.exe` (`3.14.7`)
 - Torch: `2.14.0+cu132`; CUDA build: `13.2`
-- ExLlamaV3: `1.4.8`, installed as a compiled cp314 wheel; its extension is `C:\AI\exl3\prod\venv\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd`. The venv is self-contained: no `.pth`, no editable install, no external source dependency.
+- ExLlamaV3: `1.5.1`, built with **12 workers** as `C:\AI\exl3\packages\prod\7940b78\exllamav3-1.5.1-cp314-cp314-win_amd64.whl`. Its extension is `C:\AI\exl3\prod\venv\Lib\site-packages\exllamav3_ext.cp314-win_amd64.pyd`. Previous wheels and the `production-patched` source branch remain available for rollback.
 - Model: `D:\personal\models\elx3\td_flash-next_4.05bpw_h6_ng6`; active preset `exl3-3-8-27b`.
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
 - Managed command: `C:\AI\exl3\prod\venv\Scripts\python.exe main.py`, with the Tabby checkout as its working directory and the active preset's `TABBY_*` overrides.
 - API: `http://127.0.0.1:8098/v1`
 
+Windows WDDM now uses NVML dedicated-memory headroom; Linux retains its CUDA query. All measuring
+forwards remain enabled. The [deployment record](analysis/2026-09-21-exl3-pr389-production-deployment.md)
+contains exact source/wheel hashes and validation results; the
+[regression history](analysis/2026-09-21-exl3-loader-regression-history.md) identifies the upstream
+changes that exposed the Windows issue. As verified on 2026-09-21, #386, #387, and #389 target
+upstream `dev`; #387 is closed and superseded by upstream's portable MSVC fix `6b84a21`, included here.
+
 This is the only EXL3 environment on the machine. The superseded Python 3.13 environments
 (`C:\envs\rl313-pr341-pr346`, `C:\envs\rl313-turbo`) and their editable source trees were removed
 on 2026-09-09 after the cutover was validated, so there is no rollback environment and no second
-interpreter. Their build manifests and package inventories are retained in
-`C:\AI\exl3\manifests\retired-3.13-envs`, and the local-only Git history of the retired
-`pristine_exle` checkouts is retained as verified bundles in
-`C:\AI\exl3\manifests\pristine-exle-preservation`. `C:\python_313` is a separate global
-interpreter with unrelated consumers and is deliberately untouched.
+interpreter. Their manifests, preserved Git bundles, benchmarks, and logs were deleted on
+2026-09-19. `C:\python_313` is a separate global interpreter with unrelated consumers and is
+deliberately untouched.
 
-`C:\AI\exl3\baseline\{src,venv}` is a pure upstream `dev` build kept as the measurement control for
-in-flight kernel work. It is not wired into SiftKit and becomes disposable once that work lands.
+The active preset enables offloaded vision and disables MTP drafting. Tabby loads the vision tower and main model. Deployment settings come from the persisted preset; the ignored `config.yml` has older model defaults and must not be used alone to reproduce the managed deployment.
 
-The active preset enables vision and MTP drafting. Tabby loads the vision tower, draft component, and main model. Deployment settings come from the persisted preset; the ignored `config.yml` has older model defaults and must not be used alone to reproduce the managed deployment.
-
-The active profile uses `max_seq_len: 180000`, `cache_size: 180224`, `cache_mode: 8,8`, `chunk_size: 4096`, `max_batch_size: 1`, 415 CPU-offloaded MoE experts per layer, dynamic MTP drafting with one draft token, and 4096 MiB of recurrent host cache. Vision is enabled and offloaded; the n-gram table is streamed from disk. `/props` must report `total_slots: 1` and `n_ctx: 180000`. SiftKit accepts concurrent work up to Tabby's reported capacity.
+The active profile uses `max_seq_len: 150000`, `cache_size: 150016`, `cache_mode: 8,8`, `chunk_size: 2048`, `max_batch_size: 1`, 411 CPU-offloaded MoE experts per layer, MTP disabled, and 4096 MiB of recurrent host cache. Vision is enabled and offloaded; the n-gram table is streamed from disk. `/props` must report `total_slots: 1` and `n_ctx: 150000`. SiftKit accepts concurrent work up to Tabby's reported capacity. Installing #389 did not change the saved preset.
 
 The managed launch pins the allocator before the child imports Torch: `PYTORCH_ALLOC_CONF` and
 `PYTORCH_CUDA_ALLOC_CONF` are both set to `backend:native,expandable_segments:True`, and
@@ -40,7 +42,7 @@ Identify presets by their model paths; labels can be misleading:
 
 | Model directory | Context | KV cache | Chunk | CPU-MoE experts | MTP |
 |---|---:|---|---:|---:|---|
-| `td_flash-next_4.05bpw_h6_ng6` | 180000 | Q8 (`8,8`) | 4096 | 415 | Dynamic, maximum 1 |
+| `td_flash-next_4.05bpw_h6_ng6` | 150000 | Q8 (`8,8`) | 2048 | 411 | Disabled |
 | `3.8_27b_4.9bpw` | 155000 | Q8 (`8,8`) | 512 | 0 (dense) | Dynamic, maximum 3 |
 | `3.8_27b_sc_5.00bpw_h6` | 145000 | Q8 (`8,8`) | 1024 | 0 (dense) | Dynamic, maximum 3 |
 
@@ -68,23 +70,28 @@ When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Ta
 
 The production environment is a wheel install, not an editable checkout, so updating it means
 building a new cp314 wheel from an approved source revision and installing it into
-`C:\AI\exl3\prod\venv`. Never apply an upstream-only update to the ported source: `prod\src`
-carries a delta that upstream does not have, and `scripts/update-exllamav3.ts` deliberately
-rejects dirty or divergent source. That protection must not be weakened to make the updater accept
-this deployment; the updater is only usable against a clean upstream checkout such as
-`C:\AI\exl3\baseline\src`.
-
-Stop the managed runtime before rebuilding. Build with the permanent toolchain
-(`C:\AI\exl3\toolchains\cuda-13.2.2`, matching Torch's `+cu132`) and the installed Visual Studio
-2022 x64 environment, with `TORCH_CUDA_ARCH_LIST=8.9`:
+`C:\AI\exl3\prod\venv`. Update `prod\src` with `git fetch origin dev`, then either fast-forward
+`production-upstream` (`git merge --ff-only origin/dev`) or merge/rebase the deployed fix branch onto
+`origin/dev`, retaining the required pending PRs. Stop the managed runtime, then build and install with:
 
 ```powershell
-& C:\AI\exl3\prod\venv\Scripts\python.exe -m pip wheel --no-deps --no-build-isolation `
-  --no-cache-dir --wheel-dir C:\AI\exl3\packages C:\AI\exl3\prod\src
-& C:\AI\exl3\prod\venv\Scripts\python.exe -m pip install --no-deps --force-reinstall `
-  C:\AI\exl3\packages\exllamav3-1.4.8-cp314-cp314-win_amd64.whl
-& C:\AI\exl3\prod\venv\Scripts\python.exe -m pip check
+npm run exl3:build-wheel
 ```
+
+`scripts/build-exllamav3-wheel.ts` requires a clean checkout whose HEAD contains `origin/dev`;
+local commits merged or rebased on top (a pending upstream PR) are allowed and recorded, while dirty or
+diverged trees are rejected. It builds with the permanent toolchain (`C:\AI\exl3\toolchains\cuda-13.2.2`,
+matching Torch's `+cu132`), the Visual Studio 2022 x64 environment, `TORCH_CUDA_ARCH_LIST` from the
+GPU, and the production npm command explicitly sets `MAX_JOBS=12` (override with
+`-- --jobs N`). Direct script invocations without `--jobs` use half the logical CPU count, with a
+minimum of one. Output goes to `C:\AI\exl3\packages\prod\<short-commit>\` as the wheel plus
+`wheel.sha256`, `source.sha`, and `build.json` (commit, upstream base, local commits, wheel hash,
+Torch/CUDA/GPU). It then `pip install --force-reinstall`s the wheel, runs `pip check`, and fails if
+the installed package or extension resolves outside the venv, the version differs from
+`exllamav3/version.py`, or the Torch stack changed. Build logs land in `C:\AI\exl3\staging`.
+
+The wheel builder replaces the retired editable-install updater. It refuses to overwrite an
+existing commit's build artifacts.
 
 Install Tabby's base project without CUDA extras when its requirements change:
 
@@ -96,12 +103,12 @@ Install Tabby's base project without CUDA extras when its requirements change:
 Tabby's `cu12`/`cu13` extras select release EXL3/Torch wheels and must not be used: they would
 replace the source-built extension and pin an older Torch. After any rebuild, verify that
 `exllamav3.__file__` and `exllamav3_ext.__file__` both resolve under `C:\AI\exl3\prod\venv`, that
-`pip check` is clean, and that the managed preset still loads with MTP and vision — a passing
+`pip check` is clean, and that the managed preset still loads with its configured vision and speculative settings — a passing
 `eval/perf.py` run alone does not prove that.
 
-Build and validation logs, the package lock, and source/build provenance live under
-`C:\AI\exl3\{logs,packages,manifests}`. The historical qbench and quantization commits remain on
-the upstream EXL3 `dev` branch and are not selected. The previous Tabby customizations remain on
+Keep the wheel, `wheel.sha256`, `source.sha`, and `build.json` together under
+`C:\AI\exl3\packages\prod\<short-commit>\` for provenance and rollback. The historical qbench and
+quantization commits remain on upstream EXL3 `dev`; the previous Tabby customizations remain on
 its historical `siftkit` branch.
 
 ## Usage and persisted residency

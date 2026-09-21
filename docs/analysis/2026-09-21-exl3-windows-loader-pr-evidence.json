@@ -1,0 +1,127 @@
+{
+  "summary": [
+    {
+      "mode": "cuda",
+      "guardCount": 82,
+      "last": {
+        "component": "text",
+        "module": "lm_head",
+        "budget": 23955767296,
+        "transient": 575616512,
+        "margin": 268435456,
+        "allocated": 23585077760,
+        "reserved": 23733469184,
+        "cuda_free": 310378496,
+        "board_free": 1113624576,
+        "fraction": 0.93007918252692
+      },
+      "budgetSlackMiB": -195.43359375,
+      "cudaReusableMiB": 437.51708984375,
+      "boardReusableMiB": 1203.55224609375
+    },
+    {
+      "mode": "board",
+      "guardCount": 82,
+      "last": {
+        "component": "text",
+        "module": "lm_head",
+        "budget": 24759013376,
+        "transient": 575616512,
+        "margin": 268435456,
+        "allocated": 23585077760,
+        "reserved": 23775412224,
+        "cuda_free": 268435456,
+        "board_free": 1071681536,
+        "fraction": 0.9612650948053005
+      },
+      "budgetSlackMiB": 570.6015625,
+      "cudaReusableMiB": 437.51708984375,
+      "boardReusableMiB": 1203.55224609375
+    }
+  ],
+  "requests": [
+    {
+      "repeat": 0,
+      "promptSha256": "1fbed9b1b0a0b159943f32b814a23e0633f1d8f5f66773d6c1dbd2a82618e71c",
+      "markers": {
+        "alpha": true,
+        "beta": true,
+        "omega": true
+      },
+      "usage": {
+        "prompt_tokens": 149851,
+        "completion_tokens": 1024,
+        "prompt_time": 158.07,
+        "completion_time": 47.89,
+        "prompt_tokens_per_sec": 948,
+        "completion_tokens_per_sec": 21.38,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "repeat": 1,
+      "promptSha256": "1fbed9b1b0a0b159943f32b814a23e0633f1d8f5f66773d6c1dbd2a82618e71c",
+      "markers": {
+        "alpha": true,
+        "beta": true,
+        "omega": true
+      },
+      "usage": {
+        "prompt_tokens": 149851,
+        "completion_tokens": 1024,
+        "prompt_time": 0.89,
+        "completion_time": 47,
+        "prompt_tokens_per_sec": 102.25,
+        "completion_tokens_per_sec": 21.79,
+        "prompt_tokens_details": {
+          "cached_tokens": 149760
+        }
+      }
+    }
+  ],
+  "capacityNegative": {
+    "context": 230000,
+    "last": {
+      "component": "text",
+      "module": "lm_head",
+      "budget": 24759013376,
+      "transient": 575616512,
+      "margin": 268435456,
+      "allocated": 24346343936,
+      "reserved": 24488443904,
+      "cuda_free": 0,
+      "board_free": 358649856,
+      "fraction": 0.9612650948053005
+    },
+    "budgetSlackMiB": -155.3984375
+  },
+  "memory": {
+    "minCudaFreeMiB": 0,
+    "minBoardFreeMiB": 417,
+    "maxAllocatedMiB": 22939.53759765625,
+    "maxReservedMiB": 23248,
+    "samples": 308,
+    "allocationRetries": 0,
+    "ooms": 0
+  },
+  "hashes": [
+    {
+      "path": "C:\\AI\\exl3\\prod\\src\\exllamav3\\model\\model_ls.py",
+      "sha256": "40a75e864790540b201ca45c75928d9eaa4939c810edba16d8be66fa0c4ad229"
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\src\\exllamav3\\util\\memory.py",
+      "sha256": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063"
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\model\\model_ls.py",
+      "sha256": "40a75e864790540b201ca45c75928d9eaa4939c810edba16d8be66fa0c4ad229"
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\util\\memory.py",
+      "sha256": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063"
+    }
+  ]
+}

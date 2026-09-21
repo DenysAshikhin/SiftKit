@@ -1,0 +1,790 @@
+{
+  "measured": "2026-09-21",
+  "context": 185000,
+  "cacheSize": 185088,
+  "promptTokens": 149851,
+  "settings": {
+    "expertsOnCpu": 411,
+    "chunkSize": 2048,
+    "slots": 1,
+    "cache": "8,8",
+    "visionOffload": true,
+    "mtp": false,
+    "swapInterval": 1000000000
+  },
+  "natural": {
+    "requests": [
+      {
+        "phase": "cold",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 512,
+          "prompt_tokens_per_sec": 919.11,
+          "completion_tokens_per_sec": 20.92
+        },
+        "samples": 744,
+        "minOverBudgetMiB": -296,
+        "maxOverBudgetMiB": 350,
+        "minBoardFreeMiB": 416.03515625,
+        "minNonlocalMiB": 47618.08984375,
+        "maxNonlocalMiB": 47620.08984375
+      },
+      {
+        "phase": "natural-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 101.11,
+          "completion_tokens_per_sec": 21.89
+        },
+        "samples": 51,
+        "minOverBudgetMiB": 350,
+        "maxOverBudgetMiB": 350,
+        "minBoardFreeMiB": 416.03515625,
+        "minNonlocalMiB": 47620.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "natural-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 103.41,
+          "completion_tokens_per_sec": 22.09
+        },
+        "samples": 50,
+        "minOverBudgetMiB": 350,
+        "maxOverBudgetMiB": 350,
+        "minBoardFreeMiB": 416.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "natural-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 97.85,
+          "completion_tokens_per_sec": 21.51
+        },
+        "samples": 51,
+        "minOverBudgetMiB": 350,
+        "maxOverBudgetMiB": 350,
+        "minBoardFreeMiB": 416.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 90.1,
+          "completion_tokens_per_sec": 20.93
+        },
+        "samples": 53,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 91.92,
+          "completion_tokens_per_sec": 21.59
+        },
+        "samples": 51,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 98.91,
+          "completion_tokens_per_sec": 20.73
+        },
+        "samples": 54,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 94.79,
+          "completion_tokens_per_sec": 20.95
+        },
+        "samples": 53,
+        "minOverBudgetMiB": 268,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 94.79,
+          "completion_tokens_per_sec": 20.99
+        },
+        "samples": 53,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 102.25,
+          "completion_tokens_per_sec": 21.23
+        },
+        "samples": 52,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 95.79,
+          "completion_tokens_per_sec": 20.86
+        },
+        "samples": 53,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 91.92,
+          "completion_tokens_per_sec": 20.6
+        },
+        "samples": 54,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 101.11,
+          "completion_tokens_per_sec": 21.41
+        },
+        "samples": 51,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 94.79,
+          "completion_tokens_per_sec": 21.28
+        },
+        "samples": 52,
+        "minOverBudgetMiB": 268,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 81.25,
+          "completion_tokens_per_sec": 20.22
+        },
+        "samples": 55,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 97.85,
+          "completion_tokens_per_sec": 20.51
+        },
+        "samples": 54,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 270,
+        "minBoardFreeMiB": 496.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 92.86,
+          "completion_tokens_per_sec": 19.98
+        },
+        "samples": 55,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 102.25,
+          "completion_tokens_per_sec": 22.09
+        },
+        "samples": 50,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 97.85,
+          "completion_tokens_per_sec": 21.6
+        },
+        "samples": 51,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -250,
+        "minBoardFreeMiB": 1016.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      }
+    ],
+    "groups": [
+      {
+        "name": "natural",
+        "rates": [
+          21.89,
+          22.09,
+          21.51
+        ],
+        "median": 21.89,
+        "minOverBudgetMiB": 350,
+        "maxOverBudgetMiB": 350,
+        "overBudgetFraction": 1,
+        "minBoardFreeMiB": 416.03515625
+      },
+      {
+        "name": "stage-0-pad-0",
+        "rates": [
+          20.93,
+          21.59,
+          20.73
+        ],
+        "median": 20.93,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -250,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1016.03515625
+      },
+      {
+        "name": "stage-1-pad-512",
+        "rates": [
+          20.95,
+          20.99,
+          21.23
+        ],
+        "median": 20.99,
+        "minOverBudgetMiB": 268,
+        "maxOverBudgetMiB": 270,
+        "overBudgetFraction": 1,
+        "minBoardFreeMiB": 496.03515625
+      },
+      {
+        "name": "stage-2-pad-0",
+        "rates": [
+          20.86,
+          20.6,
+          21.41
+        ],
+        "median": 20.86,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -248,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1014.03515625
+      },
+      {
+        "name": "stage-3-pad-512",
+        "rates": [
+          21.28,
+          20.22,
+          20.51
+        ],
+        "median": 20.51,
+        "minOverBudgetMiB": 268,
+        "maxOverBudgetMiB": 270,
+        "overBudgetFraction": 1,
+        "minBoardFreeMiB": 496.03515625
+      },
+      {
+        "name": "stage-4-pad-0",
+        "rates": [
+          19.98,
+          22.09,
+          21.6
+        ],
+        "median": 21.6,
+        "minOverBudgetMiB": -252,
+        "maxOverBudgetMiB": -250,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1016.03515625
+      }
+    ],
+    "timingControlPassed": false,
+    "cachedOutputHashes": [
+      "e8b093dae19b6284cb336237e4cbd0fba65f8b8825f8251f09c4dfdd4cb05762",
+      "900e4964b02054f42f45cf7fa4f21c4a6dce8ebcd4d48229437aeca1482dd459",
+      "6c80913680dae8e13eabab361656ad9ec01da845cc923f39f9c04ac527a732ec",
+      "4e471c6497eba266de7888e489bb5f243478f19d8ddfd282104f260054fb02d6",
+      "07991a05f845517111fc3f384b4d102c061199e0b05cae7d9d2ef407fb856c1a",
+      "a2fed90f4296764472768c6ccb0ec31d3208360ce9379e1f883c6ef5cb7cfb61",
+      "fb9e89c1b13f20db4bfab886129549f665cdecec524d40d6e0ef503a58f2fb42",
+      "c2b6c018e7aab0aa89e0b0bb96620d656a3ddcffdefd1e248cc2508599fe5137",
+      "a57df353182995b23c1c65f0f5ca3d708c9a1cc5b6200faf31ea592c3294d078",
+      "c5e656b8cc611b363166bfa18e92ca5f81e76957e607ae8f0248c990b366b32a",
+      "3ac7befc1dc6359bbe8e8f3f9a55a623f39063f5cbc349313a889b170df4799d",
+      "c3e943968337554170b9b61fd9fd381c0608da5c385e9017b9da80a22c01d318",
+      "f78868413f06af3f3893c7e18dad53549d35b32b824302772837763e94b57492",
+      "a6a66aea039fb559d0a1e1b80c968398030ea9428e1c7eec16f02bfcff9af818",
+      "aebbfcae0b7c8e985e79a8ba8bc8175567dfd72d85f1416fc6020e4c5f5e3567",
+      "7856abd24f157f6e3761b950100962fe39f3c8e3032208358301fd4f81859351",
+      "254e4bb15969309d392104068544cae9520500c3e9a40b0b1a19049f37c5d191",
+      "6dc759d50d9ce009b1a3c5d5fe5bccd14803dc7fe22f0669e56b82f69e07d22c"
+    ],
+    "allocationRetries": 0,
+    "ooms": 0
+  },
+  "fixed": {
+    "requests": [
+      {
+        "phase": "cold",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 899.25,
+          "completion_tokens_per_sec": 19.58
+        },
+        "samples": 714,
+        "minOverBudgetMiB": -296,
+        "maxOverBudgetMiB": 350,
+        "minBoardFreeMiB": 416.03515625,
+        "minNonlocalMiB": 47618.08984375,
+        "maxNonlocalMiB": 47620.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 94.79,
+          "completion_tokens_per_sec": 20.41
+        },
+        "samples": 54,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47620.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 93.81,
+          "completion_tokens_per_sec": 20.6
+        },
+        "samples": 54,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-0-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 90.1,
+          "completion_tokens_per_sec": 21.45
+        },
+        "samples": 52,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 91,
+          "completion_tokens_per_sec": 20.58
+        },
+        "samples": 54,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 101.11,
+          "completion_tokens_per_sec": 20.59
+        },
+        "samples": 53,
+        "minOverBudgetMiB": 272,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-1-pad-512-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 109.64,
+          "completion_tokens_per_sec": 20.91
+        },
+        "samples": 52,
+        "minOverBudgetMiB": 272,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 102.25,
+          "completion_tokens_per_sec": 22.69
+        },
+        "samples": 49,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 133.82,
+          "completion_tokens_per_sec": 22.69
+        },
+        "samples": 48,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-2-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 104.6,
+          "completion_tokens_per_sec": 21.15
+        },
+        "samples": 52,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 96.81,
+          "completion_tokens_per_sec": 20.26
+        },
+        "samples": 54,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 101.11,
+          "completion_tokens_per_sec": 20.71
+        },
+        "samples": 53,
+        "minOverBudgetMiB": 272,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-3-pad-512-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 103.41,
+          "completion_tokens_per_sec": 21.76
+        },
+        "samples": 51,
+        "minOverBudgetMiB": 272,
+        "maxOverBudgetMiB": 272,
+        "minBoardFreeMiB": 494.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-0",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 93.81,
+          "completion_tokens_per_sec": 18.88
+        },
+        "samples": 58,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-1",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 83.49,
+          "completion_tokens_per_sec": 16.64
+        },
+        "samples": 66,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      },
+      {
+        "phase": "stage-4-pad-0-2",
+        "usage": {
+          "prompt_tokens": 149851,
+          "completion_tokens": 256,
+          "prompt_tokens_per_sec": 92.86,
+          "completion_tokens_per_sec": 19.16
+        },
+        "samples": 57,
+        "minOverBudgetMiB": -248,
+        "maxOverBudgetMiB": -248,
+        "minBoardFreeMiB": 1014.03515625,
+        "minNonlocalMiB": 47622.08984375,
+        "maxNonlocalMiB": 47622.08984375
+      }
+    ],
+    "groups": [
+      {
+        "name": "stage-0-pad-0",
+        "rates": [
+          20.41,
+          20.6,
+          21.45
+        ],
+        "median": 20.6,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1014.03515625
+      },
+      {
+        "name": "stage-1-pad-512",
+        "rates": [
+          20.58,
+          20.59,
+          20.91
+        ],
+        "median": 20.59,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 272,
+        "overBudgetFraction": 1,
+        "minBoardFreeMiB": 494.03515625
+      },
+      {
+        "name": "stage-2-pad-0",
+        "rates": [
+          22.69,
+          22.69,
+          21.15
+        ],
+        "median": 22.69,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1014.03515625
+      },
+      {
+        "name": "stage-3-pad-512",
+        "rates": [
+          20.26,
+          20.71,
+          21.76
+        ],
+        "median": 20.71,
+        "minOverBudgetMiB": 270,
+        "maxOverBudgetMiB": 272,
+        "overBudgetFraction": 1,
+        "minBoardFreeMiB": 494.03515625
+      },
+      {
+        "name": "stage-4-pad-0",
+        "rates": [
+          18.88,
+          16.64,
+          19.16
+        ],
+        "median": 18.88,
+        "minOverBudgetMiB": -250,
+        "maxOverBudgetMiB": -248,
+        "overBudgetFraction": 0,
+        "minBoardFreeMiB": 1014.03515625
+      }
+    ],
+    "timingControlPassed": true,
+    "cachedOutputHashes": [
+      "ac5f8fff6e0791770fe4f3d739d6a571d5785171ef4ca238abadcbb3930fe55e"
+    ],
+    "allocationRetries": 0,
+    "ooms": 0
+  },
+  "etw": {
+    "pid": 13580,
+    "launcherPid": 26880,
+    "keyword": "Resource / 0x40",
+    "totalEvents": 148741,
+    "filteredEvents": 54057,
+    "eventsLost": 0,
+    "allocationOwnerHandles": 51388,
+    "ambiguousOwnerHandles": 71,
+    "pagingTransfers": [
+      {
+        "phase": "load",
+        "events": 10,
+        "bytes": 25165824,
+        "modelEvents": 10,
+        "unresolvedEvents": 0
+      },
+      {
+        "phase": "stage-0-pad-0-2",
+        "events": 1,
+        "bytes": 2097152,
+        "modelEvents": 0,
+        "unresolvedEvents": 1
+      },
+      {
+        "phase": "stage-4-pad-0-2",
+        "events": 26,
+        "bytes": 16375808,
+        "modelEvents": 0,
+        "unresolvedEvents": 4
+      }
+    ],
+    "coldAndOverBudgetPagingEvents": 0,
+    "note": "Generic MemoryTransfer events also describe allocation activity; the paging verdict uses PagingOpTransfer and PagingOpVirtualTransfer. Five below-budget paging events could not be assigned an owner."
+  },
+  "checkedHashes": [
+    {
+      "path": "C:\\AI\\exl3\\prod\\src\\exllamav3\\model\\model_ls.py",
+      "sha256": "40a75e864790540b201ca45c75928d9eaa4939c810edba16d8be66fa0c4ad229",
+      "actual": "e0547a623811880115c5c58dd3a93b132ad7445a195f32b5c9a908b1e0679bd9",
+      "installed": false,
+      "unchanged": false
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\src\\exllamav3\\util\\memory.py",
+      "sha256": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063",
+      "actual": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063",
+      "installed": false,
+      "unchanged": true
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\model\\model_ls.py",
+      "sha256": "40a75e864790540b201ca45c75928d9eaa4939c810edba16d8be66fa0c4ad229",
+      "actual": "40a75e864790540b201ca45c75928d9eaa4939c810edba16d8be66fa0c4ad229",
+      "installed": true,
+      "unchanged": true
+    },
+    {
+      "path": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\util\\memory.py",
+      "sha256": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063",
+      "actual": "a29fb9504a37f50bb15f41c37bef03bebbd30612198c9242b724d9089fd31063",
+      "installed": true,
+      "unchanged": true
+    }
+  ],
+  "sourceCheckoutNote": "The source checkout advanced separately to f7d7f2d at 12:41:25 UTC, after both GPU runs ended. Installed runtime files remained unchanged."
+}

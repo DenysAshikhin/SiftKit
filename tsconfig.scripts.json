@@ -11,7 +11,7 @@
     "scripts/build-clean.ts",
     "scripts/build-test.ts",
     "scripts/recover-web-chat.ts",
-    "scripts/update-exllamav3.ts",
+    "scripts/build-exllamav3-wheel.ts",
     "scripts/dashboard-stamp.ts",
     "scripts/sync-dist-runtime.ts",
     "scripts/purge-temp-dirs.ts",

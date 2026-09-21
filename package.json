@@ -46,6 +46,7 @@
     "postinstall": "node scripts/postinstall.cjs",
     "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
     "delete_logs": "tsx .\\scripts\\delete-logs.ts",
+    "exl3:build-wheel": "tsx .\\scripts\\build-exllamav3-wheel.ts --repo C:\\AI\\exl3\\prod\\src --python C:\\AI\\exl3\\prod\\venv\\Scripts\\python.exe --cuda C:\\AI\\exl3\\toolchains\\cuda-13.2.2 --vcvars \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" --packages C:\\AI\\exl3\\packages\\prod --scratch C:\\AI\\exl3\\staging --jobs 12",
     "lint": "eslint . --cache --cache-location .eslintcache",
     "lint:fix": "eslint . --fix --cache --cache-location .eslintcache"
   },

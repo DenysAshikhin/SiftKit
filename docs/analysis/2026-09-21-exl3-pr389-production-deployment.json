@@ -1,0 +1,215 @@
+{
+  "finalWheelSmoke": {
+    "mode": "smoke",
+    "runtime": {
+      "version": "1.5.1",
+      "source": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\__init__.py",
+      "extension": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3_ext.cp314-win_amd64.pyd",
+      "torch": "2.14.0+cu132",
+      "cuda": "13.2",
+      "available": true,
+      "gpu": "NVIDIA GeForce RTX 4090",
+      "capability": [
+        8,
+        9
+      ]
+    },
+    "extensionSha256": "5069d339c2ff3545435b79d9d25ded59fc672866b9b7bd1b4426d245535ca5e6",
+    "hashes": [
+      {
+        "file": "model/model_ls.py",
+        "sha256": "b39426225982cc63a7ed74982600ed33c61b0ffd42c5db758e1e1104494f88ce"
+      },
+      {
+        "file": "util/memory.py",
+        "sha256": "353872c11716e5a585ccc3772c17b35ed494a0bb6606a977f5e425f72ae0721a"
+      },
+      {
+        "file": "util/nvml.py",
+        "sha256": "ec297ec81b19b3538a53486a0c6fa9976df497e38ba211e3574d105c25eb39d8"
+      }
+    ],
+    "memory": {
+      "cuda": [
+        24154996736,
+        25756696576
+      ],
+      "selected": [
+        24958242816,
+        25756696576
+      ],
+      "dll": "C:\\WINDOWS\\System32\\nvml.dll"
+    },
+    "preset": "exl3-3-8-27b",
+    "environment": {
+      "TABBY_MODEL_MODEL_DIR": "D:\\personal\\models\\elx3",
+      "TABBY_MODEL_MODEL_NAME": "td_flash-next_4.05bpw_h6_ng6",
+      "TABBY_MODEL_MAX_SEQ_LEN": "150000",
+      "TABBY_MODEL_CACHE_SIZE": "150016",
+      "TABBY_MODEL_CACHE_MODE": "8,8",
+      "TABBY_MODEL_MAX_BATCH_SIZE": "1",
+      "TABBY_MODEL_CHUNK_SIZE": "2048",
+      "TABBY_MEMORY_SYSMEM_KV_CACHE": "0",
+      "TABBY_MEMORY_SYSMEM_RECURRENT_CACHE": "4096",
+      "TABBY_DRAFT_MODEL_DRAFT_MODE": "disabled",
+      "TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS": "1",
+      "TABBY_DRAFT_MODEL_DYNAMIC_DRAFT": "false",
+      "TABBY_MODEL_VISION": "true",
+      "TABBY_MODEL_VISION_OFFLOAD": "true",
+      "TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS": "411",
+      "TABBY_MODEL_NGRAM_RAM": "false",
+      "PYTORCH_ALLOC_CONF": "backend:native,expandable_segments:True",
+      "PYTORCH_CUDA_ALLOC_CONF": "backend:native,expandable_segments:True",
+      "TABBY_MEMORY_CUDA_MALLOC_ASYNC": "false"
+    },
+    "model": {
+      "id": "td_flash-next_4.05bpw_h6_ng6",
+      "parameters": {
+        "max_seq_len": 150000,
+        "cache_size": 150016,
+        "chunk_size": 2048,
+        "cache_mode": "8,8",
+        "use_vision": true,
+        "draft": null
+      }
+    },
+    "markers": [],
+    "usage": {
+      "prompt_tokens": 27,
+      "completion_tokens": 103,
+      "prompt_tokens_per_sec": 48.21,
+      "completion_tokens_per_sec": 19.89
+    },
+    "outputSha256": "c2665655f0fc53b628ec3b9e9c45a2a0da48145866fd03942531d0ee751d3ce3"
+  },
+  "fullSuite": {
+    "failures": [
+      "assistant narration and progress persist with the stopped transcript",
+      "ChatSessionSchema no longer carries a condensed summary",
+      "ChatSessionSchema requires modelPresetId"
+    ],
+    "skipped": 5,
+    "failed": 3,
+    "passed": 4143
+  },
+  "installedPythonTestsSkipped": 3,
+  "build": {
+    "version": "1.5.1",
+    "source": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\__init__.py",
+    "extension": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3_ext.cp314-win_amd64.pyd",
+    "torch": "2.14.0+cu132",
+    "cuda": "13.2",
+    "available": true,
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "capability": [
+      8,
+      9
+    ],
+    "commit": "7940b78262b98fb73914fe2ceb2fa0d2b2f0c999",
+    "upstream": "8271af4e245a32ff339d1516a0b3702c0cb699a5",
+    "localCommits": [
+      "7940b78 Merge remote-tracking branch 'fork/fix/windows-wddm-loader-headroom' into production-pr389",
+      "b2d2404 Tests: Isolate NVML mocks from earlier CUDA queries",
+      "ffa2ab2 Merge remote-tracking branch 'fork/fix/windows-wddm-loader-headroom' into production-pr389",
+      "c54e384 Loader: Use dedicated NVML headroom on Windows WDDM",
+      "e66acec Loader: Keep the re-measure input in dummy_state so a failed second forward frees it; test extra-measure transient retention",
+      "7782d17 Loader: Drop the first output before re-measuring; test via autosplit_extra_measure",
+      "a90a4b2 Loader: Re-measure autosplit transient when a first forward leaves persistent allocations"
+    ],
+    "wheel": "exllamav3-1.5.1-cp314-cp314-win_amd64.whl",
+    "wheelSha256": "de950579be76d08a45028e186ed06d537c16309b92410d312bbc0d0da06e9fc0",
+    "jobs": 12
+  },
+  "lint": "passed",
+  "typecheck": "passed",
+  "allPrBases": "turboderp-org/exllamav3:dev",
+  "draftPr": 389,
+  "longContextValidation": {
+    "runtime": {
+      "version": "1.5.1",
+      "source": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3\\__init__.py",
+      "extension": "C:\\AI\\exl3\\prod\\venv\\Lib\\site-packages\\exllamav3_ext.cp314-win_amd64.pyd",
+      "torch": "2.14.0+cu132",
+      "cuda": "13.2",
+      "available": true,
+      "gpu": "NVIDIA GeForce RTX 4090",
+      "capability": [
+        8,
+        9
+      ]
+    },
+    "hashes": [
+      {
+        "file": "model/model_ls.py",
+        "sha256": "b39426225982cc63a7ed74982600ed33c61b0ffd42c5db758e1e1104494f88ce"
+      },
+      {
+        "file": "util/memory.py",
+        "sha256": "353872c11716e5a585ccc3772c17b35ed494a0bb6606a977f5e425f72ae0721a"
+      },
+      {
+        "file": "util/nvml.py",
+        "sha256": "ec297ec81b19b3538a53486a0c6fa9976df497e38ba211e3574d105c25eb39d8"
+      }
+    ],
+    "memory": {
+      "cuda": [
+        24154996736,
+        25756696576
+      ],
+      "selected": [
+        24958242816,
+        25756696576
+      ],
+      "dll": "C:\\WINDOWS\\System32\\nvml.dll"
+    },
+    "preset": "exl3-3-8-27b",
+    "environment": {
+      "TABBY_MODEL_MODEL_DIR": "D:\\personal\\models\\elx3",
+      "TABBY_MODEL_MODEL_NAME": "td_flash-next_4.05bpw_h6_ng6",
+      "TABBY_MODEL_MAX_SEQ_LEN": "150000",
+      "TABBY_MODEL_CACHE_SIZE": "150016",
+      "TABBY_MODEL_CACHE_MODE": "8,8",
+      "TABBY_MODEL_MAX_BATCH_SIZE": "1",
+      "TABBY_MODEL_CHUNK_SIZE": "2048",
+      "TABBY_MEMORY_SYSMEM_KV_CACHE": "0",
+      "TABBY_MEMORY_SYSMEM_RECURRENT_CACHE": "4096",
+      "TABBY_DRAFT_MODEL_DRAFT_MODE": "disabled",
+      "TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS": "1",
+      "TABBY_DRAFT_MODEL_DYNAMIC_DRAFT": "false",
+      "TABBY_MODEL_VISION": "true",
+      "TABBY_MODEL_VISION_OFFLOAD": "true",
+      "TABBY_MODEL_CPU_MOE_SPLIT_EXPERTS": "411",
+      "TABBY_MODEL_NGRAM_RAM": "false",
+      "PYTORCH_ALLOC_CONF": "backend:native,expandable_segments:True",
+      "PYTORCH_CUDA_ALLOC_CONF": "backend:native,expandable_segments:True",
+      "TABBY_MEMORY_CUDA_MALLOC_ASYNC": "false"
+    },
+    "model": {
+      "id": "td_flash-next_4.05bpw_h6_ng6",
+      "parameters": {
+        "max_seq_len": 150000,
+        "cache_size": 150016,
+        "chunk_size": 2048,
+        "cache_mode": "8,8",
+        "use_vision": true,
+        "draft": null
+      }
+    },
+    "markers": [
+      true,
+      true,
+      true
+    ],
+    "usage": {
+      "prompt_tokens": 124852,
+      "completion_tokens": 1024,
+      "prompt_tokens_per_sec": 920.4,
+      "completion_tokens_per_sec": 20.47
+    },
+    "outputSha256": "92371005cb15df7ca30dfea33dcd59d618b5366d7db98e965512fe7aa0057cb6"
+  },
+  "builderTestsPassed": 32,
+  "sourceLayoutTestsPassed": 4,
+  "installedPythonTestsPassed": 52
+}

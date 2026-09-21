@@ -1,0 +1,117 @@
+{
+  "pr": "https://github.com/turboderp-org/exllamav3/pull/389",
+  "draft_verified": true,
+  "commit": "c54e3840d15dcf5b20476e0b06dc5f401f574229",
+  "parent_pr": 386,
+  "parent_head": "e66acec756b6ee51dc5f9c8a8a714d47e46a397f",
+  "incremental_commits": 1,
+  "incremental_changed_files": 5,
+  "focused_red": {
+    "failed": 17,
+    "passed": 1
+  },
+  "dll_location_red": {
+    "failed": 2
+  },
+  "final_applicable_suite": {
+    "passed": 56,
+    "skipped": 3
+  },
+  "full_suite_collection_failures": [
+    "test_device_copy_: requires two GPUs",
+    "test_dsv4_cached: missing compare_deepseek_v4_hf_",
+    "test_dsv4_state: missing compare_deepseek_v4_hf_",
+    "test_ngram_prefetch_: missing model tensors",
+    "test_qgemm: missing hardcoded /mnt model"
+  ],
+  "static_checks": [
+    "ruff E9,F63,F7,F82 passed",
+    "compileall passed",
+    "git diff --check passed"
+  ],
+  "model_results": [
+    {
+      "context": 185000,
+      "result": "loaded",
+      "seconds": 50.000295639038086,
+      "usage": {
+        "prompt_tokens": 149851,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "prompt_time": 164.03,
+        "prompt_tokens_per_sec": 913.56,
+        "completion_tokens": 1024,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "completion_time": 46.53,
+        "completion_tokens_per_sec": 22.01,
+        "total_tokens": 150875,
+        "total_time": 210.56
+      },
+      "markers": [
+        true,
+        true,
+        true
+      ],
+      "output_sha256": "2e0514b3f14c6c9a2dc6825fa2d3579a763313be285cc7d340cb26109dc7b44c"
+    },
+    {
+      "context": 230000,
+      "result": "rejected by loader headroom guard",
+      "seconds": 69.72195148468018
+    }
+  ],
+  "memory_samples": {
+    "count": 261,
+    "minimum_nvml_free_MiB": 416.03515625,
+    "zero_cuda_free_samples": 211,
+    "allocator_ooms": 0,
+    "allocator_retries": 0
+  },
+  "historical_source_results": [
+    {
+      "revision": "9d771c9^",
+      "case": "persistent allocation counted as transient",
+      "result": "loaded"
+    },
+    {
+      "revision": "9d771c9",
+      "case": "persistent allocation counted as transient",
+      "result": "rejected",
+      "error": "Insufficient VRAM in split for model and cache"
+    },
+    {
+      "revision": "0ca3587^",
+      "case": "zero CUDA free while allocations still fit",
+      "result": "loaded"
+    },
+    {
+      "revision": "0ca3587",
+      "case": "zero CUDA free while allocations still fit",
+      "result": "rejected",
+      "error": "Insufficient VRAM in split for model and cache"
+    },
+    {
+      "revision": "0ca3587^",
+      "case": "explicit use clamp with 0 CUDA free",
+      "budget_MiB": 500
+    },
+    {
+      "revision": "0ca3587",
+      "case": "explicit use clamp with 0 CUDA free",
+      "budget_MiB": 100
+    }
+  ],
+  "validation_notes": [
+    "Real model validation used checkout Python and the unchanged installed native extension.",
+    "The final DLL-discovery adjustment followed the model run; final CUDA tests and a real NVML query exercised System32 discovery.",
+    "Standard-driver NVSMI discovery, Linux/HIP selection and TCC were tested with controlled fixtures.",
+    "The first scratch launch lacked the Windows multiprocessing main guard; corrected before recorded successful validation.",
+    "After intentional oversized-load rejection, the diagnostic sampler hit NVML uninitialized during process teardown.",
+    "Historical checks execute historical loader/helper files with current dependencies and controlled CUDA modules, not whole historical application builds.",
+    "No native Linux, multi-GPU, full 185k occupancy, or competing-workload residency claim is made."
+  ]
+}
