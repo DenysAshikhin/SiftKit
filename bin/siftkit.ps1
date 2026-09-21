@@ -143,6 +143,12 @@ try {
         }
     }
     $nativeArgs = ConvertTo-SiftNativeArguments -Arguments @($forwardedArgs)
+    # Native stderr is diagnostic. Under 'Stop', console-less hosts (Start-Job) turn it into a
+    # terminating NativeCommandError, so judge the CLI by its exit code only.
+    $ErrorActionPreference = 'Continue'
+    if (Test-Path Variable:\PSNativeCommandUseErrorActionPreference) {
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
     & node $cliPath @nativeArgs
     exit $LASTEXITCODE
 }
