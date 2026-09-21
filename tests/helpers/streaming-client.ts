@@ -33,7 +33,9 @@ export type TabbyUsageInput = {
 
 /**
  * A complete Tabby usage block whose reported rates equal count / time exactly, so a fixture that
- * emits it audits clean. Prompt rate is over newly processed tokens, as Tabby reports it.
+ * emits it audits clean. Prompt rate is over newly processed tokens, as Tabby reports it. Cache and
+ * reasoning details appear only when supplied: their presence, not their value, selects the provider
+ * prompt count over the local tokenizer and turns thinking tokens from null into a number.
  */
 export function buildTabbyUsage(input: TabbyUsageInput): JsonObject {
   const cachedTokens = input.cachedTokens ?? 0;
@@ -41,16 +43,19 @@ export function buildTabbyUsage(input: TabbyUsageInput): JsonObject {
   const completionTime = input.completionTime ?? 1;
   return {
     prompt_tokens: input.promptTokens,
-    prompt_tokens_details: { cached_tokens: cachedTokens },
+    ...(input.cachedTokens === undefined ? {} : { prompt_tokens_details: { cached_tokens: input.cachedTokens } }),
     prompt_time: promptTime,
     prompt_tokens_per_sec: (input.promptTokens - cachedTokens) / promptTime,
     completion_tokens: input.completionTokens,
-    completion_tokens_details: { reasoning_tokens: input.reasoningTokens ?? 0 },
+    ...(input.reasoningTokens === undefined ? {} : { completion_tokens_details: { reasoning_tokens: input.reasoningTokens } }),
     completion_time: completionTime,
     completion_tokens_per_sec: input.completionTokens / completionTime,
     total_tokens: input.promptTokens + input.completionTokens,
   };
 }
+
+/** Self-consistent usage for fixtures that never assert on the counts. */
+export const DONT_CARE_TABBY_USAGE = buildTabbyUsage({ promptTokens: 10, completionTokens: 4 });
 
 /** A single content delta, serialized as the client expects it on the wire. */
 export function contentFrame(text: string): string {

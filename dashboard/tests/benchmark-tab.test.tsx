@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
+import { BenchmarkTab, deriveBenchmarkTiles } from '../src/tabs/BenchmarkTab';
 import type {
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
@@ -41,6 +41,7 @@ test('benchmark tab renders stat tiles above the run builder, logs, and results'
       sessions={[SESSION]}
       selectedSession={SESSION}
       attempts={[ATTEMPT]}
+      sessionThroughput={{ promptTokensPerSecond: 726.7391750462, generationTokensPerSecond: 23.5699633453 }}
       liveLogLines={['starting attempt', 'finished attempt']}
       managedPresets={[MANAGED_PRESET]}
       selectedQuestionPresetIds={[PROMPT.id]}
@@ -80,4 +81,18 @@ test('benchmark tab renders stat tiles above the run builder, logs, and results'
   assert.match(markup, /Token Speed/);
   assert.match(markup, /Ungraded/);
   assert.match(markup, /class="mtable"/);
+});
+
+test('benchmark tiles publish the server-owned session rates, never an average of attempt rates', () => {
+  const fast = { ...ATTEMPT, id: 'attempt-2', promptTokensPerSecond: 300, generationTokensPerSecond: 60 };
+  const tiles = deriveBenchmarkTiles(SESSION, [ATTEMPT, fast], {
+    promptTokensPerSecond: 726.7391750462,
+    generationTokensPerSecond: 23.5699633453,
+  });
+  assert.equal(tiles.promptTokensPerSecond, 726.7391750462);
+  assert.equal(tiles.generationTokensPerSecond, 23.5699633453);
+  assert.notEqual(tiles.generationTokensPerSecond, (42 + 60) / 2);
+  const unloaded = deriveBenchmarkTiles(SESSION, [ATTEMPT, fast], null);
+  assert.equal(unloaded.promptTokensPerSecond, null);
+  assert.equal(unloaded.generationTokensPerSecond, null);
 });

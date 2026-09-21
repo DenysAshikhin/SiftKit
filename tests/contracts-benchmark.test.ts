@@ -14,6 +14,7 @@ test('session detail accepts empty cases/attempts', () => {
       restoreStatus: 'completed', restoreError: null, originalConfigJson: '{}',
       startedAtUtc: 'a', completedAtUtc: null, updatedAtUtc: 'b',
     }, cases: [], attempts: [],
+    throughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
   };
   assert.deepEqual(DashboardBenchmarkSessionDetailSchema.parse(detail), detail);
 });

@@ -25,10 +25,6 @@ export function getNormalizedCompletionTokens(rawCompletionTokens: OptionalJsonV
   return Math.max(completionTokens - toNonNegativeNumber(thinkingTokens), 0);
 }
 
-export function getGenerationTokens(outputTokens: OptionalJsonValue, thinkingTokens: OptionalJsonValue): number {
-  return toNonNegativeNumber(outputTokens) + toNonNegativeNumber(thinkingTokens);
-}
-
 export function getPromptCacheHitRate(promptCacheTokens: OptionalJsonValue, promptEvalTokens: OptionalJsonValue): number | null {
   const cacheTokens = toNonNegativeNumber(promptCacheTokens);
   const evalTokens = toNonNegativeNumber(promptEvalTokens);
@@ -44,36 +40,13 @@ export function getAcceptanceRate(speculativeAcceptedTokens: OptionalJsonValue, 
     : null;
 }
 
-export function getPromptTokensPerSecond(promptEvalTokens: OptionalJsonValue, promptEvalDurationMs: OptionalJsonValue): number | null {
-  const promptTokens = toNullableNonNegativeNumber(promptEvalTokens);
-  const durationMs = toNullableNonNegativeNumber(promptEvalDurationMs);
-  return promptTokens !== null && durationMs !== null && promptTokens > 0 && durationMs > 0
-    ? (promptTokens / (durationMs / 1000))
-    : null;
-}
-
-export function getGenerationTokensPerSecond(
-  outputTokens: OptionalJsonValue,
-  thinkingTokens: OptionalJsonValue,
-  generationDurationMs: OptionalJsonValue,
-): number | null {
-  const durationMs = toNullableNonNegativeNumber(generationDurationMs);
-  const generatedTokens = getGenerationTokens(outputTokens, thinkingTokens);
-  return durationMs !== null && generatedTokens > 0 && durationMs > 0
-    ? (generatedTokens / (durationMs / 1000))
-    : null;
-}
-
 const telemetryMetrics = {
   toNullableNonNegativeNumber,
   toNonNegativeNumber,
   toNullableNonNegativeInteger,
   getNormalizedCompletionTokens,
-  getGenerationTokens,
   getPromptCacheHitRate,
   getAcceptanceRate,
-  getPromptTokensPerSecond,
-  getGenerationTokensPerSecond,
 };
 
 export default telemetryMetrics;

@@ -16,7 +16,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { acquireChildPortLease } from './helpers/test-endpoints.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 import {
   createManagedTempDir,
   removeDirectoryWithRetries,
@@ -91,7 +91,8 @@ import {
   generateInferenceResponse,
 } from '../src/providers/inference.js';
 import {
-  buildIdleMetricsLogMessage,
+  buildIdleSummarySnapshot,
+  buildIdleSummarySnapshotMessage,
   buildStatusRequestLogBody,
   formatElapsed,
   getIdleSummarySnapshotsPath,
@@ -239,6 +240,8 @@ interface StubServerOptions {
   assistantReasoningContent?: AssistantResponder;
   omitUsage?: boolean;
   reasoningTokens?: number;
+  /** Usage block of the default chat responder, per request; overrides the built-in block. */
+  usage?: (promptText: string, parsed: JsonObject, requestIndex: number) => JsonObject;
   chatResponse?: StubChatResponder;
   failStatusPosts?: boolean;
   failArtifactPosts?: boolean;
@@ -769,16 +772,10 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
                 : `summary:${String(promptText).slice(0, 24)}`,
               toolCalls: [],
             });
-      const usage = options.omitUsage ? null : {
-        prompt_tokens: 123,
-        completion_tokens: 45,
-        total_tokens: 168,
-        ...(options.reasoningTokens === undefined ? {} : {
-          completion_tokens_details: {
-            reasoning_tokens: options.reasoningTokens,
-          },
-        }),
-      };
+      // Self-consistent Tabby usage so the audit stays quiet; no cache stats, so prompt tokens stay locally counted.
+      const usage = options.omitUsage ? null : options.usage
+        ? options.usage(String(promptText), parsed, state.chatRequests.length)
+        : buildTabbyUsage({ promptTokens: 123, completionTokens: 45, reasoningTokens: options.reasoningTokens });
       const configuredChatResponse = typeof options.chatResponse === 'function'
         ? options.chatResponse(String(promptText), parsed, state.chatRequests.length)
         : null;
@@ -1556,7 +1553,7 @@ export {
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,
   countInferenceTokens, listInferenceModels, generateInferenceResponse,
-  buildIdleMetricsLogMessage, buildStatusRequestLogBody, formatElapsed,
+  buildIdleSummarySnapshot, buildIdleSummarySnapshotMessage, buildStatusRequestLogBody, formatElapsed,
   getIdleSummarySnapshotsPath, startStatusServer,
   runDebugRequest, runFixture60MalformedJsonRepro,
   // Local helpers

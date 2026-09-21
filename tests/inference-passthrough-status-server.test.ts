@@ -14,9 +14,10 @@ import { getDefaultConfig, writeConfig } from '../src/status-server/config-store
 import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
-import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
+import { asObject, getAddressInfo, requestRawText, type JsonResponse, type RawTextResponse } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { testHttpAgent } from './helpers/http-agent.js';
+import { buildTabbyUsage } from './helpers/streaming-client.js';
 
 // Healthcheck timeout must stay well above realistic localhost round-trip latency under
 // full-suite CPU contention; a sub-100ms timeout made every probe to the freshly-spawned
@@ -246,7 +247,7 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
     }
     const lines = capture.lines;
 
-    const forwardLine = lines.find((line) => /proxy -{8} {2}forward/u.test(line));
+    const forwardLine = lines.find((line) => /proxy [0-9a-f]{8} {2}forward/u.test(line));
     assert.ok(forwardLine, `expected a forward log line, got:\n${lines.join('\n')}`);
     assert.match(forwardLine, /path=\/v1\/chat\/completions/u);
     assert.match(forwardLine, /messages=2/u);
@@ -379,5 +380,124 @@ test('tokenize passthrough exposes only the EXL3 token endpoint', async () => {
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.length, 4);
     assert.equal(removedRoute.statusCode, 404);
+  });
+});
+
+/** Tabby-consistent counts and timings whose reported decode rate (30) drifts from 754 / 35.07. */
+const DRIFTING_USAGE = {
+  ...buildTabbyUsage({ promptTokens: 3365, completionTokens: 754, promptTime: 3.88, completionTime: 35.07 }),
+  completion_tokens_per_sec: 30,
+};
+
+function throughputLines(lines: readonly string[]): string[] {
+  return lines.filter((line) => /throughput_/u.test(line));
+}
+
+async function withPassthroughAudit(
+  tempPrefix: string,
+  run: (postRaw: (body: JsonValue, abort?: boolean) => Promise<RawTextResponse>, lines: () => string[]) => Promise<void>,
+): Promise<void> {
+  await withPassthroughServer({ tempPrefix, modelId: 'managed-audit-model' }, async ({ baseUrl }) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      await run(
+        (body, abort) => requestRawText(`${baseUrl}/v1/chat/completions`, body, { abortAfterFirstChunk: abort }),
+        () => throughputLines(capture.lines),
+      );
+    } finally {
+      capture.restore();
+    }
+  });
+}
+
+test('streaming passthrough audits a drifting usage frame while proxying bytes unchanged', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-stream-', async (postRaw, lines) => {
+    const response = await postRaw({
+      messages: [{ role: 'user', content: 'hi' }], stream: true, stream_options: { include_usage: true },
+      fake_engine: { usage: DRIFTING_USAGE },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.contentType, /text\/event-stream/u);
+    assert.match(response.text, /"completion_tokens_per_sec":30/u);
+    assert.match(response.text, /data: \[DONE\]/u);
+    const audit = lines();
+    assert.equal(audit.length, 1, audit.join('\n'));
+    assert.match(audit[0], /throughput_mismatch/u);
+    assert.match(audit[0], /operation=passthrough/u);
+    assert.match(audit[0], /stage=chat_completions/u);
+    assert.match(audit[0], /scope=request/u);
+    assert.match(audit[0], /metric=decode/u);
+    assert.match(audit[0], /generated_tokens=754/u);
+    assert.match(audit[0], /preset=/u);
+  });
+});
+
+test('passthrough stays silent for consistent usage and for a stream that never opted into usage', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-quiet-', async (postRaw, lines) => {
+    const consistent = await postRaw({ messages: [{ role: 'user', content: 'hi' }], stream: true, stream_options: { include_usage: true } });
+    assert.equal(consistent.statusCode, 200);
+    const noUsage = await postRaw({ messages: [{ role: 'user', content: 'hi' }], stream: true, fake_engine: { usage: null } });
+    assert.equal(noUsage.statusCode, 200);
+    assert.doesNotMatch(noUsage.text, /usage/u);
+    assert.deepEqual(lines(), []);
+  });
+});
+
+test('passthrough reports a stream that opted into usage but received none as unverifiable', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-missing-', async (postRaw, lines) => {
+    await postRaw({
+      messages: [{ role: 'user', content: 'hi' }], stream: true, stream_options: { include_usage: true }, fake_engine: { usage: null },
+    });
+    const audit = lines();
+    assert.equal(audit.length, 2, audit.join('\n'));
+    assert.match(audit[0], /throughput_unverifiable/u);
+    assert.match(audit[0], /operation=passthrough/u);
+    assert.match(audit[0], /metric=pp/u);
+    assert.match(audit[1], /metric=decode/u);
+  });
+});
+
+test('non-streaming passthrough parses the JSON response once and audits both metrics', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-json-', async (postRaw, lines) => {
+    const response = await postRaw({
+      messages: [{ role: 'user', content: 'hi' }],
+      fake_engine: { usage: { ...DRIFTING_USAGE, prompt_tokens_per_sec: 700 } },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.contentType, /application\/json/u);
+    assert.equal(asObject(parseJsonValueText(response.text)).usage !== undefined, true);
+    const audit = lines();
+    assert.equal(audit.length, 2, audit.join('\n'));
+    assert.match(audit[0], /throughput_mismatch/u);
+    assert.match(audit[0], /metric=pp/u);
+    assert.match(audit[1], /metric=decode/u);
+  });
+});
+
+test('passthrough abandons observation of an oversized frame without throwing', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-oversize-', async (postRaw, lines) => {
+    const response = await postRaw({
+      messages: [{ role: 'user', content: 'hi' }], stream: true, stream_options: { include_usage: true },
+      fake_engine: { usage: DRIFTING_USAGE, padding_chars: 300 * 1024 },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.ok(response.text.length > 300 * 1024);
+    assert.match(response.text, /data: \[DONE\]/u);
+    assert.deepEqual(lines(), []);
+  });
+});
+
+test('a client abort mid-stream produces no audit and leaves the passthrough usable', async () => {
+  await withPassthroughAudit('siftkit-passthrough-audit-abort-', async (postRaw, lines) => {
+    const aborted = await postRaw({
+      messages: [{ role: 'user', content: 'hi' }], stream: true, stream_options: { include_usage: true },
+      fake_engine: { usage: DRIFTING_USAGE, finish_delay_ms: 1500 },
+    }, true);
+    assert.equal(aborted.statusCode, 200);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    assert.deepEqual(lines(), []);
+    const next = await postRaw({ messages: [{ role: 'user', content: 'hi' }] });
+    assert.equal(next.statusCode, 200);
+    assert.deepEqual(lines(), []);
   });
 });

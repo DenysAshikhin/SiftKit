@@ -80,7 +80,8 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
       assert.equal(block[3], '  ratio:  input/output=4.00x');
       assert.equal(block[4], '  budget: chars_per_token=2.000 chunk_threshold_chars=320,000');
-      assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=31.25');
+      // Status-only runs record no backend fold, so generation speed is unavailable.
+      assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=n/a');
       const finalStatus = await requestJson<RuntimeStatusResponse>(server.statusUrl);
       assert.equal(finalStatus.running, false);
       assert.equal(finalStatus.status, 'false');
@@ -102,7 +103,7 @@ test('real status server prints one idle metrics line only after the full idle d
         compression_ratio: 4,
         request_duration_ms_total: 800,
         avg_request_ms: 800,
-        avg_tokens_per_second: 31.25,
+        avg_tokens_per_second: null,
       });
     }, {
       statusPath,
@@ -344,7 +345,7 @@ test('real status server restarts the idle countdown when a new request begins b
       assert.equal(block[2], '  output: chars=40 tokens=5 avg_tokens_per_request=2.50');
       assert.equal(block[3], '  ratio:  input/output=2.00x');
       assert.equal(block[4], '  budget: chars_per_token=4.000 chunk_threshold_chars=200');
-      assert.equal(block[5], '  timing: total=0s avg_request=0.04s gen_tokens_per_s=66.67');
+      assert.equal(block[5], '  timing: total=0s avg_request=0.04s gen_tokens_per_s=n/a');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     }, {
       statusPath,

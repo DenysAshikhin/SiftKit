@@ -1,16 +1,14 @@
 import type { ServerContext } from './server-types.js';
-import { InferenceBackendIdSchema, type InferenceThroughput } from '@siftkit/contracts';
+import { InferenceBackendIdSchema, type InferenceThroughput, type ThroughputRates } from '@siftkit/contracts';
 import { normalizeConfig, writeConfig } from './config-store.js';
 import { flushDeferredArtifacts } from './server-ops.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { SiftConfig } from '../config/types.js';
-import {
-  getAcceptanceRate,
-  getGenerationTokensPerSecond,
-  getPromptTokensPerSecond,
-} from '../lib/telemetry-metrics.js';
+import { calculateThroughputRates } from '../lib/inference-throughput.js';
+import { auditInferenceThroughput } from './inference-throughput-audit.js';
+import { getAcceptanceRate } from '../lib/telemetry-metrics.js';
 import {
   appendBenchmarkLogChunk,
   readBenchmarkSessionDetail,
@@ -108,23 +106,67 @@ export async function restartManagedEngine(ctx: ServerContext): Promise<void> {
   await coordinator.restartConfiguredPreset();
 }
 
-/**
- * Throughput is the whole point of a benchmark attempt, so a missing run record is a failure
- * rather than a row of nulls: silently reporting an attempt as completed with no metrics is
- * exactly how a broken attempt path stays invisible.
- */
+/** Audits the rates an attempt is about to publish against its own run's backend reference. */
+export function auditBenchmarkAttemptThroughput(identity: {
+  taskKind: BenchmarkTaskKind;
+  runId: string;
+  model: string | null;
+  presetId: string | null;
+}, throughput: InferenceThroughput, rates: ThroughputRates): void {
+  auditInferenceThroughput({
+    operationType: identity.taskKind,
+    operationId: identity.runId,
+    requestId: identity.runId,
+    stage: 'benchmark_attempt',
+    model: identity.model,
+    presetId: identity.presetId,
+    scope: 'published',
+  }, throughput, {
+    pp: rates.promptTokensPerSecond,
+    decode: rates.generationTokensPerSecond,
+  });
+}
+
+/** Audits the server-owned session aggregate once, when the session's rates are published. */
+export function auditBenchmarkSessionThroughput(detail: BenchmarkSessionDetail): void {
+  const { fold, rates, operationType, model, presetId } = detail.throughput;
+  auditInferenceThroughput({
+    operationType,
+    operationId: detail.session.id,
+    requestId: detail.session.id,
+    stage: 'benchmark_session',
+    model,
+    presetId,
+    scope: 'published',
+  }, fold, {
+    pp: rates.promptTokensPerSecond,
+    decode: rates.generationTokensPerSecond,
+  });
+}
+
+/** A missing run record or fold is a failure, never an attempt row of nulls. */
 export function buildBenchmarkAttemptMetrics(
   runId: string,
   runDetail: { run: RunRecord } | null,
+  taskKind: BenchmarkTaskKind,
 ): BenchmarkAttemptMetrics {
   if (!runDetail) {
     throw new Error(`Benchmark attempt produced no run record for ${runId}; refusing to report an attempt without metrics.`);
   }
   const run = runDetail.run;
+  if (run.throughput === null) {
+    throw new Error(`Benchmark attempt produced no backend throughput for ${runId}; refusing to report an attempt without measured rates.`);
+  }
+  const rates = calculateThroughputRates(run.throughput);
+  auditBenchmarkAttemptThroughput(
+    { taskKind, runId, model: run.model, presetId: run.modelPresetId },
+    run.throughput,
+    rates,
+  );
   return {
     durationMs: run.durationMs,
-    promptTokensPerSecond: getPromptTokensPerSecond(run.promptEvalTokens, run.promptEvalDurationMs),
-    generationTokensPerSecond: getGenerationTokensPerSecond(run.outputTokens, run.thinkingTokens, run.generationDurationMs),
+    promptTokensPerSecond: rates.promptTokensPerSecond,
+    generationTokensPerSecond: rates.generationTokensPerSecond,
     acceptanceRate: getAcceptanceRate(run.speculativeAcceptedTokens, run.speculativeGeneratedTokens),
     outputTokens: run.outputTokens,
     thinkingTokens: run.thinkingTokens,
@@ -192,7 +234,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   // The operation's run row is written through the deferred artifact queue, so it has to be
   // flushed before the lookup can tell "not written yet" apart from "never existed".
   await flushDeferredArtifacts(ctx);
-  const runMetrics = buildBenchmarkAttemptMetrics(response.runId, buildDashboardRunDetail(response.runId));
+  const runMetrics = buildBenchmarkAttemptMetrics(response.runId, buildDashboardRunDetail(response.runId), attempt.taskKind);
   const metrics = {
     ...runMetrics,
     durationMs: runMetrics.durationMs ?? Date.now() - started,
@@ -287,6 +329,10 @@ async function runBenchmarkJob(ctx: ServerContext, detail: BenchmarkSessionDetai
       completedAtUtc: new Date().toISOString(),
     });
     log(job, sessionId, null, `Benchmark session ${completedStatus}; original config restored.\n`);
+    const finalDetail = readBenchmarkSessionDetail(sessionId);
+    if (finalDetail) {
+      auditBenchmarkSessionThroughput(finalDetail);
+    }
     emit(job, { event: 'session', payload: { session } });
     emit(job, { event: 'done', payload: { sessionId, status: completedStatus } });
   } catch (error) {

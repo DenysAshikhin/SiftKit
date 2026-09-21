@@ -6,12 +6,23 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { randomUUID } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 
+import type { ThroughputAuditIdentity, InferenceThroughput } from '@siftkit/contracts';
 import type { ModelRuntimePreset, SiftConfig } from '../../config/types.js';
 import { getConfiguredModel } from '../../config/getters.js';
 import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-types.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { httpClient } from '../../lib/http-client.js';
+import { SseFrameParser } from '../../lib/sse-frame-parser.js';
+import {
+  emptyInferenceThroughput,
+  observeTabbyThroughput,
+  readTabbyThroughput,
+  unmeasuredInferenceThroughput,
+} from '../../lib/inference-throughput.js';
+import { auditInferenceThroughput, UNPUBLISHED_RATES } from '../inference-throughput-audit.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
 import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
@@ -33,6 +44,8 @@ const MODELS_PATH = '/v1/models';
 const EXL3_TOKENIZE_PATH = '/v1/token/encode';
 const CHAT_TIMEOUT_MS = 600_000;
 const TOKENIZE_TIMEOUT_MS = 60_000;
+const SSE_OBSERVE_LIMIT_CHARS = 256 * 1024;
+const JSON_OBSERVE_LIMIT_CHARS = 4 * 1024 * 1024;
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade',
@@ -87,7 +100,15 @@ function validateChatBody(bodyText: string): number {
   return parsed.messages.length;
 }
 
-function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config: SiftConfig): string {
+type TranslatedChatBody = { text: string; usageOptIn: boolean };
+
+/** A caller expects usage on a non-streaming response or when it asked for a usage frame. */
+function readUsageOptIn(body: JsonObject): boolean {
+  if (body.stream !== true) return true;
+  return isJsonObject(body.stream_options) && body.stream_options.include_usage === true;
+}
+
+function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config: SiftConfig): TranslatedChatBody {
   const parsed = parseJsonValueText(bodyText);
   if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
     throw new Error('Expected a JSON object with a messages array.');
@@ -114,7 +135,70 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset, config:
   applyThinkingSettings(parsed, preset);
   const compatibility = INFERENCE_REQUEST_COMPATIBILITY;
   parsed[compatibility.repetitionPenaltyKey] = defaults.repetitionPenalty;
-  return JSON.stringify(parsed);
+  return { text: JSON.stringify(parsed), usageOptIn: readUsageOptIn(parsed) };
+}
+
+type UsageObserverKind = 'sse' | 'json' | 'none';
+
+function usageObserverKind(contentType: string | undefined): UsageObserverKind {
+  if (contentType === undefined) return 'none';
+  if (contentType.includes('text/event-stream')) return 'sse';
+  if (contentType.includes('application/json')) return 'json';
+  return 'none';
+}
+
+/** Passively folds upstream usage out of the proxied bytes; gives up once its bounded buffer fills. */
+class PassthroughUsageObserver {
+  private readonly decoder = new StringDecoder('utf8');
+  private readonly parser = new SseFrameParser();
+  private jsonText = '';
+  private abandoned = false;
+  private fold: InferenceThroughput | null = null;
+
+  constructor(private readonly kind: UsageObserverKind) {}
+
+  push(chunk: Buffer): void {
+    if (this.abandoned || this.kind === 'none') return;
+    const text = this.decoder.write(chunk);
+    if (this.kind === 'json') {
+      this.jsonText += text;
+      this.abandoned = this.jsonText.length > JSON_OBSERVE_LIMIT_CHARS;
+      return;
+    }
+    for (const frame of this.parser.push(text)) {
+      if (frame.data.length > SSE_OBSERVE_LIMIT_CHARS) {
+        this.abandoned = true;
+        return;
+      }
+      if (frame.data.includes('"usage"')) this.observe(frame.data);
+    }
+    this.abandoned = this.parser.pendingLength > SSE_OBSERVE_LIMIT_CHARS;
+  }
+
+  private observe(text: string): void {
+    let body: JsonValue;
+    try {
+      body = parseJsonValueText(text);
+    } catch {
+      return;
+    }
+    if (isJsonObject(body) && body.usage !== undefined) {
+      this.fold = observeTabbyThroughput(this.fold ?? emptyInferenceThroughput(), body);
+    }
+  }
+
+  /** The fold to audit: observed usage, unmeasured when the caller expected usage, else null. */
+  finish(usageOptIn: boolean): InferenceThroughput | null {
+    if (this.abandoned) return null;
+    if (this.kind === 'json') {
+      try {
+        return readTabbyThroughput(parseJsonValueText(this.jsonText + this.decoder.end()));
+      } catch {
+        return unmeasuredInferenceThroughput();
+      }
+    }
+    return this.fold ?? (usageOptIn ? unmeasuredInferenceThroughput() : null);
+  }
 }
 
 function readTokenizeText(bodyText: string): string {
@@ -130,6 +214,8 @@ function getTokenArray(value: JsonValue): JsonValue[] | null {
   return value.tokens;
 }
 
+type PassthroughAudit = { identity: ThroughputAuditIdentity; usageOptIn: boolean };
+
 async function proxyStreamingRequest(
   ctx: ServerContext,
   req: IncomingMessage,
@@ -137,6 +223,7 @@ async function proxyStreamingRequest(
   baseUrl: string,
   upstreamPath: string,
   bodyText: string,
+  audit: PassthroughAudit,
 ): Promise<void> {
   if (isSelfBaseUrl(ctx, baseUrl)) throw new Error('The active preset BaseUrl points at the SiftKit passthrough server.');
   const upstreamUrl = new URL(upstreamPath, `${baseUrl.replace(/\/$/u, '')}/`);
@@ -151,14 +238,27 @@ async function proxyStreamingRequest(
       agent: httpClient.localAgent(upstreamUrl),
       headers: buildHeaders(req, bodyText),
     }, (upstreamResponse) => {
-      res.writeHead(upstreamResponse.statusCode || 502, buildResponseHeaders(upstreamResponse.headers));
+      const statusCode = upstreamResponse.statusCode || 502;
+      const observer = new PassthroughUsageObserver(
+        statusCode < 300 ? usageObserverKind(upstreamResponse.headers['content-type']) : 'none',
+      );
+      res.writeHead(statusCode, buildResponseHeaders(upstreamResponse.headers));
+      upstreamResponse.on('data', (chunk: Buffer) => observer.push(chunk));
       upstreamResponse.pipe(res);
-      upstreamResponse.on('end', resolve);
+      upstreamResponse.on('end', () => {
+        const fold = observer.finish(audit.usageOptIn);
+        if (fold !== null) auditInferenceThroughput({ ...audit.identity, scope: 'request' }, fold, UNPUBLISHED_RATES);
+        resolve();
+      });
       upstreamResponse.on('error', reject);
     });
     upstream.on('error', reject);
     upstream.setTimeout(CHAT_TIMEOUT_MS, () => upstream.destroy(new Error('Inference passthrough timed out.')));
-    req.on('aborted', () => upstream.destroy(new Error('Downstream inference request aborted.')));
+    const abortUpstream = () => upstream.destroy(new Error('Downstream inference request aborted.'));
+    req.on('aborted', abortUpstream);
+    res.on('close', () => {
+      if (!res.writableFinished) abortUpstream();
+    });
     upstream.end(bodyText);
   });
 }
@@ -224,15 +324,26 @@ class WorkloadEndpoint implements RouteEndpoint {
         return;
       }
       if (match.pathname === CHAT_PATH) {
-        const translatedBody = translateChatBody(bodyText, currentPreset, currentConfig);
+        const translated = translateChatBody(bodyText, currentPreset, currentConfig);
+        const passthroughId = randomUUID();
         serverLogger.event({
           scope: 'proxy',
-          id: '',
+          id: passthroughId,
           event: 'forward',
           fields: `path=${CHAT_PATH} base_url=${baseUrl} `
-            + `messages=${chatMessageCount} body_chars=${translatedBody.length}`,
+            + `messages=${chatMessageCount} body_chars=${translated.text.length}`,
         });
-        await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translatedBody);
+        await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translated.text, {
+          identity: {
+            operationType: 'passthrough',
+            operationId: passthroughId,
+            requestId: passthroughId,
+            stage: 'chat_completions',
+            model: currentPreset.Model ?? currentPreset.id,
+            presetId: currentPreset.id,
+          },
+          usageOptIn: translated.usageOptIn,
+        });
       } else if (requestText !== null) {
         await proxyTokenizeRequest(req, res, baseUrl, requestText);
       }

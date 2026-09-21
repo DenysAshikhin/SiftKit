@@ -4,6 +4,11 @@ export type SseFrame = { event: string; data: string };
 export class SseFrameParser {
   private buffer = '';
 
+  /** Characters received but not yet terminated by a frame boundary. */
+  get pendingLength(): number {
+    return this.buffer.length;
+  }
+
   push(chunk: string): SseFrame[] {
     this.buffer += chunk;
     const frames: SseFrame[] = [];

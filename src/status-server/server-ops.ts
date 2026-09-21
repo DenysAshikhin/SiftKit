@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import Database from 'better-sqlite3';
+import { MIXED_MODEL_PRESET_LABEL } from '@siftkit/contracts';
 import { getErrorMessage } from '../lib/errors.js';
 import {
   STATUS_TRUE,
@@ -21,7 +22,9 @@ import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
   persistIdleSummarySnapshot,
+  type IdleSummarySnapshot,
 } from './idle-summary.js';
+import { auditInferenceThroughput } from './inference-throughput-audit.js';
 import {
   upsertRunArtifactPayload,
 } from './dashboard-runs.js';
@@ -211,6 +214,22 @@ export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
   return ctx.idleSummary.database;
 }
 
+/** Audits the runtime-wide generation speed of one emitted snapshot against its own backend reference. */
+export function auditIdleSummarySnapshot(snapshot: IdleSummarySnapshot): void {
+  auditInferenceThroughput({
+    operationType: MIXED_MODEL_PRESET_LABEL,
+    operationId: 'runtime_metrics',
+    requestId: snapshot.emittedAtUtc,
+    stage: 'idle_summary',
+    model: MIXED_MODEL_PRESET_LABEL,
+    presetId: null,
+    scope: 'published',
+  }, snapshot.throughput, {
+    pp: null,
+    decode: Number.isFinite(snapshot.avgTokensPerSecond) ? snapshot.avgTokensPerSecond : null,
+  });
+}
+
 export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
   if (!ctx.idleSummary.pending || !isIdle(ctx)) {
     clearIdleSummaryTimer(ctx);
@@ -233,6 +252,7 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
       process.stderr.write(`[siftKitStatus] Failed to persist idle summary snapshot to ${ctx.idleSummarySnapshotsPath}: ${error instanceof Error ? error.message : String(error)}\n`);
     }
     serverLogger.report(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
+    auditIdleSummarySnapshot(snapshot);
     ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);

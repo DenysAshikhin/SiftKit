@@ -64,47 +64,60 @@ export async function closeHttpServer(server: http.Server): Promise<void> {
   }
 }
 
+type OpenRequestOptions = {
+  method?: string;
+  body?: string | Buffer;
+  contentType?: string;
+  headers?: Readonly<Record<string, string>>;
+};
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** The one http.request skeleton behind every helper; body headers derive from the body itself. */
+function openRequest(url: string, options: OpenRequestOptions): http.ClientRequest {
+  const target = new URL(url);
+  const request = http.request({
+    protocol: target.protocol,
+    hostname: target.hostname,
+    port: target.port,
+    path: `${target.pathname}${target.search}`,
+    method: options.method ?? 'GET',
+    agent: testHttpAgent,
+    headers: {
+      ...options.headers,
+      ...(options.body === undefined ? {} : {
+        'Content-Type': options.contentType ?? 'application/json',
+        'Content-Length': Buffer.byteLength(options.body),
+      }),
+    },
+  });
+  request.end(options.body);
+  return request;
+}
+
+/** Socket idle timeout; SSE uses an absolute deadline instead because its frames keep the socket busy. */
+function setIdleTimeout(request: http.ClientRequest, timeoutMs: number): void {
+  request.setTimeout(timeoutMs, () => request.destroy(new Error('request timeout')));
+}
+
 export function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        agent: testHttpAgent,
-        headers: {
-          ...options.headers,
-          ...(options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-          } : {}),
-        },
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
+    const request = openRequest(url, options);
+    request.on('response', (response) => {
+      let responseText = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        responseText += chunk;
+      });
+      response.on('end', () => {
+        resolve({
+          statusCode: response.statusCode || 0,
+          body: responseText ? asObject(parseJsonValueText(responseText)) : {},
         });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 4000), () => {
-      request.destroy(new Error('request timeout'));
+      });
     });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
+    request.on('error', reject);
+    setIdleTimeout(request, options.timeoutMs ?? 4000);
   });
 }
 
@@ -123,51 +136,58 @@ export function requestBinary(
   options: BinaryRequestOptions = {},
 ): Promise<BinaryResponse> {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        agent: testHttpAgent,
-        headers: {
-          ...options.headers,
-          ...(options.body ? {
-            'Content-Type': options.contentType ?? 'application/zip',
-            'Content-Length': options.body.byteLength,
-          } : {}),
-        },
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
+    const request = openRequest(url, { ...options, contentType: options.contentType ?? 'application/zip' });
+    request.on('response', (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        resolve({
+          statusCode: response.statusCode || 0,
+          contentType: response.headers['content-type'] ?? '',
+          body: Buffer.concat(chunks),
         });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            contentType: response.headers['content-type'] ?? '',
-            body: Buffer.concat(chunks),
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 30000), () => {
-      request.destroy(new Error('request timeout'));
+      });
     });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
+    request.on('error', reject);
+    setIdleTimeout(request, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  });
+}
+
+export type RawTextResponse = { statusCode: number; contentType: string; text: string };
+export type RawTextRequestOptions = { abortAfterFirstChunk?: boolean; timeoutMs?: number };
+
+/** Raw POST that returns the response bytes verbatim; `abortAfterFirstChunk` destroys the request mid-stream. */
+export function requestRawText(
+  url: string,
+  body: JsonSerializable,
+  options: RawTextRequestOptions = {},
+): Promise<RawTextResponse> {
+  return new Promise((resolve, reject) => {
+    const request = openRequest(url, { method: 'POST', body: JSON.stringify(body) });
+    request.on('response', (response) => {
+      let text = '';
+      const settle = (): void => resolve({
+        statusCode: response.statusCode || 0, contentType: String(response.headers['content-type'] ?? ''), text,
+      });
+      const onData = (chunk: string): void => {
+        text += chunk;
+        if (!options.abortAfterFirstChunk) return;
+        response.off('data', onData).off('end', settle);
+        request.destroy();
+        settle();
+      };
+      response.setEncoding('utf8');
+      response.on('data', onData).on('end', settle);
+    });
+    request.on('error', reject);
+    setIdleTimeout(request, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   });
 }
 
 export function requestSse(url: string, options: RequestOptions = {}): Promise<SseResponse> {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
     const events: SseEvent[] = [];
     let settled = false;
     let deadline: NodeJS.Timeout | null = null;
@@ -193,82 +213,64 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
       clearDeadline();
       reject(error);
     };
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        agent: testHttpAgent,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let buffer = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          buffer += chunk;
-          let boundary = buffer.indexOf('\n\n');
-          while (boundary >= 0) {
-            const packet = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            const lines = packet
-              .split(/\r?\n/u)
-              .map((line) => line.trim())
-              .filter(Boolean);
-            const eventLine = lines.find((line) => line.startsWith('event:'));
-            const dataLine = lines.find((line) => line.startsWith('data:'));
-            if (!dataLine) {
-              boundary = buffer.indexOf('\n\n');
-              continue;
-            }
-            const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
-            let payload: Dict | null = null;
-            try {
-              payload = asObject(parseJsonValueText(dataLine.slice(5).trim()));
-            } catch {
-              payload = null;
-            }
-            events.push({ event: eventName, payload, receivedAtMs: Date.now() });
-            if (eventName === 'done' || eventName === 'error') {
-              request.destroy();
-              resolveOnce({
-                statusCode: response.statusCode || 0,
-                events,
-              });
-              return;
-            }
+    const request = openRequest(url, options);
+    request.on('response', (response) => {
+      let buffer = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        buffer += chunk;
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const packet = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const lines = packet
+            .split(/\r?\n/u)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const eventLine = lines.find((line) => line.startsWith('event:'));
+          const dataLine = lines.find((line) => line.startsWith('data:'));
+          if (!dataLine) {
             boundary = buffer.indexOf('\n\n');
+            continue;
           }
+          const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
+          let payload: Dict | null = null;
+          try {
+            payload = asObject(parseJsonValueText(dataLine.slice(5).trim()));
+          } catch {
+            payload = null;
+          }
+          events.push({ event: eventName, payload, receivedAtMs: Date.now() });
+          if (eventName === 'done' || eventName === 'error') {
+            request.destroy();
+            resolveOnce({
+              statusCode: response.statusCode || 0,
+              events,
+            });
+            return;
+          }
+          boundary = buffer.indexOf('\n\n');
+        }
+      });
+      response.on('error', rejectOnce);
+      response.on('end', () => {
+        resolveOnce({
+          statusCode: response.statusCode || 0,
+          events,
         });
-        response.on('error', rejectOnce);
-        response.on('end', () => {
-          resolveOnce({
-            statusCode: response.statusCode || 0,
-            events,
-          });
-        });
-      },
-    );
+      });
+    });
     request.on('error', rejectOnce);
     deadline = setTimeout(() => {
       const error = new Error('request timeout');
       rejectOnce(error);
       request.destroy(error);
-    }, Number(options.timeoutMs || 8000));
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
+    }, options.timeoutMs ?? 8000);
   });
 }
 
 export function fireAndAbortJsonRequest(url: string, body: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
     let settled = false;
     const finish = (error?: Error): void => {
       if (settled) {
@@ -287,31 +289,16 @@ export function fireAndAbortJsonRequest(url: string, body: string, signal: Abort
       }
       reject(error);
     };
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: 'POST',
-        agent: testHttpAgent,
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body, 'utf8'),
-        },
-      },
-      (response) => {
-        response.resume();
-        finish();
-      },
-    );
+    const request = openRequest(url, { method: 'POST', body });
     const abortRequest = (): void => {
       request.destroy(new Error('client aborted request'));
       finish();
     };
+    request.on('response', (response) => {
+      response.resume();
+      finish();
+    });
     request.on('error', (error) => finish(error));
-    request.write(body);
-    request.end();
     signal.addEventListener('abort', abortRequest, { once: true });
     if (signal.aborted) abortRequest();
   });

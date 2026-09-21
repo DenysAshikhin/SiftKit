@@ -2,6 +2,7 @@ import http from 'node:http';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
 import { asObject } from './dashboard-http.js';
+import { buildTabbyUsage } from './streaming-client.js';
 
 export type FakeChatServer = {
   baseUrl: string;
@@ -23,15 +24,11 @@ export type FakeChatServerOptions = {
   reportedReasoningTokens?: 'none' | 'cumulative' | 'zero';
 };
 
-/** Prompt usage streamed on the first frame of request 1 and of every later request. */
+/** Usage streamed on the first frame of request 1 and of every later request. */
 export const FAKE_PROMPT_USAGE = {
-  first: { promptTokens: 100, cachedTokens: 60 },
-  later: { promptTokens: 110, cachedTokens: 100 },
+  first: { promptTokens: 100, cachedTokens: 60, completionTokens: 8 },
+  later: { promptTokens: 110, cachedTokens: 100, completionTokens: 4 },
 } as const;
-
-function toPromptUsageFrame(usage: { promptTokens: number; cachedTokens: number }): JsonObject {
-  return { prompt_tokens: usage.promptTokens, prompt_tokens_details: { cached_tokens: usage.cachedTokens } };
-}
 
 /** `count` reasoning deltas of `chars` characters each: `r00.....`, `r01.....`, ... */
 export function buildReasoningDeltas(count: number, chars: number): string[] {
@@ -67,9 +64,9 @@ export function startFakeChatServer(options: FakeChatServerOptions): Promise<Fak
         const writeDelta = (delta: JsonObject, usage?: JsonObject): void => {
           res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk', ...(usage ? { usage } : {}) })}\n\n`);
         };
-        // Prompt usage rides the first frame of every request, so the first
-        // request's stats survive the mid-stream budget abort.
-        writeDelta({}, toPromptUsageFrame(bodies.length === 1 ? FAKE_PROMPT_USAGE.first : FAKE_PROMPT_USAGE.later));
+        // A complete usage block rides the first frame of every request, so the first
+        // request's stats survive the mid-stream budget abort and its audit stays verifiable.
+        writeDelta({}, buildTabbyUsage(bodies.length === 1 ? FAKE_PROMPT_USAGE.first : FAKE_PROMPT_USAGE.later));
         if (bodies.length === 1) {
           (options.reasoningDeltas ?? []).forEach((text, index) => {
             const usage = reportedMode === 'none'

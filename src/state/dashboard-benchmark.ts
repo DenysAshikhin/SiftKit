@@ -3,7 +3,15 @@ import { z } from '../lib/zod.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema, type JsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
-import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
+import {
+  InferenceThroughputSchema,
+  MIXED_MODEL_PRESET_LABEL,
+  type DashboardBenchmarkSessionDetail,
+  type ThroughputAuditContext,
+  type ThroughputRates,
+  type InferenceThroughput,
+} from '@siftkit/contracts';
+import { calculateThroughputRates, mergeInferenceThroughput } from '../lib/inference-throughput.js';
 
 const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type BenchmarkTaskKind = z.infer<typeof BenchmarkTaskKindSchema>;
@@ -96,11 +104,49 @@ export type BenchmarkAttemptRecord = {
   updatedAtUtc: string;
 };
 
+/** Session fold, the rates published from it, and the identity the audit reports them under. */
+export type BenchmarkSessionThroughput = {
+  fold: InferenceThroughput;
+  rates: ThroughputRates;
+  operationType: ThroughputAuditContext['operationType'];
+  model: string;
+  presetId: string;
+};
+
 export type BenchmarkSessionDetail = {
   session: BenchmarkSessionRecord;
   cases: BenchmarkCaseRecord[];
   attempts: BenchmarkAttemptRecord[];
+  throughput: BenchmarkSessionThroughput;
 };
+
+/** The wire shape publishes only the session rates. */
+export function toDashboardBenchmarkSessionDetail(detail: BenchmarkSessionDetail): DashboardBenchmarkSessionDetail {
+  return { session: detail.session, cases: detail.cases, attempts: detail.attempts, throughput: detail.throughput.rates };
+}
+
+/** Duration-weighted session PP/decode over measured completed attempts, with its audit identity. */
+export function buildBenchmarkSessionThroughput(attempts: readonly BenchmarkAttemptRecord[]): BenchmarkSessionThroughput {
+  const measured = attempts.filter(
+    (attempt): attempt is BenchmarkAttemptRecord & { throughput: InferenceThroughput } =>
+      attempt.status === 'completed' && attempt.throughput !== null,
+  );
+  const fold = mergeInferenceThroughput(measured.map((attempt) => attempt.throughput));
+  const single = <T extends string>(values: readonly T[]): T | null => {
+    const [first, ...rest] = new Set(values);
+    return first !== undefined && rest.length === 0 ? first : null;
+  };
+  const taskKind = single(measured.map((attempt) => attempt.taskKind));
+  const presetLabel = single(measured.map((attempt) => attempt.managedPresetLabel));
+  const presetId = single(measured.map((attempt) => attempt.managedPresetId));
+  return {
+    fold,
+    rates: calculateThroughputRates(fold),
+    operationType: taskKind ?? MIXED_MODEL_PRESET_LABEL,
+    model: presetLabel ?? MIXED_MODEL_PRESET_LABEL,
+    presetId: presetId ?? MIXED_MODEL_PRESET_LABEL,
+  };
+}
 
 export type BenchmarkManagedPresetInput = {
   id: string;
@@ -116,12 +162,6 @@ export type BenchmarkSpecOverrideInput = {
   SpeculativeNgramMinHits?: number;
   SpeculativeDraftMax?: number;
   SpeculativeDraftMin?: number;
-};
-
-export type BenchmarkSessionPlan = {
-  session: BenchmarkSessionRecord;
-  cases: BenchmarkCaseRecord[];
-  attempts: BenchmarkAttemptRecord[];
 };
 
 export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
@@ -525,7 +565,7 @@ export function createBenchmarkSessionPlan(options: {
   specOverrides: BenchmarkSpecOverrideInput[];
   originalConfigJson: string;
   databasePath?: string;
-}): BenchmarkSessionPlan {
+}): BenchmarkSessionDetail {
   const database = getDatabase(options.databasePath);
   const questionPresetIds = options.questionPresetIds.map((id) => String(id || '').trim()).filter(Boolean);
   if (questionPresetIds.length === 0) {
@@ -665,7 +705,7 @@ export function readBenchmarkSessionDetail(id: string, databasePath?: string): B
     .map((row) => normalizeCase(row))
     .filter((row): row is BenchmarkCaseRecord => row !== null);
   const attempts = listBenchmarkAttemptsForSession(sessionId, databasePath);
-  return { session, cases, attempts };
+  return { session, cases, attempts, throughput: buildBenchmarkSessionThroughput(attempts) };
 }
 
 export function listBenchmarkAttemptsForSession(sessionId: string, databasePath?: string): BenchmarkAttemptRecord[] {

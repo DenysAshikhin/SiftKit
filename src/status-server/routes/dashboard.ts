@@ -8,7 +8,6 @@ import type {
   MetricsResponse,
   IdleSummaryResponse,
   WebSearchQuotaResponse,
-  DashboardBenchmarkSessionDetail,
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkQuestionPresetsResponse,
   DashboardBenchmarkQuestionPreset,
@@ -71,6 +70,7 @@ import {
   listBenchmarkSessions,
   readBenchmarkLogTextByStream,
   readBenchmarkSessionDetail,
+  toDashboardBenchmarkSessionDetail,
   seedBenchmarkQuestionPresets,
   updateBenchmarkAttemptGrade,
   updateBenchmarkQuestionPreset,
@@ -418,7 +418,7 @@ class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
         originalConfigJson: JSON.stringify(config),
       });
       startBenchmarkJob(ctx, sessionPlan.session.id);
-      sendJson(res, 200, sessionPlan);
+      sendJson(res, 200, toDashboardBenchmarkSessionDetail(sessionPlan));
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -463,9 +463,8 @@ class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Benchmark session not found.' });
       return;
     }
-    const conformingDetail: DashboardBenchmarkSessionDetail = detail;
     sendJson(res, 200, {
-      ...conformingDetail,
+      ...toDashboardBenchmarkSessionDetail(detail),
       logTextByStream: readBenchmarkLogTextByStream({ sessionId }),
     });
     return;

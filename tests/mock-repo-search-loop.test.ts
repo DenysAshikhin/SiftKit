@@ -6,7 +6,7 @@ import path from 'node:path';
 import { z } from '../src/lib/zod.js';
 import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { emptyInferenceThroughput } from '../src/lib/inference-throughput.js';
 
 import {
@@ -300,6 +300,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
                 + '}'.repeat(220),
             },
           }],
+          usage: DONT_CARE_TABBY_USAGE,
         })}\n\n`
       );
       res.write('data: [DONE]\n\n');
@@ -315,6 +316,7 @@ test('runTaskLoop rejects a malformed native dialect call and reprompts once', {
     res.write(
       `data: ${JSON.stringify({
         choices: [{ delta: { content: 'done — the fallback parses `<tool_call>` markup from text.' } }],
+        usage: DONT_CARE_TABBY_USAGE,
       })}\n\n`
     );
     res.write('data: [DONE]\n\n');
@@ -387,6 +389,8 @@ test('runTaskLoop reports streamed provider frames as writer activity without li
     for (const text of frames) {
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
     }
+    // Tabby sends usage as its own choices-less frame; it is provider activity like any other frame.
+    res.write(`data: ${JSON.stringify({ choices: [], usage: DONT_CARE_TABBY_USAGE })}\n\n`);
     res.write('data: [DONE]\n\n');
     res.end();
   });
@@ -410,7 +414,7 @@ test('runTaskLoop reports streamed provider frames as writer activity without li
     );
 
     assert.equal(result.reason, 'finish');
-    assert.equal(progress.activity, frames.length);
+    assert.equal(progress.activity, frames.length + 1);
     assert.equal(progress.events.some((event) => ['thinking', 'answer', 'narration', 'progress_update'].includes(event.kind)), false);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -1447,13 +1451,8 @@ test('runTaskLoop retries transient provider network failures via shared retry h
             }],
           };
       sendChatCompletionSse(res, {
-        choices: [
-          {
-            message: {
-              ...message,
-            },
-          },
-        ],
+        choices: [{ message: { ...message } }],
+        usage: DONT_CARE_TABBY_USAGE,
       });
     });
   });
@@ -1528,6 +1527,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
       plannerRequestCount += 1;
       sendChatCompletionSse(res, {
         choices: [{ message: { content: 'done' } }],
+        usage: DONT_CARE_TABBY_USAGE,
       });
     });
     delayedServer.listen(port, '127.0.0.1');
@@ -1593,6 +1593,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
     }
     sendChatCompletionSse(res, {
       choices: [{ message: { content: 'done' } }],
+      usage: DONT_CARE_TABBY_USAGE,
     });
   });
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', () => resolve()));

@@ -36,7 +36,7 @@ import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/stat
 import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
-  buildIdleMetricsLogMessage,
+  buildIdleSummarySnapshotMessage,
 } from './idle-summary.js';
 import { readConfig, writeConfig } from './config-store.js';
 import {
@@ -113,7 +113,7 @@ export {
   colorize,
   formatElapsed,
   buildIdleSummarySnapshot,
-  buildIdleMetricsLogMessage,
+  buildIdleSummarySnapshotMessage,
 };
 export {
   buildStatusRequestLogBody,

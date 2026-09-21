@@ -10,7 +10,7 @@ import { generateInferenceChatResponse } from '../src/providers/inference.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
 
 const CONTENT = 'x'.repeat(400);
@@ -36,7 +36,7 @@ function startFakeServer(): Promise<FakeServer> {
         }
         sendChatCompletionSse(res, {
           choices: [{ message: { content: CONTENT, reasoning_content: REASONING } }],
-          usage: { prompt_tokens: 999, completion_tokens: 2 },
+          usage: buildTabbyUsage({ promptTokens: 999, completionTokens: 2 }),
         });
       });
     });

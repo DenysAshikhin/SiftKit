@@ -20,7 +20,7 @@ import type { ChatMessage } from '../src/repo-search/planner-chat-message.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { CLEAN_STREAM_STOP, type InferenceToolDefinition } from '../src/llm-protocol/types.js';
 
@@ -112,6 +112,7 @@ test('configured verdict replay uses the exact persisted tool schema', async () 
       capturedBody = asObject(parseJsonValueText(body || '{}'));
       sendChatCompletionSse(res, {
         choices: [{ message: { content: '{"verdict":"approve","reason":"safe"}' } }],
+        usage: DONT_CARE_TABBY_USAGE,
       });
     });
   });

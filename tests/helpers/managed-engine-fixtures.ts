@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { Exl3EngineConfig } from '../../src/config/types.js';
+import { buildTabbyUsage } from './streaming-client.js';
 import { writeFakeExl3Venv } from './tabby-fake.js';
 
 export interface ManagedEngineLauncherOptions {
@@ -156,6 +157,9 @@ if (launchHangingProcess) {
   return;
 }
 
+// Self-consistent Tabby usage: reported rates equal count / time, so the audit stays quiet.
+const DEFAULT_USAGE = ${JSON.stringify(buildTabbyUsage({ promptTokens: 3, completionTokens: 1 }))};
+
 function readJsonBody(request, callback) {
   let bodyText = '';
   request.on('data', (chunk) => { bodyText += chunk; });
@@ -217,10 +221,25 @@ const server = http.createServer((request, response) => {
   }
   if (request.method === 'POST' && url === '/v1/chat/completions') {
     readJsonBody(request, (forwardedRequest) => {
+      // Caller steers the fake via fake_engine: usage (null omits it), padding_chars, finish_delay_ms.
+      const fake = (forwardedRequest && forwardedRequest.fake_engine) || {};
+      const usage = fake.usage === undefined ? DEFAULT_USAGE : fake.usage;
+      if (forwardedRequest && forwardedRequest.stream === true) {
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        const frame = (payload) => 'data: ' + JSON.stringify(payload) + '\\n\\n';
+        response.write(frame({ choices: [{ delta: { content: 'ok' + 'x'.repeat(Number(fake.padding_chars) || 0) } }] }));
+        const finish = () => {
+          response.write(frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }));
+          if (usage) response.write(frame({ choices: [], usage }));
+          response.end('data: [DONE]\\n\\n');
+        };
+        const delay = Number(fake.finish_delay_ms) || 0;
+        if (delay > 0) setTimeout(finish, delay); else finish();
+        return;
+      }
       sendJson(response, 200, {
         choices: [{ message: { content: 'ok' } }],
-        // Self-consistent Tabby usage: reported rates equal count / time, so the audit stays quiet.
-        usage: { prompt_tokens: 3, prompt_tokens_details: { cached_tokens: 0 }, prompt_time: 0.1, prompt_tokens_per_sec: 30, completion_tokens: 1, completion_tokens_details: { reasoning_tokens: 0 }, completion_time: 1, completion_tokens_per_sec: 1, total_tokens: 4 },
+        ...(usage ? { usage } : {}),
         forwardedRequest,
       });
     });

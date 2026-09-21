@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { JsonObjectSchema } from './primitives.js';
-import { InferenceThroughputSchema } from './inference-throughput.js';
+import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.js';
 
 export const DashboardBenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 export type DashboardBenchmarkTaskKind = z.infer<typeof DashboardBenchmarkTaskKindSchema>;
@@ -52,6 +52,8 @@ export type DashboardBenchmarkAttempt = z.infer<typeof DashboardBenchmarkAttempt
 
 export const DashboardBenchmarkSessionDetailSchema = z.object({
   session: DashboardBenchmarkSessionSchema, cases: z.array(DashboardBenchmarkCaseSchema), attempts: z.array(DashboardBenchmarkAttemptSchema),
+  /** Server-owned session PP/decode, duration-weighted over the completed attempts that carry a fold. */
+  throughput: ThroughputRatesSchema,
 });
 export type DashboardBenchmarkSessionDetail = z.infer<typeof DashboardBenchmarkSessionDetailSchema>;
 export const DashboardBenchmarkQuestionPresetsResponseSchema = z.object({ presets: z.array(DashboardBenchmarkQuestionPresetSchema) });

@@ -22,6 +22,7 @@ import {
   type SummaryPlannerToolName as PlannerToolName,
 } from '../src/planner-protocol/summary-tools.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { buildTabbyUsage } from './helpers/streaming-client.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
@@ -335,11 +336,7 @@ test('inference provider preserves planner tool actions from empty-content tool_
               },
             },
           ],
-          usage: {
-            prompt_tokens: 123,
-            completion_tokens: 45,
-            total_tokens: 168,
-          },
+          usage: buildTabbyUsage({ promptTokens: 123, completionTokens: 45 }),
         };
       },
     });
@@ -396,11 +393,7 @@ test('inference provider preserves planner tool batches from empty-content tool_
               },
             },
           ],
-          usage: {
-            prompt_tokens: 123,
-            completion_tokens: 45,
-            total_tokens: 168,
-          },
+          usage: buildTabbyUsage({ promptTokens: 123, completionTokens: 45 }),
         };
       },
     });
@@ -464,11 +457,7 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
                 },
               },
             ],
-            usage: {
-              prompt_tokens: 17,
-              completion_tokens: 15,
-              total_tokens: 32,
-            },
+            usage: buildTabbyUsage({ promptTokens: 17, completionTokens: 15 }),
           };
         }
 
@@ -489,11 +478,7 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
               },
             },
           ],
-          usage: {
-            prompt_tokens: 19,
-            completion_tokens: 21,
-            total_tokens: 40,
-          },
+          usage: buildTabbyUsage({ promptTokens: 19, completionTokens: 21 }),
         };
       },
     });
@@ -564,11 +549,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
                 },
               },
             ],
-            usage: {
-              prompt_tokens: 17,
-              completion_tokens: 15,
-              total_tokens: 32,
-            },
+            usage: buildTabbyUsage({ promptTokens: 17, completionTokens: 15 }),
           };
         }
 
@@ -589,11 +570,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
               },
             },
           ],
-          usage: {
-            prompt_tokens: 19,
-            completion_tokens: 21,
-            total_tokens: 40,
-          },
+          usage: buildTabbyUsage({ promptTokens: 19, completionTokens: 21 }),
         };
       },
       metrics: {

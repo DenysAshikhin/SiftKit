@@ -29,7 +29,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { createJsonLogger } from '../src/repo-search/logging.js';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
@@ -446,7 +446,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
             }
             : { role: 'assistant', content: 'done' },
         }],
-        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        usage: DONT_CARE_TABBY_USAGE,
       });
       return;
     }
@@ -1071,11 +1071,7 @@ test('runTaskLoop sends append-only chat requests without removed slot or cache 
                 : { role: 'assistant', content: 'done' },
             },
           ],
-          usage: {
-            prompt_tokens: 10,
-            completion_tokens: 5,
-            total_tokens: 15,
-          },
+          usage: buildTabbyUsage({ promptTokens: 10, completionTokens: 5 }),
         });
       });
       return;
@@ -1198,11 +1194,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
                 : { role: 'assistant', content: 'done' },
             },
           ],
-          usage: {
-            prompt_tokens: 10,
-            completion_tokens: 5,
-            total_tokens: 15,
-          },
+          usage: buildTabbyUsage({ promptTokens: 10, completionTokens: 5 }),
         });
       });
       return;
@@ -1324,7 +1316,7 @@ test('155k planner generation uses the current prompt position without the remov
         chatRequests.push(JSON.parse(body || '{}'));
         sendChatCompletionSse(res, {
           choices: [{ message: { role: 'assistant', content: 'done' } }],
-          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+          usage: DONT_CARE_TABBY_USAGE,
         });
       });
       return;
@@ -1406,7 +1398,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
               content: isTerminalSynthesis ? 'best-effort answer' : '',
             },
           }],
-          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+          usage: DONT_CARE_TABBY_USAGE,
         });
       });
       return;

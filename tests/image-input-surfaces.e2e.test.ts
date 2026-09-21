@@ -24,7 +24,7 @@ import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { DONT_CARE_TABBY_USAGE, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 
@@ -61,7 +61,7 @@ async function withModelServer(
       capturedBodies.push(body);
       sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: responseContent } }],
-        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        usage: DONT_CARE_TABBY_USAGE,
       });
     });
   });
@@ -158,7 +158,7 @@ test('repo-search puts the image part on the first user message it sends', async
       capturedBodies.push(body);
       sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
-        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        usage: DONT_CARE_TABBY_USAGE,
       });
     });
   });

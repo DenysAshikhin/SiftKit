@@ -177,14 +177,14 @@ Create `src/status-server/inference-throughput-audit.ts` with `auditInferenceThr
 
 **Produces:** The shared schemas/functions above and a required `throughput` field on normalized inference usage. Migrate normalized usage construction to schema-derived types rather than adding another manually duplicated type.
 
-- [ ] Add failing tests for raw completion counts containing reasoning/tool calls, cached prompts, final streaming usage, and distinct backend-reported rates. Existing token attribution must not overwrite the raw generation count.
-- [ ] Add threshold tests using Tabby rate 20: internal 19 and 21 pass; 18.99 and 21.01 mismatch. Cover null, `Indeterminate`, zero, non-finite/negative values, invalid durations, and both discrepancy directions.
-- [ ] Add weighted-rollup tests: rates 10 for 1 second and 30 for 3 seconds yield reference 25, not 20. Independently alter internal duration and assert the reference does not change.
-- [ ] Run the new tests and confirm failures are caused by missing behavior.
-- [ ] Implement the schemas and functions. Capture response identity and the original reported rates before normalized/visible-content transformations. Seconds are converted once.
-- [ ] Replace cumulative SSE observations; merge distinct physical requests/continuations exactly once. Never add all `usage` frames. Preserve incomplete coverage across a stopped first request and a successful continuation.
-- [ ] Make audit context explicit at physical inference entry points. Update every caller/fixture required by the changed interface; no default fake operation identity for real requests.
-- [ ] Run the focused suite and typecheck the affected contracts/protocol. Confirm streaming, cancellation, and retry behavior still pass.
+- [x] Add failing tests for raw completion counts containing reasoning/tool calls, cached prompts, final streaming usage, and distinct backend-reported rates. Existing token attribution must not overwrite the raw generation count.
+- [x] Add threshold tests using Tabby rate 20: internal 19 and 21 pass; 18.99 and 21.01 mismatch. Cover null, `Indeterminate`, zero, non-finite/negative values, invalid durations, and both discrepancy directions.
+- [x] Add weighted-rollup tests: rates 10 for 1 second and 30 for 3 seconds yield reference 25, not 20. Independently alter internal duration and assert the reference does not change.
+- [x] Run the new tests and confirm failures are caused by missing behavior.
+- [x] Implement the schemas and functions. Capture response identity and the original reported rates before normalized/visible-content transformations. Seconds are converted once.
+- [x] Replace cumulative SSE observations; merge distinct physical requests/continuations exactly once. Never add all `usage` frames. Preserve incomplete coverage across a stopped first request and a successful continuation.
+- [x] Make audit context explicit at physical inference entry points. Update every caller/fixture required by the changed interface; no default fake operation identity for real requests.
+- [x] Run the focused suite and typecheck the affected contracts/protocol. Confirm streaming, cancellation, and retry behavior still pass.
 
 Suggested boundary regression:
 
@@ -210,14 +210,14 @@ assert.equal(compareThroughputRate(398 / 35.07, 21.5).kind, 'mismatch');
 
 **Produces:** `throughput` on planner responses, token-usage snapshots, task scorecards, and operation totals. Existing visible output/thinking/tool-result counts retain their documented attribution role.
 
-- [ ] Reproduce a tool-only answer: Tabby generates tool-call tokens while narration is empty. Assert positive decode throughput and a correct full emitted-token count.
-- [ ] Reproduce a mixed reasoning/narration/tool-call answer, and a terminal answer delivered through a tool. Assert no tokens are lost or counted twice in throughput.
-- [ ] Preserve `throughput` through the planner adapter. Accumulate it when recording the model response, once per request, independently of `addOutputTokens` and content classification.
-- [ ] Remove throughput dependence on retokenized narration/thinking. Retokenization may remain where needed for visible-text or prompt-budget attribution; it is not throughput evidence.
-- [ ] Include measured compaction, synthesis, and successful-but-rejected attempts in the same count/time cohort used by the operation. Audit approval requests separately; if operation totals include them, include both their counters and durations, never just one side.
-- [ ] Replace scorecard throughput totals with the canonical fold; preserve original operation/stage identity across collapsed dashboard/status groups.
-- [ ] Add the numerical regression `28036 / 1189.48 = 23.5699633453`, while attributed visible+thinking tokens remain 19,650. Assert the PP regression remains `35414 / 48.73 = 726.7391750462`.
-- [ ] Run the focused operation tests. Reject changes that fix only plain answers while tool-only and mixed turns remain wrong.
+- [x] Reproduce a tool-only answer: Tabby generates tool-call tokens while narration is empty. Assert positive decode throughput and a correct full emitted-token count.
+- [x] Reproduce a mixed reasoning/narration/tool-call answer, and a terminal answer delivered through a tool. Assert no tokens are lost or counted twice in throughput.
+- [x] Preserve `throughput` through the planner adapter. Accumulate it when recording the model response, once per request, independently of `addOutputTokens` and content classification.
+- [x] Remove throughput dependence on retokenized narration/thinking. Retokenization may remain where needed for visible-text or prompt-budget attribution; it is not throughput evidence.
+- [x] Include measured compaction, synthesis, and successful-but-rejected attempts in the same count/time cohort used by the operation. Audit approval requests separately; if operation totals include them, include both their counters and durations, never just one side.
+- [x] Replace scorecard throughput totals with the canonical fold; preserve original operation/stage identity across collapsed dashboard/status groups.
+- [x] Add the numerical regression `28036 / 1189.48 = 23.5699633453`, while attributed visible+thinking tokens remain 19,650. Assert the PP regression remains `35414 / 48.73 = 726.7391750462`.
+- [x] Run the focused operation tests. Reject changes that fix only plain answers while tool-only and mixed turns remain wrong.
 
 ## Task 3: Carry telemetry through every remaining operation and add red audits
 
@@ -231,15 +231,15 @@ assert.equal(compareThroughputRate(398 / 35.07, 21.5).kind, 'mismatch');
 
 **Produces:** Request-level audits for all scope-matrix rows, including model calls that do not publish a dashboard rate.
 
-- [ ] Write a failing server test with consistent raw Tabby usage followed by a deliberately wrong internal/publication calculation. It must emit a red error; a checker only inside the HTTP parser cannot satisfy this test.
-- [ ] Implement the audit with `serverLogger.error`, keeping existing color/no-color behavior and quiet-level visibility. Test the ANSI red prefix and reset when color is enabled, and readable plain output when disabled.
-- [ ] Invoke request audits once after final usage/normalization; pass actual calculated rates. Preserve their independent reference for later publication audits. Log telemetry errors without throwing into the model/tool execution path.
-- [ ] Carry measurements through summary retry/chunk/merge results and terminal metadata. Accumulate all attempted model work instead of retaining only the latest response's metrics.
-- [ ] Audit assistant text and image inference before its reduced result drops usage. Migrate every remaining `InferenceClient.chat` caller to explicit identity; an omitted real-operation context must fail typecheck or runtime validation.
-- [ ] Use the shared SSE parser for a passive, bounded passthrough usage observer. Preserve existing streaming/backpressure and cancellation, raw response bytes, caller authorization, and usage opt-in behavior. Inspect complete JSON responses when the caller uses non-streaming mode. Do not buffer a complete answer or retokenize every delta.
-- [ ] Test PP-only, decode-only, and simultaneous mismatches across summary, chat, plan, repo-search, repo-agent, assistant, evaluation, and passthrough. Include physical retries and continuation IDs.
-- [ ] Verify multiple SSE subscribers, duplicate final usage frames, and replay do not repeat the same publication event. Verify request and aggregate audit scopes remain distinguishable.
-- [ ] Run focused suites. Confirm the server console receives CLI-originated warnings through the existing server execution routes.
+- [x] Write a failing server test with consistent raw Tabby usage followed by a deliberately wrong internal/publication calculation. It must emit a red error; a checker only inside the HTTP parser cannot satisfy this test.
+- [x] Implement the audit with `serverLogger.error`, keeping existing color/no-color behavior and quiet-level visibility. Test the ANSI red prefix and reset when color is enabled, and readable plain output when disabled.
+- [x] Invoke request audits once after final usage/normalization; pass actual calculated rates. Preserve their independent reference for later publication audits. Log telemetry errors without throwing into the model/tool execution path.
+- [x] Carry measurements through summary retry/chunk/merge results and terminal metadata. Accumulate all attempted model work instead of retaining only the latest response's metrics.
+- [x] Audit assistant text and image inference before its reduced result drops usage. Migrate every remaining `InferenceClient.chat` caller to explicit identity; an omitted real-operation context must fail typecheck or runtime validation.
+- [x] Use the shared SSE parser for a passive, bounded passthrough usage observer. Preserve existing streaming/backpressure and cancellation, raw response bytes, caller authorization, and usage opt-in behavior. Inspect complete JSON responses when the caller uses non-streaming mode. Do not buffer a complete answer or retokenize every delta.
+- [x] Test PP-only, decode-only, and simultaneous mismatches across summary, chat, plan, repo-search, repo-agent, assistant, evaluation, and passthrough. Include physical retries and continuation IDs.
+- [x] Verify multiple SSE subscribers, duplicate final usage frames, and replay do not repeat the same publication event. Verify request and aggregate audit scopes remain distinguishable.
+- [x] Run focused suites. Confirm the server console receives CLI-originated warnings through the existing server execution routes.
 
 Example log assertion using the existing concrete logger test pattern:
 
@@ -263,19 +263,19 @@ assert.equal(operationResult.status, 'completed');
 
 **Produces:** Identical corrected rates in completed answers, stored runs, reconnect/replay, benchmarks, session averages, and idle/metrics generation displays.
 
-- [ ] Add failing persistence/reload and session-average tests with different tool-call proportions across two turns. A reconstruction using filtered counts must fail.
-- [ ] Add nullable `throughput_json` columns to `run_logs`, `chat_messages`, `benchmark_attempts`, `runtime_metrics_totals`, and `idle_summary_snapshots`. Parse with the shared schema. Add `throughput: InferenceThroughput | null` to corresponding contracts; null explicitly means historical/unrecorded data, not a signal to use the old formula.
-- [ ] Implement the atomic schema upgrade from current version 72 to 73, with fresh-bootstrap parity and rollback tests. Recheck the version immediately before implementation if concurrent work has advanced it; never overwrite another upgrade.
-- [ ] Migrate stored nested chat/run/status representations affected by the new required field, including archived/baseline chat messages and journal presentation payloads. Use the existing versioned upgrade mechanism, update payload digests/checkpoints when required, and reject missed migrations. Do not add a second old-event parser.
-- [ ] Preserve historical text and counters. Historical records without provable backend telemetry expose unavailable authoritative rates and are excluded from comparable aggregates. Do not guess missing tool-call tokens or rewrite old counts using today's model tokenizer. Do not replay historical records as new runtime warnings.
-- [ ] Carry summary prefill/decode timing and canonical throughput through terminal/deferred metadata and artifact upserts. Do not let a partial status write overwrite complete backend telemetry already persisted by the operation.
-- [ ] Build chat/run/benchmark rates from canonical counts and duration. Keep existing response rate field names where their meaning remains correct, but make them derived projections rather than independent accumulators.
-- [ ] Preserve attempt measurements in `benchmark_attempts` and compute benchmark session PP/decode aggregates on the server using duration weighting. Publish these in the benchmark session contract and remove the browser's arithmetic averaging of those two rates. Leave separately defined quality/overall-completion metrics under their own semantics.
-- [ ] Replace session-average duration reconstruction with direct sums from canonical records on the server. Add `buildChatSessionThroughput` to `src/status-server/chat-turn-telemetry.ts`; use it at session snapshot/completed-turn projection boundaries and send audited session PP/decode values in the session contract. Count a completed operation once; do not add its internal thinking/tool bubbles again.
-- [ ] Replace idle-summary/Metrics-tab generation speed based on `outputTokens / requestDurationMs` with canonical decode throughput. Keep overall wall/request metrics distinct. Preserve exact request-cohort matching and incomplete-coverage semantics across models.
-- [ ] Audit actual rates at the owning server publication boundaries before terminal persistence/emission. The dashboard formats server-owned last-turn, session, benchmark, and idle rates; remove independent browser PP/decode arithmetic. Do not add an endpoint that sends client-rendered rates back for comparison.
-- [ ] Remove the obsolete three-argument decode helper/formula from all PP/decode consumers and migrate callers/tests. Retain separately named attribution helpers only where they serve a different documented metric.
-- [ ] Run database upgrade/replay, chat, benchmark, metrics, and dashboard suites. Confirm fresh and upgraded databases return the same telemetry shape.
+- [x] Add failing persistence/reload and session-average tests with different tool-call proportions across two turns. A reconstruction using filtered counts must fail.
+- [x] Add nullable `throughput_json` columns to `run_logs`, `chat_messages`, `benchmark_attempts`, `runtime_metrics_totals`, and `idle_summary_snapshots`. Parse with the shared schema. Add `throughput: InferenceThroughput | null` to corresponding contracts; null explicitly means historical/unrecorded data, not a signal to use the old formula.
+- [x] Implement the atomic schema upgrade from current version 72 to 73, with fresh-bootstrap parity and rollback tests. Recheck the version immediately before implementation if concurrent work has advanced it; never overwrite another upgrade.
+- [x] Migrate stored nested chat/run/status representations affected by the new required field, including archived/baseline chat messages and journal presentation payloads. Use the existing versioned upgrade mechanism, update payload digests/checkpoints when required, and reject missed migrations. Do not add a second old-event parser.
+- [x] Preserve historical text and counters. Historical records without provable backend telemetry expose unavailable authoritative rates and are excluded from comparable aggregates. Do not guess missing tool-call tokens or rewrite old counts using today's model tokenizer. Do not replay historical records as new runtime warnings.
+- [x] Carry summary prefill/decode timing and canonical throughput through terminal/deferred metadata and artifact upserts. Do not let a partial status write overwrite complete backend telemetry already persisted by the operation.
+- [x] Build chat/run/benchmark rates from canonical counts and duration. Keep existing response rate field names where their meaning remains correct, but make them derived projections rather than independent accumulators.
+- [x] Preserve attempt measurements in `benchmark_attempts` and compute benchmark session PP/decode aggregates on the server using duration weighting. Publish these in the benchmark session contract and remove the browser's arithmetic averaging of those two rates. Leave separately defined quality/overall-completion metrics under their own semantics.
+- [x] Replace session-average duration reconstruction with direct sums from canonical records on the server. Add `buildChatSessionThroughput` to `src/status-server/chat-turn-telemetry.ts`; use it at session snapshot/completed-turn projection boundaries and send audited session PP/decode values in the session contract. Count a completed operation once; do not add its internal thinking/tool bubbles again.
+- [x] Replace idle-summary/Metrics-tab generation speed based on `outputTokens / requestDurationMs` with canonical decode throughput. Keep overall wall/request metrics distinct. Preserve exact request-cohort matching and incomplete-coverage semantics across models.
+- [x] Audit actual rates at the owning server publication boundaries before terminal persistence/emission. The dashboard formats server-owned last-turn, session, benchmark, and idle rates; remove independent browser PP/decode arithmetic. Do not add an endpoint that sends client-rendered rates back for comparison.
+- [x] Remove the obsolete three-argument decode helper/formula from all PP/decode consumers and migrate callers/tests. Retain separately named attribution helpers only where they serve a different documented metric.
+- [x] Run database upgrade/replay, chat, benchmark, metrics, and dashboard suites. Confirm fresh and upgraded databases return the same telemetry shape.
 
 ## Task 5: Prove complete operation coverage and absence of measurement overhead
 
@@ -283,13 +283,13 @@ assert.equal(operationResult.status, 'completed');
 
 **Consumes:** Tasks 1–4, including publication audits and persisted references.
 
-- [ ] Drive the real server routes against an isolated fake Tabby server, using CLI API-client entry points and dashboard routes. Exercise every scope-matrix operation; stub destructive tools rather than executing them.
-- [ ] Supply a correct usage record but return enough generated tool-call tokens to reproduce the original dropped-count behavior. Assert both corrected persisted/public rates and zero mismatch errors after the fix.
-- [ ] Inject a fault after response normalization, separately changing internal token count, duration, published rate, and aggregate membership. Assert a red mismatch for both PP and decode when the discrepancy exceeds 5%. This is the required proof that the watchdog can catch downstream corruption.
-- [ ] Cover 5% equality, over/under boundaries, one-frame and fragmented SSE, final usage after finish_reason, repeated cumulative usage, reasoning on/off, tool-only output, images, empty output, cache hits, cancellation, missing usage, and a partial-plus-complete continuation.
-- [ ] Verify raw draft acceptance/rejection counters do not inflate emitted-token throughput. Verify tool outputs, approval wall time, and queue wait cannot leak into the wrong numerator or denominator.
-- [ ] Verify no per-token log calls, no extra tokenization or inference requests, bounded SSE observation, and no added synchronous database writes in the token loop. Compare identical fake-stream workloads with the audit active; use call-count/allocation bounds as the deterministic gate, not a flaky wall-clock unit assertion.
-- [ ] Run the relevant suites followed by the full applicable validation commands below. Fix real failures without weakening valid tests.
+- [x] Drive the real server routes against an isolated fake Tabby server, using CLI API-client entry points and dashboard routes. Exercise every scope-matrix operation; stub destructive tools rather than executing them.
+- [x] Supply a correct usage record but return enough generated tool-call tokens to reproduce the original dropped-count behavior. Assert both corrected persisted/public rates and zero mismatch errors after the fix.
+- [x] Inject a fault after response normalization, separately changing internal token count, duration, published rate, and aggregate membership. Assert a red mismatch for both PP and decode when the discrepancy exceeds 5%. This is the required proof that the watchdog can catch downstream corruption.
+- [x] Cover 5% equality, over/under boundaries, one-frame and fragmented SSE, final usage after finish_reason, repeated cumulative usage, reasoning on/off, tool-only output, images, empty output, cache hits, cancellation, missing usage, and a partial-plus-complete continuation.
+- [x] Verify raw draft acceptance/rejection counters do not inflate emitted-token throughput. Verify tool outputs, approval wall time, and queue wait cannot leak into the wrong numerator or denominator.
+- [x] Verify no per-token log calls, no extra tokenization or inference requests, bounded SSE observation, and no added synchronous database writes in the token loop. Compare identical fake-stream workloads with the audit active; use call-count/allocation bounds as the deterministic gate, not a flaky wall-clock unit assertion.
+- [x] Run the relevant suites followed by the full applicable validation commands below. Fix real failures without weakening valid tests.
 
 ## Task 6: Validate against Tabby and characterize any remaining real decode gap
 
@@ -297,15 +297,15 @@ assert.equal(operationResult.status, 'completed');
 
 **Tests:** `tests/inference-throughput-validation.test.ts` for schema parsing, cohort matching, abort handling, and refusal to benchmark a busy slot.
 
-- [ ] Implement a TypeScript HTTP validation harness that records request identity, preset/model, workload, emitted tokens, cached/processed tokens, backend durations, backend rates, and published internal rates. Parse all IO. Keep text and credentials out of the result artifact.
-- [ ] Use an isolated fake server to prove the harness detects >5% drift and records a busy/timeout run as unverified rather than as a throughput result.
-- [ ] With the real engine idle, run sequential fresh and cached text requests, a long generated tool-call response, a reasoning response, and one multi-turn operation. Exercise summary, chat, plan, repo-search, repo-agent, assistant, and benchmark paths with benign workloads. Ensure real token counts, not requested maxima, form the results.
-- [ ] Run three repetitions of comparable workloads. Compare each internal PP/decode measurement with its corresponding Tabby reference and require no unexplained >5% discrepancy. Preserve all results; do not discard slow repetitions.
-- [ ] Separately compare direct Tabby and SiftKit with identical payload/sampling/context. Measure backend decode, observed stream delivery, and total wall time independently. Profile a repeatable delivery deficit instead of attributing it to GPU kernels.
+- [x] Implement a TypeScript HTTP validation harness that records request identity, preset/model, workload, emitted tokens, cached/processed tokens, backend durations, backend rates, and published internal rates. Parse all IO. Keep text and credentials out of the result artifact.
+- [x] Use an isolated fake server to prove the harness detects >5% drift and records a busy/timeout run as unverified rather than as a throughput result.
+- [x] With the real engine idle, run sequential fresh and cached text requests, a long generated tool-call response, a reasoning response, and one multi-turn operation. Exercise summary, chat, plan, repo-search, repo-agent, assistant, and benchmark paths with benign workloads. Ensure real token counts, not requested maxima, form the results.
+- [x] Run three repetitions of comparable workloads. Compare each internal PP/decode measurement with its corresponding Tabby reference and require no unexplained >5% discrepancy. Preserve all results; do not discard slow repetitions.
+- [x] Separately compare direct Tabby and SiftKit with identical payload/sampling/context. Measure backend decode, observed stream delivery, and total wall time independently. Profile a repeatable delivery deficit instead of attributing it to GPU kernels.
 - [ ] Compare with the existing `eval/perf.py` only in a separate idle window with the managed model cleanly unloaded. Match model, installed engine, allocator/environment, CPU expert split/thread count, KV cache, context capacity, chunk size, n-gram placement, and speculation settings. Record the actual commands and restore the prior resident preset after the control run. Do not run two copies of this model simultaneously.
-- [ ] Do not treat direct forward passes on a fixed WikiText token stream as the same workload as sampled generation. Record sampling, paged-cache/checkpoint, and workload differences when interpreting the remaining 23.57 versus 25–30 gap.
+- [x] Do not treat direct forward passes on a fixed WikiText token stream as the same workload as sampled generation. Record sampling, paged-cache/checkpoint, and workload differences when interpreting the remaining 23.57 versus 25–30 gap.
 - [ ] If a repeatable real execution deficit remains, report its measured size and the layer responsible when established. This plan does not authorize an unmeasured engine patch or a speculative change to `EXL3_MOE_STREAM_T`, MTP, context, or CPU offload. A kernel/serving optimization needs its own evidence-based change definition.
-- [ ] Record validation limits, remove the scratch directory, and leave the production preset/environment unchanged.
+- [x] Record validation limits, remove the scratch directory, and leave the production preset/environment unchanged.
 
 ## Validation commands for execution
 
@@ -327,15 +327,15 @@ Capture large output in the single scratch directory and inspect exit codes plus
 
 ## Completion criteria
 
-- [ ] Generated tool calls and reasoning contribute exactly once to decode throughput; the 28,036-token regression passes.
-- [ ] PP preserves Tabby's processed-token and duration semantics; the 35,414-token regression passes.
-- [ ] Every operation and internal model stage in the matrix is covered; missing identity/telemetry cannot silently disable the check.
-- [ ] A >5% error in either direction produces a nonfatal red server-log error, including at quiet log level; exactly 5% does not.
-- [ ] Faults introduced after normalization and during aggregation/publication are detected.
-- [ ] No plain average of rates, filtered-text reconstruction, wall-time-as-decode formula, duplicate SSE accumulation, or mismatched request cohort remains in a PP/decode reporting path.
-- [ ] Restart/replay, session averages, benchmarks, and idle metrics use the same canonical measurements; historic unknowns remain explicitly unknown.
-- [ ] All appropriate tests, typecheck, and lint pass. Real-model verification either passes with retained evidence or is explicitly reported as unverified with its blocking condition.
-- [ ] No production engine tuning, unrelated edits, worktrees, or commits were introduced.
+- [x] Generated tool calls and reasoning contribute exactly once to decode throughput; the 28,036-token regression passes.
+- [x] PP preserves Tabby's processed-token and duration semantics; the 35,414-token regression passes.
+- [x] Every operation and internal model stage in the matrix is covered; missing identity/telemetry cannot silently disable the check.
+- [x] A >5% error in either direction produces a nonfatal red server-log error, including at quiet log level; exactly 5% does not.
+- [x] Faults introduced after normalization and during aggregation/publication are detected.
+- [x] No plain average of rates, filtered-text reconstruction, wall-time-as-decode formula, duplicate SSE accumulation, or mismatched request cohort remains in a PP/decode reporting path.
+- [x] Restart/replay, session averages, benchmarks, and idle metrics use the same canonical measurements; historic unknowns remain explicitly unknown.
+- [x] All appropriate tests, typecheck, and lint pass. Real-model verification either passes with retained evidence or is explicitly reported as unverified with its blocking condition.
+- [x] No production engine tuning, unrelated edits, worktrees, or commits were introduced.
 
 ## Plan review
 

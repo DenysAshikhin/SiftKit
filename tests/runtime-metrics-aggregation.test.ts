@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import {
   summarizeRequest,
-  buildIdleMetricsLogMessage,
+  buildIdleSummarySnapshot,
+  buildIdleSummarySnapshotMessage,
   buildStatusRequestLogBody,
   formatElapsed,
   buildStructuredStubDecision,
@@ -13,6 +14,8 @@ import {
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { buildTabbyUsage } from './helpers/streaming-client.js';
+import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.js';
 
 // The summary prompt and the stub's answer are fixed fixtures, so their local
 // (characters-per-token) counts are constants for these end-to-end assertions.
@@ -206,13 +209,7 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
               content: JSON.stringify(buildStructuredStubDecision(String(promptText))),
             },
           }],
-          usage: {
-            prompt_tokens: 123,
-            completion_tokens: 45,
-            prompt_tokens_details: {
-              cached_tokens: 100,
-            },
-          },
+          usage: buildTabbyUsage({ promptTokens: 123, cachedTokens: 100, completionTokens: 45 }),
         };
       },
       metrics: {
@@ -278,13 +275,7 @@ test('repo-search reports only processed prompt tokens to the status backend whe
               content: '{"action":"finish","output":"done"}',
             },
           }],
-          usage: {
-            prompt_tokens: 123,
-            completion_tokens: 45,
-            prompt_tokens_details: {
-              cached_tokens: 100,
-            },
-          },
+          usage: buildTabbyUsage({ promptTokens: 123, cachedTokens: 100, completionTokens: 45 }),
         };
       },
       metrics: {
@@ -301,14 +292,15 @@ test('repo-search reports only processed prompt tokens to the status backend whe
 });
 
 test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
+    throughput: emptyInferenceThroughput(),
     inputCharactersTotal: 200,
     outputCharactersTotal: 80,
     inputTokensTotal: 100,
     outputTokensTotal: 25,
     requestDurationMsTotal: 800,
     completedRequestCount: 1,
-  }, {
+  }), {
     isTTY: true,
     env: {},
   });
@@ -320,14 +312,15 @@ test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
 });
 
 test('idle metrics formatter disables ANSI colors when NO_COLOR is set', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
+    throughput: emptyInferenceThroughput(),
     inputCharactersTotal: 200,
     outputCharactersTotal: 80,
     inputTokensTotal: 100,
     outputTokensTotal: 25,
     requestDurationMsTotal: 800,
     completedRequestCount: 1,
-  }, {
+  }), {
     isTTY: true,
     env: { NO_COLOR: '1' },
   });
@@ -337,7 +330,8 @@ test('idle metrics formatter disables ANSI colors when NO_COLOR is set', () => {
 });
 
 test('idle metrics formatter shows wall and phase timing breakdown when present', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
+    throughput: emptyInferenceThroughput(),
     inputCharactersTotal: 100,
     outputCharactersTotal: 10,
     inputTokensTotal: 20,
@@ -350,7 +344,7 @@ test('idle metrics formatter shows wall and phase timing breakdown when present'
     statusRunningMsTotal: 200,
     terminalStatusMsTotal: 100,
     completedRequestCount: 1,
-  }, {
+  }), {
     isTTY: false,
     env: {},
   });
@@ -365,14 +359,26 @@ test('idle metrics formatter shows wall and phase timing breakdown when present'
 });
 
 test('idle metrics formatter disables ANSI colors when stdout is not a TTY', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
     inputCharactersTotal: 200,
     outputCharactersTotal: 80,
     inputTokensTotal: 100,
     outputTokensTotal: 25,
     requestDurationMsTotal: 800,
     completedRequestCount: 1,
-  }, {
+    // Canonical decode telemetry for the same 25 tokens / 800 ms the wall totals describe.
+    throughput: readTabbyThroughput({
+      usage: {
+        prompt_tokens: 100,
+        prompt_tokens_details: { cached_tokens: 0 },
+        prompt_time: 0.2,
+        prompt_tokens_per_sec: 500,
+        completion_tokens: 25,
+        completion_time: 0.8,
+        completion_tokens_per_sec: 31.25,
+      },
+    }),
+  }), {
     isTTY: false,
     env: {},
   });
@@ -383,14 +389,15 @@ test('idle metrics formatter disables ANSI colors when stdout is not a TTY', () 
 });
 
 test('idle metrics formatter reports n/a averages when no requests completed', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
+    throughput: emptyInferenceThroughput(),
     inputCharactersTotal: 0,
     outputCharactersTotal: 0,
     inputTokensTotal: 0,
     outputTokensTotal: 0,
     requestDurationMsTotal: 0,
     completedRequestCount: 0,
-  }, {
+  }), {
     isTTY: false,
     env: {},
   });
@@ -405,7 +412,7 @@ test('idle metrics formatter reports n/a averages when no requests completed', (
 });
 
 test('idle metrics formatter groups large values, formats days in elapsed durations, and includes budget details when present', () => {
-  const message = buildIdleMetricsLogMessage({
+  const message = buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot({
     inputCharactersTotal: 1_868_795,
     outputCharactersTotal: 81_979,
     inputTokensTotal: 1_380_110,
@@ -414,7 +421,18 @@ test('idle metrics formatter groups large values, formats days in elapsed durati
     completedRequestCount: 279,
     inputCharactersPerContextToken: 4.15,
     chunkThresholdCharacters: 763_603,
-  }, {
+    throughput: readTabbyThroughput({
+      usage: {
+        prompt_tokens: 1_380_110,
+        prompt_tokens_details: { cached_tokens: 0 },
+        prompt_time: 1_200,
+        prompt_tokens_per_sec: 1_150.09,
+        completion_tokens: 83_526,
+        completion_time: 108_233,
+        completion_tokens_per_sec: 0.77,
+      },
+    }),
+  }), {
     isTTY: false,
     env: {},
   });

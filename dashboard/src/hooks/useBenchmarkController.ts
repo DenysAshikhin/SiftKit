@@ -17,6 +17,7 @@ import type {
   DashboardBenchmarkStartRequest,
   DashboardModelRuntimePreset,
   JsonObject,
+  ThroughputRates,
 } from '../types';
 import type { BenchmarkTabProps } from '../tabs/BenchmarkTab';
 import type { ToastLevel } from './useToasts';
@@ -55,6 +56,7 @@ export function useBenchmarkController(deps: {
   const [selectedBenchmarkSessionId, setSelectedBenchmarkSessionId] = useState(params.get('benchmarkSession') || '');
   const [selectedBenchmarkSession, setSelectedBenchmarkSession] = useState<DashboardBenchmarkSession | null>(null);
   const [benchmarkAttempts, setBenchmarkAttempts] = useState<DashboardBenchmarkAttempt[]>([]);
+  const [benchmarkSessionThroughput, setBenchmarkSessionThroughput] = useState<ThroughputRates | null>(null);
   const [benchmarkLiveLogLines, setBenchmarkLiveLogLines] = useState<string[]>([]);
   const [selectedBenchmarkQuestionPresetIds, setSelectedBenchmarkQuestionPresetIds] = useState<string[]>([]);
   const [selectedBenchmarkManagedPresetIds, setSelectedBenchmarkManagedPresetIds] = useState<string[]>([]);
@@ -123,6 +125,7 @@ export function useBenchmarkController(deps: {
     if (!selectedBenchmarkSessionId) {
       setSelectedBenchmarkSession(null);
       setBenchmarkAttempts([]);
+      setBenchmarkSessionThroughput(null);
       return;
     }
     let cancelled = false;
@@ -131,6 +134,7 @@ export function useBenchmarkController(deps: {
         if (!cancelled) {
           setSelectedBenchmarkSession(detail.session);
           setBenchmarkAttempts(detail.attempts);
+          setBenchmarkSessionThroughput(detail.throughput);
         }
       })
       .catch((error) => {
@@ -196,6 +200,7 @@ export function useBenchmarkController(deps: {
       setSelectedBenchmarkSessionId(response.session.id);
       setSelectedBenchmarkSession(response.session);
       setBenchmarkAttempts(response.attempts);
+      setBenchmarkSessionThroughput(response.throughput);
       deps.enqueueToast('info', 'Benchmark started.');
     } catch (error) {
       setBenchmarkError(error instanceof Error ? error.message : String(error));
@@ -244,6 +249,7 @@ export function useBenchmarkController(deps: {
     sessions: benchmarkSessions,
     selectedSession: selectedBenchmarkSession,
     attempts: sortedBenchmarkAttempts,
+    sessionThroughput: benchmarkSessionThroughput,
     liveLogLines: benchmarkLiveLogLines,
     managedPresets,
     selectedQuestionPresetIds: selectedBenchmarkQuestionPresetIds,

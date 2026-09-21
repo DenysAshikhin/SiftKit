@@ -15,6 +15,7 @@ import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { InferenceThroughputSchema, type InferenceThroughput } from '@siftkit/contracts';
+import { calculateThroughputRate } from '../lib/inference-throughput.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -58,11 +59,23 @@ export type IdleSummarySnapshot = {
   chunkThresholdCharacters: number | null;
   taskTotals: SnapshotTaskTotals;
   toolStats: SnapshotToolStats;
-  /** Fold of the completed requests behind these totals; null for snapshots taken before it existed. */
-  throughput: InferenceThroughput | null;
+  /** Fold of the completed requests behind these totals. */
+  throughput: InferenceThroughput;
 };
 
-export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
+/** A stored snapshot as the dashboard reads it; rows persisted before the fold existed carry null. */
+export type IdleSummarySnapshotRow = Omit<IdleSummarySnapshot, 'throughput'> & {
+  throughput: InferenceThroughput | null;
+  summaryText: string;
+};
+
+/** Parsed off live metrics so a missing fold fails naming the field. */
+const LiveMetricsThroughputSchema = z.object({ throughput: InferenceThroughputSchema });
+
+/** Generation speed is the canonical decode rate; no fold means unavailable, never a derived number. */
+export function snapshotDecodeRate(throughput: InferenceThroughput | null): number {
+  return throughput === null ? Number.NaN : (calculateThroughputRate(throughput.decode) ?? Number.NaN);
+}
 
 function toNonNegativeNumber(value: OptionalJsonValue): number {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : 0;
@@ -300,9 +313,9 @@ export function buildIdleSummarySnapshot(metrics: JsonObject, emittedAt: Date = 
   const compressionRatio = inputOutputRatio;
   const avgOutputTokensPerRequest = completedRequestCount > 0 ? outputTokensTotal / completedRequestCount : Number.NaN;
   const avgRequestMs = completedRequestCount > 0 ? requestDurationMsTotal / completedRequestCount : Number.NaN;
-  const avgTokensPerSecond = requestDurationMsTotal > 0 && outputTokensTotal > 0
-    ? outputTokensTotal / (requestDurationMsTotal / 1000)
-    : Number.NaN;
+  // Metrics.throughput is required: live metrics without a fold are a missed migration, not a null.
+  const { throughput } = LiveMetricsThroughputSchema.parse(metrics);
+  const avgTokensPerSecond = snapshotDecodeRate(throughput);
   const inputCharactersPerContextToken = Number.isFinite(metrics.inputCharactersPerContextToken) && Number(metrics.inputCharactersPerContextToken) > 0
     ? Number(metrics.inputCharactersPerContextToken)
     : null;
@@ -342,7 +355,7 @@ export function buildIdleSummarySnapshot(metrics: JsonObject, emittedAt: Date = 
     chunkThresholdCharacters,
     taskTotals,
     toolStats,
-    throughput: InferenceThroughputSchema.nullable().optional().parse(metrics.throughput) ?? null,
+    throughput,
   };
 }
 
@@ -352,7 +365,7 @@ function formatIdleSummarySection(label: string, content: string, colorCode: num
   return `  ${colorize(label, colorCode, colorOptions)}:${spacing}${content}`;
 }
 
-export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, colorOptions: ColorOptions = {}): string {
+export function buildIdleSummarySnapshotMessage(snapshot: Omit<IdleSummarySnapshot, 'throughput'>, colorOptions: ColorOptions = {}): string {
   const lines = [
     `requests=${formatInteger(snapshot.completedRequestCount)}`,
     formatIdleSummarySection('input', `chars=${formatInteger(snapshot.inputCharactersTotal)} tokens=${formatInteger(snapshot.inputTokensTotal)}`, 36, colorOptions),
@@ -375,10 +388,6 @@ export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, c
     : `total=${formatElapsed(snapshot.requestDurationMsTotal)}`;
   lines.push(formatIdleSummarySection('timing', `${wallTiming} avg_request=${formatSeconds(snapshot.avgRequestMs)} gen_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions));
   return lines.join('\n');
-}
-
-export function buildIdleMetricsLogMessage(metrics: JsonObject, colorOptions: ColorOptions = {}): string {
-  return buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot(metrics), colorOptions);
 }
 
 function normalizeSqlNumber(value: OptionalJsonValue): number | null {
@@ -431,7 +440,7 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
     snapshot.requestDurationMsTotal,
     normalizeSqlNumber(snapshot.avgRequestMs),
     normalizeSqlNumber(snapshot.avgTokensPerSecond),
-    snapshot.throughput === null ? null : JSON.stringify(snapshot.throughput),
+    JSON.stringify(snapshot.throughput),
   );
 }
 

@@ -72,7 +72,8 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       assert.equal(rows[1].saved_tokens, 85);
       assert.equal(rows[1].request_duration_ms_total, 1000);
       assert.equal(rows[1].avg_request_ms, 500);
-      assert.equal(rows[1].avg_tokens_per_second, 35);
+      // Status-only runs record no backend fold, so generation speed is unavailable.
+      assert.equal(rows[1].avg_tokens_per_second, null);
     }, {
       statusPath,
       configPath,

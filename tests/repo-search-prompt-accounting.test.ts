@@ -15,7 +15,7 @@ import type { InferenceToolDefinition } from '../src/llm-protocol/types.js';
 import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { buildTabbyUsage, sendChatCompletionSse } from './helpers/streaming-client.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
@@ -66,11 +66,7 @@ async function runOneTurnAgainstServer(options: { plannerTools?: readonly Infere
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
         sendChatCompletionSse(res, {
           choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
-          usage: {
-            prompt_tokens: SERVER_REPORTED_PROMPT_TOKENS,
-            completion_tokens: 4,
-            total_tokens: SERVER_REPORTED_PROMPT_TOKENS + 4,
-          },
+          usage: buildTabbyUsage({ promptTokens: SERVER_REPORTED_PROMPT_TOKENS, completionTokens: 4 }),
         });
         return;
       }

@@ -3,10 +3,11 @@ import { formatElapsed, formatInteger, formatPromptTokensField } from '../lib/te
 import { type Metrics } from './metrics.js';
 import {
   buildIdleSummarySnapshotMessage,
-  type IdleSummarySnapshot,
+  type IdleSummarySnapshotRow,
   type IdleSummarySnapshotDbRow,
   parseSnapshotTaskTotalsJson,
   parseSnapshotToolStatsJson,
+  snapshotDecodeRate,
 } from './idle-summary.js';
 import { type ServerLogBody } from './server-logger.js';
 import {
@@ -41,7 +42,7 @@ export {
   parseJsonObjectText,
   parseOptionalIsoDate,
 } from './dashboard-runs/run-records.js';
-export type { IdleSummarySnapshotDbRow } from './idle-summary.js';
+export type { IdleSummarySnapshotDbRow, IdleSummarySnapshotRow } from './idle-summary.js';
 export type {
   DashboardRunLogDeleteCriteria,
   DashboardRunLogType,
@@ -303,9 +304,6 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
   return buildDashboardDailyMetricsFromRunsAndSnapshots(runs, idleSummaryDatabase, currentMetrics);
 }
 
-export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
-
-
 function parseSnapshotThroughputJson(text: string | null | undefined): InferenceThroughput | null {
   return typeof text === 'string' && text.trim() ? InferenceThroughputSchema.parse(parseJsonValueText(text)) : null;
 }
@@ -314,6 +312,7 @@ export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | 
   if (!row || typeof row !== 'object') {
     return null;
   }
+  const throughput = parseSnapshotThroughputJson(row.throughput_json);
   const snapshot: IdleSummarySnapshotRow = {
     emittedAtUtc: typeof row.emitted_at_utc === 'string' ? row.emitted_at_utc : '',
     completedRequestCount: Number(row.completed_request_count) || 0,
@@ -345,13 +344,13 @@ export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | 
     statusRunningMsTotal: Number(row.status_running_ms_total) || 0,
     terminalStatusMsTotal: Number(row.terminal_status_ms_total) || 0,
     avgRequestMs: Number.isFinite(row.avg_request_ms) ? Number(row.avg_request_ms) : Number.NaN,
-    avgTokensPerSecond: Number.isFinite(row.avg_tokens_per_second) ? Number(row.avg_tokens_per_second) : Number.NaN,
+    throughput,
+    avgTokensPerSecond: snapshotDecodeRate(throughput),
     avgOutputTokensPerRequest: Number.NaN,
     inputCharactersPerContextToken: null,
     chunkThresholdCharacters: null,
     taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
     toolStats: parseSnapshotToolStatsJson(row.tool_stats_json),
-    throughput: parseSnapshotThroughputJson(row.throughput_json),
     summaryText: '',
   };
   snapshot.summaryText = buildIdleSummarySnapshotMessage(snapshot);

@@ -11,6 +11,8 @@ import {
   ImageMetadataSchema,
 } from '@siftkit/contracts';
 
+const NO_SESSION_THROUGHPUT = { promptTokensPerSecond: null, generationTokensPerSecond: null };
+
 const message = {
   id: 'm1', role: 'user', kind: 'user_text', content: 'hi',
   inputTokensEstimate: 1, outputTokensEstimate: 0, thinkingTokens: 0,
@@ -89,6 +91,7 @@ test('assistant narration and progress persist with the stopped transcript', () 
   assert.equal(ChatSessionSchema.safeParse({
     id: 's1', title: 't', modelPresetId: 'preset-a', model: null, contextWindowTokens: 4096,
     planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [narration, progress],
+    sessionThroughput: NO_SESSION_THROUGHPUT,
   }).success, true);
 });
 
@@ -96,6 +99,7 @@ test('ChatSessionSchema no longer carries a condensed summary', () => {
   const parsed = ChatSessionSchema.parse({
     id: 's1', title: 't', modelPresetId: 'preset-a', model: 'model-a', contextWindowTokens: 4096,
     planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    sessionThroughput: NO_SESSION_THROUGHPUT,
   });
   assert.equal('condensedSummary' in parsed, false);
 });
@@ -112,6 +116,7 @@ test('ChatSessionSchema requires modelPresetId', () => {
   const session = {
     id: 's1', title: 't', model: 'model-a', contextWindowTokens: 4096,
     planRepoRoot: 'C:/repo', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    sessionThroughput: NO_SESSION_THROUGHPUT,
   };
 
   assert.throws(() => ChatSessionSchema.parse(session));

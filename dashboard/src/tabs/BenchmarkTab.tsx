@@ -6,6 +6,7 @@ import type {
   DashboardBenchmarkSession,
   DashboardBenchmarkSortKey,
   DashboardModelRuntimePreset,
+  ThroughputRates,
 } from '../types';
 
 export type BenchmarkTabProps = {
@@ -13,6 +14,8 @@ export type BenchmarkTabProps = {
   sessions: DashboardBenchmarkSession[];
   selectedSession: DashboardBenchmarkSession | null;
   attempts: DashboardBenchmarkAttempt[];
+  /** Server-owned duration-weighted session PP/decode; null until the session detail is loaded. */
+  sessionThroughput: ThroughputRates | null;
   liveLogLines: string[];
   managedPresets: DashboardModelRuntimePreset[];
   selectedQuestionPresetIds: string[];
@@ -43,25 +46,18 @@ export type BenchmarkTiles = {
   generationTokensPerSecond: number | null;
 };
 
-function averageNonNull(values: (number | null)[]): number | null {
-  const present = values.filter((value): value is number => Number.isFinite(value));
-  if (present.length === 0) {
-    return null;
-  }
-  return present.reduce((sum, value) => sum + value, 0) / present.length;
-}
-
 export function deriveBenchmarkTiles(
   session: DashboardBenchmarkSession | null,
   attempts: DashboardBenchmarkAttempt[],
+  sessionThroughput: ThroughputRates | null,
 ): BenchmarkTiles {
   const lastSession = attempts[0]?.managedPresetLabel ?? (session ? session.id.slice(0, 8) : '-');
   return {
     lastSession,
     casesPassed: attempts.filter((attempt) => attempt.status === 'completed').length,
     casesTotal: attempts.length,
-    promptTokensPerSecond: averageNonNull(attempts.map((attempt) => attempt.promptTokensPerSecond)),
-    generationTokensPerSecond: averageNonNull(attempts.map((attempt) => attempt.generationTokensPerSecond)),
+    promptTokensPerSecond: sessionThroughput?.promptTokensPerSecond ?? null,
+    generationTokensPerSecond: sessionThroughput?.generationTokensPerSecond ?? null,
   };
 }
 
@@ -101,6 +97,7 @@ export function BenchmarkTab({
   sessions,
   selectedSession,
   attempts,
+  sessionThroughput,
   liveLogLines,
   managedPresets,
   selectedQuestionPresetIds,
@@ -124,7 +121,7 @@ export function BenchmarkTab({
 }: BenchmarkTabProps) {
   const activeSession = selectedSession || sessions[0] || null;
   const selectedAttempt = attempts.find((attempt) => attempt.status === 'running') || attempts[0] || null;
-  const tiles = deriveBenchmarkTiles(activeSession, attempts);
+  const tiles = deriveBenchmarkTiles(activeSession, attempts, sessionThroughput);
 
   return (
     <div className="bench">

@@ -18,6 +18,7 @@
     "scripts/purge-temp-dirs-main.ts",
     "scripts/extract-invalid-action-corpus.ts",
     "scripts/report-invalid-action-rate.ts",
+    "scripts/verify-inference-throughput.ts",
     "scripts/approval-red-team/**/*.ts"
   ]
 }

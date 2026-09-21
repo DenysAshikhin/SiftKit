@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   closeHttpServer,
   requestJson,
+  requestRawText,
   getAddressInfo,
   requestSse,
   writeJson,
@@ -129,6 +130,35 @@ test('dashboard SSE requests reject at the absolute deadline while frames contin
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+  }
+});
+
+test('raw text requests abort after the first chunk and honour their own timeout', async () => {
+  let echoedBody = '';
+  const server = http.createServer((request, response) => {
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => { echoedBody += chunk; });
+    request.on('end', () => {
+      response.writeHead(200, { 'Content-Type': 'text/plain' });
+      response.write('first');
+      if (request.url === '/hang') return;
+      response.end('second');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = getAddressInfo(server);
+  try {
+    const whole = await requestRawText(`http://127.0.0.1:${port}/whole`, { hello: 'world' });
+    assert.deepEqual(whole, { statusCode: 200, contentType: 'text/plain', text: 'firstsecond' });
+    assert.equal(echoedBody, '{"hello":"world"}');
+
+    const aborted = await requestRawText(`http://127.0.0.1:${port}/hang`, {}, { abortAfterFirstChunk: true });
+    assert.equal(aborted.text, 'first');
+
+    await assert.rejects(requestRawText(`http://127.0.0.1:${port}/hang`, {}, { timeoutMs: 50 }), /request timeout/u);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 

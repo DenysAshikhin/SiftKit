@@ -17,6 +17,7 @@ import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { writeManagedEngineLauncher } from './helpers/managed-engine-fixtures.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { buildTabbyUsage } from './helpers/streaming-client.js';
 
 test('OutputCapture collects complete and partial lines and restores idempotently', () => {
   const stdout = OutputCapture.start(process.stdout);
@@ -32,6 +33,20 @@ test('OutputCapture collects complete and partial lines and restores idempotentl
   stderr.restore();
   process.stderr.write('-after-restore\n');
   assert.deepEqual(stderr.lines, ['stderr-complete', 'stderr-partial']);
+});
+
+// Presence of the details blocks is what the runtime keys on: cache stats select the provider's prompt
+// count over the local tokenizer, and a reasoning figure turns thinking tokens from null into a number.
+test('buildTabbyUsage emits token details only when the caller supplies them', () => {
+  const bare = buildTabbyUsage({ promptTokens: 10, completionTokens: 4 });
+  assert.equal('prompt_tokens_details' in bare, false);
+  assert.equal('completion_tokens_details' in bare, false);
+  assert.equal(bare.prompt_tokens_per_sec, 100);
+
+  const detailed = buildTabbyUsage({ promptTokens: 10, cachedTokens: 6, completionTokens: 4, reasoningTokens: 0 });
+  assert.deepEqual(detailed.prompt_tokens_details, { cached_tokens: 6 });
+  assert.deepEqual(detailed.completion_tokens_details, { reasoning_tokens: 0 });
+  assert.equal(detailed.prompt_tokens_per_sec, 40);
 });
 
 test('output capture has no callback helpers or local duplicate declarations', () => {

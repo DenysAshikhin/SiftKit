@@ -40,6 +40,7 @@ import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp
 import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
+import { buildTabbyUsage } from './helpers/streaming-client.js';
 import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import { REMOVED_BACKEND_ID } from './helpers/legacy-backend-fixtures.js';
 import {
@@ -1344,7 +1345,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: buildTabbyUsage({ promptTokens: 20, completionTokens: 4 }) })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -1520,7 +1521,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: buildTabbyUsage({ promptTokens: 20, completionTokens: 4 }) })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -1871,11 +1872,7 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: answerText } }] })}\n\n`);
         response.write(`data: ${JSON.stringify({
           choices: [{ delta: {} }],
-          usage: {
-            prompt_tokens: 20,
-            completion_tokens: 10,
-            completion_tokens_details: { reasoning_tokens: 6 },
-          },
+          usage: buildTabbyUsage({ promptTokens: 20, completionTokens: 10, reasoningTokens: 6 }),
         })}\n\n`);
         response.end('data: [DONE]\n\n');
       }, LIVE_TEXT_FLUSH_MAX_LATENCY_MS * 2);
@@ -3065,7 +3062,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
       res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: buildTabbyUsage({ promptTokens: 20, completionTokens: 4 }) })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -3225,7 +3222,7 @@ test('non-streaming chat message runs against the session model preset snapshot'
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
       res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: buildTabbyUsage({ promptTokens: 20, completionTokens: 4 }) })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -3330,7 +3327,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       capturedChatRawBody = raw;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write("data: {\"choices\":[{\"delta\":{\"content\":\"ack\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":4}}\n\n");
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: buildTabbyUsage({ promptTokens: 30, completionTokens: 4 }) })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     });
