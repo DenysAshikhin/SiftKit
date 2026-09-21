@@ -1,6 +1,3 @@
-import { createHash } from 'node:crypto';
-
-import { writeStableJson } from '../lib/json.js';
 import { JsonValueSchema, type JsonValue } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 import {
@@ -18,6 +15,7 @@ import {
   type ChatRun,
   type ChatRunStart,
 } from './chat-journal-schema.js';
+import { digestStableJson } from '../lib/json-digest.js';
 import { ChatRunTerminalCauseSchema, type ChatRecoveryIssueCode } from '@siftkit/contracts';
 import type { RuntimeDatabase } from './database-handle.js';
 import { ChatRuntimeOwnerSchema } from './chat-runtime-owner.js';
@@ -102,14 +100,7 @@ export type ChatContextCheckpoint = z.infer<typeof ChatContextCheckpointSchema>;
  * id can be reported as corruption instead of silently replacing what is already committed.
  */
 export function digestChatJournalEvent(event: ChatJournalEvent): string {
-  return digestJsonBody(JsonValueSchema.parse(JSON.parse(JSON.stringify(event))));
-}
-
-/** The same digest over an already-decoded body, so a read never re-serializes what it just parsed. */
-function digestJsonBody(decoded: JsonValue): string {
-  const hash = createHash('sha256');
-  writeStableJson(decoded, chunk => { hash.update(chunk); });
-  return hash.digest('hex');
+  return digestStableJson(JsonValueSchema.parse(JSON.parse(JSON.stringify(event))));
 }
 
 function parseJsonColumn<Schema extends z.ZodType>(schema: Schema, raw: string | null): z.infer<Schema> | null {
@@ -140,18 +131,30 @@ function toChatRun(row: z.infer<typeof RunRowSchema>): ChatRun {
   });
 }
 
+const MALFORMED_ISSUE_LIMIT = 3;
+
+/** Issue paths, codes and zod messages only: the detail is logged and shown, so it never carries payload values. */
+function describeSchemaIssues(issues: readonly z.core.$ZodIssue[]): string {
+  const shown = issues.slice(0, MALFORMED_ISSUE_LIMIT)
+    .map(issue => `${issue.path.length === 0 ? '$' : issue.path.map(String).join('.')} ${issue.code}: ${issue.message}`);
+  return issues.length > MALFORMED_ISSUE_LIMIT ? `${shown.join('; ')}; +${String(issues.length - MALFORMED_ISSUE_LIMIT)} more.` : `${shown.join('; ')}.`;
+}
+
 function toEnvelope(row: z.infer<typeof EventRowSchema>): ChatJournalEnvelope {
   if (row.version !== CHAT_JOURNAL_EVENT_VERSION) {
     throw new ChatJournalIntegrityError('unknown_event_version', row.operation_id, row.event_id, row.sequence,
       `unsupported version ${String(row.version)}; this build reads version ${String(CHAT_JOURNAL_EVENT_VERSION)}.`);
   }
   let decoded: JsonValue;
-  let event: ChatJournalEvent;
-  try {
-    decoded = JsonValueSchema.parse(JSON.parse(row.body_json));
-    event = ChatJournalEventSchema.parse(decoded);
-  } catch { throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence, 'malformed event payload.'); }
-  if (digestJsonBody(decoded) !== row.payload_digest) {
+  try { decoded = JsonValueSchema.parse(JSON.parse(row.body_json)); }
+  catch { throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence, 'malformed event payload: invalid JSON.'); }
+  const parsed = ChatJournalEventSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new ChatJournalIntegrityError('malformed_event', row.operation_id, row.event_id, row.sequence,
+      `malformed event payload: ${describeSchemaIssues(parsed.error.issues)}`);
+  }
+  const event = parsed.data;
+  if (digestStableJson(decoded) !== row.payload_digest) {
     throw new ChatJournalIntegrityError('conflicting_event', row.operation_id, row.event_id, row.sequence, 'corrupt payload digest.');
   }
   return ChatJournalEnvelopeSchema.parse({

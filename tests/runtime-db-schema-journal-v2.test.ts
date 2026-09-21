@@ -5,9 +5,9 @@ import Database from 'better-sqlite3';
 import test from 'node:test';
 
 import { z } from '../src/lib/zod.js';
-import { stableStringify } from '../src/lib/json.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonValue } from '../src/lib/json-types.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
+import { digestStableJson } from '../src/lib/json-digest.js';
 import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalEvent } from '../src/state/chat-journal-schema.js';
 import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -21,11 +21,6 @@ const EventRowsSchema = z.array(z.object({
   recorded_at_utc: z.string(), kind: z.string(), body_json: z.string(), payload_digest: z.string(),
 }));
 type EventRow = z.infer<typeof EventRowsSchema>[number];
-
-/** The digest algorithm the journal has always used: sha256 over a stable JSON serialization. */
-function digest(body: JsonValue): string {
-  return createHash('sha256').update(stableStringify(body)).digest('hex');
-}
 
 /** Historical v1 bodies: current events minus the field version 2 introduced. */
 function toLegacyBody(event: ChatJournalEvent): JsonValue {
@@ -84,10 +79,10 @@ function seedLegacyJournal(prefix: string, mutate: (rows: EventRow[]) => EventRo
     ...journalFixture().map((event, index): EventRow => {
       const body = toLegacyBody(event);
       return { operation_id: OPERATION_ID, sequence: index + 1, event_id: `${OPERATION_ID}:${String(index + 1)}`, version: 1,
-        recorded_at_utc: AT, kind: event.kind, body_json: JSON.stringify(body), payload_digest: digest(body) };
+        recorded_at_utc: AT, kind: event.kind, body_json: JSON.stringify(body), payload_digest: digestStableJson(body) };
     }),
     { operation_id: CONDENSE_ID, sequence: 1, event_id: 'stop', version: 1, recorded_at_utc: AT, kind: 'stop_requested',
-      body_json: JSON.stringify({ kind: 'stop_requested', requestedAtUtc: AT }), payload_digest: digest({ kind: 'stop_requested', requestedAtUtc: AT }) },
+      body_json: JSON.stringify({ kind: 'stop_requested', requestedAtUtc: AT }), payload_digest: digestStableJson({ kind: 'stop_requested', requestedAtUtc: AT }) },
   ]);
   const insert = database.prepare(`INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -108,7 +103,7 @@ test('the marker-70 upgrade converts version-1 journal events to version 2 and a
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 73);
+    assert.equal(CURRENT_SCHEMA_VERSION, 74);
     assert.equal(CHAT_JOURNAL_EVENT_VERSION, 2);
     assert.equal(database.prepare("SELECT name FROM sqlite_schema WHERE name='chat_context_snapshots'").get(), undefined);
     const after = readRows(dbPath);
@@ -122,7 +117,7 @@ test('the marker-70 upgrade converts version-1 journal events to version 2 and a
       assert.equal(row.recorded_at_utc, legacy.recorded_at_utc);
       assert.equal(row.kind, legacy.kind);
       const body = JsonValueSchema.parse(JSON.parse(row.body_json));
-      assert.equal(row.payload_digest, digest(body));
+      assert.equal(row.payload_digest, digestStableJson(body));
       if (row.kind === 'context_spliced') {
         assert.deepEqual(body, { ...JsonObjectSchema.parse(JSON.parse(legacy.body_json)), coalescedToolCallIds: [] });
       } else if (row.kind === 'queue_delivered') {
@@ -181,7 +176,7 @@ test('an unknown journal event version rejects the marker-70 upgrade', () => {
 
 test('a digest-valid malformed v1 body rejects the marker-70 upgrade', () => {
   const { dbPath } = seedLegacyJournal('siftkit-runtime-schema-upgrade-70-malformed-', seeded => seeded.map(row => row.sequence === 2 && row.operation_id === OPERATION_ID
-    ? { ...row, body_json: JSON.stringify({ kind: 'run_started' }), payload_digest: digest({ kind: 'run_started' }) } : row));
+    ? { ...row, body_json: JSON.stringify({ kind: 'run_started' }), payload_digest: digestStableJson({ kind: 'run_started' }) } : row));
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /invalid/u);
   } finally {
@@ -203,8 +198,8 @@ test('the current reader rejects version-1 rows and version-2 splices missing th
     const stop = { kind: 'stop_requested', requestedAtUtc: AT };
     const insert = database.prepare(`INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-    insert.run(OPERATION_ID, 1, 'e1', 1, AT, 'stop_requested', JSON.stringify(stop), digest(stop));
-    insert.run(OPERATION_ID, 2, 'e2', 2, AT, 'context_spliced', JSON.stringify(legacySplice), digest(legacySplice));
+    insert.run(OPERATION_ID, 1, 'e1', 1, AT, 'stop_requested', JSON.stringify(stop), digestStableJson(stop));
+    insert.run(OPERATION_ID, 2, 'e2', 2, AT, 'context_spliced', JSON.stringify(legacySplice), digestStableJson(legacySplice));
     const store = new ChatJournalStore(database);
     assert.throws(() => store.readAfter(OPERATION_ID, 0, 1), /unsupported version 1/u);
     assert.throws(() => store.readAfter(OPERATION_ID, 1, 1), /malformed event payload/u);

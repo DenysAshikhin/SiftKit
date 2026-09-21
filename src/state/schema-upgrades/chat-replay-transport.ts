@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   ApprovalModeSchema,
   ChatApprovalOutcomeSchema,
@@ -18,7 +17,8 @@ import {
 } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { stableStringify } from '../../lib/json.js';
-import { JsonObjectSchema, JsonValueSchema } from '../../lib/json-types.js';
+import { digestStableJson } from '../../lib/json-digest.js';
+import { JsonObjectSchema } from '../../lib/json-types.js';
 import {
   ChatContextInitSchema,
   ChatContextSpliceReasonSchema,
@@ -134,10 +134,6 @@ const EventRowsSchema = z.array(z.object({
   version: z.number().int(), kind: z.string(), body_json: z.string(), payload_digest: z.string(),
 }));
 
-function digestBody(body: z.infer<typeof JsonValueSchema>): string {
-  return createHash('sha256').update(stableStringify(body)).digest('hex');
-}
-
 /**
  * 70 -> 71. Journal events move to version 2: historical splices gain an empty coalescing list and
  * queue metadata moves into the queued message. Every row is validated and its digest is verified
@@ -154,19 +150,19 @@ export function upgradeChatJournalEventsToVersion2(database: RuntimeDatabase): v
     let body: z.infer<typeof JsonObjectSchema>;
     try { body = JsonObjectSchema.parse(JSON.parse(row.body_json)); }
     catch (error) { throw new Error(`${label} has a malformed payload.`, { cause: error }); }
-    if (digestBody(body) !== row.payload_digest) throw new Error(`${label} has a corrupt payload digest.`);
+    if (digestStableJson(body) !== row.payload_digest) throw new Error(`${label} has a corrupt payload digest.`);
     let event: z.infer<typeof LegacyChatJournalEventSchema>;
     try { event = LegacyChatJournalEventSchema.parse(body); }
     catch (error) { throw new Error(`${label} has an invalid version-1 payload.`, { cause: error }); }
     if (row.kind !== event.kind) throw new Error(`${label} has a kind column that disagrees with its payload.`);
     if (event.kind === 'context_spliced') {
       const upgraded = JsonObjectSchema.parse({ ...event, coalescedToolCallIds: [] });
-      update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestBody(upgraded), row.operation_id, row.sequence);
+      update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestStableJson(upgraded), row.operation_id, row.sequence);
     } else if (event.kind === 'queue_delivered') {
       if ('imageMeta' in event) {
         const { imageMeta, ...eventWithoutImageMeta } = event;
         const upgraded = JsonObjectSchema.parse({ ...eventWithoutImageMeta, message: { ...event.message, imageMeta } });
-        update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestBody(upgraded), row.operation_id, row.sequence);
+        update.run(UPGRADED_EVENT_VERSION, stableStringify(upgraded), digestStableJson(upgraded), row.operation_id, row.sequence);
       } else {
         update.run(UPGRADED_EVENT_VERSION, row.body_json, row.payload_digest, row.operation_id, row.sequence);
       }

@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { PersistedChatTranscriptMessageSchema, type ChatRunTerminalCause } from '@siftkit/contracts';
 import type { SiftConfig } from '../config/types.js';
-import { stableStringify } from '../lib/json.js';
+import { digestStableJson } from '../lib/json-digest.js';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 import type { ChatSession } from '../state/chat-sessions.js';
@@ -46,7 +46,7 @@ export function importChatSessionBaseline(database: RuntimeDatabase, session: Ch
   const retainedContext = buildChatHistoryMessages(config, session);
   const provenance = {
     importerVersion: 1, sourceKind: 'saved_chat' as const, sourceId: session.id,
-    sourceDigest: createHash('sha256').update(stableStringify(messages)).digest('hex'),
+    sourceDigest: digestStableJson(messages),
   };
   const now = new Date().toISOString();
   const operationId = recordImportedChatBaseline(database, {

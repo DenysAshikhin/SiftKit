@@ -5,6 +5,7 @@ import { ChatArchiveSourceSchema, digestChatArchiveSources, readChatHistoryArchi
 import { ChatRunTerminalCauseSchema, ChatStreamQueuedUserMessageSchema, PersistedChatTranscriptMessageSchema, buildChatRunMessageIdPrefix, reduceChatTranscript } from '@siftkit/contracts';
 import { createHash } from 'node:crypto';
 import { stableStringify } from '../lib/json.js';
+import { digestStableJson } from '../lib/json-digest.js';
 import { PlannerChatMessagesSchema, type ChatMessage } from '../repo-search/planner-chat-message.js';
 import { buildUserContent } from '../llm-protocol/image-attachments.js';
 import { buildTaskInitialUserPrompt } from '../repo-search/prompts.js';
@@ -111,11 +112,11 @@ export function prepareChatHistoryRepair(input: z.input<typeof ChatHistoryRepair
   const laterContext = [...retainedContext, ...laterMessages.map(message => ({
     role: message.role, content: buildUserContent(message.content, message.images ?? []), chatMessageId: message.id,
   }))];
-  const requestDigest = createHash('sha256').update(stableStringify(request)).digest('hex');
-  const stateDigest = createHash('sha256').update(stableStringify(state)).digest('hex');
-  const sourceDigest = createHash('sha256').update(stableStringify({ sessionId, requestId, sources: archive.sources, requestDigest, stateDigest,
-    includeThinking: validated.includeThinking, maxTurns: validated.maxTurns })).digest('hex');
-  const targetDigest = createHash('sha256').update(stableStringify(validated.savedMessages)).digest('hex');
+  const requestDigest = digestStableJson(request);
+  const stateDigest = digestStableJson(state);
+  const sourceDigest = digestStableJson({ sessionId, requestId, sources: archive.sources, requestDigest, stateDigest,
+    includeThinking: validated.includeThinking, maxTurns: validated.maxTurns });
+  const targetDigest = digestStableJson(validated.savedMessages);
   const expectedDigest = createHash('sha256').update(`${sourceDigest}:${targetDigest}`).digest('hex');
   const messages = [...archivedMessages, ...laterMessages];
   const queueMessages = archive.events.filter(entry => entry.kind === 'queued_user_message').map(entry => ChatStreamQueuedUserMessageSchema.parse({
@@ -158,7 +159,7 @@ export function applyChatHistoryRepair(database: RuntimeDatabase, prepared: Retu
     if (runs.length > 0) throw new Error('Chat already has journal history; archive placement requires explicit reconciliation.');
     const current = readChatSessionFromDatabase(database, report.sessionId);
     if (!current) throw new Error('Repair target session no longer exists.');
-    const targetDigest = createHash('sha256').update(stableStringify(current.messages ?? [])).digest('hex');
+    const targetDigest = digestStableJson(current.messages ?? []);
     if (targetDigest !== report.targetDigest) throw new Error('Repair target digest changed after the report was prepared.');
     const queue = new ChatMessageQueueStore(database);
     const delivered = queue.listDelivered(report.sessionId, report.requestId);
@@ -189,7 +190,7 @@ export function applyChatHistoryRepair(database: RuntimeDatabase, prepared: Retu
         terminalCause: 'completed', binding: null,
         event: { kind: 'baseline_imported', messages: prepared.laterMessages, retainedContext: prepared.laterContext,
           provenance: { importerVersion: 1, sourceKind: 'saved_chat', sourceId: report.sessionId,
-            sourceDigest: createHash('sha256').update(stableStringify(prepared.laterMessages)).digest('hex') } },
+            sourceDigest: digestStableJson(prepared.laterMessages) } },
       });
       if (reconcileChatRun(database, laterId).status === 'recovery_failed') throw new Error('Saved tail projection failed; repair rolled back.');
     }

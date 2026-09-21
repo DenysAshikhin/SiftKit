@@ -479,3 +479,21 @@ test('readThrough stops at its captured head, rejects bad cursors, and anchors i
   database.prepare('DELETE FROM chat_run_events WHERE operation_id=? AND sequence=3').run(run.operationId);
   assert.throws(() => [...store.readThrough(run.operationId, 2, 6)], /sequence gap/u);
 });
+
+test('a malformed payload names its zod issues without echoing content, and invalid JSON says so', () => {
+  const { store, database } = openFixture('chat-journal-malformed-detail-');
+  const run = store.begin(runStart());
+  store.append(appendInput(run.operationId, 0, proposalEvent('read'), { eventId: 'event-0' }));
+  store.append(appendInput(run.operationId, 1, proposalEvent('read'), { eventId: 'event-1' }));
+  const legacyProgress = { kind: 'display', event: { kind: 'progress', progress: { turn: 1, text: 'Confirmed', elapsedMs: 7 } } };
+  database.prepare('UPDATE chat_run_events SET body_json=? WHERE operation_id=? AND sequence=1').run(JSON.stringify(legacyProgress), run.operationId);
+  assert.throws(() => [...store.readThrough(run.operationId, 0, 2)], (error) => error instanceof ChatJournalIntegrityError
+    && error.code === 'malformed_event' && error.sequence === 1 && error.eventId === 'event-0'
+    && /malformed event payload: /u.test(error.message)
+    && /event\.delta invalid_type/u.test(error.message)
+    && /event unrecognized_keys/u.test(error.message)
+    && !/Confirmed/u.test(error.message));
+  database.prepare('UPDATE chat_run_events SET body_json=? WHERE operation_id=? AND sequence=2').run('{"kind":', run.operationId);
+  assert.throws(() => [...store.readThrough(run.operationId, 1, 2)], (error) => error instanceof ChatJournalIntegrityError
+    && error.code === 'malformed_event' && error.sequence === 2 && /malformed event payload: invalid JSON\./u.test(error.message));
+});

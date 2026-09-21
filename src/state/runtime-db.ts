@@ -12,6 +12,7 @@ import { upgradeChatSubmissionsSchema } from './schema-upgrades/chat-submissions
 import { upgradeInferenceThroughputSchema } from './schema-upgrades/inference-throughput.js';
 import { retireRepoAgentHistoryRepairMarkers, upgradeChatProjectionCheckpoints, upgradeChatRecoverySchema } from './schema-upgrades/chat-recovery.js';
 import { upgradeChatJournalEventsToVersion2 } from './schema-upgrades/chat-replay-transport.js';
+import { upgradeChatProgressEventsToDeltas } from './schema-upgrades/chat-progress-delta.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
 
@@ -22,7 +23,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 73;
+export const CURRENT_SCHEMA_VERSION = 74;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -39,6 +40,7 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 70, apply: upgradeChatJournalEventsToVersion2 },
   { from: 71, apply: upgradeChatSubmissionsSchema },
   { from: 72, apply: upgradeInferenceThroughputSchema },
+  { from: 73, apply: upgradeChatProgressEventsToDeltas },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

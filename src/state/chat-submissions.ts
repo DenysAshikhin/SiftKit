@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import { ChatOperationIdSchema, ChatSessionOperationKindSchema, ChatSubmissionIdSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
-import { stableStringify } from '../lib/json.js';
+import { digestStableJson } from '../lib/json-digest.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { RuntimeDatabase } from './database-handle.js';
 
@@ -56,5 +55,5 @@ export class ChatSubmissionStore {
 
 export function digestChatSubmission(operationKind: string, body: JsonObject): string {
   const kind = ChatSessionOperationKindSchema.parse(operationKind);
-  return createHash('sha256').update(stableStringify({ operationKind: kind, body })).digest('hex');
+  return digestStableJson({ operationKind: kind, body });
 }

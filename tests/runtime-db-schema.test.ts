@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
@@ -8,6 +7,7 @@ import test from 'node:test';
 
 import { SystemClock } from '../src/assistant/clock.js';
 import { stableStringify } from '../src/lib/json.js';
+import { digestStableJson } from '../src/lib/json-digest.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import {
   closeAllRuntimeDatabases,
@@ -137,10 +137,6 @@ function columnNames(database: DatabaseInstance, table: string): string[] {
   return ColumnNameRowsSchema.parse(database.prepare(
     `SELECT name FROM pragma_table_info('${table}')`,
   ).all()).map((row) => row.name);
-}
-
-function digestEvent(body: z.infer<typeof JsonObjectSchema>): string {
-  return createHash('sha256').update(stableStringify(body)).digest('hex');
 }
 
 test('fresh creation bootstraps the current schema and marker', () => {
@@ -735,7 +731,7 @@ test('the marker-70 upgrade accepts approval reviews and both historical queue l
   `);
   for (const [index, event] of events.entries()) {
     const body = stableStringify(event);
-    insert.run(operationId, index + 1, `event-${String(index + 1)}`, at, event.kind, body, digestEvent(event));
+    insert.run(operationId, index + 1, `event-${String(index + 1)}`, at, event.kind, body, digestStableJson(event));
   }
   closeAllRuntimeDatabases();
 
@@ -753,7 +749,7 @@ test('the marker-70 upgrade accepts approval reviews and both historical queue l
     const legacyQueue = z.object({ message: z.object({ imageMeta: z.array(ImageMetadataSchema) }) })
       .parse(JsonObjectSchema.parse(JSON.parse(rows[2]?.body_json ?? '{}')));
     assert.deepEqual(legacyQueue.message.imageMeta, [imageMeta]);
-    assert.equal(rows.every(row => row.payload_digest === digestEvent(JsonObjectSchema.parse(JSON.parse(row.body_json)))), true);
+    assert.equal(rows.every(row => row.payload_digest === digestStableJson(JsonObjectSchema.parse(JSON.parse(row.body_json)))), true);
   } finally {
     closeAllRuntimeDatabases();
   }
