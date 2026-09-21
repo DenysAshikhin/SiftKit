@@ -1257,7 +1257,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     const duplicateArguments = String(
       asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '',
     );
-    assert.match(duplicateArguments, /chars of arguments discarded/u);
+    assert.match(duplicateArguments, /chars of arguments discarded — the tool result states why/u);
     assert.ok(duplicateArguments.length < REJECTED_ARGS_ELISION_LIMIT);
     const acceptedAssistant = assistantToolCalls.find((message) => message !== duplicateAssistant);
     assert.match(

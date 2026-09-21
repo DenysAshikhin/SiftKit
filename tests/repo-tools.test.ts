@@ -172,7 +172,7 @@ test('buildRejectedTranscriptAction elides an oversized argument payload', () =>
   });
   assert.equal(action.toolName, 'edit');
   assert.deepEqual(Object.keys(action.args), ['elided']);
-  assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded$/u);
+  assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded — the tool result states why$/u);
   assert.ok(JSON.stringify(action.args).length < REJECTED_ARGS_ELISION_LIMIT);
 });
 
@@ -707,7 +707,7 @@ test('edit rejects a non-unique oldText and leaves the file untouched', async ()
     edits: [{ oldText: 'alpha', newText: 'beta' }],
   }), makeContext(root));
   assert.ok(!result.ok);
-  assert.match(result.reason, /unique/u);
+  assert.match(result.reason, /^edits\[0\]\.oldText is not unique in file; it matches at file lines 2 and 4\. Extend oldText with neighbouring lines so it matches once\.$/u);
   assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), before);
 });
 
@@ -724,7 +724,77 @@ test('edit rejects a missing oldText and overlapping edits', async () => {
     edits: [{ oldText: 'line1\nalpha', newText: 'x' }, { oldText: 'alpha\nline3', newText: 'y' }],
   }), makeContext(root));
   assert.ok(!overlapping.ok);
-  assert.match(overlapping.reason, /overlap/u);
+  assert.match(overlapping.reason, /^edits\[0\] and edits\[1\] overlap; merge nearby changes into one edit$/u);
+});
+
+test('edit failure names the failing edit index', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line1', newText: 'first' }, { oldText: 'not-present', newText: 'x' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.match(result.reason, /^edits\[1\]\.oldText not found in file/u);
+  assert.doesNotMatch(result.reason, /edits\[0\]/u);
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), 'line1\nalpha\nline3\nalpha\nline5\n');
+});
+
+test('edit failure reports the first line of a missing oldText when no line-prefix matches', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'nowhere\nline3', newText: 'x' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.match(result.reason, /edits\[0\]\.oldText not found in file; its first line does not occur anywhere: "nowhere"/u);
+  assert.match(result.reason, /Re-read the file and copy oldText verbatim\./u);
+});
+
+test('edit failure reports where a partially matching oldText diverges from the file', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line3\nalpha\nWRONG', newText: 'x' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.match(result.reason, /edits\[0\]\.oldText not found in file; oldText lines 1-2 match at file line 3, but oldText line 3 is "WRONG" while the file has "line5"\./u);
+});
+
+test('edit failure reports end of file when the matching prefix ends the file', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line5\nafter-eof', newText: 'x' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.match(result.reason, /oldText lines 1-1 match at file line 5, but oldText line 2 is "after-eof" while the file has "" \(end of file\)\./u);
+});
+
+test('edit reports every failing edit in one rejection', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [
+      { oldText: 'missing-a', newText: 'x' },
+      { oldText: 'alpha', newText: 'y' },
+      { oldText: 'line5', newText: 'z' },
+    ],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  const lines = result.reason.split('\n');
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^edits\[0\]\.oldText not found in file/u);
+  assert.match(lines[1], /^edits\[1\]\.oldText is not unique in file; it matches at file lines 2 and 4\./u);
+});
+
+test('edit overlap names the edits in file order using their original indices', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(nativeCall('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'alpha\nline3', newText: 'y' }, { oldText: 'line1\nalpha', newText: 'x' }],
+  }), makeContext(root));
+  assert.ok(!result.ok);
+  assert.match(result.reason, /^edits\[1\] and edits\[0\] overlap; merge nearby changes into one edit$/u);
 });
 
 test('run executes a command in the repository root', async () => {

@@ -336,7 +336,7 @@ export function buildRejectedTranscriptAction(options: {
   return {
     toolName: effective.toolName,
     args: {
-      elided: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
+      elided: `rejected ${effective.toolName} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded — the tool result states why`,
     },
   };
 }
@@ -778,25 +778,59 @@ function executeWrite(args: WriteToolArgs, context: RepoToolContext): RepoToolEx
   };
 }
 
-type ResolvedEdit = { start: number; end: number; newText: string };
+type ResolvedEdit = { index: number; start: number; end: number; newText: string };
+
+/** 1-based line number of a character offset in LF-normalized text. */
+function lineNumberAt(text: string, offset: number): number {
+  return text.slice(0, offset).split('\n').length;
+}
+
+const RECOPY_HINT = 'Re-read the file and copy oldText verbatim.';
+
+/**
+ * Names the longest line-prefix of oldText that does occur in the file and the first line after
+ * it that does not, so the model sees where its copy diverged instead of a prefix that matches.
+ */
+function describeMissingOldText(originalText: string, oldText: string, index: number): string {
+  const label = `edits[${index}].oldText not found in file`;
+  const lines = oldText.split('\n');
+  for (let count = lines.length - 1; count >= 1; count -= 1) {
+    const start = originalText.indexOf(lines.slice(0, count).join('\n'));
+    if (start < 0) continue;
+    const fileLine = lineNumberAt(originalText, start);
+    const fileLines = originalText.split('\n');
+    const nextIndex = fileLine - 1 + count;
+    const nextFileLine = fileLines[nextIndex];
+    const atEnd = nextFileLine === undefined || (nextIndex === fileLines.length - 1 && nextFileLine === '');
+    const actual = atEnd ? '"" (end of file)' : JSON.stringify(nextFileLine);
+    return `${label}; oldText lines 1-${count} match at file line ${fileLine}, but oldText line ${count + 1} is ${JSON.stringify(lines[count])} while the file has ${actual}. ${RECOPY_HINT}`;
+  }
+  return `${label}; its first line does not occur anywhere: ${JSON.stringify(lines[0])}. ${RECOPY_HINT}`;
+}
 
 function resolveEdits(originalText: string, rawEdits: EditToolArgs['edits']): ResolvedEdit[] | string {
   const resolved: ResolvedEdit[] = [];
-  for (const rawEdit of rawEdits) {
-    const { oldText, newText } = rawEdit;
+  const failures: string[] = [];
+  for (const [index, { oldText, newText }] of rawEdits.entries()) {
     const start = originalText.indexOf(oldText);
     if (start < 0) {
-      return `oldText not found in file: ${JSON.stringify(oldText.slice(0, 60))}`;
+      failures.push(describeMissingOldText(originalText, oldText, index));
+      continue;
     }
-    if (originalText.indexOf(oldText, start + 1) >= 0) {
-      return `oldText is not unique in file: ${JSON.stringify(oldText.slice(0, 60))}`;
+    const second = originalText.indexOf(oldText, start + 1);
+    if (second >= 0) {
+      failures.push(`edits[${index}].oldText is not unique in file; it matches at file lines ${lineNumberAt(originalText, start)} and ${lineNumberAt(originalText, second)}. Extend oldText with neighbouring lines so it matches once.`);
+      continue;
     }
-    resolved.push({ start, end: start + oldText.length, newText });
+    resolved.push({ index, start, end: start + oldText.length, newText });
+  }
+  if (failures.length > 0) {
+    return failures.join('\n');
   }
   const ordered = [...resolved].sort((left, right) => left.start - right.start);
-  for (let index = 1; index < ordered.length; index += 1) {
-    if (ordered[index].start < ordered[index - 1].end) {
-      return 'edits[] entries overlap; merge nearby changes into one edit';
+  for (let position = 1; position < ordered.length; position += 1) {
+    if (ordered[position].start < ordered[position - 1].end) {
+      return `edits[${ordered[position - 1].index}] and edits[${ordered[position].index}] overlap; merge nearby changes into one edit`;
     }
   }
   return ordered;
