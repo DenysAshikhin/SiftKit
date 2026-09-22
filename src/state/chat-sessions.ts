@@ -58,7 +58,7 @@ export type ChatSession = z.infer<typeof StoredChatSessionSchema>;
 export const StoredChatSessionSummarySchema = StoredChatSessionSchema
   .omit({ messages: true, promptContext: true })
   .extend({ lastToolCallExitCode: z.number().int().nullable() });
-export type ChatSessionSummary = z.infer<typeof StoredChatSessionSummarySchema>;
+export type StoredChatSessionSummary = z.infer<typeof StoredChatSessionSummarySchema>;
 
 const SessionIdRowSchema = z.object({ id: z.string().nullable() });
 
@@ -421,7 +421,7 @@ function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSess
 }
 
 /** One query for the whole rail: no transcripts, only what a session row plus its last message says. */
-export function readChatSessionSummaries(runtimeRoot: string): ChatSessionSummary[] {
+export function readChatSessionSummaries(runtimeRoot: string): StoredChatSessionSummary[] {
   const rows = getSessionDatabase(runtimeRoot).prepare(`
     SELECT ${SESSION_SELECT_COLUMNS},
       (SELECT tool_call_exit_code FROM chat_messages WHERE session_id = chat_sessions.id ORDER BY position DESC LIMIT 1) AS last_tool_call_exit_code

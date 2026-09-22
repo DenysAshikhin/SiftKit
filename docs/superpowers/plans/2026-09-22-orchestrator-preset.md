@@ -1,10 +1,10 @@
 # Orchestrator Preset Implementation Plan
 
-> **For agentic workers:** Use `superpowers:executing-plans` when implementation is separately requested. Complete the model-routing plan first, then O1–O8 sequentially with TDD. Do not invoke SiftKit, create worktrees, or commit.
+> **For agentic workers:** Use `superpowers:executing-plans` when implementation is separately requested. Complete the model-routing plan first, then O1–O8 sequentially with TDD, including O5b between O5 and O6. Do not invoke SiftKit, create worktrees, or commit.
 
-**Goal:** Add an orchestrator that accepts a task or plan, prepares an executable Markdown plan, delegates bounded work, verifies each task, and stops after two unsuccessful attempts.
+**Goal:** Add an orchestrator that prepares executable plans, delegates bounded work, verifies each task, and resolves impactful code drift through scoped correction workers, with separate two-attempt implementation and correction budgets.
 
-**Architecture:** A server-owned state machine controls plan validation, dependency scheduling, child attempts, verification, cleanup, and durable events. Parent inference phases and workers use the model admission layer from M1–M7. The parent never holds a model lease while waiting for a child.
+**Architecture:** A server-owned state machine controls plan validation, dependency scheduling, implementation/correction attempts, verification, critical drift review, cleanup, and durable events. Parent inference phases and workers use the model admission layer from M1–M7. The parent never holds a model lease while waiting for a child.
 
 **Tech stack:** TypeScript, Zod, SQLite, existing repo-search/repo-agent engine and approvals, Node `node:test`, React, existing SSE/chat recovery.
 
@@ -21,7 +21,9 @@
 - Do not invoke SiftKit to execute this implementation plan. This is a planning-only request.
 - `maxSubagents` defaults to 1 and counts dispatched/queued/running/approval-paused children.
 - Modifications require exclusive repository ownership; independent read-only children can overlap.
-- Each task has at most 2 attempts; approval continuation is not a new attempt.
+- Each task has at most 2 implementation attempts and a separate pool of 2 drift-correction attempts; approval continuation is not a new attempt. Correction output never starts a new correction budget.
+- After each code-changing delegated step, apply the reflect-session-drift rubric to attributable changes and immediate neighbors. Require verified evidence and concrete impact or lasting code/architecture drift; zero findings is valid.
+- Send fixes to `repo-agent` as scoped finding/fix bullets without requiring another Markdown plan. Functional verification, resolved drift, and cleanup all gate dependent work.
 - The parent validates/coordinates. Worker planning, recursive orchestration, and shell self-delegation are prohibited.
 
 ## Review focus
@@ -30,7 +32,7 @@
 2. Worker says completed but tests fail: retry with evidence, then stop after attempt 2 — O4/O5.
 3. Reattach, duplicate submit, approval reply, or server restart dispatches work twice — O2/O6/O7/O8.
 4. A supposedly read-only task mutates, or cleanup escapes scratch: fail visibly and preserve the initial dirty baseline — O3/O5.
-5. The supplied plan is obsolete, ambiguous, cyclic, or edited after validation: validate before dispatch without resetting attempt budgets — O1/O3/O4.
+5. Cosmetic/speculative findings cause churn, or correction findings/reset attempts create an unbounded loop: critical evidence threshold and one persistent two-attempt correction pool per step — O1/O2/O5b/O8. O1/O3/O4 also cover stale, cyclic, or edited plans without resetting either budget.
 
 ## Modules and boundaries
 
@@ -44,8 +46,9 @@
 | `src/orchestrator/workers.ts` | Server-owned child startup, completion, abort, approval forwarding |
 | `src/orchestrator/scheduler.ts` | Dependencies, child cap, exclusive mutating task ownership |
 | `src/orchestrator/verification.ts` | Check executed verification evidence and acceptance review |
+| `src/orchestrator/drift-review.ts` | Critical evidence checks, drift report state, and scoped correction prompt construction |
 | `src/orchestrator/workspace.ts` | Initial dirty baseline, change evidence, bounded scratch cleanup |
-| `src/orchestrator/run.ts` | State machine, two-attempt policy, event-driven coordination |
+| `src/orchestrator/run.ts` | State machine, separate two-attempt budgets, event-driven coordination |
 | `src/status-server/orchestrator-runs.ts` | Live parent registry and server shutdown/recovery integration |
 | `src/status-server/routes/orchestrator.ts` | Start/status/events/decide/abort HTTP endpoints |
 | `src/cli/orchestrator-args.ts`, `src/cli/run-orchestrator.ts` | CLI parsing and native lifecycle client |
@@ -70,6 +73,8 @@ Use these canonical schemas; export only their inferred types. Use `ApprovalMode
 
 ```typescript
 export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
+export const OrchestratorChildPurposeSchema = z.enum(['implementation', 'drift_fix']);
+export type OrchestratorChildPurpose = z.infer<typeof OrchestratorChildPurposeSchema>;
 
 export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -106,9 +111,63 @@ export const OrchestratorPlanSchema = z.object({
 export type OrchestratorPlan = z.infer<typeof OrchestratorPlanSchema>;
 ```
 
+Define the drift contracts here so the store and worker boundary use one schema from their first implementation:
+
+```typescript
+const DriftCodeEvidenceSchema = z.object({
+  path: z.string().min(1), line: z.number().int().positive(),
+  snippet: z.string().trim().min(1),
+}).strict();
+
+export const OrchestratorDriftFindingSchema = z.object({
+  id: z.string().trim().min(1), title: z.string().trim().min(1),
+  purpose: z.string().trim().min(1), directive: z.string().trim().min(1),
+  evidence: z.array(DriftCodeEvidenceSchema).min(1),
+  impact: z.string().trim().min(1), fix: z.string().trim().min(1),
+  affectedPaths: z.array(z.string().min(1)).min(1),
+  verification: z.array(OrchestratorVerificationCheckSchema).min(1),
+}).strict();
+export type OrchestratorDriftFinding = z.infer<typeof OrchestratorDriftFindingSchema>;
+
+const DriftReviewFields = {
+  taskId: z.string().min(1), changeDigest: z.string().min(1),
+  scopePaths: z.array(z.string().min(1)),
+  resolutions: z.array(z.object({
+    findingId: z.string().min(1), evidence: z.string().trim().min(1),
+  }).strict()),
+};
+export const OrchestratorDriftReviewSchema = z.discriminatedUnion('status', [
+  z.object({ ...DriftReviewFields, status: z.literal('not_required'),
+    reason: z.literal('no_code_changes') }).strict(),
+  z.object({ ...DriftReviewFields, status: z.literal('clean'),
+    findings: z.array(OrchestratorDriftFindingSchema).max(0) }).strict(),
+  z.object({ ...DriftReviewFields, status: z.literal('actionable'),
+    findings: z.array(OrchestratorDriftFindingSchema).min(1) }).strict(),
+]);
+export type OrchestratorDriftReview = z.infer<typeof OrchestratorDriftReviewSchema>;
+
+export const OrchestratorDriftCorrectionWorkSchema = z.object({
+  kind: z.literal('drift_fix'), taskId: z.string().min(1),
+  objective: z.string().trim().min(1), changeDigest: z.string().min(1),
+  findings: z.array(OrchestratorDriftFindingSchema).min(1),
+  allowedPaths: z.array(z.string().min(1)).min(1),
+  verification: z.array(OrchestratorVerificationCheckSchema).min(1),
+}).strict();
+export type OrchestratorDriftCorrectionWork = z.infer<typeof OrchestratorDriftCorrectionWorkSchema>;
+
+export const OrchestratorChildWorkSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('implementation'), planPath: z.string().min(1),
+    planHash: z.string().min(1), task: OrchestratorTaskSchema }).strict(),
+  OrchestratorDriftCorrectionWorkSchema,
+]);
+export type OrchestratorChildWork = z.infer<typeof OrchestratorChildWorkSchema>;
+```
+
+`not_required` is produced by host-side diff classification, not accepted as the model's excuse to skip review. Schema validity alone does not qualify a finding: O5b verifies attribution, anchors, impact, and proportionate fix. A clean follow-up must resolve every previously open finding against the current digest.
+
 Add `OrchestratorPresetOptionsSchema = z.object({ maxSubagents: z.number().int().positive() }).strict()`. `SiftPreset.orchestrator` is required and nullable; only kind `orchestrator` may have non-null options, and that kind must have them. Other kinds explicitly use null. Add `orchestrator` to `PresetKindSchema` and `RunOperationTypeSchema`.
 
-- [ ] **Write failing schema/catalog tests.** Assert protected built-in presence, CLI/Web surfaces, current-model default, maxSubagents 1, invalid zero/fractional cap, invalid option/kind combinations, and rejected recursive worker selection. Assert two attempts is the fixed policy, not another configurable setting.
+- [ ] **Write failing schema/catalog tests.** Assert protected built-in presence, CLI/Web surfaces, current-model default, maxSubagents 1, invalid zero/fractional cap, invalid option/kind combinations, and rejected recursive worker selection. Assert two attempts per purpose is the fixed policy, not another configurable setting. Assert implementation work requires a plan reference, drift-fix work accepts only finding/fix payload without a plan reference, and empty/incomplete actionable findings reject.
 
 ```typescript
 test('the default orchestrator inherits the model and runs one child at a time', () => {
@@ -155,7 +214,17 @@ export function makeOrchestratorTask(overrides: Partial<OrchestratorTask> = {}):
 
 **Interfaces**
 
-Schemas define parent phases `preparing_plan`, `validating_plan`, `executing`, `verifying`, `cleaning`, `approval_required`, `completed`, `failed`, `aborted`, `interrupted`. Task states distinguish `pending`, `running`, `verifying`, `retry_pending`, `completed`, `failed`, `aborted`. Attempts are integers 1 or 2; child terminal statuses reuse existing worker schemas.
+Schemas define parent phases `preparing_plan`, `validating_plan`, `executing`, `verifying`, `reviewing_drift`, `correcting_drift`, `cleaning`, `approval_required`, `completed`, `failed`, `aborted`, `interrupted`. Task states distinguish `pending`, `running`, `verifying`, `reviewing_drift`, `correcting_drift`, `retry_pending`, `completed`, `failed`, `aborted`. Attempts are integers 1 or 2 within purpose `implementation` or `drift_fix`; child terminal statuses reuse existing worker schemas. Use `OrchestratorDriftReviewSchema` for nullable not-yet-reviewed state and stored reports from the first store implementation.
+
+The parent state's `failure` is nullable and uses this canonical shape so corrective failures can expose unresolved finding IDs:
+
+```typescript
+export const OrchestratorFailureSchema = z.object({
+  code: z.string().min(1), message: z.string().min(1),
+  taskId: z.string().nullable(), purpose: OrchestratorChildPurposeSchema.nullable(),
+  findingIds: z.array(z.string().min(1)),
+}).strict();
+```
 
 `OrchestratorRunStore` takes `RuntimeDatabase` and exposes:
 
@@ -164,30 +233,31 @@ create(request: OrchestratorStartRequest): OrchestratorRunState;
 read(runId: string): OrchestratorRunState;
 savePlan(runId: string, revision: number, plan: OrchestratorPlan,
   planPath: string, contentHash: string): OrchestratorRunState;
-reserveAttempt(runId: string, revision: number, taskId: string): OrchestratorAttempt;
+reserveAttempt(runId: string, revision: number, taskId: string,
+  purpose: OrchestratorChildPurpose): OrchestratorAttempt;
 recordAttemptResult(runId: string, revision: number,
   result: OrchestratorAttemptResult): OrchestratorRunState;
 readEvents(runId: string, afterSequence: number): OrchestratorEvent[];
 markInterrupted(runId: string, revision: number, reason: string): OrchestratorRunState;
 ```
 
-All named data types above are exported from canonical schemas in `packages/contracts/src/orchestrator.ts`. The state includes request/submission ID, owner epoch, revision, phase, plan hash/path/manifest, per-task state, attempts, child IDs, parent inference-phase IDs, active approval, verification records, and failure detail. An approval has a discriminated target: `{ kind: 'phase', phaseRunId }` or `{ kind: 'child', childRunId }`, plus the existing approval ID/payload. `reserveAttempt` generates/reserves the child run UUID within the transaction and increments the task count only there.
+All named data types above are exported from canonical schemas in `packages/contracts/src/orchestrator.ts`. The state includes request/submission ID, owner epoch, revision, phase, plan hash/path/manifest, per-task state, purpose-keyed attempts, child IDs, parent inference-phase IDs, active approval, verification/drift records, reviewed change digests, finding resolutions, and failure detail. An approval has a discriminated target: `{ kind: 'phase', phaseRunId }` or `{ kind: 'child', childRunId }`, plus the existing approval ID/payload. `reserveAttempt` generates/reserves the child run UUID within the transaction; derive both counters from these purpose-keyed records, not independently mutable counters. Finding/report IDs never become fresh attempt-budget keys.
 
-- [ ] **Write store tests before tables.** Two `create` calls with the same submission ID and payload return the same parent. The same ID with a different payload rejects. Two reservation calls against the same revision cannot both succeed. After failed attempts 1 and 2, a third reservation rejects; approval/state updates cannot lower the count.
+- [ ] **Write store tests before tables.** Two `create` calls with the same submission ID and payload return the same parent. The same ID with a different payload rejects. Two reservation calls against the same revision cannot both succeed. After attempts 1 and 2 in one purpose, a third reservation in that purpose rejects; approval/state updates cannot lower either count. Two implementation attempts do not consume the correction pool, and a new drift report cannot reset that pool.
 
 ```typescript
 assert.equal(firstAttempt.attempt, 1);
 assert.equal(secondAttempt.attempt, 2);
 assert.notEqual(firstAttempt.childRunId, secondAttempt.childRunId);
-assert.throws(() => store.reserveAttempt(runId, currentRevision, taskId), /attempt limit/u);
+assert.throws(() => store.reserveAttempt(runId, currentRevision, taskId, 'implementation'), /attempt limit/u);
 ```
 
 Create the database with `createManagedTempDir`/`getRuntimeDatabase`, write state through the store, and close it before cleanup. The test must use store-produced revisions and attempt results, not mutate state JSON directly.
 
 - [ ] **Run red:** `npm run build:test`, `npm test -- orchestrator-run-store`.
-- [ ] **Add SQLite tables in fresh bootstrap and a new 76 -> 77 upgrade.** Use `orchestrator_runs` (unique submission ID), `orchestrator_tasks` (parent/task primary key), `orchestrator_attempts` (parent/task/attempt primary key plus unique child UUID), and `orchestrator_events` (parent/sequence primary key). Store schema-validated payload JSON alongside indexed identities/revisions. Put revision checks, state changes, attempt reservation, and event append in one transaction. Extend `tests/runtime-db-schema-orchestrator.test.ts` with fresh/upgrade layout parity and the complete 74 -> 77 chain.
+- [ ] **Add SQLite tables in fresh bootstrap and a new 76 -> 77 upgrade.** Use `orchestrator_runs` (unique submission ID), `orchestrator_tasks` (parent/task primary key), `orchestrator_attempts` (parent/task/purpose/attempt primary key plus unique child UUID), and `orchestrator_events` (parent/sequence primary key). Store schema-validated payload JSON alongside indexed identities/revisions, including drift reports, report digests, correction work payloads, and resolutions. Put revision checks, state changes, attempt reservation, and event append in one transaction. Extend `tests/runtime-db-schema-orchestrator.test.ts` with fresh/upgrade layout parity and the complete 74 -> 77 chain. These features are still planned together, so include the purpose column in this new table's first creation; do not add a redundant follow-up migration for code that has not shipped.
 - [ ] **Integrate lifetime ownership.** `OrchestratorRunRegistry` owns live parent objects, completion subscriptions, and one shared read/exclusive repository gate keyed by canonical real path. On shutdown, stop scheduling, abort owned requests/children, wait for settlement, and record terminal/interrupted state. On startup, reconcile nonterminal stored parents with worker records; mark uncertain work interrupted rather than recreating it. Do not add a polling timer to find completion.
-- [ ] **Test crash boundaries and event replay.** Cover reserve-before-start, child-created-before-parent-ack, completion-before-client-delivery, duplicate terminal event, stale revision, malformed row, unknown child, and monotonically increasing replay sequences. Restart must never reset attempts or run an uncertain task again.
+- [ ] **Test crash boundaries and event replay.** Cover reserve-before-start, child-created-before-parent-ack, completion-before-client-delivery, duplicate terminal event, stale revision, malformed row, unknown child, and monotonically increasing replay sequences for both purposes. Restart must never reset either budget or run an uncertain task again; a stale clean drift report cannot complete a changed code digest.
 - [ ] **Run green:** `npm run build:test`, then `npm test -- orchestrator-run-store runtime-db-schema-orchestrator runtime-db-lifecycle`.
 
 **Acceptance:** Durable state distinguishes “reserved” from “executed”; reconnects cannot create extra attempts; every user-visible state follows a committed event.
@@ -205,9 +275,9 @@ Create the database with `createManagedTempDir`/`getRuntimeDatabase`, write stat
 
 **Interfaces**
 
-- `OrchestratorPhaseRunner` receives `ServerContext`; `preparePlan`, `reviewAttempt`, and `verifyFinal` perform finite parent inference phases, returning schema-validated results/evidence. Each parsed phase request has both parent `runId` and a durable `phaseRunId`; use the latter for engine request identity, lock ownership, and phase approvals.
+- `OrchestratorPhaseRunner` receives `ServerContext`; `preparePlan`, `reviewAttempt`, `reviewDrift`, and `verifyFinal` perform finite parent inference phases, returning schema-validated results/evidence. Each parsed phase request has both parent `runId` and a durable `phaseRunId`; use the latter for engine request identity, lock ownership, and phase approvals. `reviewDrift` implements O5b's critical rubric as a read-only parent phase.
 - `OrchestratorWorkers.start(input: OrchestratorChildRequest): OrchestratorChildHandle` starts only a reserved child. Its handle exposes run ID, existing completion promise/progress subscription, `abort`, and approval-decision forwarding. It does not expose recursive parent startup.
-- `OrchestratorChildRequest` contains parent ID, task ID, attempt, reserved child UUID, worker preset ID, repo root, bounded instruction, approval mode, and cancellation ownership. It is parsed by its canonical schema.
+- `OrchestratorChildRequest` contains parent ID, task ID, attempt, reserved child UUID, worker preset ID, repo root, `work: OrchestratorChildWork`, bounded instruction, approval mode, and cancellation ownership. It is parsed by its canonical schema. Derive attempt purpose from `work.kind`. Drift-fix children use the configured built-in `repo-agent` preset and the bullet payload; they do not require a Markdown plan path/hash.
 - Parent results use strict discriminated unions: plan review `ready` with manifest versus `revise` with issues; task review `pass` versus `fail` with anchored findings. Failed JSON/schema parsing is a failed phase, not permission to execute free text.
 
 - [ ] **Write plan preparation tests with scripted engine responses.** Test a valid supplied plan unchanged, missing plan generated, inadequate plan rewritten to a new Markdown file, ambiguous plan reference, stale repository paths, malformed model output, and a task-only request. Generated plans must be saved and revalidated before a worker starts.
@@ -241,13 +311,13 @@ try {
 
 - [ ] **Validate and render plans.** Semantic review checks task coverage, present files/symbols, manageable scope, verification sufficiency, dependencies, and applicable repository instructions. `renderOrchestratorPlan(plan)` renders a complete Markdown goal/constraints/task list with worker, scopes, steps, exact checks, expected results, and acceptance. Preserve valid supplied Markdown; store its compiled manifest/hash as execution evidence. Allow at most two prepare/revise phase attempts before a precise plan-preparation failure.
 - [ ] **Implement child startup through the server API boundary.** Extract the common server-side worker start from `startRepoAgentRun` into `startRepoWorkerRun`; update all callers. It chooses `taskKind` and effective allowed tools from the selected worker preset, accepts the pre-reserved child UUID, and reuses `RepoAgentSession`/run-store lifecycle. Existing standalone repo-agent routes remain repo-agent workers. A repo-search child receives only its read-only tool surface and normal repo-search execution behavior; reject a selected repo-search profile that grants mutating tools rather than silently treating it as read-only. Acquire the shared repository gate before acquiring a model lease. A delegated child receives a verified internal ownership token from its parent task instead of acquiring the same exclusive gate twice; never accept this token from HTTP/model output. No shell CLI spawning or header bypass.
-- [ ] **Construct bounded worker instructions.** Include exact task ID/heading, plan path/hash, attempt number, allowed files, full task steps and acceptance, verification commands, preservation of existing changes, scratch path, and no commits/no unrelated tasks. Attempt 2 additionally includes observed failure, previous diff/evidence, completed work to retain, and the specific correction. Do not pass only the entire plan and ask the child to choose its task.
+- [ ] **Construct bounded worker instructions.** Implementation work includes exact task ID/heading, plan path/hash, attempt number, allowed files, full task steps and acceptance, verification commands, preservation of existing changes, scratch path, and no commits/no unrelated tasks. Attempt 2 additionally includes observed failure, previous diff/evidence, completed work to retain, and the specific correction. Do not pass only the entire plan and ask the child to choose its task. Drift-fix work instead uses O5b's complete bullet prompt with finding IDs, impact, fix direction, scope, and validation; never generate an extra plan merely to satisfy the implementation-work shape.
 - [ ] **Test lifecycle and safety.** With `ParallelSlots=1`, parent preparation completes/releases and a child can acquire. A child cannot select an orchestrator worker preset, expand its tools from read-only to full, or bypass nested shell self-call protection. Approval continuation retains the same child ID.
 - [ ] **Run green:** `npm run build:test`, then `npm test -- orchestrator-phase-runner orchestrator-workers repo-agent-sessions nested-agent-server-reject repo-search-runtime-profile`.
 
 **Acceptance:** The parent owns design/planning; worker instructions are discrete; child execution is ordinary preset-routed execution; no parent model lease survives into child waiting.
 
-### O4: Schedule dependencies, concurrency, and two attempts per task
+### O4: Schedule dependencies, concurrency, and bounded attempts
 
 **Files**
 
@@ -275,26 +345,26 @@ assert.equal(readerWriterOverlapCount, 0);
 These arrays/counters come from scripted worker handles wired to the production scheduler; tests settle handles explicitly rather than waiting on elapsed time.
 
 - [ ] **Run red:** `npm run build:test`, `npm test -- orchestrator-scheduler orchestrator-run`.
-- [ ] **Implement scheduling and attempt reservation.** Compute ready tasks only from completed predecessors. Reserve/persist attempt and child ID, then start that specific child once. Queued/approval-paused children count against the cap. On worker completion, schedule independent verification; release dependencies only after verification and cleanup pass.
-- [ ] **Implement the fixed retry decision.** The persisted attempt count is the only counter. Use the outcome from O5, not just the worker status.
+- [ ] **Implement scheduling and attempt reservation.** Compute ready tasks only from completed predecessors. Reserve/persist attempt purpose and child ID, then start that specific child once. Queued/approval-paused children of either purpose count against the cap. On worker completion, schedule independent verification and drift review when code changed; release dependencies only after verification, the current drift gate, and cleanup pass.
+- [ ] **Implement the fixed implementation retry decision.** The persisted implementation count is authoritative. Use the outcome from O5, not just the worker status. Functional success advances to O5b's gate rather than completing the task immediately.
 
 ```typescript
 export function nextTaskAction(
   attempt: number, verificationPassed: boolean,
-): 'complete' | 'retry' | 'fail' {
-  if (verificationPassed) return 'complete';
+): 'review_drift' | 'retry' | 'fail' {
+  if (verificationPassed) return 'review_drift';
   return attempt < ORCHESTRATOR_MAX_ATTEMPTS ? 'retry' : 'fail';
 }
 ```
 
-Schema validation constrains attempt to 1 or 2 before this function. Add tests for `(1,false) -> retry`, `(2,false) -> fail`, and either successful attempt -> complete. User abort/denied forbidden actions bypass retry and preserve their explicit terminal cause.
+Schema validation constrains implementation attempt to 1 or 2 before this function. Add tests for `(1,false) -> retry`, `(2,false) -> fail`, and either successful attempt -> review_drift. O5b skips that gate for no code changes. Code-changing unsuccessful attempts also receive drift diagnosis; include accepted findings in the next implementation instruction when a retry remains. The correction budget starts only after functional verification succeeds and cannot become a third implementation attempt. User abort/denied forbidden actions bypass retry and preserve their explicit terminal cause.
 
-- [ ] **Test updated retry instructions.** Attempt 1 fails a concrete check. Assert attempt 2 contains that check's actual exit/output evidence, retains the successful partial diff, and has a new child ID. After its failure, assert no third `start` call, no dependent dispatch, and no hidden parent coding phase. Approval continuation emits no new reservation. A duplicate child completion cannot reserve twice.
+- [ ] **Test updated retry instructions.** Implementation attempt 1 fails a concrete check. Assert implementation attempt 2 contains that check's actual exit/output evidence and any confirmed drift, retains the successful partial diff, and has a new child ID. After its failure, assert no third implementation `start`, no disguised drift-fix dispatch for the failed implementation, no dependent dispatch, and no hidden parent coding phase. Approval continuation emits no new reservation. A duplicate child completion cannot reserve twice.
 - [ ] **Implement plan-change handling.** Rehash the plan before dispatch. Revalidate changes without reducing persisted attempts or silently replaying completed tasks. If a changed plan invalidates completed work or renames task identities, stop with a plan-changed diagnosis requiring a new run rather than reset the budget.
 - [ ] **Handle terminal paths.** On task attempt 2 failure, stop scheduling immediately, signal owned active children, await their settlement, and retain evidence/changes. On disconnect, keep the parent running. On explicit abort, remove queued admissions and stop active children. Register cancellation before long awaits and check it after readiness.
 - [ ] **Run green:** `npm run build:test`, then `npm test -- orchestrator-scheduler orchestrator-run orchestrator-run-store model-request-queue`.
 
-**Acceptance:** Concurrency is a cap, mutations are exclusive, dependencies wait for verified completion, and every task has at most two actual child attempts across all continuations.
+**Acceptance:** Concurrency is a cap, mutations are exclusive, dependencies wait for verification/drift/cleanup, and every task has at most two implementation attempts plus its separate two-attempt drift-fix pool across all continuations.
 
 ### O5: Independently verify results and clean only owned artifacts
 
@@ -308,7 +378,7 @@ Schema validation constrains attempt to 1 or 2 before this function. Add tests f
 
 - `OrchestratorWorkspace.captureBaseline()` records dirty tracked/untracked paths and content hashes in the run evidence store.
 - `captureAttemptChanges(task, baseline)` returns schema-validated changed-path/diff evidence and scope violations.
-- `OrchestratorVerification.verifyAttempt(input)` produces `OrchestratorAttemptResult` containing child status, independently executed checks, acceptance review findings, diff evidence, and cleanup result.
+- `OrchestratorVerification.verifyAttempt(input)` produces `OrchestratorAttemptResult` containing child purpose/status, independently executed checks, acceptance review findings, and diff evidence. O5b consumes this result before final cleanup/task completion. Keep functional pass/fail separate from whether the drift gate is clear.
 - `cleanupOwnedScratch(paths)` accepts only paths recorded as created by this run under its canonical scratch root.
 
 - [ ] **Write failing verification tests.** A completed child with a nonzero check fails; an incomplete/missing check fails; an assertion in model prose with no recorded execution fails; a read-only task needs checked path/line evidence; scope drift fails; a successful worker plus independently passing evidence succeeds.
@@ -331,6 +401,107 @@ Build `result` by passing an actual scripted tool-execution record through `veri
 
 **Acceptance:** Verification can contradict worker success; every completed task has real evidence; cleanup cannot erase unrelated work; retry instructions reflect exactly what failed.
 
+### O5b: Critically review code drift and delegate bounded bullet-based corrections
+
+**Files**
+
+- Create `src/orchestrator/drift-review.ts`, `tests/orchestrator-drift-review.test.ts`, `tests/orchestrator-drift-correction.test.ts`.
+- Extend `src/orchestrator/prompts.ts`, `phase-runner.ts`, `run.ts`, `workers.ts`, `workspace.ts`, `verification.ts`, `run-store.ts`.
+- Consume the drift/work-purpose schemas defined in O1; keep all request/state types inferred from them.
+- Extend `tests/orchestrator-phase-runner.test.ts`, `tests/orchestrator-run-store.test.ts`, `tests/orchestrator-scheduler.test.ts`, `tests/orchestrator-workers.test.ts`.
+
+**Interfaces**
+
+- `OrchestratorPhaseRunner.reviewDrift(input)` returns `OrchestratorDriftReview`. Input contains the task objective, applicable directives, attributable cumulative step diff, current change digest, actual read/touched paths, immediate relevant neighbors, previous findings, and verification evidence.
+- `validateDriftReview(review, changes, previousReview)` checks current anchors/digest, attribution, and complete resolution coverage; a malformed or unverifiable report is never treated as clean. Its data arguments use the existing O1/workspace schemas.
+- `buildDriftCorrectionPrompt(work: OrchestratorDriftCorrectionWork): string` constructs the direct worker instruction; it does not render or write another Markdown plan.
+- `OrchestratorWorkers.start` accepts `work.kind === 'drift_fix'` with `workerPresetId: 'repo-agent'`. It uses `reserveAttempt(..., 'drift_fix')`, the same child cap/repository ownership, and the existing approval/model/abort lifecycle.
+- Task completion requires either host-proven `not_required` or a current-digest `clean` report, in addition to functional verification and cleanup.
+
+- [ ] **Write failing trigger/scope tests.** Drive the parent through a worker completion. Production source, tests, scripts, deleted/new code, and behavior-affecting config changes trigger review; no diff or solely prose/log changes skip it. Pre-existing dirty files alone do not trigger findings. A retry or correction that changes code is reviewed too. Skip decisions use the original step baseline, not merely the latest correction delta: a no-op correction cannot bypass existing findings. Check the gate after each delegated step, never only at end-of-plan and never between every individual TDD edit/test command.
+- [ ] **Write critical-threshold cases.** Accepted fixtures include a duplicated behavior path that will diverge, an obsolete compatibility branch preserving invalid architecture, an IO assertion hiding invalid input, and a needless abstraction with a demonstrably simpler equivalent. Rejected fixtures include formatting/name preferences, an intentionally fixed domain constant, an external-API callback, a necessary state-owning class, allowed `as const`/`satisfies`, speculative future extensibility, and unchanged pre-existing debt. Require the review to explicitly consider these counterexamples before accepting a finding.
+
+Scripted model tests prove schema/evidence filtering and orchestration behavior; they do not by themselves prove the model's judgment. Keep representative positive/negative diff cases for review-prompt evaluation against the configured model during live validation, and report that quality check as unverified if it is not run.
+
+- [ ] **Run red:** `npm run build:test`, then `npm test -- orchestrator-drift-review orchestrator-drift-correction`.
+- [ ] **Implement the focused review prompt.** Port the user-requested skill's rubric from the shared design into `prompts.ts`; do not open a developer-machine skill path at product runtime. The prompt must require introduced/worsened attribution, actual code evidence, a relevant directive, concrete impact or durable maintenance cost, a proportionate fix, and a countercheck against legitimate reasons for the current design. Reviewers must discard weak candidates and may return zero findings. They must not treat three findings as a quota.
+
+For each accepted finding, preserve What/Purpose/Impact/Fix/Context in the stored fields. Rank the full confirmed list by impact. Display its top three plus the remaining count; feed all confirmed findings to correction, not just the visible three. Do not expand a local drift review into an unrelated whole-repository refactor.
+
+- [ ] **Validate evidence and review freshness.** Resolve paths under the actual repository, read cited lines, confirm snippets against the captured diff/current code, and verify the issue was introduced or worsened by this step. Review immediate callers/siblings only to establish consequences or a complete fix. A current clean report must account for every prior open finding and match the current change digest. Reject stale anchors before dispatch; re-review without resetting the correction counter. A deleted offending branch can be resolved by verified removal evidence rather than an invented current line.
+
+- [ ] **Implement direct corrective prompts.** Use the canonical work payload and include the original task objective plus concrete fix bullets. A representative payload renders as:
+
+```text
+Complete these drift corrections for step <task-id>. Preserve working behavior and unrelated edits.
+- D1 — <title>
+  Evidence: <file:line and short snippet>; directive: <applicable rule>.
+  Impact: <specific failure or durable maintenance cost>.
+  Fix: <exact replacement/refactor direction and related callers to migrate>.
+  Verify: <specific regression/check and expected result>.
+- D2 — <next confirmed issue, only when one exists>
+Allowed files: <bounded paths, including required immediate callers/tests>.
+Run the listed checks and report changed files, results, and unresolved items.
+Do not create a new implementation plan, commit, or perform unrelated cleanup.
+```
+
+The angle-bracket values above are interpolated from validated findings/task evidence at runtime. Do not send these labels without their actual values. Use the full fix direction in the prompt, not merely “fix drift”. If a behavioral defect is involved, reproduce it with a failing regression test first; for a structural-only correction, use meaningful existing behavior checks plus typecheck/lint instead of inventing tests that mirror syntax.
+
+The construction can remain an ordinary function:
+
+```typescript
+export function buildDriftCorrectionPrompt(work: OrchestratorDriftCorrectionWork): string {
+  const bullets = work.findings.flatMap(finding => [
+    `- ${finding.id}: ${finding.title}`,
+    `  Evidence: ${finding.evidence.map(item => `${item.path}:${item.line} ${item.snippet}`).join('; ')}`,
+    `  Directive: ${finding.directive}`,
+    `  Purpose: ${finding.purpose}`,
+    `  Impact: ${finding.impact}`,
+    `  Fix: ${finding.fix}`,
+  ]);
+  const checks = work.verification.map(check => check.kind === 'command'
+    ? `- Run ${check.command} in ${check.cwd}; expected exit ${check.expectedExitCode}.`
+    : `- ${check.instruction}; inspect ${check.paths.join(', ')}.`);
+  return [
+    `Resolve only the confirmed drift in step ${work.taskId}. Objective: ${work.objective}`,
+    ...bullets,
+    `Allowed files: ${work.allowedPaths.join(', ')}`,
+    'Verify the corrections and preserve the original task acceptance:', ...checks,
+    'Preserve successful work and unrelated edits. Do not create a new plan or commit.',
+    'Reproduce behavioral defects with a failing regression test before fixing them.',
+    'Use existing behavior checks for structural-only changes; avoid tests that mirror implementation.',
+    'Report changed files, verification results, and unresolved findings.',
+  ].join('\n');
+}
+```
+
+Build `work.verification` as the deduplicated union of relevant original task checks and finding-specific checks. Put new failure evidence from correction attempt 1 into the existing worker instruction envelope for attempt 2. Preserve initial code/context evidence in run storage even when source anchors have moved.
+
+- [ ] **Integrate the separate bounded correction cycle.** After functional success, an actionable review transitions to `correcting_drift`. Reserve one correction child under the original task and purpose `drift_fix`; release the parent's model lease, retain/reuse the task's exclusive repository ownership, and count the child against `maxSubagents`. After it settles, run affected functional checks and review the cumulative step diff again. A clean current result advances to cleanup/completion. Otherwise use correction attempt 2 with updated evidence, then fail with `drift_unresolved` if the gate still fails.
+
+All findings, newly introduced correction drift, correction test failures, and re-reviews share that step's one two-attempt correction pool. Do not reset it on a new finding/report, create another remediation task, or let the parent apply a third hidden fix. A functionally failed original implementation stays on its original retry/stop path; drift corrections cannot be used as extra implementation attempts.
+
+- [ ] **Test both counters and actual dispatch payloads.** A step that used implementation attempt 2 can still start drift-fix attempt 1. Assert the correction worker is `repo-agent`, gets actual finding/fix bullets, and starts without writing/attaching a second plan file. Corrections can resolve issues on attempt 1 or 2; a second failed correction stops with unresolved evidence and no fifth child for that task. The existing two-attempt implementation-failure test still stops after its two implementation children.
+
+```typescript
+assert.deepEqual(dispatched.map(child => [child.work.kind, child.attempt]), [
+  ['implementation', 1], ['implementation', 2],
+  ['drift_fix', 1], ['drift_fix', 2],
+]);
+assert.equal(savedPlanPaths.length, 1);
+assert.equal(parentState.phase, 'failed');
+assert.ok(parentState.failure);
+assert.equal(parentState.failure.code, 'drift_unresolved');
+assert.equal(dependentTaskStarted, false);
+```
+
+Use the production parent/store with scripted worker/review results: the final correction is deliberately still actionable in this case. Add a zero-finding case with only one implementation child and no correction, and a success case that releases dependencies only after fresh checks/review/cleanup.
+
+- [ ] **Test repeated/recovery boundaries.** Cover more than three confirmed findings (display cap only), correction-introduced drift, a clean report for an older digest, a duplicate correction completion, reconnect during correction, approval continuation, a new finding after correction attempt 2, and abort while a correction waits for the model. Neither counter changes on attach/approval replay; changed code cannot inherit a previous clean result.
+- [ ] **Run green:** `npm run build:test`, then `npm test -- orchestrator-drift-review orchestrator-drift-correction orchestrator-run-store orchestrator-scheduler orchestrator-workers orchestrator-phase-runner`.
+
+**Acceptance:** Every completed code-changing delegated step has an evidence-backed critical review; non-impactful candidates cause no corrective dispatch; actionable findings are fixed through bounded `repo-agent` bullet prompts and verified/reviewed again; both budgets and dependency gates survive recovery.
+
 ### O6: Add a single HTTP lifecycle and CLI access
 
 **Files**
@@ -350,7 +521,7 @@ Build `result` by passing an actual scripted tool-execution record through `veri
 | `POST /orchestrator/decide` | Parent ID + discriminated phase/child target + exact execution/approval IDs + existing approval decision |
 | `POST /orchestrator/abort` | Parent ID; idempotent cancellation of the owned run |
 
-Define request/response/event schemas in the existing contracts module from O1. Results distinguish completed, approval-required, failed, aborted, and interrupted with task/attempt/child IDs and actionable failure evidence. Parent SSE heartbeats use the existing transport constant, and events are committed before delivery.
+Define request/response/event schemas in the existing contracts module from O1. Results distinguish completed, approval-required, failed, aborted, and interrupted with task/attempt-purpose/attempt/child IDs and actionable failure evidence. Include drift-review/correction phase events, both attempt counts, reviewed digest, and unresolved findings. Parent SSE heartbeats use the existing transport constant, and events are committed before delivery.
 
 - [ ] **Write failing HTTP and CLI tests.** Exercise task-only, `--plan`, custom orchestrator preset, invalid body/flag, duplicate start, reconnect with cursor, approval for a stale/wrong child, abort while queued, and status after completion. `--model` follows the strict routing contract if exposed; do not add an unvalidated override path.
 
@@ -370,7 +541,7 @@ These commands describe the product interface to implement; do not run them as t
 - [ ] **Run red:** `npm run build:test`, then `npm test -- orchestrator-http orchestrator-cli orchestrator-args cli-preset`.
 - [ ] **Implement routes and client with schema parsing.** A start request reserves the parent before launching work. CLI starts with JSON, then subscribes to the event endpoint using the existing SSE framing. A cursor is a validated nonnegative integer bounded by committed history. Decisions are forwarded only to the parent's current recorded phase/child approval; no command-string evaluation. The result supplies the exact execution ID and decision command, so the CLI need not guess whether it names a phase or child. Test both parent verification approvals and child approvals. CLI parses typed results, never treats process exit alone as worker completion.
 - [ ] **Dispatch preset execution without an outer model lock.** `presetKind === 'orchestrator'` routes to the parent service before ordinary `StreamedOperationEndpoint` admission. Refactor the endpoint's existing branch ownership so ordinary presets still use the shared admitted path; the orchestrator envelope itself acquires no model lease. Do not fake an orchestrator as one repo-search request or one long-held repo-agent lock.
-- [ ] **Preserve cancellation semantics.** Dropping a CLI/Web subscription detaches it, while explicit abort cancels the run. Propagate approval-required state with exact run/task/attempt IDs. Approval continuation keeps attempt and child identity unchanged. Return failure details for interrupted runs instead of restarting them on status reads.
+- [ ] **Preserve cancellation semantics.** Dropping a CLI/Web subscription detaches it, while explicit abort cancels the run. Propagate approval-required state with exact run/task/attempt-purpose/attempt IDs. Approval continuation keeps purpose, attempt, and child identity unchanged for both implementation and drift-fix children. Return failure details for interrupted runs instead of restarting them on status reads.
 - [ ] **Run green:** `npm run build:test`, then `npm test -- orchestrator-http orchestrator-cli orchestrator-args cli-command-catalog cli-preset cli-help streamed-repo-agent-endpoint`.
 
 **Acceptance:** Direct command and preset invocation share one parent lifecycle; a disconnected client cannot duplicate work; all public IO is validated and parent/child identities remain distinct.
@@ -390,10 +561,10 @@ These commands describe the product interface to implement; do not run them as t
 
 - Settings action: `{ type: 'set-orchestrator-max-subagents'; presetId: string; value: number }` and corresponding `setMaxSubagents` action.
 - `ChatSessionOperationKindSchema` gains `orchestrator`; chat operation descriptors route that kind to the parent service, not `ChatRepoOperationRunner`.
-- `OrchestratorRunPanel` consumes canonical parent/task state and typed start/decide/abort actions. It shows child run links and verification evidence rather than duplicating child transcripts.
+- `OrchestratorRunPanel` consumes canonical parent/task state and typed start/decide/abort actions. It shows child run links, verification evidence, and critical drift findings rather than duplicating child transcripts. Distinguish implementation and correction attempt counts; a completed implementation child is still pending while drift is reviewed/resolved.
 - The parent envelope identifies the orchestration. Individual parent inference phases and child runs carry actual model usage; total metrics count each underlying inference once.
 
-- [ ] **Write failing settings and chat tests.** Show concurrency only for orchestrator presets, default 1, valid save/reload, invalid noninteger/zero rejection. Selecting an orchestrator changes the action to “Run orchestrator”. Reload must attach to the existing parent; stop must abort its children. Surface “Attempt 1 of 2”/“Attempt 2 of 2”, plan path, failed checks, and required approval.
+- [ ] **Write failing settings and chat tests.** Show concurrency only for orchestrator presets, default 1, valid save/reload, invalid noninteger/zero rejection. Selecting an orchestrator changes the action to “Run orchestrator”. Reload must attach to the existing parent; stop must abort its children. Surface “Implementation attempt 1 of 2”/“Drift correction 1 of 2”, plan path, failed checks, and required approval. Show “No actionable drift” for a clean review, or up to three confirmed findings plus the remaining count, with concrete impact/fix/evidence. Do not present dismissed cosmetic suggestions as a user action list.
 
 ```tsx
 const options = preset.orchestrator;
@@ -415,7 +586,7 @@ Render this only after narrowing `preset.presetKind === 'orchestrator'` and veri
 - [ ] **Run red:** `npm run build:test`, then `npm test -- dashboard/tests/orchestrator-run-panel.test.tsx dashboard/tests/chat-tab.test.tsx dashboard/tests/presets-section.test.tsx`.
 - [ ] **Implement the parent operation UI/transport.** Reuse existing chat submission IDs, journal/broadcast attachment, approvals, and stop ownership. Link the chat operation to one orchestrator parent run and forward its committed phases/task summaries. Preserve the current uncommitted recovery/reattachment changes; extend their contracts, not a parallel Web operation path.
 - [ ] **Keep per-phase model evidence accurate.** A parent can plan on A, wait while a child runs on B, and review on A or inherited B. Do not label the entire orchestration with the chat's creation model. Record actual model snapshots on inference phases and existing child runs. The parent has no additional inference usage just for supervising; derived aggregate views must not add their totals again to global metrics.
-- [ ] **Test cross-surface lifecycle.** Start in Web, read in CLI/status, reload Web, approve once, and verify only one child continues. Stop during a child queue wait removes that waiter. A terminal run no longer shows running even if its old SSE socket reconnects.
+- [ ] **Test cross-surface lifecycle.** Start in Web, read in CLI/status, reload Web, approve once, and verify only one child continues. Repeat during a drift correction and verify neither budget resets, the reviewed digest/findings persist, and dependents remain gated. Stop during a child queue wait removes that waiter. A terminal run no longer shows running even if its old SSE socket reconnects.
 - [ ] **Run green:** `npm run test:dashboard`, then `npm test -- orchestrator-http status-server-chat-operation-attach status-server-chat-stop inference-throughput-operations`.
 
 **Acceptance:** The new preset is usable through both surfaces; settings enforce the cap; task/attempt/model evidence survives reattachment; usage is not double-counted.
@@ -440,6 +611,13 @@ Render this only after narrowing `preset.presetKind === 'orchestrator'` and veri
 | First attempt fails | Second instruction includes actual failure evidence and retained partial work |
 | Second attempt fails | No third child; no dependent task; terminal report lists changes and checks |
 | Worker claims success incorrectly | Parent verification fails and consumes the retry policy |
+| Code changed with no impactful drift | Review runs; no manufactured findings and no correction child |
+| Cosmetic or pre-existing debt only | No actionable finding or correction dispatch |
+| Confirmed code drift | `repo-agent` gets bounded findings/fix bullets without a second plan file |
+| Implementation succeeded on attempt 2 | Separate drift-correction attempts 1 and 2 remain available |
+| Correction introduces drift/regression | Revalidate/review; reuse the same correction pool; no recursive new budget |
+| Second correction fails | Stop with unresolved evidence; no third correction or hidden parent fix |
+| No-op correction or stale clean review | Existing findings/change digest keep the task gate closed |
 | Parent A / child B / one model slot | Parent releases before child; no deadlock; routing stays consistent |
 | Resident-model queue | Another B worker can precede an A review; no fairness exception |
 | Reconnect/duplicate submit/approval | Stable parent/child IDs and attempt count |
@@ -457,9 +635,9 @@ assert.equal(dependentTaskStarted, false);
 assert.equal(activeChildCount, 0);
 ```
 
-In the success variant, attempt 2 passes, its task becomes completed after cleanup, and the dependent task receives its first attempt, not a continuation of the predecessor's budget.
+This scenario has two functionally failed implementation attempts, so no corrective child is eligible. In the success variant, implementation attempt 2 passes, its task becomes completed only after the current drift gate and cleanup pass, and the dependent task receives its first attempt. Add O5b's four-dispatch scenario to prove two implementation attempts and two correction attempts are independently bounded, and neither counter resets on re-review/reattachment.
 
-- [ ] **Document operation rules.** Explain model inheritance, concurrency as a cap rather than a promise of parallel modifications, one retry with updated instructions, plan output location, verification evidence, approvals, reconnect/abort, and interrupted-run recovery. Document the difference between a completed child and a completed task. Keep CLI help and Web labels consistent.
+- [ ] **Document operation rules.** Explain model inheritance, concurrency as a cap rather than a promise of parallel modifications, separate two-attempt implementation/correction budgets, plan output location, verification evidence, approvals, reconnect/abort, and interrupted-run recovery. Explain the critical drift threshold, valid zero-finding outcome, direct bullet-based `repo-agent` fixes, and review after correction. Document the difference between a completed child and a completed task. Keep CLI help and Web labels consistent.
 - [ ] **Run focused then full gates.**
 
 ```powershell
@@ -471,7 +649,7 @@ npm run typecheck
 npm run lint
 ```
 
-- [ ] **Review the implementation against every confirmed requirement.** Verify actual tool policies, not only prompts; check parent lease release, child cap ownership, durable retry counts, plan-change handling, approval-denial behavior, and no duplicate model/usage identities. Remove obsolete replaced paths and task-owned temp files. Do not commit or revert unrelated changes.
+- [ ] **Review the implementation against every confirmed requirement.** Verify actual tool policies, not only prompts; check parent lease release, child cap ownership, both durable attempt counters, drift trigger/scope/evidence freshness, rejection of cosmetic/speculative findings, bullet-only correction dispatch, plan-change handling, approval-denial behavior, and no duplicate model/usage identities. Remove obsolete replaced paths and task-owned temp files. Do not commit or revert unrelated changes.
 - [ ] **Report outcome and limits.** List changed areas, command evidence, failures, and any unverified live-model behavior. Keep the initial user-requested scope; defer unrelated agent-framework, distributed scheduling, or worktree features.
 
-**Acceptance:** All three requested features work together across CLI/Web and failure/recovery boundaries; model scheduling, bounded delegation, independent verification, and preservation of user work are demonstrated by tests.
+**Acceptance:** All three requested features and the critical post-step drift gate work together across CLI/Web and failure/recovery boundaries; model scheduling, bounded implementation/correction delegation, independent verification, and preservation of user work are demonstrated by tests.

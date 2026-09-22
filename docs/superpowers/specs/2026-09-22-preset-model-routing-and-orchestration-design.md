@@ -11,6 +11,9 @@ Status: implementation design; product code is unchanged. Based on the working t
 5. Add an `orchestrator` preset. It accepts a task or implementation plan, validates an existing plan, writes a Markdown implementation plan when needed, delegates tasks to `repo-agent` or `repo-search`, verifies each result, and cleans up owned temporary artifacts.
 6. `maxSubagents` is the maximum concurrent children, default **1**. Serialize modifications in the shared checkout; independent read-only children can run concurrently.
 7. Each executable task has at most **2 child attempts**. After the first failure, update instructions from the failure evidence and dispatch once more. After the second failure, stop. An approval continuation remains the same attempt.
+8. After every completed delegated step that changes code, the orchestrator performs a critical `reflect-session-drift` review before advancing. Report and address only confirmed issues with concrete impact or lasting architectural/maintainability consequences.
+9. Delegate actionable drift corrections to `repo-agent`. A bounded bullet prompt containing the findings and how to fix them is sufficient; no additional Markdown implementation plan is required for that correction.
+10. Drift corrections have a **separate two-attempt budget per code-changing step**, independent of its two implementation attempts. Re-reviewing correction output or finding another issue does not reset that correction budget.
 
 ## Project constraints
 
@@ -131,7 +134,7 @@ Each task defines: ID/title, dependency IDs, worker preset ID (`repo-agent` or `
 
 ### Supervision and model leases
 
-The orchestration service is a durable state machine: `preparing_plan -> validating_plan -> executing -> verifying -> cleaning -> completed`, with explicit `approval_required`, `failed`, and `aborted` outcomes. Task states and attempts are durable separately from the parent phase.
+The orchestration service is a durable state machine: `preparing_plan -> validating_plan -> executing -> verifying -> reviewing_drift -> cleaning -> completed`, with a bounded `correcting_drift -> verifying -> reviewing_drift` cycle when needed and explicit `approval_required`, `failed`, and `aborted` outcomes. Tasks with no code changes skip the drift phase. Task states, implementation attempts, and correction attempts are durable separately from the parent phase.
 
 Parent model calls are finite inference phases under the orchestrator preset. Release the parent model lease before starting or waiting for children. Children acquire ordinary model leases using their selected worker presets. Parent review phases join the same resident-model queue; they receive no secret priority exception. Waiting for children uses their completion/progress promises and subscriptions, not polling.
 
@@ -139,17 +142,43 @@ The host scheduler creates children directly; the model cannot forge ancestry or
 
 ### Concurrency and verification
 
-Count dispatched, queued, running, and approval-paused children toward `maxSubagents`; a child slot is released at its terminal state. Independent read-only tasks may overlap. A mutating task has exclusive repository ownership: it runs without other children reading or modifying that checkout. Hold that ownership through independent verification and cleanup. Repository-mutating validation commands also require exclusive ownership. The server registry owns this gate per canonical repository root across parent runs; a second orchestrator cannot acquire a separate writer gate for the same checkout. Server-owned standalone mutating workers also respect it. Acquire repository ownership before model admission to avoid holding a model while waiting for a writer's verification.
+Count dispatched, queued, running, and approval-paused children toward `maxSubagents`, including drift-fix workers; a child slot is released at its terminal state. Independent read-only tasks may overlap. A mutating task has exclusive repository ownership: it runs without other children reading or modifying that checkout. Hold that ownership through independent verification, drift review/correction, and cleanup. Repository-mutating validation commands also require exclusive ownership. The server registry owns this gate per canonical repository root across parent runs; a second orchestrator cannot acquire a separate writer gate for the same checkout. Server-owned standalone mutating workers also respect it. Acquire repository ownership before model admission to avoid holding a model while waiting for a writer's verification.
 
-Treat both the child terminal status and independent verification as authoritative inputs. A process exit code or prose claim of success cannot complete a task. The parent reviews changed files/diff against the pre-attempt baseline, executes the plan's verification, and checks acceptance criteria before releasing dependencies. Read-only tasks require cited, checked repository evidence rather than a fabricated test command.
+Treat both the child terminal status and independent verification as authoritative inputs. A process exit code or prose claim of success cannot complete a task. The parent reviews changed files/diff against the pre-attempt baseline, executes the plan's verification, checks acceptance criteria, and clears the code-drift gate before releasing dependencies. Read-only tasks require cited, checked repository evidence rather than a fabricated test command.
 
-On first task failure, retain its diff and evidence, update the instruction with the exact observed failure and remaining acceptance criteria, and start attempt 2 against the current checkout. The second instruction explicitly preserves successful partial work and forbids restarting unrelated tasks. On a second failure, stop scheduling, settle/cancel owned active children, preserve changes and evidence, and report the failed task. No third attempt, hidden parent implementation attempt, or automatic plan rewrite that resets the budget.
+On first implementation failure, retain its diff and evidence, update the instruction with the exact observed failure and remaining acceptance criteria, and start implementation attempt 2 against the current checkout. Include any confirmed drift from the failed attempt in those updated instructions. The second instruction explicitly preserves successful partial work and forbids restarting unrelated tasks. On a second implementation failure, stop scheduling, settle/cancel owned active children, preserve changes and evidence, and report the failed task. No third implementation attempt, hidden parent implementation attempt, or automatic plan rewrite that resets the budget. The separate drift-fix budget applies after functional verification succeeds; it cannot disguise another attempt at a failed implementation.
 
 Approval pauses resume the same attempt. Record whether each approval belongs to a parent inference phase or a child, with its exact execution and approval IDs. A denial must not be evaded by redispatching the same forbidden action. Abort cancels queued model requests and active children and waits for their owned processes to settle before cleanup.
 
+### Critical drift review after code changes
+
+Use the review criteria from the user-invoked [reflect-session-drift skill](C:/Users/denys/.codex/skills/reflect-session-drift/SKILL.md), adapted to one delegated step's working set. The skill itself diagnoses; the user separately requested the correction dispatches described here. Encode the reviewed rubric in the product's orchestrator prompts and contracts, rather than making installed SiftKit depend on this user's absolute skill path.
+
+A step is the independently delegated task/step whose worker returns control to the parent, not an individual edit or test command inside its TDD cycle. Review every such unit that changes source, tests, scripts, or behavior-affecting configuration, including retry and drift-correction output. Detect changes from actual before/after evidence, not the worker's claim or the preset name. Skip this gate for an unchanged tree or solely prose/log/artifact changes. Do not postpone all reviews until the entire plan finishes.
+
+Review the step's attributable diff, code it read/touched, and immediate callers/siblings needed to confirm consequences. Read applicable repository instructions, including relevant `AGENTS.md`/`CLAUDE.md` and configured global instructions. Pre-existing unrelated debt is out of scope unless this step made it worse. Preserve the initial dirty baseline.
+
+Only accept a finding when all of these hold:
+
+- It is introduced or worsened by this step and anchored to verified current `file:line` evidence and a short code snippet.
+- It conflicts with an applicable directive or the accepted architecture/requirements.
+- It has a concrete correctness, reliability, security, performance, or lasting maintainability consequence. A style preference without that consequence is not actionable.
+- The proposed fix removes the cause with a proportionate change and names affected callers/tests. For overengineering, identify a simpler structure that satisfies the same requirement.
+- The parent has considered legitimate reasons for the implementation and can still justify the finding with high confidence. Drop unsupported or speculative candidates.
+
+Check incomplete refactors and special-case patches, stale shims/parallel paths, duplicated behavior, unjustified hardcoding, unsafe type/IO handling, needless function indirection, disproportionate abstractions, and material test gaps. Do not automatically flag deliberate domain constants, external-API callbacks, necessary state ownership, allowed `as const`/`satisfies`, formatting, naming preferences, or speculative future generality.
+
+Zero findings is a valid and desirable result for a sound change. Rank confirmed findings by impact; the user-facing report shows up to the top three with the skill's What/Purpose/Impact/Fix/Context evidence. If more qualify, retain the remaining confirmed findings for correction and report their count; never invent findings to fill a quota or discard unresolved material findings because only three are displayed.
+
+For each correction dispatch, send a direct bullet prompt specifying the finding IDs, affected files/lines, observed consequence, exact refactor/fix direction, allowed scope, acceptance checks, and preservation of successful work. Use the existing `repo-agent` worker lifecycle, model routing, approvals, concurrency cap, and repository ownership. The parent releases its model lease while the correction runs and does not implement the correction itself. Re-run affected verification and the drift review on the resulting code before marking the gate clean. The task's dependents remain blocked until functional verification, drift resolution, and cleanup all pass.
+
+Reserve correction attempts under the stable parent/task identity with purpose `drift_fix`, separately from purpose `implementation`. A successful implementation therefore may have up to two additional drift-fix dispatches. The correction budget is shared by all findings and re-reviews of that step, not renewed for each finding or generated report. On the first unsuccessful correction, dispatch the second with updated observed evidence. On the second unsuccessful correction, stop and report unresolved findings; do not recurse into a new remediation task or perform a hidden parent fix. A correction that introduces a functional regression must resolve it within the same correction budget.
+
+Persist each drift report's reviewed change digest, scope, confirmed findings, finding resolutions, correction child IDs, and both counters. A clean report only applies to the exact reviewed code. Revalidate anchors before a correction dispatch and invalidate a clean gate after subsequent code changes. Reconnects and approval continuations resume the same correction attempt; stale review results cannot complete changed code.
+
 ### Persistence, cleanup, and recovery
 
-Persist parent ID, plan hash/path, task manifest, dependency/task state, attempt number, child run IDs, approval IDs, verification results, and sequence-numbered events before their external effects are reported. Reserve an attempt and child ID before dispatch; a disconnect cannot dispatch it again.
+Persist parent ID, plan hash/path, task manifest, dependency/task state, attempt purpose and number, child run IDs, approval IDs, verification/drift results, and sequence-numbered events before their external effects are reported. Reserve an attempt and child ID before dispatch; a disconnect cannot dispatch it again.
 
 A Web reload or CLI reattachment subscribes to the existing run. A server restart marks an interrupted run explicitly and reconciles child states; it never silently reruns uncertain modifications. Resumption must retain attempt counts and reconcile the current diff before further work.
 
@@ -160,8 +189,8 @@ Capture the initial dirty-file baseline, retain user edits, and keep generated p
 Implement the linked plans in order:
 
 1. `../plans/2026-09-22-preset-model-routing.md`: schema/migration, target resolution, lifecycle, resident-model queue, all operation surfaces, settings, integrated validation.
-2. `../plans/2026-09-22-orchestrator-preset.md`: contracts/state, plan preparation, workers, supervision/retries, verification/cleanup, CLI/Web, integration.
+2. `../plans/2026-09-22-orchestrator-preset.md`: contracts/state, plan preparation, workers, supervision/retries, verification/cleanup, critical drift review and bullet-based corrections, CLI/Web, integration.
 
-End-to-end acceptance includes A/B routing and sticky selection, `B,A,C,A` queue reordering, an old chat using the newly active model, an existing valid plan, generated/repaired plans, read-only concurrency, serialized mutations, exactly two failed attempts, approval continuation, disconnect/abort/restart recovery, and preservation of pre-existing edits.
+End-to-end acceptance includes A/B routing and sticky selection, `B,A,C,A` queue reordering, an old chat using the newly active model, an existing valid plan, generated/repaired plans, read-only concurrency, serialized mutations, exactly two failed implementation attempts, zero-finding and actionable drift reviews, scoped bullet-only correction dispatches, independent two-attempt correction limits, approval continuation, disconnect/abort/restart recovery, and preservation of pre-existing edits.
 
 The principal accepted operational tradeoff is unbounded model affinity: a parent review or other-model request can wait until no matching request remains, subject to its normal timeout. Do not hide that condition as a hung worker.

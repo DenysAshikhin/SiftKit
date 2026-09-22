@@ -1,6 +1,6 @@
 import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport } from '@siftkit/contracts';
 import type { SiftConfig } from '../config/types.js';
-import type { ChatSession, ChatSessionSummary } from '../state/chat-sessions.js';
+import type { ChatSession, StoredChatSessionSummary } from '../state/chat-sessions.js';
 import { buildChatPromptContext } from './chat-prompt-context.js';
 import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.js';
 import { buildChatSessionThroughput } from './chat-turn-telemetry.js';
@@ -27,7 +27,7 @@ export function toWireChatSession(config: SiftConfig, session: ChatSession) {
 }
 
 /** The rail's row: the state summary as the wire schema declares it, which keeps the config out of the listing. */
-export function toWireChatSessionSummary(summary: ChatSessionSummary) {
+export function toWireChatSessionSummary(summary: StoredChatSessionSummary) {
   return ChatSessionSummarySchema.parse(summary);
 }
 
