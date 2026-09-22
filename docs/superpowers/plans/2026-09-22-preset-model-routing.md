@@ -216,7 +216,7 @@ return ModelRequestContextSchema.parse({
 - Config store: `persistAppliedModelSelection(configPath: string, expected: SiftConfig, applied: ModelRuntimePreset): boolean`; returns false when a newer active-selection or target-profile edit prevents writeback.
 - Both requested and administrative readiness share one transition implementation and blocker lifecycle.
 
-- [ ] **Write failing coordinator tests using `createCoordinator`/`disposeCoordinator`.** Verify sticky target selection, same-key no-op, same ID with a changed loading key, rollback behavior, and a save that lands while `ensurePresetReady` is blocked. Use the recording runtime for deterministic event assertions.
+- [x] **Write failing coordinator tests using `createCoordinator`/`disposeCoordinator`.** Verify sticky target selection, same-key no-op, same ID with a changed loading key, rollback behavior, and a save that lands while `ensurePresetReady` is blocked. Use the recording runtime for deterministic event assertions.
 
 ```typescript
 test('an automatic request switch remains selected after readiness is checked again', async () => {
@@ -238,8 +238,8 @@ test('an automatic request switch remains selected after readiness is checked ag
 });
 ```
 
-- [ ] **Run red:** `npm run build:test`, then `npm test -- preset-runtime-coordinator`.
-- [ ] **Implement loading identity using the adapter.** Derive the key from normalized endpoint/backend/ownership, model request identity, the actual `buildLoadRequest`, and the actual managed `buildLaunchEnvironment`. Include engine launch configuration that affects process identity. For an external server, omit managed-only environment fields while retaining its load request and admission capacity. Do not include profile ID/label, sampler settings, or idle timers. Keep key construction and actual loading on the same normalized inputs.
+- [x] **Run red:** `npm run build:test`, then `npm test -- preset-runtime-coordinator`.
+- [x] **Implement loading identity using the adapter.** Derive the key from normalized endpoint/backend/ownership, model request identity, the actual `buildLoadRequest`, and the actual managed `buildLaunchEnvironment`. Include engine launch configuration that affects process identity. For an external server, omit managed-only environment fields while retaining its load request and admission capacity. Do not include profile ID/label, sampler settings, or idle timers. Keep key construction and actual loading on the same normalized inputs.
 
 ```typescript
 return JSON.stringify({
@@ -255,12 +255,12 @@ return JSON.stringify({
 
 The existing runtime also has engine/process launch settings: append the same normalized engine identity used when spawning; do not drop those settings from equality. Use a shared method if the current process signature must be expanded. Replace `residentPresetId` checks that reload equivalent profiles with the canonical key while retaining current profile metadata.
 
-- [ ] **Implement targeted readiness and conditional persistence.** If ready with the same key, update the applied profile/request settings without unloading. Otherwise require an empty active map, unload using the existing runtime, load target, then publish applied state. Wrap every transition with one `finally` that clears blockers. Preserve the actual managed Tabby behavior, which may stop its process on unload.
+- [x] **Implement targeted readiness and conditional persistence.** If ready with the same key, update the applied profile/request settings without unloading. Otherwise require an empty active map, unload using the existing runtime, load target, then publish applied state. Wrap every transition with one `finally` that clears blockers. Preserve the actual managed Tabby behavior, which may stop its process on unload.
 
 For persistence, open the existing config transaction, reread latest data, compare the latest active ID and target record with `expected`, and update only the intended selection when unchanged. Preserve unrelated edits. When a user saved a newer model intent, retain that pending intent; running work consumes its snapshot.
 
-- [ ] **Cover failure branches.** Missing target fails before unloading; load failure never executes the request; rollback restores the old physical model when possible; both failures release blockers; unchanged failed config intent can be rolled back, newer settings cannot. Cancellation during an irreversible load suppresses execution; complete the transition/rollback before admitting another request.
-- [ ] **Run green:** `npm run build:test`, then `npm test -- preset-runtime-coordinator managed-inference-runtime model-preset-adapters model-residency-actions`.
+- [x] **Cover failure branches.** Missing target fails before unloading; load failure never executes the request; rollback restores the old physical model when possible; both failures release blockers; unchanged failed config intent can be rolled back, newer settings cannot. The coordinator completes irreversible transitions or rollback before releasing admission. Cancellation during that wait and suppression of execution are covered by M4 before granting its request lock.
+- [x] **Run green:** `npm run build:test`, then `npm test -- preset-runtime-coordinator managed-inference-runtime model-preset-adapters model-residency-actions`.
 
 **Acceptance:** Same residency requires zero lifecycle calls; a real change has exactly one ordered transition; subsequent inherited work uses the new selection; concurrent settings saves survive.
 
@@ -338,7 +338,7 @@ wake -> coalesce with current drain
 Cancellation after selection but before grant must remove the waiter and avoid engine execution. Release paths, config save notifications, and transition completion wake this drain. Keep idle unloading disabled while admissions/queued requests exist. Move target-switch errors through each endpoint's normal request error boundary rather than an unhandled rejection.
 
 - [ ] **Make affinity and timeout behavior explicit in tests.** Repeatedly add matching A work while B waits; B must never win merely due to age. A request using null follows A, including one enqueued before a previous switch. Preserve within-key arrival order. Existing timeout progression can reset on actual queue progress, but a model-affinity bypass alone cannot reset a waiter's deadline.
-- [ ] **Update queue diagnostics.** Expose requested operation/model identity, resolved target when known, resident key/profile, and waiting reason (`capacity`, `different_model`, `transition`). Keep `enqueuedAtUtc`/`waitMs`; describe the reported index as arrival order, not guaranteed service order. Add contract/renderer tests for the new fields.
+- [ ] **Update queue diagnostics.** Expose requested operation/model identity, resolved target when known, resident key/profile, and waiting reason (`capacity`, `different_model`, `transition`). Keep `enqueuedAtUtc`/`waitMs`; describe the reported index as arrival order, not guaranteed service order. Add contract/renderer tests for the new fields. Public residency keys must be opaque SHA-256 fingerprints of the internal key: the internal key includes engine environment values and must never appear in responses or logs. Cover this boundary with a diagnostic regression assertion.
 - [ ] **Run green:** `npm run build:test`, then `npm test -- model-request-selection model-request-queue model-request-queue-http model-residency-actions routes-model-residency`.
 
 **Acceptance:** The spec's ordering traces pass, active work is never unloaded, a transition is started once, and every granted lock has a matching ready runtime and immutable context.

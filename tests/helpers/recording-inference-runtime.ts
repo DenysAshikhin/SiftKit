@@ -52,13 +52,17 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloaded');
   }
 
-  /** Stable over id/label; any change to a load-affecting field changes the key. */
+  /**
+   * Stable over id/label and sampler/idle fields; changes when model, NumCtx,
+   * UBatchSize, KvCacheQuantization, or ParallelSlots change.
+   */
   getPresetResidencyKey(preset: ModelRuntimePreset): string {
     return JSON.stringify({
       model: preset.Model,
       numCtx: preset.NumCtx,
       uBatchSize: preset.UBatchSize,
       kvCacheQuantization: preset.KvCacheQuantization,
+      parallelSlots: preset.ParallelSlots,
     });
   }
 }
