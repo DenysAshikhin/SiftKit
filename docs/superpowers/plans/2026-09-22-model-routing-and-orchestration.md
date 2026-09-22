@@ -69,9 +69,8 @@ Report failing commands and unverified runtime scope. A planning-only closeout v
 
 ## Planning verification — 2026-09-22
 
-- Initial plan: four documents checked for valid internal links, balanced code fences, unresolved placeholders, and coverage of the confirmed policies; 15 implementation tasks before the drift-review amendment.
-- `npm run build:test`: passed.
-- `npm test -- preset- model-request-queue config- chat-operation settings-draft-editor dashboard-presets dashboard-settings`: 300 passed, 0 failed, 0 skipped.
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- Existing implementation was not changed. These are current-tree baseline results; the new behavior and its proposed tests are not implemented or live-validated yet.
+- Current plan: four documents checked for valid internal links, balanced code fences, unresolved placeholders, and policy consistency; 16 implementation tasks including the critical drift gate in O5b.
+- Documented drift schemas and the correction-prompt function passed a strict TypeScript check and runtime smoke assertions, including empty findings and a correction payload with no plan reference.
+- Original planning baseline: `npm run build:test` passed; `npm test -- preset- model-request-queue config- chat-operation settings-draft-editor dashboard-presets dashboard-settings` passed 300 tests, with 0 failures and 0 skipped. This suite was not repeated for the documentation amendment.
+- `npm run typecheck` and `npm run lint`: passed again after the drift-review amendment.
+- Existing implementation was not changed by this planning work. The new workflow tests and live-model drift-judgment calibration are not implemented or validated yet.

@@ -10,7 +10,7 @@ Status: implementation design; product code is unchanged. Based on the working t
 4. Existing chat sessions also use the current model for each new operation when their operation preset inherits it.
 5. Add an `orchestrator` preset. It accepts a task or implementation plan, validates an existing plan, writes a Markdown implementation plan when needed, delegates tasks to `repo-agent` or `repo-search`, verifies each result, and cleans up owned temporary artifacts.
 6. `maxSubagents` is the maximum concurrent children, default **1**. Serialize modifications in the shared checkout; independent read-only children can run concurrently.
-7. Each executable task has at most **2 child attempts**. After the first failure, update instructions from the failure evidence and dispatch once more. After the second failure, stop. An approval continuation remains the same attempt.
+7. Each executable task has at most **2 implementation attempts**. After the first implementation failure, update instructions from the failure evidence and dispatch once more. After the second implementation failure, stop. An approval continuation remains the same attempt; drift corrections have the independent budget in requirement 10.
 8. After every completed delegated step that changes code, the orchestrator performs a critical `reflect-session-drift` review before advancing. Report and address only confirmed issues with concrete impact or lasting architectural/maintainability consequences.
 9. Delegate actionable drift corrections to `repo-agent`. A bounded bullet prompt containing the findings and how to fix them is sufficient; no additional Markdown implementation plan is required for that correction.
 10. Drift corrections have a **separate two-attempt budget per code-changing step**, independent of its two implementation attempts. Re-reviewing correction output or finding another issue does not reset that correction budget.
@@ -34,7 +34,7 @@ These are implementation defaults proposed by this design, rather than additiona
 - Persist a successful automatic selection as `ActivePresetId`, so a config read or server restart does not silently restore the previous model. A newer explicit settings change wins over an automatic writeback.
 - “Same resident model” means the same backend loading configuration, not just the label or model name. Profiles with identical loading requirements but different samplers can share residency.
 - Keep existing idle unload behavior. Unloading for idle does not change which model is selected; a later inherited request reloads that selection.
-- A task is the retry unit. Its implementation steps remain inside one bounded worker dispatch, rather than receiving separate retry budgets.
+- A delegated task/step is the retry unit. Its inner TDD edits/checks remain inside one bounded worker dispatch, rather than receiving separate implementation retry budgets. The same delegated unit owns its independent drift-correction pool.
 - Once an orchestrator request is submitted, plan generation/validation and execution proceed within that request's authorization and existing approval mode. Normal tool approvals still apply.
 - Generated plans live at `docs/superpowers/plans/<date>-orchestrator-<run-id>.md`. Durable orchestration evidence is separate from a single run-owned scratch directory.
 
