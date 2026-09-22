@@ -27,7 +27,7 @@ import type {
   SiftConfig,
   WebSearchConfig,
 } from '../config/types.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../state/runtime-db.js';
 import { LOCAL_OWNER_ID } from '../assistant/storage/schema.js';
 import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
@@ -212,8 +212,7 @@ function parseWebSearchConfig(text: OptionalJsonValue): WebSearchConfig {
   }
 }
 
-function readConfigRow(databasePath: string): AppConfigRow | null {
-  const database = getRuntimeDatabase(databasePath);
+function readConfigRowFrom(database: RuntimeDatabase): AppConfigRow | null {
   const row = database.prepare(`
     SELECT
       version,
@@ -242,6 +241,10 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
     WHERE id = 1
   `).get();
   return row == null ? null : AppConfigRowSchema.parse(row);
+}
+
+function readConfigRow(databasePath: string): AppConfigRow | null {
+  return readConfigRowFrom(getRuntimeDatabase(databasePath));
 }
 
 function writeConfigRow(databasePath: string, row: AppConfigRow): void {
@@ -340,6 +343,54 @@ export function writeConfig(configPath: string, config: SiftConfig): void {
     throw new Error(`Assistant.Owner.Id must remain ${LOCAL_OWNER_ID}.`);
   }
   writeConfigRow(configPath, normalizeConfigToRow(config));
+}
+
+// Preserve newer selection or profile edits when an asynchronous transition finishes.
+function selectionUnchanged(row: AppConfigRow, expected: SiftConfig, presetId: string): boolean {
+  if (row.server_model_active_preset_id !== getNullableTrimmedString(expected.Server.ModelPresets.ActivePresetId)) return false;
+  const expectedRecord = expected.Server.ModelPresets.Presets.find((preset) => preset.id === presetId);
+  if (expectedRecord === undefined) return false;
+  const latestRecord = parseModelRuntimePresetArray(row.server_model_presets_json)
+    .find((preset) => preset.id === presetId);
+  return latestRecord !== undefined && JSON.stringify(latestRecord) === JSON.stringify(expectedRecord);
+}
+
+function updateActiveSelection(database: RuntimeDatabase, selection: ModelRuntimePreset): void {
+  database.prepare(`
+    UPDATE app_config
+    SET server_model_active_preset_id = ?, runtime_model = ?, server_external_server_enabled = ?, updated_at_utc = ?
+    WHERE id = 1
+  `).run(selection.id, selection.Model, selection.ExternalServerEnabled ? 1 : 0, new Date().toISOString());
+}
+
+// Compare and update the selection in one transaction, preserving unrelated config columns.
+export function persistAppliedModelSelection(configPath: string, expected: SiftConfig, applied: ModelRuntimePreset): boolean {
+  const database = getRuntimeDatabase(configPath);
+  return database.transaction((): boolean => {
+    const row = readConfigRowFrom(database);
+    if (row === null || !selectionUnchanged(row, expected, applied.id)) return false;
+    updateActiveSelection(database, applied);
+    return true;
+  })();
+}
+
+// Restore failed configuration only while both the selected and previous profiles are unchanged.
+export function restorePreviousModelSelection(configPath: string, expected: SiftConfig, previous: ModelRuntimePreset): boolean {
+  const database = getRuntimeDatabase(configPath);
+  return database.transaction((): boolean => {
+    const row = readConfigRowFrom(database);
+    if (row === null
+      || !selectionUnchanged(row, expected, previous.id)
+      || !selectionUnchanged(row, expected, expected.Server.ModelPresets.ActivePresetId)) return false;
+    const presets = parseModelRuntimePresetArray(row.server_model_presets_json)
+      .map((preset) => (preset.id === previous.id ? previous : preset));
+    database.prepare(`
+      UPDATE app_config
+      SET server_model_active_preset_id = ?, server_model_presets_json = ?, runtime_model = ?, server_external_server_enabled = ?, updated_at_utc = ?
+      WHERE id = 1
+    `).run(previous.id, JSON.stringify(presets), previous.Model, previous.ExternalServerEnabled ? 1 : 0, new Date().toISOString());
+    return true;
+  })();
 }
 
 export {

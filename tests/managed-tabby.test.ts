@@ -177,16 +177,23 @@ test('managed Tabby launches with the complete preset environment', async () => 
   });
 });
 
-test('managed Tabby reuses a process when preset settings are unchanged', async () => {
+test('managed Tabby reuses residency for equivalent profiles and endpoint spellings', async () => {
   await withTempEnv(async (root) => {
     await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-reuse');
     await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
 
-    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    await fixture.runtime.ensurePresetReady({
+      ...fixture.exl3Preset,
+      id: 'equivalent-profile',
+      label: 'Equivalent profile',
+      Temperature: 0.125,
+      BaseUrl: `${fixture.exl3Preset.BaseUrl}/ignored-path?unused=true`,
+    });
 
     assert.equal(fixture.runtime.getProcessState(), 'ready');
     assert.equal(fixture.runtime.getModelState(), 'ready');
     assert.equal(countStarts(fixture.startsPath), 1);
+    assert.equal(fs.existsSync(fixture.loadRequestsPath), false);
   });
 });
 

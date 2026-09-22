@@ -16,6 +16,9 @@ export abstract class ManagedInferenceRuntime {
   abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;
   abstract unloadPreset(): Promise<void>;
 
+  // Loading identity excludes profile metadata, sampler settings, and idle timers.
+  abstract getPresetResidencyKey(preset: ModelRuntimePreset): string;
+
   getProcessState(): InferenceProcessState {
     return this.processState;
   }

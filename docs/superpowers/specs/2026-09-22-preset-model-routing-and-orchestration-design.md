@@ -22,6 +22,7 @@ Status: implementation authorized on 2026-09-22 through defined `repo-agent` tas
 - Reuse existing runtime, inference, approvals, tool execution, run logging, and chat transport.
 - No worktrees; preserve unrelated changes.
 - For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
+- Delegate review corrections and further implementation fixes to repo-agent with bounded findings and exact instructions. The primary owns review, independent validation, planning, and commits.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
 - TDD for implementation. Run relevant tests, broader applicable suites, `npm run typecheck`, and `npm run lint` before implementation closeout.
 - Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.

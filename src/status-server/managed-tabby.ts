@@ -20,7 +20,7 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 function getBaseUrl(preset: ModelRuntimePreset): string {
-  return preset.BaseUrl ?? 'http://127.0.0.1:8098';
+  return new URL(preset.BaseUrl ?? 'http://127.0.0.1:8098').origin;
 }
 
 export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
@@ -32,7 +32,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private processBaseUrl: string | null = null;
   private processManaged: boolean | null = null;
   private processSignature: string | null = null;
-  private residentPresetId: string | null = null;
+  private residentResidencyKey: string | null = null;
   private loadPromise: Promise<void> | null = null;
   private readonly adapter: Exl3PresetAdapter;
 
@@ -85,7 +85,9 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       );
     }
     const launchEnvironment = managed ? this.adapter.buildLaunchEnvironment(preset) : null;
-    const processSignature = launchEnvironment ? JSON.stringify(launchEnvironment) : null;
+    const processSignature = launchEnvironment
+      ? JSON.stringify(this.getEngineIdentity(launchEnvironment))
+      : null;
     if (
       this.getProcessState() === 'ready'
       && (
@@ -98,7 +100,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (this.getProcessState() !== 'ready') {
       await this.startProcess(preset, launchEnvironment, processSignature);
     }
-    if (this.residentPresetId === preset.id && this.getModelState() === 'ready') return;
+    if (this.residentResidencyKey === this.getPresetResidencyKey(preset) && this.getModelState() === 'ready') return;
     if (this.loadPromise) return this.loadPromise;
     this.loadPromise = this.loadPreset(preset);
     try {
@@ -120,7 +122,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloading');
     try {
       await this.client.unload(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
-      this.residentPresetId = null;
+      this.residentResidencyKey = null;
       this.transitionModelTo('unloaded');
     } catch (error) {
       this.transitionModelTo('failed');
@@ -137,7 +139,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.processManaged = null;
       this.processSignature = null;
       this.currentPreset = null;
-      this.residentPresetId = null;
+      this.residentResidencyKey = null;
       this.transitionModelTo('unloaded');
       this.transitionProcessTo('stopped');
       return;
@@ -157,7 +159,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.processManaged = null;
     this.processSignature = null;
     this.currentPreset = null;
-    this.residentPresetId = null;
+    this.residentResidencyKey = null;
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');
   }
@@ -172,7 +174,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.processManaged = null;
     this.processSignature = null;
     this.currentPreset = null;
-    this.residentPresetId = null;
+    this.residentResidencyKey = null;
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');
   }
@@ -208,9 +210,10 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     });
     recorder.enableFlushQueue();
     this.recorder = recorder;
-    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
-      cwd: this.engine.WorkingDirectory,
-      env: { ...process.env, ...this.engine.Environment, ...launchEnvironment },
+    const launch = this.getEngineIdentity(launchEnvironment);
+    const child = spawn(launch.pythonPath, [launch.entrypoint], {
+      cwd: launch.workingDirectory,
+      env: { ...process.env, ...launch.environment },
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -277,7 +280,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       } else {
         await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
       }
-      this.residentPresetId = preset.id;
+      this.residentResidencyKey = this.getPresetResidencyKey(preset);
       this.transitionModelTo('ready');
     } catch (error) {
       this.transitionModelTo('failed');
@@ -306,5 +309,32 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   private shouldManage(preset: ModelRuntimePreset): boolean {
     return this.engine.Managed && !preset.ExternalServerEnabled;
+  }
+
+  // Use the same effective launch environment for identity and process creation.
+  private getEngineIdentity(launchEnvironment: Exl3LaunchEnvironment) {
+    return {
+      pythonPath: this.engine.PythonPath,
+      entrypoint: this.engine.Entrypoint,
+      workingDirectory: this.engine.WorkingDirectory,
+      environment: Object.fromEntries(
+        Object.entries({ ...this.engine.Environment, ...launchEnvironment })
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
+    };
+  }
+
+  // External servers retain load identity and admission capacity without managed launch fields.
+  getPresetResidencyKey(preset: ModelRuntimePreset): string {
+    const managed = this.shouldManage(preset);
+    return JSON.stringify({
+      backend: preset.Backend,
+      baseUrl: getBaseUrl(preset),
+      managed,
+      model: preset.Model,
+      load: this.adapter.buildLoadRequest(preset),
+      launch: managed ? this.getEngineIdentity(this.adapter.buildLaunchEnvironment(preset)) : null,
+      parallelSlots: preset.ParallelSlots,
+    });
   }
 }

@@ -16,6 +16,7 @@
 - No `any`, type assertions, non-null assertions, namespace imports, or schema-duplicating types.
 - No worktrees; preserve unrelated changes.
 - For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
+- Delegate review corrections and further implementation fixes to repo-agent with bounded findings and exact instructions. The primary owns review, independent validation, planning, and commits.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
 - Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.
 - Existing chats inherit the current model at each operation, not their creation-time model.
@@ -262,6 +263,14 @@ For persistence, open the existing config transaction, reread latest data, compa
 - [ ] **Run green:** `npm run build:test`, then `npm test -- preset-runtime-coordinator managed-inference-runtime model-preset-adapters model-residency-actions`.
 
 **Acceptance:** Same residency requires zero lifecycle calls; a real change has exactly one ordered transition; subsequent inherited work uses the new selection; concurrent settings saves survive.
+
+#### M3-C1: Correct the test runtime's capacity identity
+
+- Scope: `tests/helpers/recording-inference-runtime.ts` only. Add `ParallelSlots` to `RecordingInferenceRuntime.getPresetResidencyKey`; admission capacity is already part of the production Tabby key. Keep profile metadata, samplers, and idle timers excluded. Make the short fixture comment accurate about its tested fields.
+- Reproduce the current failures with `npm run build:test`, then `npm test -- model-request-queue`. The three failing cases are `preset switch pauses queued admission until the target preset is ready`, `switching to a single-slot preset drains all concurrent requests first`, and `preset switch arms idle for the preset that becomes active`: each incorrectly returns `ready` instead of `queued` because the fixture collapses the main/alt capacities into one residency.
+- Preserve those queue assertions and their same-model/different-capacity fixtures. Do not change production behavior, weaken tests, or implement M4.
+- Verify `npm test -- model-request-queue preset-runtime-coordinator managed-inference-runtime model-residency-actions`, then `npm run typecheck` (including lint). The primary independently runs broader validation.
+- Acceptance: capacity changes require draining all active requests; the three regressions pass, equivalent-capacity reuse still passes, and the diff stays within the named helper.
 
 ### M4: Replace FIFO with resident-model scheduling
 

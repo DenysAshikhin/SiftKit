@@ -8,7 +8,7 @@ import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
-import { readConfig, writeConfig } from './config-store.js';
+import { persistAppliedModelSelection, readConfig, restorePreviousModelSelection } from './config-store.js';
 
 const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
 
@@ -16,9 +16,9 @@ const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is i
 export class ExternalServerRestartError extends Error {}
 
 export class PresetRuntimeCoordinator {
-  private pendingPresetId: string | null = null;
+  private pendingTarget: ModelRuntimePreset | null = null;
   private pendingForceRestart = false;
-  private switchPromise: Promise<void> | null = null;
+  private switchPromise: Promise<SiftConfig> | null = null;
   private errorPhase: InferenceRuntimeErrorPhase | null = null;
   private error: string | null = null;
   private rollback: string | null = null;
@@ -62,14 +62,42 @@ export class PresetRuntimeCoordinator {
     const target = this.getPreset(presetId);
     if (
       this.presetsEqual(target, this.appliedModelPresetState.getPreset())
-      && this.pendingPresetId === null
+      && this.pendingTarget === null
       && this.runtime.getModelState() === 'ready'
-    ) return 'ready';
+    ) {
+      this.publishReadyPreset(target);
+      return 'ready';
+    }
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
-    this.setPendingSwitch(presetId, false);
-    if (this.hasActiveModelRequests()) return 'queued';
+    this.setPendingSwitch(target, false);
+    if (this.hasActiveModelRequests() && !this.hasReadyResidency(target)) return 'queued';
     await this.startPendingSwitch();
     return 'ready';
+  }
+
+  // Keep the target frozen while joining existing lifecycle work and preserve newer config saves.
+  async ensureRequestPresetReady(target: ModelRuntimePreset): Promise<void> {
+    const requested = structuredClone(target);
+    while (!this.canGrantModelRequest()) {
+      if (this.switchPromise !== null) await this.switchPromise;
+      else await this.waitForCurrentAdmissionBlocker();
+    }
+    const currentConfig = readConfig(this.configPath);
+    this.findPreset(currentConfig, requested.id);
+    if (this.runtime.getModelState() === 'ready'
+      && this.presetsEqual(requested, this.appliedModelPresetState.getPreset())) {
+      this.publishReadyPreset(requested);
+      persistAppliedModelSelection(this.configPath, currentConfig, requested);
+      return;
+    }
+    if (this.hasActiveModelRequests() && !this.hasReadyResidency(requested)) {
+      throw new Error(
+        `${this.activeModelRequests.size} model request(s) are in progress; a requested model switch must wait for them to complete.`,
+      );
+    }
+    this.setPendingSwitch(requested, false);
+    const expected = await this.startPendingSwitch();
+    persistAppliedModelSelection(this.configPath, expected, requested);
   }
 
   // Stops and re-readies the preset currently persisted in config, even when it is
@@ -87,7 +115,7 @@ export class PresetRuntimeCoordinator {
         `Preset '${configured.id}' uses an external inference server, so SiftKit does not own its lifecycle and cannot restart it.`,
       );
     }
-    this.setPendingSwitch(configured.id, true);
+    this.setPendingSwitch(configured, true);
     await this.startPendingSwitch();
   }
 
@@ -130,7 +158,7 @@ export class PresetRuntimeCoordinator {
   }
 
   canGrantModelRequest(): boolean {
-    return this.pendingPresetId === null && this.switchPromise === null && !this.residencyActionInProgress;
+    return this.pendingTarget === null && this.switchPromise === null && !this.residencyActionInProgress;
   }
 
   waitForCurrentAdmissionBlocker(): Promise<void> {
@@ -143,7 +171,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async applyIdleResidencyAction(presetId: string, action: 'unload'): Promise<boolean> {
-    if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
+    if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingTarget !== null) return false;
     if (this.residencyActionInProgress) return false;
     const runtime = this.runtime;
     if (runtime.getModelState() !== 'ready') return false;
@@ -160,7 +188,7 @@ export class PresetRuntimeCoordinator {
   }
 
   private refuseIfBusy(): ModelLifecycleActionResult | null {
-    if (this.switchPromise !== null || this.pendingPresetId !== null) {
+    if (this.switchPromise !== null || this.pendingTarget !== null) {
       return { status: 'busy', reason: 'A preset switch is in progress; retry once it completes.' };
     }
     if (this.hasActiveModelRequests()) {
@@ -213,7 +241,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async onModelRequestReleased(): Promise<void> {
-    if (!this.hasActiveModelRequests() && this.pendingPresetId !== null) await this.startPendingSwitch();
+    if (!this.hasActiveModelRequests() && this.pendingTarget !== null) await this.startPendingSwitch();
   }
 
   getStatus(): InferenceRuntimeStatus {
@@ -252,26 +280,30 @@ export class PresetRuntimeCoordinator {
       }
     }
     await runtime.stopProcess();
-    this.pendingPresetId = null;
+    this.pendingTarget = null;
   }
 
-  private setPendingSwitch(presetId: string, forceRestart: boolean): void {
-    if (this.pendingPresetId === null) this.beginAdmissionBlocker();
-    this.pendingPresetId = presetId;
+  private setPendingSwitch(target: ModelRuntimePreset, forceRestart: boolean): void {
+    if (this.pendingTarget === null) this.beginAdmissionBlocker();
+    this.pendingTarget = structuredClone(target);
     this.pendingForceRestart = forceRestart;
     this.errorPhase = null;
     this.error = null;
     this.rollback = null;
   }
 
-  private async startPendingSwitch(): Promise<void> {
-    if (this.switchPromise || this.pendingPresetId === null) return this.switchPromise ?? Promise.resolve();
-    const targetId = this.pendingPresetId;
-    this.switchPromise = this.executeSwitch(targetId, this.pendingForceRestart);
+  private async startPendingSwitch(): Promise<SiftConfig> {
+    if (this.switchPromise) return this.switchPromise;
+    if (this.pendingTarget === null) return readConfig(this.configPath);
+    const target = this.pendingTarget;
     try {
-      await this.switchPromise;
+      const expected = readConfig(this.configPath);
+      this.findPreset(expected, target.id);
+      this.switchPromise = this.executeSwitch(target, this.pendingForceRestart, expected);
+      return await this.switchPromise;
     } finally {
       this.switchPromise = null;
+      this.pendingTarget = null;
       this.pendingForceRestart = false;
       this.endAdmissionBlocker();
     }
@@ -307,18 +339,18 @@ export class PresetRuntimeCoordinator {
     resolve();
   }
 
-  private async executeSwitch(targetId: string, forceRestart: boolean): Promise<void> {
+  private async executeSwitch(target: ModelRuntimePreset, forceRestart: boolean, expected: SiftConfig): Promise<SiftConfig> {
     const previous = this.appliedModelPresetState.getPreset();
-    const target = this.getPreset(targetId);
     const runtime = this.runtime;
+    const reuseResidency = !forceRestart && this.hasReadyResidency(target);
     try {
-      await runtime.unloadPreset();
+      if (!reuseResidency) await runtime.unloadPreset();
       if (forceRestart) await runtime.stopProcess();
       await runtime.ensurePresetReady(target);
-      // Config already holds the requested preset: it is the saved intent this switch is
-      // applying. Writing it back here would clobber a newer save that landed mid-switch.
-      this.appliedModelPresetState.applyPreset(target);
-      this.pendingPresetId = null;
+      // An administrative switch applies a selection the user already saved; a requested switch
+      // persists its selection conditionally after this returns, so a newer save is never clobbered.
+      this.publishReadyPreset(target);
+      return expected;
     } catch (error) {
       this.fail('preset-switch', error instanceof Error ? error.message : String(error));
       let cleanupError: string | null = null;
@@ -335,27 +367,19 @@ export class PresetRuntimeCoordinator {
         if (forceRestart && runtime.getProcessState() !== 'stopped') {
           await runtime.stopProcess();
         }
-        this.restorePreset(previous);
+        // Restore the previous selection only while the config is unchanged; a newer save keeps its intent.
+        const restored = restorePreviousModelSelection(this.configPath, expected, previous);
         await runtime.ensurePresetReady(previous);
         this.appliedModelPresetState.applyPreset(previous);
-        this.pendingPresetId = null;
-        this.rollback = cleanupError
-          ? `Restored preset '${previous.id}'. Target cleanup warning: ${cleanupError}`
-          : `Restored preset '${previous.id}'.`;
+        const warning = cleanupError ? ` Target cleanup warning: ${cleanupError}` : '';
+        this.rollback = restored
+          ? `Restored preset '${previous.id}'.${warning}`
+          : `Kept the newer saved selection; running preset is '${previous.id}'.${warning}`;
       } catch (rollbackError) {
         this.rollback = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
       }
       throw error;
     }
-  }
-
-  private restorePreset(preset: ModelRuntimePreset): void {
-    const config = readConfig(this.configPath);
-    const index = config.Server.ModelPresets.Presets.findIndex((candidate) => candidate.id === preset.id);
-    if (index < 0) throw new Error(`Model preset '${preset.id}' cannot be restored because it no longer exists.`);
-    config.Server.ModelPresets.Presets[index] = preset;
-    config.Server.ModelPresets.ActivePresetId = preset.id;
-    writeConfig(this.configPath, config);
   }
 
   private findPreset(config: SiftConfig, presetId: string): ModelRuntimePreset {
@@ -376,6 +400,18 @@ export class PresetRuntimeCoordinator {
 
   private presetsEqual(left: ModelRuntimePreset, right: ModelRuntimePreset): boolean {
     return JSON.stringify(left) === JSON.stringify(right);
+  }
+
+  private hasReadyResidency(target: ModelRuntimePreset): boolean {
+    return this.runtime.getModelState() === 'ready'
+      && this.runtime.getPresetResidencyKey(target)
+        === this.runtime.getPresetResidencyKey(this.appliedModelPresetState.getPreset());
+  }
+
+  private publishReadyPreset(target: ModelRuntimePreset): void {
+    this.appliedModelPresetState.applyPreset(target);
+    this.errorPhase = null;
+    this.error = null;
   }
 
   private fail(phase: InferenceRuntimeErrorPhase, error: string): void {

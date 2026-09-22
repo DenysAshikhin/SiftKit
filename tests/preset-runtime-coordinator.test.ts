@@ -12,6 +12,7 @@ import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recordi
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
+import type { ModelRuntimePreset } from '../src/config/types.js';
 
 function createConfigPath(): string {
   const root = createManagedTempDir('siftkit-preset-coordinator-');
@@ -23,9 +24,9 @@ function createConfigPath(): string {
     ActivePresetId: 'exl3-main',
     Presets: [
       { ...base, id: 'exl3-main', label: 'EXL3 main', Backend: 'exl3' },
-      { ...base, id: 'exl3-alt', label: 'EXL3 alt', Backend: 'exl3' },
-      { ...base, id: 'broken-exl3', label: 'Broken EXL3', Backend: 'exl3' },
-      { ...base, id: 'external-exl3', label: 'External EXL3', Backend: 'exl3', ExternalServerEnabled: true },
+      { ...base, id: 'exl3-alt', label: 'EXL3 alt', Backend: 'exl3', Model: 'alt-model' },
+      { ...base, id: 'broken-exl3', label: 'Broken EXL3', Backend: 'exl3', Model: 'broken-model' },
+      { ...base, id: 'external-exl3', label: 'External EXL3', Backend: 'exl3', Model: 'external-model', ExternalServerEnabled: true },
     ],
   };
   writeConfig(configPath, config);
@@ -76,6 +77,55 @@ function persistActivePreset(configPath: string, presetId: string): void {
   const config = readConfig(configPath);
   config.Server.ModelPresets.ActivePresetId = presetId;
   writeConfig(configPath, config);
+}
+
+type Deferred = { promise: Promise<void>; resolve: () => void };
+
+function createDeferred(): Deferred {
+  let resolveDeferred: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolveDeferred = resolve;
+  });
+  return {
+    promise,
+    resolve: () => {
+      if (!resolveDeferred) throw new Error('Deferred promise was not initialized.');
+      resolveDeferred();
+    },
+  };
+}
+
+/** Recording runtime that can hold a model load open so a save can land mid-transition. */
+class BlockingRecordingRuntime extends RecordingRuntime {
+  blockedTransition: 'ensure' | null = null;
+  readonly transitionStarted = createDeferred();
+  private readonly releaseTransitionDeferred = createDeferred();
+
+  releaseTransition(): void {
+    this.releaseTransitionDeferred.resolve();
+  }
+
+  setBlockedTransition(transition: 'ensure' | null): void {
+    this.blockedTransition = transition;
+  }
+
+  override async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (this.blockedTransition === 'ensure') {
+      this.transitionStarted.resolve();
+      await this.releaseTransitionDeferred.promise;
+    }
+    await super.ensurePresetReady(preset);
+  }
+}
+
+function createBlockingCoordinator(failingPresetIds = new Set<string>()): CoordinatorFixture & { runtime: BlockingRecordingRuntime } {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const activeModelRequests = new Map<string, ModelRequestLock>();
+  const appliedState = new AppliedModelPresetState(getActiveModelPreset(readConfig(configPath)));
+  const runtime = new BlockingRecordingRuntime('exl3', events, failingPresetIds);
+  const coordinator = new PresetRuntimeCoordinator(configPath, runtime, activeModelRequests, appliedState);
+  return { coordinator, appliedState, runtime, events, configPath, activeModelRequests };
 }
 
 async function applyAltPreset(fixture: CoordinatorFixture): Promise<void> {
@@ -286,6 +336,7 @@ test('editing the active preset reloads it and rolls back the previous definitio
     const activePreset = nextConfig.Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main');
     if (!activePreset) throw new Error('Active preset is missing');
     activePreset.label = 'Changed EXL3';
+    activePreset.Model = 'changed-load-model';
     writeConfig(configPath, nextConfig);
 
     await assert.rejects(coordinator.ensureActivePresetReady(), /load failed: exl3-main/u);
@@ -398,6 +449,225 @@ test('ensureActivePresetReady applies a preset re-saved during its own switch', 
       'unload:exl3', 'load:broken-exl3',
     ]);
     assert.equal(coordinator.getStatus().activePresetId, 'broken-exl3');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('an automatic request switch remains selected after readiness is checked again', async () => {
+  const fixture = createCoordinator();
+  try {
+    await fixture.coordinator.initialize();
+    const target = readConfig(fixture.configPath).Server.ModelPresets.Presets
+      .find(preset => preset.id === 'exl3-alt');
+    assert.ok(target);
+    await fixture.coordinator.ensureRequestPresetReady(target);
+    fixture.events.length = 0;
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.equal(fixture.coordinator.getStatus().activePresetId, target.id);
+    assert.equal(readConfig(fixture.configPath).Server.ModelPresets.ActivePresetId, target.id);
+    assert.deepEqual(fixture.events, []);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a same-residency request updates the applied profile without lifecycle calls', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath, appliedState } = fixture;
+  try {
+    await coordinator.initialize();
+    const current = readConfig(configPath).Server.ModelPresets.Presets
+      .find(preset => preset.id === 'exl3-main');
+    assert.ok(current);
+    const target = { ...current, label: 'Renamed main' };
+    events.length = 0;
+
+    await coordinator.ensureRequestPresetReady(target);
+
+    assert.deepEqual(events, []);
+    assert.equal(coordinator.getStatus().activePresetLabel, 'Renamed main');
+    assert.equal(appliedState.getPreset().label, 'Renamed main');
+    assert.equal(fixture.runtime.preparedPreset?.label, 'Renamed main');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a same-id request with a changed loading key performs one ordered transition', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath, appliedState } = fixture;
+  try {
+    await coordinator.initialize();
+    const current = readConfig(configPath).Server.ModelPresets.Presets
+      .find(preset => preset.id === 'exl3-main');
+    assert.ok(current);
+    const target = { ...current, Model: 'changed-model' };
+    events.length = 0;
+
+    await coordinator.ensureRequestPresetReady(target);
+
+    assert.deepEqual(events, ['unload:exl3', 'load:exl3-main']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(appliedState.getPreset().Model, 'changed-model');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a failed requested switch rolls back the previous model and releases the admission blocker', async () => {
+  const fixture = createCoordinator(new Set(['broken-exl3']));
+  const { coordinator, events, configPath, appliedState } = fixture;
+  try {
+    await coordinator.initialize();
+    const broken = readConfig(configPath).Server.ModelPresets.Presets
+      .find(preset => preset.id === 'broken-exl3');
+    assert.ok(broken);
+    const target = { ...broken, Model: 'broken-model' }; // changed loading key forces a real transition
+    events.length = 0;
+
+    await assert.rejects(coordinator.ensureRequestPresetReady(target), /load failed: broken-exl3/u);
+
+    assert.deepEqual(events, ['unload:exl3', 'load:broken-exl3', 'unload:exl3', 'load:exl3-main']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.match(coordinator.getStatus().rollback ?? '', /Restored preset 'exl3-main'.*nothing loaded: exl3/u);
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+    assert.equal(appliedState.getPreset().id, 'exl3-main');
+    assert.equal(coordinator.canGrantModelRequest(), true);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a missing target fails before any lifecycle call', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events } = fixture;
+  try {
+    await coordinator.initialize();
+    events.length = 0;
+
+    await assert.rejects(coordinator.applyPreset('missing-preset'), /does not exist/u);
+
+    assert.deepEqual(events, []);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('a settings save landing while a requested switch is blocked is preserved', async () => {
+  const fixture = createBlockingCoordinator();
+  const { coordinator, events, configPath, appliedState, runtime } = fixture;
+  try {
+    await coordinator.initialize();
+    const alt = readConfig(configPath).Server.ModelPresets.Presets
+      .find(preset => preset.id === 'exl3-alt');
+    assert.ok(alt);
+    const target = { ...alt, Model: 'alt-model' }; // changed loading key forces a real transition
+    runtime.setBlockedTransition('ensure');
+    events.length = 0;
+
+    const ready = coordinator.ensureRequestPresetReady(target);
+    await runtime.transitionStarted.promise;
+    assert.equal(coordinator.canGrantModelRequest(), false);
+    persistActivePreset(configPath, 'external-exl3'); // newer save lands mid-transition
+    runtime.releaseTransition();
+    await ready;
+
+    assert.deepEqual(events, ['unload:exl3', 'load:exl3-alt']);
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'external-exl3');
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+    assert.equal(appliedState.getPreset().id, 'exl3-alt');
+    assert.equal(coordinator.canGrantModelRequest(), true);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+for (const sameResidency of [true, false]) {
+  test(`a removed request profile fails before lifecycle changes (same residency: ${sameResidency})`, async () => {
+    const fixture = createCoordinator();
+    try {
+      await fixture.coordinator.initialize();
+      const config = readConfig(fixture.configPath);
+      const current = getActiveModelPreset(config);
+      const target = { ...current, id: 'removed-model', Model: sameResidency ? current.Model : 'removed-weights' };
+      fixture.events.length = 0;
+      await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target), /does not exist/u);
+      assert.deepEqual(fixture.events, []);
+      assert.equal(fixture.appliedState.getPreset().id, current.id);
+      assert.equal(fixture.coordinator.canGrantModelRequest(), true);
+    } finally {
+      await disposeCoordinator(fixture);
+    }
+  });
+}
+
+test('a failed target and failed rollback release admission for a later request', async () => {
+  const failures = new Set<string>();
+  const fixture = createCoordinator(failures);
+  try {
+    await fixture.coordinator.initialize();
+    const target = readConfig(fixture.configPath).Server.ModelPresets.Presets
+      .find((preset) => preset.id === 'broken-exl3');
+    assert.ok(target);
+    failures.add(target.id);
+    failures.add('exl3-main');
+    await assert.rejects(fixture.coordinator.ensureRequestPresetReady(target), /load failed: broken-exl3/u);
+    assert.equal(fixture.coordinator.canGrantModelRequest(), true);
+    await fixture.coordinator.waitForCurrentAdmissionBlocker();
+    assert.match(fixture.coordinator.getStatus().rollback ?? '', /load failed: exl3-main/u);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('failed administrative loading preserves a newer edit to the target profile', async () => {
+  const fixture = createBlockingCoordinator(new Set(['broken-exl3']));
+  const { coordinator, runtime, configPath } = fixture;
+  try {
+    await coordinator.initialize();
+    persistActivePreset(configPath, 'broken-exl3');
+    runtime.setBlockedTransition('ensure');
+    const ready = coordinator.applyPreset('broken-exl3');
+    const rejected = assert.rejects(ready, /load failed: broken-exl3/u);
+    await runtime.transitionStarted.promise;
+    const edited = readConfig(configPath);
+    const target = edited.Server.ModelPresets.Presets.find((preset) => preset.id === 'broken-exl3');
+    assert.ok(target);
+    target.Model = 'newer-model-selection';
+    writeConfig(configPath, edited);
+    const saved = readConfig(configPath);
+    runtime.releaseTransition();
+    await rejected;
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'broken-exl3');
+    assert.deepEqual(readConfig(configPath), saved);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(coordinator.canGrantModelRequest(), true);
+  } finally {
+    runtime.releaseTransition();
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('an administrative selection reuses equivalent residency and updates profile settings', async () => {
+  const fixture = createCoordinator();
+  try {
+    await fixture.coordinator.initialize();
+    const config = readConfig(fixture.configPath);
+    const current = getActiveModelPreset(config);
+    const equivalent = { ...current, id: 'exl3-alt', label: 'Equivalent profile', Temperature: 0.125 };
+    config.Server.ModelPresets.Presets = config.Server.ModelPresets.Presets
+      .map((preset) => preset.id === equivalent.id ? equivalent : preset);
+    config.Server.ModelPresets.ActivePresetId = equivalent.id;
+    writeConfig(fixture.configPath, config);
+    fixture.events.length = 0;
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.deepEqual(fixture.events, []);
+    assert.equal(fixture.appliedState.getPreset().id, equivalent.id);
+    assert.equal(fixture.appliedState.getPreset().Temperature, 0.125);
+    assert.equal(fixture.runtime.preparedPreset?.Temperature, 0.125);
   } finally {
     await disposeCoordinator(fixture);
   }

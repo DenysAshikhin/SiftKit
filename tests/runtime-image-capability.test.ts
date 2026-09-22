@@ -31,6 +31,10 @@ class FakeRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloaded');
   }
 
+  getPresetResidencyKey(preset: ModelRuntimePreset): string {
+    return JSON.stringify({ model: preset.Model, numCtx: preset.NumCtx });
+  }
+
 }
 
 class FixedRuntimeSource {
