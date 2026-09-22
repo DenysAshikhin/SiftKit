@@ -329,6 +329,7 @@ export class DashboardSettingsDraftEditor {
       autoloadFiles: [],
       repoRootRequired: false,
       maxTurns: null,
+      modelPresetId: null,
     });
   }
 

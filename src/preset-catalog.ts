@@ -41,6 +41,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
+    modelPresetId: null,
   },
   {
     id: 'repo-search',
@@ -60,6 +61,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: 45,
+    modelPresetId: null,
   },
   {
     id: 'chat',
@@ -79,6 +81,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
+    modelPresetId: null,
   },
   {
     id: 'plan',
@@ -98,6 +101,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: 45,
+    modelPresetId: null,
   },
   {
     id: 'repo-agent',
@@ -117,6 +121,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
+    modelPresetId: null,
   },
 ];
 

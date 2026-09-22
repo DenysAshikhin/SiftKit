@@ -1,6 +1,6 @@
 # Model Routing and Orchestration Implementation Plan
 
-> **For agentic workers:** Use `superpowers:executing-plans` for task-by-task implementation when separately requested. Do not invoke SiftKit, create worktrees, or commit. Steps in the linked plans use checkboxes for tracking.
+> **For agentic workers:** Execution is now authorized using `siftkit repo-agent` for defined task batches, with primary-agent review and validation. Use the applicable Superpowers execution workflow. Do not create worktrees or commit. Steps in the linked plans use checkboxes for tracking.
 
 **Goal:** Add per-operation model selection, resident-model queue ordering, and an orchestrator that validates plans and supervises bounded worker tasks.
 
@@ -14,9 +14,10 @@
 
 - TypeScript throughout; parse IO with Zod and derive types with `z.infer`.
 - No `any`, type assertions, non-null assertions, namespace imports, or schema-duplicating types.
-- No worktrees; preserve unrelated changes; no commits without a separate request.
+- No worktrees; preserve unrelated changes.
+- For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
-- Do not invoke SiftKit to execute this implementation plan. This is a planning-only request.
+- Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.
 
 ## Confirmed behavior
 

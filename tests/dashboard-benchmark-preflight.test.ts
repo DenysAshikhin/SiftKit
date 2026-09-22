@@ -26,7 +26,9 @@ for (const scenario of [
     const isolated = new IsolatedRuntime();
     isolated.start();
     const configPath = getRuntimeDatabasePath();
-    const config = mockSiftConfig({ Server: { ModelPresets: { Presets: [retainedPreset] } } });
+    const config = mockSiftConfig({
+      Server: { ModelPresets: { Presets: [retainedPreset], ActivePresetId: retainedPreset.id } },
+    });
     writeConfig(configPath, config);
     const ctx = createTestServerContext(configPath);
     const events: string[] = [];

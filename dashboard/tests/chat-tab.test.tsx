@@ -330,7 +330,7 @@ const PRESET = {
   promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
 } satisfies DashboardPreset;
 
 const REPO_AGENT_PRESET = {

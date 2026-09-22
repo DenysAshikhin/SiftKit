@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { SiftConfigSchema } from '@siftkit/contracts';
 
 import {
   asObject,
@@ -48,6 +49,54 @@ test('config HTTP boundary creates defaults once and rejects invalid persisted c
       asObjectArray(persisted.body.Presets).some((preset) => preset.id === 'plan'),
       true,
     );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('config HTTP boundary rejects a dangling operation model reference', async () => {
+  const fixture = await DashboardTestServer.start('siftkit-config-preset-model-ref-');
+  try {
+    const initial = await requestJson(`${fixture.baseUrl}/config?skip_ready=1`);
+    assert.equal(initial.statusCode, 200);
+
+    const payload = structuredClone(initial.body);
+    const presets = asObjectArray(payload.Presets);
+    const target = presets.find((preset) => preset.id === 'repo-search');
+    assert.ok(target);
+    target.modelPresetId = 'deleted-model';
+    const response = await requestJson(`${fixture.baseUrl}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.statusCode, 400);
+    assert.match(String(response.body.error ?? ''), /deleted-model/u);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('config HTTP boundary persists explicit and current operation model choices', async () => {
+  const fixture = await DashboardTestServer.start('siftkit-config-preset-model-persistence-');
+  try {
+    const initial = await requestJson(`${fixture.baseUrl}/config?skip_ready=1`);
+    assert.equal(initial.statusCode, 200);
+    const config = SiftConfigSchema.parse(initial.body);
+    const preset = config.Presets.find((entry) => entry.id === 'repo-search');
+    assert.ok(preset);
+
+    for (const modelPresetId of [config.Server.ModelPresets.ActivePresetId, null]) {
+      preset.modelPresetId = modelPresetId;
+      const saved = await requestJson(`${fixture.baseUrl}/config?skip_ready=1`, {
+        method: 'PUT',
+        body: JSON.stringify(config),
+      });
+      assert.equal(saved.statusCode, 200);
+      const reloaded = await requestJson(`${fixture.baseUrl}/config?skip_ready=1`);
+      assert.equal(reloaded.statusCode, 200);
+      const persisted = SiftConfigSchema.parse(reloaded.body);
+      assert.equal(persisted.Presets.find((entry) => entry.id === preset.id)?.modelPresetId, modelPresetId);
+    }
   } finally {
     await fixture.close();
   }

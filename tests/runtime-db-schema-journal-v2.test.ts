@@ -103,7 +103,7 @@ test('the marker-70 upgrade converts version-1 journal events to version 2 and a
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 74);
+    assert.equal(CURRENT_SCHEMA_VERSION, 75);
     assert.equal(CHAT_JOURNAL_EVENT_VERSION, 2);
     assert.equal(database.prepare("SELECT name FROM sqlite_schema WHERE name='chat_context_snapshots'").get(), undefined);
     const after = readRows(dbPath);

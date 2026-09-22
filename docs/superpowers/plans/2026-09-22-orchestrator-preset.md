@@ -1,6 +1,6 @@
 # Orchestrator Preset Implementation Plan
 
-> **For agentic workers:** Use `superpowers:executing-plans` when implementation is separately requested. Complete the model-routing plan first, then O1–O8 sequentially with TDD, including O5b between O5 and O6. Do not invoke SiftKit, create worktrees, or commit.
+> **For agentic workers:** Complete the model-routing plan first, then O1–O8 sequentially with TDD, including O5b between O5 and O6. Use `siftkit repo-agent` for defined implementation tasks as now authorized; the primary agent owns review and validation. Do not create worktrees or commit.
 
 **Goal:** Add an orchestrator that prepares executable plans, delegates bounded work, verifies each task, and resolves impactful code drift through scoped correction workers, with separate two-attempt implementation and correction budgets.
 
@@ -16,9 +16,10 @@
 
 - TypeScript throughout; parse IO with Zod and derive types with `z.infer`.
 - No `any`, type assertions, non-null assertions, namespace imports, or schema-duplicating types.
-- No worktrees; preserve unrelated changes; no commits without a separate request.
+- No worktrees; preserve unrelated changes.
+- For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
-- Do not invoke SiftKit to execute this implementation plan. This is a planning-only request.
+- Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.
 - `maxSubagents` defaults to 1 and counts dispatched/queued/running/approval-paused children.
 - Modifications require exclusive repository ownership; independent read-only children can overlap.
 - Each task has at most 2 implementation attempts and a separate pool of 2 drift-correction attempts; approval continuation is not a new attempt. Correction output never starts a new correction budget.
@@ -536,7 +537,7 @@ siftkit orchestrator abort <run-id>
 siftkit preset --preset orchestrator --prompt "Implement the requested feature"
 ```
 
-These commands describe the product interface to implement; do not run them as the tool for implementing this plan.
+These commands describe the product interface to implement. Use the currently available `repo-agent` for implementation tasks, not the future orchestrator interface before it is complete.
 
 - [ ] **Run red:** `npm run build:test`, then `npm test -- orchestrator-http orchestrator-cli orchestrator-args cli-preset`.
 - [ ] **Implement routes and client with schema parsing.** A start request reserves the parent before launching work. CLI starts with JSON, then subscribes to the event endpoint using the existing SSE framing. A cursor is a validated nonnegative integer bounded by committed history. Decisions are forwarded only to the parent's current recorded phase/child approval; no command-string evaluation. The result supplies the exact execution ID and decision command, so the CLI need not guess whether it names a phase or child. Test both parent verification approvals and child approvals. CLI parses typed results, never treats process exit alone as worker completion.

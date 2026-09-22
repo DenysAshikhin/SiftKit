@@ -38,6 +38,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
+    modelPresetId: null,
     ...overrides,
   };
 }

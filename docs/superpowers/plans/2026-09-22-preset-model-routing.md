@@ -1,6 +1,6 @@
 # Preset Model Routing and Resident-Model Queue Implementation Plan
 
-> **For agentic workers:** Use `superpowers:executing-plans` when implementation is separately requested. Follow M1–M7 sequentially with TDD. Do not invoke SiftKit, create worktrees, or commit.
+> **For agentic workers:** Follow M1–M7 sequentially with TDD using `siftkit repo-agent` for defined implementation tasks, as now authorized. The primary agent owns review and validation. Do not create worktrees or commit.
 
 **Goal:** Select models per operation preset, retain the selected model after execution, and prefer queued work that can use the resident model.
 
@@ -14,9 +14,10 @@
 
 - TypeScript throughout; parse IO with Zod and derive types with `z.infer`.
 - No `any`, type assertions, non-null assertions, namespace imports, or schema-duplicating types.
-- No worktrees; preserve unrelated changes; no commits without a separate request.
+- No worktrees; preserve unrelated changes.
+- For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
-- Do not invoke SiftKit to execute this implementation plan. This is a planning-only request.
+- Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.
 - Existing chats inherit the current model at each operation, not their creation-time model.
 - Queue affinity has no fairness override. Cancellation and ordinary timeouts still apply.
 
@@ -63,7 +64,7 @@ The complete closeout gate appears in M7. Run no lifecycle tests against the use
 - `upgradePresetModelRouting(database: RuntimeDatabase): void` upgrades stored schema 74 to 75.
 - Full-config validation rejects duplicate model preset IDs, missing active IDs, and non-null operation references that do not exist.
 
-- [ ] **Write failing contract and HTTP tests.** Use the existing `completePreset()` fixture, adding the field to the fixture only after observing the new required-field test fail.
+- [x] **Write failing contract and HTTP tests.** Use the existing `completePreset()` fixture, adding the field to the fixture only after observing the new required-field test fail.
 
 ```typescript
 test('operation model selection distinguishes current from an explicit model', () => {
@@ -89,8 +90,8 @@ test('configuration rejects a dangling operation model reference', () => {
 });
 ```
 
-- [ ] **Run red:** `npm run build:test`, then `npm test -- contracts-config.test.ts config-preset-http.test.ts`.
-- [ ] **Implement the schema/defaults/reference validation.** All five existing built-ins and newly created custom presets explicitly use `modelPresetId: null`. Keep the reference on the operation preset, not on `operationMode`.
+- [x] **Run red:** `npm run build:test`, then `npm test -- contracts-config.test.ts config-preset-http.test.ts`.
+- [x] **Implement the schema/defaults/reference validation.** All five existing built-ins and newly created custom presets explicitly use `modelPresetId: null`. Keep the reference on the operation preset, not on `operationMode`.
 
 ```typescript
 modelPresetId: z.string().trim().min(1).nullable(),
@@ -98,7 +99,7 @@ modelPresetId: z.string().trim().min(1).nullable(),
 
 At the full-config schema's refinement, build a set from `Server.ModelPresets.Presets`; report a dangling reference at `['Presets', index, 'modelPresetId']`. Remove the active-ID fallback in normalization/getters where it would conceal a missing selection; issue a precise error instead. A label edit is legal; deleting a referenced model is rejected until its operation presets are reassigned.
 
-- [ ] **Write the database upgrade and its red/green tests.** Follow the transaction and schema-marker pattern in `tests/runtime-db-schema-inference-throughput.test.ts`. Create a version-74 row with built-in and custom operation presets, reopen through `getRuntimeDatabase`, and verify every record received only `modelPresetId: null`. Verify other config and historical run JSON remains byte-preserved. Malformed JSON/impossible historical record shapes must abort the upgrade.
+- [x] **Write the database upgrade and its red/green tests.** Follow the transaction and schema-marker pattern in `tests/runtime-db-schema-inference-throughput.test.ts`. Create a version-74 row with built-in and custom operation presets, reopen through `getRuntimeDatabase`, and verify every record received only `modelPresetId: null`. Verify other config and historical run JSON remains byte-preserved. Malformed JSON/impossible historical record shapes must abort the upgrade.
 
 ```typescript
 const StoredCatalogRowsSchema = z.array(z.object({
@@ -126,9 +127,9 @@ export function upgradePresetModelRouting(database: RuntimeDatabase): void {
 }
 ```
 
-Imports are the existing `z`, `JsonObjectSchema`, `parseJsonValueText`, and `RuntimeDatabase`. The migration performs a structural historical transformation; normal config validation remains strict afterward. Do not parse historical catalogs with a future-version preset schema. Historical `run_logs.operation_preset_json` remains immutable evidence and is not rewritten as a current config record.
+Imports are the existing `z`, `JsonObjectSchema`, `parseJsonValueText`, and `RuntimeDatabase`. The block illustrates the transformation only: before writing, validate the complete historical operation-preset layout through a version-pinned projection of the canonical field schemas, including historical enum values. Reject malformed required fields transactionally, not only malformed IDs. Keep this historical projection independent of future required fields such as O1's orchestrator options; it is a migration-only schema, never a runtime compatibility reader. Historical `run_logs.operation_preset_json` remains immutable evidence and is not rewritten as a current config record. Fixtures that rewind a newer database must also rewind its catalog fields to the actual historical shape.
 
-- [ ] **Run green:** `npm run build:test`, then `npm test -- contracts-config config-preset-http preset-catalog runtime-db-schema-preset-model-routing settings-draft-editor`.
+- [x] **Run green:** `npm run build:test`, then `npm test -- contracts-config config-preset-http preset-catalog runtime-db-schema-preset-model-routing settings-draft-editor`.
 
 **Acceptance:** Saving and reloading null/explicit choices works; invalid references fail through both schemas and HTTP; existing SQLite configs upgrade once without resetting presets. Account for any schema-version change made by concurrent work before assigning version 75.
 

@@ -68,7 +68,7 @@ test('the marker-73 upgrade rewrites legacy progress payloads as offset-0 deltas
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 74);
+    assert.equal(CURRENT_SCHEMA_VERSION, 75);
     const after = readRows(database);
     assert.equal(after.length, before.length);
     assert.deepEqual(JSON.parse(after[0].body_json), UPGRADED_PROGRESS);

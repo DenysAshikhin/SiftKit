@@ -233,14 +233,14 @@ test('normalizeConfig keeps Server.ModelPresets as a presets-only shape', () => 
   assert.ok(modelPresets.Presets.length >= 1);
 });
 
-test('normalizeConfig falls back an unknown ActivePresetId to the first preset', () => {
+test('normalizeConfig rejects an unknown ActivePresetId with a precise error', () => {
   const config = defaultConfigObject();
   asObject(asObject(config.Server).ModelPresets).ActivePresetId = 'does-not-exist';
 
-  const normalized = normalizeConfig(JsonValueSchema.parse(config));
-  const modelPresets = normalized.Server.ModelPresets;
-
-  assert.equal(modelPresets.ActivePresetId, modelPresets.Presets[0].id);
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(config)),
+    /Active model preset id 'does-not-exist' does not exist in the model preset list\./u,
+  );
 });
 
 test('normalizeConfig defaults a missing preset Backend to exl3 and rejects any other backend', () => {

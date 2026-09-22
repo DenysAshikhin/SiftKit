@@ -97,7 +97,27 @@ export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
 
 export const ServerModelPresetsConfigSchema = z.object({
   Presets: z.array(ModelRuntimePresetSchema).min(1), ActivePresetId: z.string(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const seenIds = new Set<string>();
+  for (const [index, preset] of value.Presets.entries()) {
+    if (seenIds.has(preset.id)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['Presets', index, 'id'],
+        message: `Duplicate model preset id '${preset.id}'.`,
+      });
+    } else {
+      seenIds.add(preset.id);
+    }
+  }
+  if (!seenIds.has(value.ActivePresetId)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['ActivePresetId'],
+      message: `Active model preset id '${value.ActivePresetId}' is not in the model preset list.`,
+    });
+  }
+});
 export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;
 
 export const Exl3EngineConfigSchema = z.object({
@@ -258,6 +278,8 @@ export const SiftPresetSchema = z.object({
   builtin: z.boolean(), deletable: z.boolean(), includeAgentsMd: z.boolean(), includeRepoFileListing: z.boolean(),
   assistantMemory: z.boolean(), autoloadFiles: z.array(z.string()), repoRootRequired: z.boolean(),
   maxTurns: z.number().int().positive().nullable(),
+  /** Model this operation uses; null keeps the active model. Must reference a model preset id. */
+  modelPresetId: z.string().trim().min(1).nullable(),
 }).strict();
 export type SiftPreset = z.infer<typeof SiftPresetSchema>;
 
@@ -332,7 +354,18 @@ export const SiftConfigSchema = z.object({
     ObservedTelemetrySeen: z.boolean(), ObservedTelemetryUpdatedAtUtc: z.string().nullable(),
     MaxInputCharacters: z.number().nullable(), ChunkThresholdCharacters: z.number().nullable(),
   }).strict().optional(),
-}).strict();
+}).strict().superRefine((config, context) => {
+  const modelPresetIds = new Set(config.Server.ModelPresets.Presets.map((preset) => preset.id));
+  for (const [index, preset] of config.Presets.entries()) {
+    if (preset.modelPresetId !== null && !modelPresetIds.has(preset.modelPresetId)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['Presets', index, 'modelPresetId'],
+        message: `Operation preset '${preset.id}' references missing model preset '${preset.modelPresetId}'.`,
+      });
+    }
+  }
+});
 export type SiftConfig = z.infer<typeof SiftConfigSchema>;
 export type DashboardConfig = SiftConfig;
 

@@ -23,8 +23,13 @@ export function getRuntimeEngine(config: SiftConfig): RuntimeEngineConfig {
 
 export function getActiveModelPreset(config: SiftConfig): ModelRuntimePreset {
   const presets = config.Server.ModelPresets.Presets;
-  const preset = presets.find((entry) => entry.id === config.Server.ModelPresets.ActivePresetId) ?? presets[0];
-  if (!preset) throw new Error('Model preset list is empty.');
+  const preset = presets.find((entry) => entry.id === config.Server.ModelPresets.ActivePresetId);
+  if (!preset) {
+    if (presets.length === 0) throw new Error('Model preset list is empty.');
+    throw new Error(
+      `Active model preset id '${config.Server.ModelPresets.ActivePresetId}' does not exist in the model preset list.`,
+    );
+  }
   return preset;
 }
 

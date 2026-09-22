@@ -1,6 +1,6 @@
 # Preset model routing, resident-model scheduling, and orchestration
 
-Status: implementation design; product code is unchanged. Based on the working tree inspected on 2026-09-22, including its existing uncommitted chat/runtime changes.
+Status: implementation authorized on 2026-09-22 through defined `repo-agent` tasks. Based on the inspected working tree and the user's subsequent drift-review/correction requirements.
 
 ## Confirmed requirements
 
@@ -20,10 +20,11 @@ Status: implementation design; product code is unchanged. Based on the working t
 - TypeScript throughout; parse IO with Zod and derive types with `z.infer`.
 - No `any`, type assertions, non-null assertions, namespace imports, or schema-duplicating types.
 - Reuse existing runtime, inference, approvals, tool execution, run logging, and chat transport.
-- No worktrees; preserve unrelated changes; no commits without a separate request.
+- No worktrees; preserve unrelated changes.
+- For this implementation session, the primary commits each independently verified task and starts every repo-agent dispatch from a clean Git working tree. Workers do not commit; controller artifacts stay in ignored scratch storage.
 - Explicit versioned migrations; no runtime compatibility readers or silent invalid-reference fallback.
 - TDD for implementation. Run relevant tests, broader applicable suites, `npm run typecheck`, and `npm run lint` before implementation closeout.
-- Do not invoke SiftKit to execute this implementation plan. This is a planning-only request.
+- Execute defined implementation tasks through `siftkit repo-agent` as newly requested; the primary agent owns planning, review, and validation. Follow the session's SiftKit-first discovery policy and wait for every invocation to finish.
 
 ## Design decisions
 

@@ -44,6 +44,7 @@ function completePreset(options: {
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
+    modelPresetId: null,
   };
 }
 
@@ -184,6 +185,50 @@ test('SiftPresetSchema requires every field and a normalized non-empty id', () =
     assert.equal(result.success, false, `expected id ${JSON.stringify(id)} to fail`);
     if (!result.success) {
       assert.deepEqual(result.error.issues[0]?.path, ['id']);
+    }
+  }
+});
+
+test('operation model selection distinguishes current from an explicit model', () => {
+  const source = completePreset();
+  assert.equal(SiftPresetSchema.safeParse({ ...source, modelPresetId: null }).success, true);
+  assert.equal(SiftPresetSchema.safeParse({ ...source, modelPresetId: 'coding-model' }).success, true);
+  assert.equal(SiftPresetSchema.safeParse({ ...source, modelPresetId: '' }).success, false);
+  const { modelPresetId, ...missing } = { ...source, modelPresetId: null };
+  assert.equal(modelPresetId, null);
+  assert.equal(SiftPresetSchema.safeParse(missing).success, false);
+});
+
+test('configuration rejects a dangling operation model reference', () => {
+  const config = getDefaultConfigObject();
+  const preset = config.Presets.find(entry => entry.id === 'repo-search');
+  assert.ok(preset);
+  const payload = {
+    ...config,
+    Presets: config.Presets.map(entry => entry.id === preset.id
+      ? { ...entry, modelPresetId: 'deleted-model' } : entry),
+  };
+  assert.equal(SiftConfigSchema.safeParse(payload).success, false);
+});
+
+test('model preset references reject duplicate IDs and an absent active selection', () => {
+  const config = getDefaultConfigObject();
+  const models = config.Server.ModelPresets;
+  const [first] = models.Presets;
+  assert.ok(first);
+  const duplicate = ServerModelPresetsConfigSchema.safeParse({
+    ...models,
+    Presets: [first, structuredClone(first)],
+  });
+  assert.equal(duplicate.success, false);
+  if (!duplicate.success) {
+    assert.deepEqual(duplicate.error.issues.map((issue) => issue.path), [['Presets', 1, 'id']]);
+  }
+  for (const activePresetId of ['', 'deleted-model']) {
+    const missing = ServerModelPresetsConfigSchema.safeParse({ ...models, ActivePresetId: activePresetId });
+    assert.equal(missing.success, false);
+    if (!missing.success) {
+      assert.deepEqual(missing.error.issues.map((issue) => issue.path), [['ActivePresetId']]);
     }
   }
 });

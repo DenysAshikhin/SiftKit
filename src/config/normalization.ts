@@ -623,9 +623,12 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   const modelPresets = getRecord(server.ModelPresets);
   const presets = normalizeModelRuntimePresetArray(modelPresets.Presets, {});
   const activeId = getNullableTrimmedString(modelPresets.ActivePresetId);
-  const activePreset = presets.find((preset) => preset.id === activeId) || presets[0];
+  const activePreset = presets.find((preset) => preset.id === activeId);
   if (!activePreset) {
-    throw new Error('Model preset normalization produced no presets.');
+    if (presets.length === 0) {
+      throw new Error('Model preset normalization produced no presets.');
+    }
+    throw new Error(`Active model preset id '${activeId ?? '<missing>'}' does not exist in the model preset list.`);
   }
   const engines = getRecord(server.Engines);
   server.ModelPresets = { Presets: presets, ActivePresetId: activePreset.id };
