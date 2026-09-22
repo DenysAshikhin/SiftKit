@@ -92,6 +92,8 @@ export class PresetRuntimeCoordinator {
   }
 
   async ensureActivePresetReady(): Promise<void> {
+    // Join an in-flight switch instead of racing it: concurrent callers wait rather than fail.
+    while (this.switchPromise) await this.switchPromise;
     const configuredPreset = this.getConfiguredPreset();
     if (!this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) {
       await this.applyPreset(configuredPreset.id);

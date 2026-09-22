@@ -316,3 +316,20 @@ test('preset coordinator rolls back by preset id after target load failure', asy
     await disposeCoordinator(fixture);
   }
 });
+
+test('concurrent ensureActivePresetReady callers join the in-flight switch instead of failing', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
+  try {
+    await coordinator.initialize();
+    persistActivePreset(configPath, 'exl3-alt');
+    const first = coordinator.ensureActivePresetReady();
+    const second = coordinator.ensureActivePresetReady();
+    await Promise.all([first, second]);
+    assert.deepEqual(events, ['start:exl3', 'load:exl3-main', 'unload:exl3', 'load:exl3-alt']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
+    assert.equal(coordinator.getStatus().error, null);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
