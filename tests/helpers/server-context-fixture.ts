@@ -15,6 +15,7 @@ import { StatusRunRegistry } from '../../src/status-server/status-run-registry.j
 import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
 import { ChatSessionRecoveryCache } from '../../src/status-server/chat-session-recovery-cache.js';
 import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.js';
+import { RecordingInferenceRuntime } from './recording-inference-runtime.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
 import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
 import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
@@ -57,6 +58,9 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
+    modelRuntime: new RecordingInferenceRuntime('exl3', []),
+    modelRequestDrainPromise: null,
+    modelRequestDrainRequested: false,
     assistant: null,
     assistantControl: null,
     assistantRouteGuard: null,

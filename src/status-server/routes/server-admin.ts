@@ -30,6 +30,7 @@ import { serverLogger } from '../server-logger.js';
 import {
   getModelRequestQueueDiagnostics,
   getPublishedStatusText,
+  resumeModelRequestAdmission,
 } from '../server-ops.js';
 import { InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
 import type { ModelLifecycleAction } from '@siftkit/contracts';
@@ -245,6 +246,7 @@ export class ConfigUpdateEndpoint implements RouteEndpoint {
     ctx.assistant?.refreshConfig(nextConfig.Assistant);
     if (!ctx.presetRuntimeCoordinator) {
       ctx.appliedModelPresetState.applyPreset(getActiveModelPreset(nextConfig));
+      resumeModelRequestAdmission(ctx);
     }
     sendJson(res, 200, nextConfig);
     return;

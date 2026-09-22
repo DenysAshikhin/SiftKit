@@ -7,6 +7,8 @@ import type { StatusEngineService } from './engine-service.js';
 import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
+import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
+import type { ModelRequestContext, ModelRequestIntent } from './model-request-context.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { AssistantRuntime } from '../assistant/assistant-service.js';
 import type { AssistantService } from '../assistant/assistant-service.js';
@@ -31,23 +33,39 @@ export type ModelRequestLock = {
   kind: string;
   startedAtUtc: string;
   ownerRunId: string | null;
+  /** Frozen at grant: the resolved preset, model profile, and execution config snapshot. */
+  context: ModelRequestContext;
+  /** Canonical loading identity of the granted model, from the server's runtime. */
+  residencyKey: string;
   /** Last sign of life from the holder. Renewal moves this, never the timer. */
   lastActivityAtMs: number;
   /** Force-releases a holder that has gone silent for a full inactivity window. */
   inactivityTimeoutHandle: NodeJS.Timeout | null;
 };
-export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null; abortSignal?: AbortSignal };
+export type ModelRequestWaitOptions = {
+  timeoutMs?: number;
+  ownerRunId?: string | null;
+  abortSignal?: AbortSignal;
+  /** Requested model; omission means the current non-preset model. */
+  intent?: ModelRequestIntent;
+};
 export type ModelRequestWaiter = {
   queueToken: string;
   kind: string;
   ownerRunId: string | null;
   enqueuedAtUtc: string;
+  intent: ModelRequestIntent;
+  /** Frozen once the drain selects this waiter for readiness. */
+  context: ModelRequestContext | null;
+  residencyKey: string | null;
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
   timeoutHandle: NodeJS.Timeout | null;
   timeoutMs: number;
-  lastQueuePosition: number;
+  /** Queue index at the last timeout refresh; only a decrease (an earlier waiter leaving) restarts the window. */
+  lastQueueIndex: number;
   resolveLock(lock: ModelRequestLock | null): void;
+  rejectLock(error: Error): void;
 };
 
 export type TerminalMetadataQueueItem = {
@@ -147,6 +165,11 @@ export type ServerContext = {
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;
+  /** Canonical runtime identity source for residency keys; never re-derived per request. */
+  modelRuntime: ManagedInferenceRuntime;
+  /** The single in-flight admission drain pass, or null when none is running. */
+  modelRequestDrainPromise: Promise<void> | null;
+  modelRequestDrainRequested: boolean;
   assistant: AssistantRuntime | null;
   assistantControl: AssistantService | null;
   assistantRouteGuard: AssistantRouteGuard | null;

@@ -11,7 +11,7 @@ import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import {
   StatusServerIdleGate, evaluateIdleDecision, secondsSinceModelActivity,
 } from '../src/status-server/assistant-idle-gate.js';
-import { acquireModelRequest, releaseModelRequest } from '../src/status-server/server-ops.js';
+import { acquireModelRequestWithWait, releaseModelRequest } from '../src/status-server/server-ops.js';
 import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
@@ -141,20 +141,19 @@ test('model activity is measured from server start until the first request finis
   ), 30);
 });
 
-test('releasing a model request restarts the model quiet counter from the release time', () => {
+test('releasing a model request restarts the model quiet counter from the release time', async () => {
   const ctx = createTestServerContext(path.join(createManagedTempDir('siftkit-idle-gate-'), 'runtime.sqlite'));
   ctx.terminalMetadata.serverStartedAtMs = Date.now() - 1_000_000;
   assert.ok(secondsSinceModelActivity(ctx.terminalMetadata, Date.now()) >= 1000);
 
-  const lock = acquireModelRequest(ctx, 'test');
-  assert.notEqual(lock, null);
-  if (lock === null) return;
+  const lock = await acquireModelRequestWithWait(ctx, 'test');
+  assert.ok(lock);
   assert.equal(releaseModelRequest(ctx, lock.token), true);
 
   assert.equal(secondsSinceModelActivity(ctx.terminalMetadata, Date.now()), 0);
 });
 
-test('the status-server gate wires the heartbeat, config threshold, server start, and busyness', () => {
+test('the status-server gate wires the heartbeat, config threshold, server start, and busyness', async () => {
   const runtimeRoot = createManagedTempDir('siftkit-idle-gate-wiring-');
   const ctx = createTestServerContext(path.join(runtimeRoot, 'runtime.sqlite'));
   const clock = new FixedClock('2026-09-02T09:00:00.000Z');
@@ -206,8 +205,8 @@ test('the status-server gate wires the heartbeat, config threshold, server start
       details: { mouseIdleSeconds: threshold - 1, requiredIdleSeconds: threshold },
     });
 
-    const lock = acquireModelRequest(ctx, 'test');
-    assert.ok(lock !== null);
+    const lock = await acquireModelRequestWithWait(ctx, 'test');
+    assert.ok(lock);
     assert.deepEqual(gate.evaluate(), { kind: 'blocked', reason: 'server_busy', details: {} });
     assert.equal(releaseModelRequest(ctx, lock.token), true);
     service.ingestEnvironment(heartbeat(threshold, threshold));

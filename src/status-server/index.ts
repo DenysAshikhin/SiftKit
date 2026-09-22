@@ -254,6 +254,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const runtimeDatabasePath = getRuntimeDatabasePath();
   const runtimeDatabase = getRuntimeDatabase(runtimeDatabasePath);
   const chatRuntimeOwner = ChatRuntimeOwner.acquire(runtimeDatabase, randomUUID());
+  const inferenceRunFlushQueue = new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) });
+  const managedTabbyRuntime = new ManagedTabbyRuntime(
+    initialConfig.Server.Engines.Exl3,
+    inferenceRunFlushQueue,
+  );
   const ctx: ServerContext = {
     configPath,
     statusPath,
@@ -284,6 +289,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),
+    modelRuntime: managedTabbyRuntime,
+    modelRequestDrainPromise: null,
+    modelRequestDrainRequested: false,
     assistant: null,
     assistantControl: null,
     assistantRouteGuard: null,
@@ -318,7 +326,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     engineBootstrap: { inProgress: false, warning: null },
     inferenceRunLogCleanupTimer: null,
     runtimeHistoryPruneTimer: null,
-    inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
+    inferenceRunFlushQueue,
   };
   recoverInterruptedChatRuns(chatRuntimeOwner, 'server_restart');
   let lastHeartbeatMs = Date.now();
@@ -356,10 +364,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const chatOwnerHeartbeat = setInterval(() => { void runChatOwnerHeartbeat(); }, CHAT_OWNER_HEARTBEAT_MS);
   chatOwnerHeartbeat.unref();
   ctx.chatQueueSuccessor = new ChatQueueSuccessorRunner(ctx);
-  const managedTabbyRuntime = new ManagedTabbyRuntime(
-    initialConfig.Server.Engines.Exl3,
-    ctx.inferenceRunFlushQueue,
-  );
   const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
     configPath,
     managedTabbyRuntime,

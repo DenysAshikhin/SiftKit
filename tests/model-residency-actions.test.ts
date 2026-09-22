@@ -111,12 +111,15 @@ class BlockingAssistantInference implements AssistantInferenceClient {
   }
 }
 
-function makeLock(): ModelRequestLock {
+function makeLock(fixture: ReturnType<typeof createCoordinatorFixture>): ModelRequestLock {
+  const preset = fixture.preset;
   return {
     token: 'req-1',
     kind: 'repo_search',
     startedAtUtc: new Date().toISOString(),
     ownerRunId: null,
+    context: { operationPreset: null, modelPreset: preset, config: readConfig(fixture.configPath) },
+    residencyKey: fixture.ctx.modelRuntime.getPresetResidencyKey(preset),
     lastActivityAtMs: Date.now(),
     inactivityTimeoutHandle: null,
   };
@@ -213,7 +216,7 @@ test('manual unload refuses while a model request is active', async () => {
   try {
     await fixture.coordinator.ensureActivePresetReady();
     fixture.events.length = 0;
-    fixture.activeModelRequests.set('req-1', makeLock());
+    fixture.activeModelRequests.set('req-1', makeLock(fixture));
     assert.equal((await fixture.coordinator.unloadActivePresetNow()).status, 'busy');
     assert.deepEqual(fixture.events, []);
   } finally {

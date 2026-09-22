@@ -49,7 +49,7 @@ export class ModelIdleController {
     this.timer = null;
     this.deadlineUtc = null;
     this.ctx.presetRuntimeCoordinator?.setIdleDeadlineUtc(null);
-    if (!expectedPresetId || !action || this.ctx.activeModelRequests.size > 0 || this.ctx.modelRequestQueue.length > 0) return;
+    if (!expectedPresetId || !action || this.ctx.activeModelRequests.size > 0 || this.ctx.modelRequestQueue.length > 0 || this.ctx.modelRequestDrainPromise !== null) return;
     // `applyIdleResidencyAction` owns applied-preset, request, switch, and ready-state checks;
     // re-deriving those facts from config here would introduce a second source of truth.
     // Background assistant work talks to the inference server directly and cannot wake an unloaded

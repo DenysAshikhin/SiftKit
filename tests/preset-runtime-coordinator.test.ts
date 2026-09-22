@@ -8,6 +8,7 @@ import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/sta
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import type { ModelRequestLock } from '../src/status-server/server-types.js';
+import type { ModelRequestContext } from '../src/status-server/model-request-context.js';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
@@ -53,7 +54,11 @@ function createCoordinator(failingPresetIds = new Set<string>()): CoordinatorFix
   return { coordinator, appliedState, runtime, events, configPath, activeModelRequests };
 }
 
-function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLock>, count: number): void {
+function setActiveModelRequests(fixture: CoordinatorFixture, count: number): void {
+  const { activeModelRequests, appliedState, runtime, configPath } = fixture;
+  const applied = appliedState.getPreset();
+  const context: ModelRequestContext = { operationPreset: null, modelPreset: applied, config: readConfig(configPath) };
+  const residencyKey = runtime.getPresetResidencyKey(applied);
   activeModelRequests.clear();
   for (let index = 0; index < count; index += 1) {
     activeModelRequests.set(`token-${index}`, {
@@ -61,6 +66,8 @@ function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLoc
       kind: 'repo_search',
       startedAtUtc: new Date().toISOString(),
       ownerRunId: null,
+      context,
+      residencyKey,
       lastActivityAtMs: Date.now(),
       inactivityTimeoutHandle: null,
     });
@@ -140,11 +147,11 @@ test('preset coordinator drains by preset and swaps the resident model without a
   try {
     await coordinator.initialize();
     assert.equal(coordinator.getActiveBackend(), 'exl3');
-    setActiveModelRequests(activeModelRequests, 1);
+    setActiveModelRequests(fixture, 1);
     persistActivePreset(configPath, 'exl3-alt');
     assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
     assert.equal(coordinator.canGrantModelRequest(), false);
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     await coordinator.onModelRequestReleased();
     assert.deepEqual(events, ['start:exl3', 'load:exl3-main', 'unload:exl3', 'load:exl3-alt']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
@@ -160,15 +167,15 @@ test('pending switch waits until the active requests drain to zero', async () =>
   const { coordinator, configPath, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    setActiveModelRequests(activeModelRequests, 2);
+    setActiveModelRequests(fixture, 2);
     persistActivePreset(configPath, 'exl3-alt');
     assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
 
-    setActiveModelRequests(activeModelRequests, 1);
+    setActiveModelRequests(fixture, 1);
     await coordinator.onModelRequestReleased();
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
 
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     await coordinator.onModelRequestReleased();
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-alt');
   } finally {
@@ -196,13 +203,13 @@ test('idle unload refuses while a model request is active', async () => {
   const { coordinator, events, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    setActiveModelRequests(activeModelRequests, 1);
+    setActiveModelRequests(fixture, 1);
     events.length = 0;
 
     assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     await disposeCoordinator(fixture);
   }
 });
@@ -212,15 +219,15 @@ test('idle unload refuses while a preset switch is pending', async () => {
   const { coordinator, events, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    setActiveModelRequests(activeModelRequests, 1);
+    setActiveModelRequests(fixture, 1);
     assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     events.length = 0;
 
     assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     await coordinator.onModelRequestReleased();
     await disposeCoordinator(fixture);
   }
@@ -297,13 +304,13 @@ test('restartConfiguredPreset refuses to interrupt an active model request', asy
   const { coordinator, events, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    setActiveModelRequests(activeModelRequests, 1);
+    setActiveModelRequests(fixture, 1);
     events.length = 0;
 
     await assert.rejects(coordinator.restartConfiguredPreset(), /model request is in progress/u);
     assert.deepEqual(events, []);
   } finally {
-    setActiveModelRequests(activeModelRequests, 0);
+    setActiveModelRequests(fixture, 0);
     await disposeCoordinator(fixture);
   }
 });

@@ -15,6 +15,7 @@ import {
   isIdle,
   renewModelRequestActivity,
   releaseModelRequest,
+  resumeModelRequestAdmission,
 } from '../src/status-server/server-ops.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
@@ -32,6 +33,12 @@ import type { FullJsonResponse, SseStreamOptions } from '../src/lib/http-client.
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { TEST_THROUGHPUT_AUDIT } from './_test-helpers.js';
+import {
+  createPresetRoutingConfig,
+  PRESET_ROUTING_MODEL_A,
+  PRESET_ROUTING_MODEL_B,
+  PRESET_ROUTING_MODEL_C,
+} from './helpers/preset-routing-config.js';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 let queueContextIndex = 0;
@@ -174,6 +181,62 @@ async function createPresetQueueHarness(
     ctx.appliedModelPresetState,
   );
   ctx.presetRuntimeCoordinator = coordinator;
+  ctx.modelRuntime = exl3Runtime;
+  ctx.modelIdleController = new ModelIdleController(ctx);
+  await coordinator.initialize();
+  return { ctx, coordinator, exl3Runtime, events, root };
+}
+
+/** A load that fails once for a named preset, then behaves like the blocking runtime. */
+class FailingQueueRuntime extends BlockingQueueRuntime {
+  private failingEnsure: string | null = null;
+
+  constructor(private readonly recordedEvents: string[]) {
+    super(recordedEvents);
+  }
+
+  failNextEnsure(presetId: string): void {
+    this.failingEnsure = presetId;
+  }
+
+  override async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (this.failingEnsure === preset.id) {
+      this.failingEnsure = null;
+      this.recordedEvents.push(`load-fail:${preset.id}`);
+      throw new Error(`load failed: ${preset.id}`);
+    }
+    await super.ensurePresetReady(preset);
+  }
+}
+
+/** Harness over the validated A/B/C routing config, with per-preset parallel slots. */
+async function createRoutingQueueHarness(
+  prefix: string,
+  activePresetId: string,
+  slots: Record<string, number>,
+  runtime?: BlockingQueueRuntime,
+): Promise<PresetQueueHarness> {
+  const root = createManagedTempDir(prefix);
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = createPresetRoutingConfig();
+  config.Server.ModelPresets = {
+    ActivePresetId: activePresetId,
+    Presets: config.Server.ModelPresets.Presets.map((preset) => (
+      slots[preset.id] === undefined ? preset : { ...preset, ParallelSlots: slots[preset.id] }
+    )),
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
+  const events: string[] = [];
+  const exl3Runtime = runtime ?? new BlockingQueueRuntime(events);
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    exl3Runtime,
+    ctx.activeModelRequests,
+    ctx.appliedModelPresetState,
+  );
+  ctx.presetRuntimeCoordinator = coordinator;
+  ctx.modelRuntime = exl3Runtime;
   ctx.modelIdleController = new ModelIdleController(ctx);
   await coordinator.initialize();
   return { ctx, coordinator, exl3Runtime, events, root };
@@ -271,7 +334,10 @@ test('managed idle unload blocks queued admission once and cold-restores the app
     const queuedLock = await waitForQueuedLock(queuedLockPromise);
     assert.ok(queuedLock);
     assert.equal(harness.ctx.modelRequestQueue.length, 0);
-    assert.deepEqual(harness.events.slice(-2), ['unload:exl3', 'stop:exl3']);
+    // The drain cold-restores the applied preset before granting, so the lock is never held mid-switch.
+    assert.deepEqual(harness.events, [
+      'start:exl3', 'load:exl3-alt', 'unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-alt',
+    ]);
 
     await ensureActivePresetReadyForModelRequest(harness.ctx);
     assert.deepEqual(harness.events.slice(-2), ['start:exl3', 'load:exl3-alt']);
@@ -490,7 +556,7 @@ test('model request admission logs queue position without waking the engine', as
     const lines = capture.lines;
 
     assert.ok(lines.some((line) => /st -{8}  incoming  task=summary queue_position=1/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=0/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=summary held_ms=/u.test(line)), lines.join('\n'));
   } finally {
     await ctx.inferenceRunFlushQueue.close();
@@ -844,15 +910,15 @@ test('release grants the next queued model request without waiting for polling t
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
-    // Enqueueing is synchronous; releasing the active lock grants the queued request
-    // immediately, without waiting on any polling timer.
+    // Enqueueing is synchronous; releasing the active lock grants the queued request on the
+    // next drain pass, without waiting on any polling timer.
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
-    assert.equal(ctx.modelRequestQueue.length, 0);
-    assert.deepEqual([...ctx.activeModelRequests.values()].map((lock) => lock.kind), ['summary']);
     const queuedLock = await queuedLockPromise;
     assert.ok(queuedLock);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.deepEqual([...ctx.activeModelRequests.values()].map((lock) => lock.kind), ['summary']);
     assert.deepEqual([...ctx.activeModelRequests.keys()], [queuedLock.token]);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
@@ -950,5 +1016,384 @@ test('a headless provider stream renews the model request past its original hold
   } finally {
     t.mock.timers.reset();
     await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+const ROUTING_SLOTS_ONE = {
+  [PRESET_ROUTING_MODEL_A]: 1,
+  [PRESET_ROUTING_MODEL_B]: 1,
+  [PRESET_ROUTING_MODEL_C]: 1,
+} satisfies Record<string, number>;
+
+test('resident A requests overtake an older B request in the observed grant order', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-aba-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, coordinator } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    const a1Promise = acquireModelRequestWithWait(ctx, 'a1');
+    const a2Promise = acquireModelRequestWithWait(ctx, 'a2');
+    const grantOrder: string[] = [];
+    for (const [label, promise] of [['b1', bPromise], ['a1', a1Promise], ['a2', a2Promise]] as const) {
+      void promise.then((lock) => {
+        assert.ok(lock);
+        grantOrder.push(label);
+      });
+    }
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const a1 = await a1Promise;
+    assert.ok(a1);
+    assert.deepEqual(grantOrder, ['a1']);
+    assert.equal(a1.context.modelPreset.id, PRESET_ROUTING_MODEL_A);
+    assert.equal(a1.residencyKey, ctx.modelRuntime.getPresetResidencyKey(a1.context.modelPreset));
+    assert.equal(ctx.modelRequestQueue.length, 2);
+    assert.equal(releaseModelRequest(ctx, a1.token), true);
+
+    const a2 = await a2Promise;
+    assert.ok(a2);
+    assert.deepEqual(grantOrder, ['a1', 'a2']);
+    assert.equal(releaseModelRequest(ctx, a2.token), true);
+
+    const b1 = await bPromise;
+    assert.ok(b1);
+    assert.deepEqual(grantOrder, ['a1', 'a2', 'b1']);
+    assert.equal(b1.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('two active A requests are admitted before the older B request', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-two-a-', PRESET_ROUTING_MODEL_A, {
+    [PRESET_ROUTING_MODEL_A]: 2,
+    [PRESET_ROUTING_MODEL_B]: 1,
+    [PRESET_ROUTING_MODEL_C]: 1,
+  });
+  const { ctx } = harness;
+  try {
+    // The seed holds one A slot so the lone B request cannot start a transition on its own.
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    const a1Promise = acquireModelRequestWithWait(ctx, 'a1');
+    const a2Promise = acquireModelRequestWithWait(ctx, 'a2');
+
+    const a1 = await a1Promise;
+    assert.ok(a1);
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const a2 = await a2Promise;
+    assert.ok(a2);
+    assert.equal(ctx.activeModelRequests.size, 2);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+    assert.equal(ctx.modelRequestQueue[0]?.kind, 'b1');
+
+    assert.equal(releaseModelRequest(ctx, a1.token), true);
+    assert.equal(releaseModelRequest(ctx, a2.token), true);
+    const b1 = await bPromise;
+    assert.ok(b1);
+    assert.equal(b1.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('same-residency profiles with different sampling admit without a model transition', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-sampling-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, coordinator, events } = harness;
+  try {
+    const warm = readConfig(ctx.configPath);
+    const base = warm.Server.ModelPresets.Presets.find((preset) => preset.id === PRESET_ROUTING_MODEL_A);
+    if (!base) throw new Error('Model A preset is missing');
+    warm.Server.ModelPresets.Presets = [
+      ...warm.Server.ModelPresets.Presets,
+      { ...base, id: 'model-a-warm', label: 'model-a-warm', Temperature: 0.9 },
+    ];
+    warm.Presets = warm.Presets.map((preset) => (
+      preset.id === 'repo-search' ? { ...preset, modelPresetId: 'model-a-warm' } : preset
+    ));
+    writeConfig(ctx.configPath, warm);
+
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const warmPromise = acquireModelRequestWithWait(ctx, 'warm', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const warmLock = await warmPromise;
+    assert.ok(warmLock);
+    assert.equal(warmLock.context.modelPreset.id, 'model-a-warm');
+    assert.equal(warmLock.residencyKey, ctx.modelRuntime.getPresetResidencyKey(seed.context.modelPreset));
+    assert.equal(coordinator.getStatus().activePresetId, 'model-a-warm');
+    assert.deepEqual(events, ['start:exl3', `load:${PRESET_ROUTING_MODEL_A}`]);
+    assert.equal(readConfig(ctx.configPath).Server.ModelPresets.ActivePresetId, 'model-a-warm');
+    assert.equal(releaseModelRequest(ctx, warmLock.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('a capacity-only profile change re-admits queued requests without a coordinator', async () => {
+  const root = createManagedTempDir('siftkit-model-queue-nocoord-capacity-');
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = createPresetRoutingConfig();
+  config.Server.ModelPresets = {
+    ActivePresetId: PRESET_ROUTING_MODEL_A,
+    Presets: config.Server.ModelPresets.Presets.map((preset) => ({ ...preset, ParallelSlots: 1 })),
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'a1');
+    assert.ok(first);
+    const secondPromise = acquireModelRequestWithWait(ctx, 'a2');
+    const thirdPromise = acquireModelRequestWithWait(ctx, 'a3');
+    assert.equal(ctx.modelRequestQueue.length, 2);
+
+    const updated = readConfig(ctx.configPath);
+    updated.Server.ModelPresets.Presets = updated.Server.ModelPresets.Presets.map((preset) => (
+      preset.id === PRESET_ROUTING_MODEL_A ? { ...preset, ParallelSlots: 3 } : preset
+    ));
+    writeConfig(ctx.configPath, updated);
+    ctx.appliedModelPresetState.applyPreset(getActiveModelPreset(updated));
+    resumeModelRequestAdmission(ctx);
+
+    const second = await secondPromise;
+    const third = await thirdPromise;
+    assert.ok(second);
+    assert.ok(third);
+    assert.equal(ctx.activeModelRequests.size, 3);
+    assert.equal(second.context.modelPreset.ParallelSlots, 3);
+    assert.equal(ctx.modelRuntime.getModelState(), 'unloaded');
+    for (const lock of [first, second, third]) {
+      assert.equal(releaseModelRequest(ctx, lock.token), true);
+    }
+  } finally {
+    closeAllRuntimeDatabases();
+    fs.rmSync(root, { recursive: true, force: true });
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('queued intents resolve against the current saved config on each scheduling pass', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-frozen-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, coordinator, events } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const pending = acquireModelRequestWithWait(ctx, 'inherited', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+
+    // Saved while the waiter is queued: repo-search now references the resident model A.
+    const updated = readConfig(ctx.configPath);
+    updated.Presets = updated.Presets.map((preset) => (
+      preset.id === 'repo-search' ? { ...preset, modelPresetId: PRESET_ROUTING_MODEL_A } : preset
+    ));
+    writeConfig(ctx.configPath, updated);
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const lock = await pending;
+    assert.ok(lock);
+    assert.equal(lock.context.modelPreset.id, PRESET_ROUTING_MODEL_A);
+    assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_A);
+    assert.deepEqual(events, ['start:exl3', `load:${PRESET_ROUTING_MODEL_A}`]);
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('an invalid intent rejects only its waiter and does not poison other waiters', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-invalid-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx } = harness;
+  try {
+    // The seed holds the single A slot so both waiters stay queued for one scheduling pass.
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const validPromise = acquireModelRequestWithWait(ctx, 'valid');
+    const invalidPromise = acquireModelRequestWithWait(ctx, 'invalid', undefined, undefined, {
+      intent: { presetId: null, model: 'no-such-model' },
+    });
+    assert.equal(ctx.modelRequestQueue.length, 2);
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    await assert.rejects(invalidPromise, /does not match any configured model preset/u);
+    const valid = await validPromise;
+    assert.ok(valid);
+    assert.equal(valid.context.modelPreset.id, PRESET_ROUTING_MODEL_A);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(ctx.activeModelRequests.size, 1);
+    assert.equal(releaseModelRequest(ctx, valid.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('a coordinator-free server fails an incompatible target and admits a compatible profile change', async () => {
+  const root = createManagedTempDir('siftkit-model-queue-nocoord-boundary-');
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = createPresetRoutingConfig();
+  config.Server.ModelPresets = {
+    ActivePresetId: PRESET_ROUTING_MODEL_A,
+    Presets: config.Server.ModelPresets.Presets.map((preset) => ({ ...preset, ParallelSlots: 1 })),
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
+  try {
+    const cross = acquireModelRequestWithWait(ctx, 'cross', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    await assert.rejects(cross, /cannot switch/u);
+    assert.equal(ctx.activeModelRequests.size, 0);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(ctx.appliedModelPresetState.getPreset().id, PRESET_ROUTING_MODEL_A);
+    assert.equal(ctx.modelRuntime.getModelState(), 'unloaded');
+
+    // A same-residency profile edit is compatible: applied state updates, no engine activity.
+    const updated = readConfig(ctx.configPath);
+    updated.Server.ModelPresets.Presets = updated.Server.ModelPresets.Presets.map((preset) => (
+      preset.id === PRESET_ROUTING_MODEL_A ? { ...preset, Temperature: 0.9 } : preset
+    ));
+    writeConfig(ctx.configPath, updated);
+    ctx.appliedModelPresetState.applyPreset(getActiveModelPreset(updated));
+    resumeModelRequestAdmission(ctx);
+
+    const same = await acquireModelRequestWithWait(ctx, 'same');
+    assert.ok(same);
+    assert.equal(same.context.modelPreset.id, PRESET_ROUTING_MODEL_A);
+    assert.equal(same.context.modelPreset.Temperature, 0.9);
+    assert.equal(ctx.modelRuntime.getModelState(), 'unloaded');
+    assert.equal(releaseModelRequest(ctx, same.token), true);
+  } finally {
+    closeAllRuntimeDatabases();
+    fs.rmSync(root, { recursive: true, force: true });
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('cancelling a selected waiter lets its irreversible load complete without granting the lock', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-cancel-ready-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, coordinator, exl3Runtime, events } = harness;
+  try {
+    exl3Runtime.blockNextEnsure();
+    const controller = new AbortController();
+    const promise = acquireModelRequestWithWait(ctx, 'cancel-me', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+      abortSignal: controller.signal,
+    });
+    await exl3Runtime.transitionStarted.promise;
+    controller.abort();
+
+    assert.equal(await promise, null);
+    assert.equal(ctx.activeModelRequests.size, 0);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+
+    exl3Runtime.releaseEnsure();
+    await waitForActivePreset(coordinator, PRESET_ROUTING_MODEL_B);
+    assert.deepEqual(events.filter((event) => event.startsWith('load:')), [
+      `load:${PRESET_ROUTING_MODEL_A}`,
+      `load:${PRESET_ROUTING_MODEL_B}`,
+    ]);
+
+    const next = await acquireModelRequestWithWait(ctx, 'after');
+    assert.ok(next);
+    assert.equal(next.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, next.token), true);
+  } finally {
+    exl3Runtime.releaseEnsure();
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('a readiness failure rejects the waiter and the next admission of the same target succeeds', async () => {
+  const events: string[] = [];
+  const failing = new FailingQueueRuntime(events);
+  failing.failNextEnsure(PRESET_ROUTING_MODEL_B);
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-fail-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE, failing);
+  const { ctx, coordinator } = harness;
+  try {
+    const first = acquireModelRequestWithWait(ctx, 'first', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    await assert.rejects(first, /load failed: model-b/u);
+    assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_A);
+    assert.equal(ctx.activeModelRequests.size, 0);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+
+    const second = await acquireModelRequestWithWait(ctx, 'second', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    assert.ok(second);
+    assert.equal(second.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, second.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('repeated affinity bypass does not extend an older waiter\u0027s timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-bypass-timeout-', PRESET_ROUTING_MODEL_A, {
+    [PRESET_ROUTING_MODEL_A]: 2,
+    [PRESET_ROUTING_MODEL_B]: 1,
+    [PRESET_ROUTING_MODEL_C]: 1,
+  });
+  const { ctx } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'older-b', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+      timeoutMs: 100,
+    });
+    for (let bypass = 0; bypass < 3; bypass += 1) {
+      const bypassLock = await acquireModelRequestWithWait(ctx, `bypass-${bypass}`);
+      assert.ok(bypassLock);
+      assert.equal(releaseModelRequest(ctx, bypassLock.token), true);
+    }
+
+    t.mock.timers.tick(100);
+    assert.equal(await bPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+  } finally {
+    t.mock.timers.reset();
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('an inherited-current waiter resolves to the model applied after a switch', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-inherited-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, coordinator, events } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const pending = acquireModelRequestWithWait(ctx, 'inherited');
+    assert.equal(await coordinator.applyPreset(PRESET_ROUTING_MODEL_B), 'queued');
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const lock = await pending;
+    assert.ok(lock);
+    assert.equal(lock.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_B);
+    assert.deepEqual(events, [
+      'start:exl3',
+      `load:${PRESET_ROUTING_MODEL_A}`,
+      'unload:exl3',
+      `load:${PRESET_ROUTING_MODEL_B}`,
+    ]);
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
   }
 });
