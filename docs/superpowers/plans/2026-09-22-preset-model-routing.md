@@ -160,8 +160,8 @@ export type ModelRequestContext = z.infer<typeof ModelRequestContextSchema>;
 
 Produce `resolveModelRequestContext(config: SiftConfig, applied: ModelRuntimePreset, intent: ModelRequestIntent): ModelRequestContext`.
 
-- [ ] **Build the test fixture.** `createPresetRoutingConfig()` returns `getDefaultConfigObject()` with three copies of its validated model preset: IDs `model-a`, `model-b`, `model-c`, distinct `Model` and `ModelPath`, active `model-a`. Assign `repo-search` to B and `repo-agent` to C; keep chat/summary/plan null. Use existing test temporary model-directory utilities when runtime validation needs real paths.
-- [ ] **Write and run failing resolution tests.** Cover inherited A, explicitly selected B, current changing to C before admission, deleted operation/model IDs, and exact/ambiguous/unknown CLI model arguments.
+- [x] **Build the test fixture.** `createPresetRoutingConfig()` returns `getDefaultConfigObject()` with three copies of its validated model preset: IDs `model-a`, `model-b`, `model-c`, distinct `Model` and `ModelPath`, active `model-a`. Assign `repo-search` to B and `repo-agent` to C; keep chat/summary/plan null. Use existing test temporary model-directory utilities when runtime validation needs real paths.
+- [x] **Write and run failing resolution tests.** Cover inherited A, explicitly selected B, current changing to C before admission, deleted operation/model IDs, and exact/ambiguous/unknown CLI model arguments.
 
 ```typescript
 test('current-model resolution uses the applied selection at admission', () => {
@@ -177,7 +177,7 @@ test('current-model resolution uses the applied selection at admission', () => {
 
 Run `npm run build:test`, then `npm test -- model-request-context`.
 
-- [ ] **Implement strict resolution and clone the snapshot.** Resolve the operation using `PresetCatalog.requireById`; use its reference when non-null, otherwise the supplied applied model. A CLI model equal to the chosen profile's `Model` retains that profile; a different override must match exactly one configured profile. Return a cloned config whose active ID and matching model entry are the resolved snapshot.
+- [x] **Implement strict resolution and clone the snapshot.** Resolve the operation using `PresetCatalog.requireById`; use its reference when non-null, otherwise the supplied applied model. A CLI model equal to the chosen profile's `Model` retains that profile; a different override must match exactly one configured profile. Return a cloned config whose active ID and matching model entry are the resolved snapshot.
 
 ```typescript
 const executionConfig = structuredClone(config);
@@ -195,7 +195,7 @@ return ModelRequestContextSchema.parse({
 
 `operationPreset` and `modelPreset` are the selections described above. Keep errors descriptive and do not mutate the caller's config. The residency key is supplied by the runtime in M3, not guessed from display text here.
 
-- [ ] **Run green and mutation tests.** Change saved config after resolution; assert the returned model, sampling/context settings, and operation preset remain unchanged. Run `npm run build:test`, then `npm test -- model-request-context config-normalization`.
+- [x] **Run green and mutation tests.** Change saved config after resolution; assert the returned model, sampling/context settings, and operation preset remain unchanged. Run `npm run build:test`, then `npm test -- model-request-context config-normalization`.
 
 **Acceptance:** Exactly one resolved model/config reaches execution; the resolver never switches a runtime or reads global state on its own.
 
