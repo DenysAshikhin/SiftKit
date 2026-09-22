@@ -769,11 +769,21 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const sessionsResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
     assert.equal(sessionsResponse.statusCode, 200);
-    assert.equal(asObjectArray(sessionsResponse.body.sessions).length, 1);
+    const listed = asObjectArray(sessionsResponse.body.sessions);
+    assert.equal(listed.length, 1);
+    assert.equal('messages' in (listed[0] ?? {}), false);
+    assert.equal('promptContext' in (listed[0] ?? {}), false);
+    assert.equal(listed[0]?.lastToolCallExitCode, null);
+    // Listing does not reconcile; the detail read below does, and later listings report what it found.
+    assert.deepEqual(sessionsResponse.body.recovery, []);
 
     const sessionDetail = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(sessionDetail.statusCode, 200);
     assert.equal((d(sessionDetail.body.session)).id, sessionId);
+    const detailRecovery = sessionDetail.body.recovery;
+    assert.ok(Array.isArray(detailRecovery) && detailRecovery.length > 0);
+    const listedAgain = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
+    assert.deepEqual(listedAgain.body.recovery, detailRecovery);
 
     const deleteSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
       method: 'DELETE',

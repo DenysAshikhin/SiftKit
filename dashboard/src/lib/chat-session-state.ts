@@ -1,10 +1,10 @@
-import type { ChatSession } from '../types';
+import type { ChatSessionSummary } from '../types';
 import type { ChatSessionRuntime } from './chat-session-runtime-store';
 
 export type SessionIndicator = 'streaming' | 'tool' | 'failed' | 'completed';
 
 export function deriveSessionIndicator(
-  session: ChatSession,
+  session: ChatSessionSummary,
   runtime: ChatSessionRuntime | null,
 ): SessionIndicator {
   if (runtime && runtime.activity.kind !== 'idle') {
@@ -14,12 +14,9 @@ export function deriveSessionIndicator(
   if (runtime?.error) {
     return 'failed';
   }
-  const messages = runtime ? [...session.messages, ...runtime.liveMessages] : session.messages;
-  const last = messages[messages.length - 1];
-  if (last && typeof last.toolCallExitCode === 'number' && last.toolCallExitCode !== 0) {
-    return 'failed';
-  }
-  return 'completed';
+  const liveLast = runtime?.liveMessages[runtime.liveMessages.length - 1];
+  const exitCode = liveLast ? liveLast.toolCallExitCode ?? null : session.lastToolCallExitCode;
+  return typeof exitCode === 'number' && exitCode !== 0 ? 'failed' : 'completed';
 }
 
 export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {

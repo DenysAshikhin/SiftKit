@@ -42,6 +42,7 @@ import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import { hasSamePresetExecutionContext } from '../dashboard-presets';
 import type {
   ChatSession,
+  ChatSessionSummary,
   ContextUsage,
   DashboardPreset,
   DashboardPresetExecutionFamily,
@@ -67,9 +68,10 @@ export type ChatSessionIndicatorView = {
 };
 
 export type ChatTabProps = ChatPendingQueueActions & {
-  sessions: ChatSession[];
+  sessions: ChatSessionSummary[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;
+  selectedSessionLoading: boolean;
   selectedRuntime: ChatSessionRuntime | null;
   sessionRuntimes: ChatSessionRuntime[];
   sessionPromptCacheStats: ChatSessionStats;
@@ -153,7 +155,7 @@ export async function readImageFiles(files: File[], maxPixels: number): Promise<
 }
 
 function buildSessionIndicators(
-  sessions: ChatSession[],
+  sessions: ChatSessionSummary[],
   sessionRuntimes: ChatSessionRuntime[],
 ): ChatSessionIndicatorView[] {
   return sessions.map((session) => {
@@ -169,6 +171,7 @@ export function ChatTab({
   sessions,
   selectedSessionId,
   selectedSession,
+  selectedSessionLoading,
   selectedRuntime,
   sessionRuntimes,
   sessionPromptCacheStats,
@@ -400,7 +403,13 @@ export function ChatTab({
             </div>
 
             <div className="message-pane">
-              <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll}>
+              {selectedSessionLoading ? (
+                <div className="session-loading" role="status" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" />
+                  Loading session…
+                </div>
+              ) : null}
+              <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll} hidden={selectedSessionLoading}>
               {compactedMessages.length > 0 ? (
                 <CompactedHistoryPanel
                   compactedMessages={compactedMessages}

@@ -3,27 +3,17 @@ import assert from 'node:assert/strict';
 import { deriveSessionIndicator, isSessionBusy } from '../src/lib/chat-session-state';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store';
-import type { ChatMessage, ChatSession } from '../src/types';
+import type { ChatSessionSummary } from '../src/types';
 import { applyLiveTranscript } from './live-transcript-fixture.js';
 import { chatSnapshot } from './chat-snapshot-fixture.js';
 
 const OPERATION_ID = '4f9c1f9a-0000-4000-8000-000000000000';
 
-function msg(overrides: Partial<ChatMessage>): ChatMessage {
-  return {
-    id: 'm1', role: 'assistant', content: '',
-    inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0,
-    createdAtUtc: '2026-07-19T00:00:00Z', sourceRunId: null,
-    ...overrides,
-  };
-}
-
-function session(messages: ChatMessage[]): ChatSession {
+function session(lastToolCallExitCode: number | null = null): ChatSessionSummary {
   return {
     id: 's1', title: 'S', modelPresetId: 'default', model: null, contextWindowTokens: 32000, planRepoRoot: 'C:/repo',
     createdAtUtc: '2026-07-19T00:00:00Z', updatedAtUtc: '2026-07-19T00:00:00Z',
-    sessionThroughput: { promptTokensPerSecond: null, generationTokensPerSecond: null },
-    messages,
+    lastToolCallExitCode,
   };
 }
 
@@ -35,7 +25,7 @@ test('active session with a running tool live message returns tool', () => {
       activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
     } }], { operationKind: 'message', controlOperationId: OPERATION_ID })
     .get('s1');
-  assert.equal(deriveSessionIndicator(session([]), runtime), 'tool');
+  assert.equal(deriveSessionIndicator(session(), runtime), 'tool');
 });
 
 test('active streaming assistant with no running tool returns streaming', () => {
@@ -44,27 +34,29 @@ test('active streaming assistant with no running tool returns streaming', () => 
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }), 's1',
   [{ kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial' } }], { operationKind: 'message', controlOperationId: OPERATION_ID })
     .get('s1');
-  assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
+  assert.equal(deriveSessionIndicator(session(), runtime), 'streaming');
 });
 
 test('last turn with a non-zero tool exit returns failed', () => {
   const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '').get('s1');
-  assert.equal(
-    deriveSessionIndicator(
-      session([msg({ kind: 'assistant_tool_call', toolCallExecutionState: 'completed',
- toolCallStatus: 'done', toolCallExitCode: 1 })]),
-      runtime,
-    ),
-    'failed',
-  );
+  assert.equal(deriveSessionIndicator(session(1), runtime), 'failed');
 });
 
 test('completed answer returns completed', () => {
   const runtime = new ChatSessionRuntimeStore().ensureSession('s1', '').get('s1');
-  assert.equal(
-    deriveSessionIndicator(session([msg({ kind: 'assistant_answer', content: 'done' })]), runtime),
-    'completed',
-  );
+  assert.equal(deriveSessionIndicator(session(0), runtime), 'completed');
+});
+
+test('a running tool in live messages outranks the persisted exit code', () => {
+  const runtime = applyLiveTranscript(new ChatSessionRuntimeStore()
+    .ensureSession('s1', '')
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID }), 's1',
+  [{ kind: 'tool', tool: {
+    kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2,
+    activityKind: 'search', activitySubject: { kind: 'none' }, command: 'rg x', promptTokenCount: 0,
+  } }], { operationKind: 'message', controlOperationId: OPERATION_ID })
+    .get('s1');
+  assert.equal(deriveSessionIndicator(session(1), runtime), 'tool');
 });
 
 test('runtime failure overrides completed persisted messages', () => {
@@ -72,7 +64,7 @@ test('runtime failure overrides completed persisted messages', () => {
     .ensureSession('s1', '')
     .apply({ kind: 'failure', sessionId: 's1', message: 'backend failed' })
     .get('s1');
-  assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
+  assert.equal(deriveSessionIndicator(session(), runtime), 'failed');
 });
 
 test('isSessionBusy covers local operations, foreign conflicts, and recovered approvals', () => {

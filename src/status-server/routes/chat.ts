@@ -36,7 +36,7 @@ import type { ChatMessage as PersistedChatTranscriptMessage } from '../../state/
 import {
 ChatMessageImageNotFoundError,deleteChatMessage,
 deleteChatMessageImage,deleteChatSession,estimateTokenCount,getChatSessionPath,readChatSessionFromPath,
-readChatSessions,saveChatSessionMetadata,type ChatSession
+readChatSessionSummaries,saveChatSessionMetadata,type ChatSession
 } from '../../state/chat-sessions.js';
 import { ChatMemorySeam } from '../chat-memory-seam.js';
 import { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
@@ -45,7 +45,7 @@ ChatOperationPresetSelector,
 type SelectedChatOperationPreset,
 } from '../chat-operation-preset.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
-import { buildChatSessionResponse } from '../chat-session-response.js';
+import { buildChatSessionResponse, toWireChatSessionSummary } from '../chat-session-response.js';
 import {
 ChatRepoOperationRunner,
 type ChatRepoOperationRequest,
@@ -61,7 +61,6 @@ ChatStreamProgressWriter,
 } from '../chat-stream-progress-writer.js';
 import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
 import { auditCompletedChatSessionThroughput, countChatInputTokens, getLocalTokenConfig, getMockTokenConfig } from '../chat-turn-telemetry.js';
-import { reconcileChatSession } from '../chat-run-recovery.js';
 import {
 buildChatSystemContent,
 buildRetainedWebToolCalls,
@@ -382,19 +381,13 @@ class ListChatSessionsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
-    const { configPath } = ctx;
-    const runtimeRoot = getRuntimeRoot();
-    const config = readConfig(configPath);
-    const database = ctx.runtimeDatabase;
-    const recovered = new Map(readChatSessions(runtimeRoot).map(session => [session.id, reconcileChatSession(database, session.id)]));
+    const sessions = readChatSessionSummaries(getRuntimeRoot()).map(summary => toWireChatSessionSummary(summary));
+    // Listing never replays journals; it reports what reads of individual sessions already found.
     const sessionsResponse: ChatSessionsResponse = {
-      sessions: readChatSessions(runtimeRoot).map(session => {
-        const recovery = recovered.get(session.id);
-        if (!recovery) throw new Error('Chat session has no reconciliation result.');
-        return buildChatSessionResponse(config, session, recovery).session;
-      }),
+      sessions,
+      recovery: sessions.flatMap(session => ctx.chatSessionRecovery.peek(session.id)),
     };
-    sendJson(res, 200, { ...sessionsResponse, recovery: [...recovered.values()].flat() });
+    sendJson(res, 200, sessionsResponse);
     return;
   }
 }
@@ -415,7 +408,7 @@ class GetChatSessionEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
-    const recovery = reconcileChatSession(ctx.runtimeDatabase, sessionId);
+    const recovery = ctx.chatSessionRecovery.forSession(sessionId);
     session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     if (!session) throw new Error('Chat session disappeared during synchronous reconciliation.');
     const config = readConfig(configPath);
@@ -500,6 +493,7 @@ class DeleteChatSessionEndpoint implements RouteEndpoint {
     const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const deleted = deleteChatSession(runtimeRoot, sessionId);
+    ctx.chatSessionRecovery.invalidate(sessionId);
     if (!deleted) {
       sendJson(res, 404, { error: 'Session not found.' });
       return;
@@ -527,6 +521,8 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
     const sessionId = decodeURIComponent(match?.[1] || '');
     const messageId = decodeURIComponent(match?.[2] || '');
     const result = deleteChatMessage(runtimeRoot, sessionId, messageId);
+    // The transcript rows a replay validates against just changed, so the cached verdict is stale.
+    ctx.chatSessionRecovery.invalidate(sessionId);
     if (!result) {
       sendJson(res, 404, { error: 'Message not found.' });
       return;
@@ -562,6 +558,8 @@ class DeleteChatMessageImageEndpoint implements RouteEndpoint {
     const imageIndex = Number(match?.[3]);
     try {
       deleteChatMessageImage(runtimeRoot, sessionId, messageId, imageIndex);
+      // An image row is part of the transcript a replay validates against.
+      ctx.chatSessionRecovery.invalidate(sessionId);
     } catch (error) {
       if (error instanceof ChatMessageImageNotFoundError) {
         sendJson(res, 404, { error: 'Image not found.' });

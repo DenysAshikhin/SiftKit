@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import type Database from 'better-sqlite3';
+import type { ChatSessionRecoveryCache } from './chat-session-recovery-cache.js';
 import type { Metrics } from './metrics.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
@@ -138,6 +139,8 @@ export type ServerContext = {
   /** This process's stable runtime connection; chat dependencies never re-resolve it by cwd. */
   readonly runtimeDatabasePath: string;
   readonly runtimeDatabase: RuntimeDatabase;
+  /** Recovery reports per chat session, filled on the first read after this process started. */
+  readonly chatSessionRecovery: ChatSessionRecoveryCache;
   /** Reassigned by the owner heartbeat when the lease is lost and re-acquired under a new epoch. */
   chatRunOwnerEpoch: string;
   chatRuntimeOwner: import('../state/chat-runtime-owner.js').ChatRuntimeOwner;

@@ -304,6 +304,16 @@ export const ChatSessionSchema = z.object({
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
 
+/**
+ * What the session rail needs: everything but the transcript, plus the last message's tool exit.
+ * `model` and `contextWindowTokens` are config-resolved and belong to the detail, which is where
+ * they are rendered; a summary therefore never needs the config.
+ */
+export const ChatSessionSummarySchema = ChatSessionSchema
+  .omit({ messages: true, promptContext: true, sessionThroughput: true, modelPreset: true, model: true, contextWindowTokens: true })
+  .extend({ lastToolCallExitCode: z.number().int().nullable() });
+export type ChatSessionSummary = z.infer<typeof ChatSessionSummarySchema>;
+
 export const ContextUsageSchema = z.object({
   contextWindowTokens: z.number(), usedTokens: z.number(), chatUsedTokens: z.number(), thinkingUsedTokens: z.number(),
   toolUsedTokens: z.number(), imageUsedTokens: z.number().int().nonnegative(),

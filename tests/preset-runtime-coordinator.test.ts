@@ -333,3 +333,72 @@ test('concurrent ensureActivePresetReady callers join the in-flight switch inste
     await disposeCoordinator(fixture);
   }
 });
+
+test('concurrent ensureActivePresetReady joiners all see the switch failure without retrying the load', async () => {
+  const fixture = createCoordinator(new Set(['broken-exl3']));
+  const { coordinator, events, configPath } = fixture;
+  try {
+    await coordinator.initialize();
+    persistActivePreset(configPath, 'broken-exl3');
+    const first = coordinator.ensureActivePresetReady();
+    const second = coordinator.ensureActivePresetReady();
+    await Promise.all([
+      assert.rejects(first, /load failed: broken-exl3/u),
+      assert.rejects(second, /load failed: broken-exl3/u),
+    ]);
+    // Exactly one target load attempt, then rollback; a retry would succeed (failing set is single-shot) and show up here.
+    assert.deepEqual(events, [
+      'start:exl3', 'load:exl3-main',
+      'unload:exl3', 'load:broken-exl3',
+      'unload:exl3', 'load:exl3-main',
+    ]);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('ensureActivePresetReady applies a preset re-saved mid-switch and every caller waits for it', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
+  try {
+    await coordinator.initialize();
+    persistActivePreset(configPath, 'exl3-alt');
+    const first = coordinator.ensureActivePresetReady();
+    const second = coordinator.ensureActivePresetReady();
+    persistActivePreset(configPath, 'broken-exl3'); // re-saved while the alt switch is in flight
+    await Promise.all([first, second]);
+    assert.deepEqual(events, [
+      'start:exl3', 'load:exl3-main',
+      'unload:exl3', 'load:exl3-alt',
+      'unload:exl3', 'load:broken-exl3',
+    ]);
+    assert.equal(coordinator.getStatus().activePresetId, 'broken-exl3');
+    assert.equal(coordinator.getStatus().error, null);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+// Guards the re-check without any timing helper: a caller whose own switch started before the config
+// was re-saved must keep looping until the newly saved preset is applied, not report the stale one.
+test('ensureActivePresetReady applies a preset re-saved during its own switch', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
+  try {
+    await coordinator.initialize();
+    persistActivePreset(configPath, 'exl3-alt');
+    const ready = coordinator.ensureActivePresetReady();
+    persistActivePreset(configPath, 'broken-exl3'); // re-saved after the switch began, before it settled
+    await ready;
+    assert.deepEqual(events, [
+      'start:exl3', 'load:exl3-main',
+      'unload:exl3', 'load:exl3-alt',
+      'unload:exl3', 'load:broken-exl3',
+    ]);
+    assert.equal(coordinator.getStatus().activePresetId, 'broken-exl3');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});

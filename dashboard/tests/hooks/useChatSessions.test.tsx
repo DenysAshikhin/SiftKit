@@ -18,6 +18,7 @@ import { renderHook, waitFor } from '../react-test-environment.js';
 import {
   findSessionByIdStrict,
   pickFirstSessionId,
+  summarizeChatSession,
   upsertSession,
   useChatSessions,
 } from '../../src/hooks/useChatSessions';
@@ -246,7 +247,7 @@ test('an owned terminal refresh failure reattaches after ownership is released',
     detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
     holdStream: true,
-    detailFailureRequestNumbers: [3],
+    detailFailureRequestNumbers: [2],
   });
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
@@ -284,6 +285,7 @@ class ChatFetchFixture {
   private operationStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly originalFetch = globalThis.fetch;
   private restored = false;
+  private releaseDetail: (() => void) | null = null;
 
   constructor(private readonly options: {
     session: ChatSession;
@@ -297,6 +299,8 @@ class ChatFetchFixture {
     operationStreams?: string[];
     detailFailureRequestNumbers?: number[];
     holdOperationStream?: boolean;
+    /** Holds the selected session's detail response until `releaseHeldDetail()` runs. */
+    holdDetail?: boolean;
     /** Rejects the first submitted turn as another client's, the way a live server would. */
     conflictOperationKind?: ActiveChatOperation['operationKind'];
     decideResponse?: ChatRepoAgentDecideResponse;
@@ -315,8 +319,8 @@ class ChatFetchFixture {
       if (typeof init?.body === 'string') {
         this.sentBodies.push(init.body);
       }
-      if (url === '/dashboard/chat/sessions') {
-        return new Response(JSON.stringify({ sessions }), { status: 200 });
+      if (url === '/dashboard/chat/sessions' && init?.method !== 'POST') {
+        return new Response(JSON.stringify({ sessions: sessions.map(summarizeChatSession) }), { status: 200 });
       }
       if (url === '/dashboard/chat/operations') {
         return new Response(JSON.stringify({ operations: this.options.activeOperations ?? [] }), { status: 200 });
@@ -346,11 +350,17 @@ class ChatFetchFixture {
           },
         }), { headers: { 'Content-Type': 'text/event-stream' } });
       }
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}` && init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ ok: true, deleted: true, id: requestedSession.id }), { status: 200 });
+      }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}`) {
         this.detailRequestCount += 1;
         if (this.options.detailFailureRequestNumbers?.includes(this.detailRequestCount)) {
           this.detailFailureCount += 1;
           return new Response(JSON.stringify({ error: 'Session refresh failed.' }), { status: 503 });
+        }
+        if (this.options.holdDetail && this.releaseDetail === null) {
+          await new Promise<void>(resolve => { this.releaseDetail = resolve; });
         }
         const detail = this.settled ? this.options.streamResponse : this.options.detailResponse;
         const response = hasMultipleSessions ? { ...detail, session: requestedSession } : detail;
@@ -492,6 +502,9 @@ class ChatFetchFixture {
     controller.enqueue(new TextEncoder().encode(frame));
   }
 
+  /** Resolves the held detail response; only meaningful with `holdDetail`. */
+  releaseHeldDetail(): void { this.releaseDetail?.(); this.releaseDetail = null; }
+
   restore(): void {
     if (this.restored) return;
     this.restored = true;
@@ -503,7 +516,7 @@ for (const queueStatus of [200, 409]) test(`busy submission queues server-side a
   const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, holdStream: true, queueStatus });
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0, buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
-    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.id, 's1'));
     act(() => hook.result.current.setSessionDraft('s1', 'original'));
     let running = Promise.resolve();
     act(() => { running = hook.result.current.sendMessage(); });
@@ -523,7 +536,7 @@ test('a lost Force now response retries the same idempotency request', async () 
   const fixture = new ChatFetchFixture({ session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, loseFirstForceResponse: true });
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0, buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
-    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.id, 's1'));
     await act(async () => hook.result.current.forceQueue());
     await act(async () => hook.result.current.forceQueue());
     assert.equal(fixture.forcedBodies.length, 2);
@@ -545,7 +558,7 @@ test('a lost submission response reconnects the same submission and preserves a 
   try {
     const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
-    await waitFor(() => assert.equal(fixture.detailRequestCount, 2));
+    await waitFor(() => assert.equal(hook.result.current.selectedSession?.id, 's1'));
     act(() => hook.result.current.setSessionDraft('s1', 'perform once'));
     let run = Promise.resolve();
     act(() => { run = hook.result.current.sendMessage(); });
@@ -906,9 +919,9 @@ test('a compacting stream completion installs the boundary and corrected usage w
     await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
     act(() => { hook.result.current.setSessionDraft('s1', 'trigger question'); });
     await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'trigger question'); });
-    // Mount fetches the session once, then the idle attach falls back to a second fetch; the claim
-    // under test is that the terminal record costs exactly one more fetch, which installs the result.
-    await waitFor(() => { assert.equal(fixture.detailRequestCount, 2); });
+    // Mount fetches the session once; the claim under test is that the terminal record costs
+    // exactly one more fetch, which installs the result.
+    await waitFor(() => { assert.equal(fixture.detailRequestCount, 1); });
     const detailRequestsBeforeSend = fixture.detailRequestCount;
     await act(async () => { await hook.result.current.sendMessage(); });
 
@@ -1346,6 +1359,113 @@ test('with no preselected session the running session is chosen over the first l
       enqueueToast: () => {},
     }));
     await waitFor(() => { assert.equal(hook.result.current.selectedSessionId, 's2'); });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('re-selecting a loaded session reuses the cached detail and never refetches the list', async () => {
+  const secondSession: ChatSession = { ...SESSION, id: 's2', title: 'Second' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, secondSession],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    await act(async () => { hook.result.current.selectSession('s2'); });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's2'); });
+    await act(async () => { hook.result.current.selectSession('s1'); });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions').length, 1);
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s1').length, 1);
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s2').length, 1);
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('selectedSessionLoading is true until the detail arrives', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    holdDetail: true,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSessionId, 's1'); });
+    assert.equal(hook.result.current.selectedSessionLoading, true);
+    assert.equal(hook.result.current.selectedSession, null);
+    await act(async () => { fixture.releaseHeldDetail(); });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSessionLoading, false); });
+    assert.equal(hook.result.current.selectedSession?.id, 's1');
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('deleting a session drops it locally and selects the next one without refetching the list', async () => {
+  const secondSession: ChatSession = { ...SESSION, id: 's2', title: 'Second' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, secondSession],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+    await act(async () => { await hook.result.current.deleteSession(); });
+    assert.deepEqual(hook.result.current.sessions.map(session => session.id), ['s2']);
+    assert.equal(hook.result.current.selectedSessionId, 's2');
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions').length, 1);
+    assert.ok(fixture.requestedUrls.includes('/dashboard/chat/sessions/s1')); // the DELETE
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('returning to a session last seen busy refetches it once the attach finds it idle', async () => {
+  const other = { ...SESSION, id: 's2' };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    sessions: [SESSION, other],
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeOperations: [{
+      sessionId: 's2',
+      operationKind: 'repo-agent',
+      operationId: OPERATION_ID,
+      startedAtUtc: '2026-09-08T12:00:00.000Z',
+    }],
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s2').activity.kind, 'remote'); });
+    await act(async () => { hook.result.current.selectSession('s2'); });
+    // The operation stream reports nothing running: the run finished while this client was away.
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s2').activity.kind, 'idle'); });
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s2').length, 2);
+    assert.equal(fixture.requestedUrls.filter(url => url === '/dashboard/chat/sessions/s1').length, 1);
   } finally {
     fixture.restore();
   }

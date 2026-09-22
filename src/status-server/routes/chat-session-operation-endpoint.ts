@@ -41,7 +41,6 @@ import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
-import { reconcileChatSession } from '../chat-run-recovery.js';
 import { buildChatSessionResponse } from '../chat-session-response.js';
 import { ChatOperationSseSubscriber, writeChatProjectionFailure } from '../chat-operation-sse-subscriber.js';
 import { z } from '../../lib/zod.js';
@@ -237,6 +236,23 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       return;
     }
     if (request.lease) request.lease.recorder = recorder;
+    // The memoized verdict was computed against the journals this run is about to write, so it dies
+    // with the run: whichever read comes next — a detail GET or the following turn's admission gate —
+    // replays against what this run actually persisted instead of repeating a stale verdict.
+    try {
+      await this.closeRunRecord(ctx, req, res, request, recorder);
+    } finally {
+      ctx.chatSessionRecovery.invalidate(request.sessionId);
+    }
+  }
+
+  private async closeRunRecord(
+    ctx: ServerContext,
+    req: IncomingMessage | null,
+    res: ServerResponse | null,
+    request: ChatSessionOperationRequest<TParsed>,
+    recorder: ChatRunRecorder,
+  ): Promise<void> {
     let outcome: ChatOperationOutcome;
     try {
       outcome = ChatOperationOutcomeSchema.parse(await this.run(ctx, req, res, request));
@@ -322,7 +338,10 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     catch (error) { throw new ChatImageAdmissionError(toError(error)); }
     const database = ctx.runtimeDatabase;
     importChatSessionBaseline(database, session, config);
-    const recovery = reconcileChatSession(database, sessionId);
+    // The gate replays rather than answering from the read memo: a journal can be corrupted from
+    // outside this process, and closing the run below retires the memo so no read repeats a verdict
+    // older than this run.
+    const recovery = ctx.chatSessionRecovery.forRunAdmission(sessionId);
     const failed = recovery.find(report => report.status === 'recovery_failed');
     if (failed) throw new ChatRecoveryAdmissionError(failed);
     return ChatRunRecorder.begin(database, {

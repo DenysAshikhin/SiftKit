@@ -55,6 +55,11 @@ for (const failure of [null, 'explicit execution failure']) test(`durable termin
   const store = new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath()));
   const run = store.listSessionRuns(session.id).find(run => run.recordKind === 'execution');
   assert.ok(run);
+  // Closing the run retires the verdict turn-start admitted on, so the next read replays and reports
+  // the run this turn journaled; the read after that is served from the cache, not by replaying again.
+  const reported = ctx.chatSessionRecovery.forSession(session.id);
+  assert.ok(reported.some(report => report.operationId === run.operationId));
+  assert.equal(ctx.chatSessionRecovery.forSession(session.id), reported);
   assert.equal(run.terminalCause, failure === null ? 'completed' : 'execution_failure');
   const terminal = [...store.readAll(run.operationId)].find(envelope => envelope.event.kind === 'run_finished')?.event;
   assert.ok(terminal?.kind === 'run_finished');

@@ -48,9 +48,11 @@ import {
 } from '../lib/chat-composer-inputs';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../lib/chat-session-runtime-store';
 import { hasActiveRepoAgentRun, isSessionBusy } from '../lib/chat-session-state';
+import { useLatest } from '../lib/use-latest';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
-import type { ChatSession, ChatSessionResponse } from '../types';
+import { ChatSessionSummarySchema } from '../types';
+import type { ChatSession, ChatSessionResponse, ChatSessionSummary } from '../types';
 import type { ToastLevel } from './useToasts';
 import type { PendingImage } from '../lib/downscale-image';
 import { waitForAbortableDelay } from '../lib/abortable-delay';
@@ -80,11 +82,11 @@ export type CreateChatSessionRequest = {
   presetId?: string;
 };
 
-export function pickFirstSessionId(sessions: ChatSession[]): string {
+export function pickFirstSessionId(sessions: readonly ChatSessionSummary[]): string {
   return sessions[0]?.id ?? '';
 }
 
-export function findSessionByIdStrict(sessions: ChatSession[], sessionId: string): ChatSession {
+export function findSessionByIdStrict(sessions: readonly ChatSessionSummary[], sessionId: string): ChatSessionSummary {
   const found = sessions.find((session) => session.id === sessionId);
   if (!found) {
     throw new Error(`useChatSessions: unknown session id "${sessionId}"`);
@@ -92,13 +94,20 @@ export function findSessionByIdStrict(sessions: ChatSession[], sessionId: string
   return found;
 }
 
-export function upsertSession(sessions: ChatSession[], updated: ChatSession): ChatSession[] {
+/** The rail's view of a full session; the schema drops the transcript for us. */
+export function summarizeChatSession(session: ChatSession): ChatSessionSummary {
+  const last = session.messages[session.messages.length - 1];
+  return ChatSessionSummarySchema.parse({ ...session, lastToolCallExitCode: last?.toolCallExitCode ?? null });
+}
+
+export function upsertSession(sessions: readonly ChatSessionSummary[], updated: ChatSession): ChatSessionSummary[] {
+  const summary = summarizeChatSession(updated);
   const index = sessions.findIndex((s) => s.id === updated.id);
   if (index < 0) {
-    return [updated, ...sessions];
+    return [summary, ...sessions];
   }
   const next = sessions.slice();
-  next[index] = updated;
+  next[index] = summary;
   return next;
 }
 
@@ -109,9 +118,17 @@ export function useChatSessions(deps: {
   confirmDeleteSession(): boolean;
   enqueueToast(level: ToastLevel, text: string): void;
 }) {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  // Transcripts fetched this page-load, by id. A session is fetched once and then read from here.
+  const [loadedSessions, setLoadedSessions] = useState<ReadonlyMap<string, ChatSession>>(new Map());
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
+  const selectedSessionIdRef = useLatest(selectedSessionId);
   const [runtimeStore, setRuntimeStore] = useState<ChatSessionRuntimeStore>(new ChatSessionRuntimeStore());
+  const runtimeStoreRef = useLatest(runtimeStore);
+  // The detail effect deliberately depends on the selection alone, so it reads the transcript map
+  // through a ref: the "already loaded" answer it acts on is the current one, not a captured one.
+  const loadedSessionsRef = useLatest(loadedSessions);
   // The sessions whose stream this client is draining itself. A ref, not state: it is a fact about
   // in-flight work, read at the instant the attach effect runs, and no render displays it. The
   // effect must not read activity instead — it writes activity, so that guard would be circular.
@@ -129,7 +146,14 @@ export function useChatSessions(deps: {
   // Bumped when a submitted turn is rejected because the session is already running elsewhere.
   // Nothing else tells the attach effect that a run it should follow now exists.
   const [remoteRunGeneration, setRemoteRunGeneration] = useState(0);
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const selectedSession = loadedSessions.get(selectedSessionId) ?? null;
+  const selectedSessionLoading = selectedSessionId !== '' && loadingSessionId === selectedSessionId;
+  // A loaded session always has a runtime: its detail may land before the listing seeds the store.
+  function storeSession(session: ChatSession): void {
+    setLoadedSessions((previous) => new Map(previous).set(session.id, session));
+    setSessions((previous) => upsertSession(previous, session));
+    setRuntimeStore((previous) => previous.ensureSession(session.id, session.planRepoRoot));
+  }
 
   function recordSessionError(sessionId: string, error: Error): void {
     if (!sessionId) {
@@ -169,33 +193,30 @@ export function useChatSessions(deps: {
           }
           return store;
         });
-        if (!selectedSessionId) {
-          // Prefer a session that is actually running: a run in flight never touches updatedAtUtc,
-          // so the busy session is usually not the first one the listing returns. The listing has
-          // no order of its own, so the longest-running operation decides.
-          const oldestRunning = [...active.operations]
-            .sort((left, right) => left.startedAtUtc.localeCompare(right.startedAtUtc))[0];
-          const firstId = oldestRunning?.sessionId || pickFirstSessionId(response.sessions);
-          if (firstId) {
-            setSelectedSessionId(firstId);
-          }
-        }
+        // Prefer a session that is actually running: a run in flight never touches updatedAtUtc,
+        // so the busy session is usually not the first one the listing returns. The listing has
+        // no order of its own, so the longest-running operation decides.
+        const oldestRunning = [...active.operations]
+          .sort((left, right) => left.startedAtUtc.localeCompare(right.startedAtUtc))[0];
+        const firstId = oldestRunning?.sessionId || pickFirstSessionId(response.sessions);
+        if (firstId) setSelectedSessionId((current) => current || firstId);
       } catch (error) {
         if (!cancelled) {
-          recordSessionError(selectedSessionId, toError(error));
+          recordSessionError(selectedSessionIdRef.current, toError(error));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedSessionId, deps.refreshToken]);
+  }, [deps.refreshToken]);
 
   useEffect(() => {
-    if (!selectedSessionId) {
+    if (!selectedSessionId || loadedSessionsRef.current.has(selectedSessionId)) {
       return;
     }
     let cancelled = false;
+    setLoadingSessionId(selectedSessionId);
     void Promise.all([
       getChatSession(selectedSessionId),
       getActiveRepoAgentRun(selectedSessionId),
@@ -204,7 +225,7 @@ export function useChatSessions(deps: {
         if (cancelled) {
           return;
         }
-        setSessions((previous) => upsertSession(previous, response.session));
+        storeSession(response.session);
         setRuntimeStore((previous) => {
           let withUsage = previous.apply({
             kind: 'context-usage',
@@ -225,14 +246,17 @@ export function useChatSessions(deps: {
         if (!cancelled) {
           recordSessionError(selectedSessionId, toError(error));
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSessionId((current) => (current === selectedSessionId ? null : current));
       });
     return () => {
       cancelled = true;
     };
   }, [selectedSessionId]);
 
-  // Sessions are seeded into the runtime store together with the listing, so a runtime exists
-  // exactly when the selected session does.
+  // Both the listing and storeSession seed the runtime store, so a runtime exists exactly when
+  // the selected session does.
   const selectedLoaded = selectedSession !== null;
 
   useEffect(() => {
@@ -290,7 +314,7 @@ export function useChatSessions(deps: {
       if (cancelled) {
         return false;
       }
-      setSessions((previous) => upsertSession(previous, response.session));
+      storeSession(response.session);
       setRuntimeStore((previous) => {
         const next = previous.apply({ kind: 'context-usage', sessionId, contextUsage: response.contextUsage });
         return response.recovery ? next.apply({ kind: 'recovery', sessionId, reports: response.recovery }) : next;
@@ -333,17 +357,17 @@ export function useChatSessions(deps: {
       } catch (error) {
         if (cancelled) return;
         if (!(error instanceof ChatOperationIdleError)) { reconnectAfterError(toError(error)); return; }
-        // Nothing is running: the run may have finished while this client was away, so take the
-        // stored transcript rather than leaving the session pinned as busy.
-        try {
-          await refreshSession();
-          const pendingTerminal = pendingTerminalTransitions.current.get(sessionId);
-          if (pendingTerminal) {
-            pendingTerminalTransitions.current.delete(sessionId);
-            setRuntimeStore((previous) => previous.apply(pendingTerminal));
-          }
+        // Nothing is running. A session last seen busy may have finished while this client was
+        // away, so refetch it; otherwise the transcript loaded this page-load is reused.
+        if (runtimeStoreRef.current.get(sessionId).activity.kind !== 'idle') {
+          try { await refreshSession(); }
+          catch (error) { reconnectAfterError(toError(error)); return; }
         }
-        catch (error) { reconnectAfterError(toError(error)); return; }
+        const pendingTerminal = pendingTerminalTransitions.current.get(sessionId);
+        if (pendingTerminal) {
+          pendingTerminalTransitions.current.delete(sessionId);
+          setRuntimeStore((previous) => previous.apply(pendingTerminal));
+        }
         if (cancelled) {
           return;
         }
@@ -365,7 +389,7 @@ export function useChatSessions(deps: {
   }, [selectedSessionId, selectedLoaded, remoteRunGeneration]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
-    setSessions((previous) => upsertSession(previous, response.session));
+    storeSession(response.session);
     setRuntimeStore((previous) => {
       const next = previous.apply({ kind: 'context-usage', sessionId: response.session.id, contextUsage: response.contextUsage });
       return response.recovery ? next.apply({ kind: 'recovery', sessionId: response.session.id, reports: response.recovery }) : next;
@@ -421,7 +445,6 @@ export function useChatSessions(deps: {
     }
     try {
       const response = await createChatSession(request);
-      setSessions((previous) => [response.session, ...previous]);
       setSelectedSessionId(response.session.id);
       setRuntimeStore((prev) => prev.ensureSession(response.session.id, response.session.planRepoRoot));
       applySessionResponse(response);
@@ -439,10 +462,10 @@ export function useChatSessions(deps: {
     }
     try {
       await deleteChatSession(selectedSessionId);
-      const response = await getChatSessions();
-      setSessions(response.sessions);
-      const nextSession = response.sessions[0] ?? null;
-      setSelectedSessionId(nextSession ? nextSession.id : '');
+      const remaining = sessions.filter((session) => session.id !== selectedSessionId);
+      setSessions(remaining);
+      setLoadedSessions((previous) => { const next = new Map(previous); next.delete(selectedSessionId); return next; });
+      setSelectedSessionId(pickFirstSessionId(remaining));
       setRuntimeStore((prev) => prev.removeSession(selectedSessionId));
     } catch (error) {
       recordSessionError(selectedSessionId, toError(error));
@@ -890,6 +913,7 @@ export function useChatSessions(deps: {
     sessions,
     selectedSessionId,
     selectedSession,
+    selectedSessionLoading,
     runtimeStore,
     selectSession,
     refreshSessions,

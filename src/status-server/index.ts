@@ -65,6 +65,7 @@ import {
 import { StatusEngineService } from './engine-service.js';
 import { StatusRunRegistry } from './status-run-registry.js';
 import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
+import { ChatSessionRecoveryCache } from './chat-session-recovery-cache.js';
 import { createRequestHandler } from './routes.js';
 import { flushTerminalMetadataForShutdown, waitForTerminalMetadataIdle } from './terminal-metadata.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
@@ -264,6 +265,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     runtimeDatabasePath,
     runtimeDatabase,
+    chatSessionRecovery: new ChatSessionRecoveryCache(runtimeDatabase),
     chatRunOwnerEpoch: chatRuntimeOwner.ownerEpoch,
     chatRuntimeOwner,
     server: null,

@@ -12,6 +12,7 @@ import { groupMessagesIntoTurns } from '../src/lib/chatTurns';
 import { GatedChatBackend } from '../../tests/helpers/gated-chat-backend.js';
 import { ChatMessageQueueResponseSchema } from '@siftkit/contracts';
 import { ChatTab } from '../src/tabs/ChatTab';
+import { summarizeChatSession } from '../src/hooks/useChatSessions';
 import { consumeChatStream } from '../src/api';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
@@ -158,7 +159,7 @@ for (const queued of [false, true]) {
     let store = new ChatSessionRuntimeStore().ensureSession(sessionId, '')
       .apply({ kind: 'submit', sessionId, content: 'inspect', images: [] });
     let session = created.session;
-    const props = () => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [session], selectedRuntime: store.get(sessionId), sessionRuntimes: store.getAll() });
+    const props = () => buildProps({ selectedSessionId: sessionId, selectedSession: session, sessions: [summarizeChatSession(session)], selectedRuntime: store.get(sessionId), sessionRuntimes: store.getAll() });
     const view = renderComponent(<ChatTab {...props()} />);
     const stream = toRuntimeTransitions(sessionId, { kind: 'owned', operationKind: 'plan', operationId: OPERATION_ID, submissionId: SUBMISSION_ID }, readHttpChat(`${url}/plan/stream`, t.signal, { content: 'inspect', repoRoot: server.tempRoot, operationId: OPERATION_ID, submissionId: SUBMISSION_ID, maxTurns: 3 }), true);
     t.after(async () => { await stream.return(); });
@@ -385,9 +386,10 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
   const selectedSessionId = overrides.selectedSessionId ?? SESSION_A.id;
   const defaultStore = buildDefaultStore(selectedSessionId);
   const props: ChatTabProps = {
-    sessions: [SESSION_A, SESSION_B],
+    sessions: [summarizeChatSession(SESSION_A), summarizeChatSession(SESSION_B)],
     selectedSessionId,
     selectedSession: selectedSessionId === SESSION_B.id ? SESSION_B : SESSION_A,
+    selectedSessionLoading: false,
     selectedRuntime: defaultStore.get(selectedSessionId),
     sessionRuntimes: defaultStore.getAll(),
     sessionPromptCacheStats: { cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null },
@@ -1374,7 +1376,7 @@ const TWICE_COMPACTED_SESSION = {
 
 test('a compacted session renders the divider, the collapsed originals and the summary card', () => {
   const markup = render({
-    sessions: [COMPACTED_SESSION],
+    sessions: [summarizeChatSession(COMPACTED_SESSION)],
     selectedSessionId: COMPACTED_SESSION.id,
     selectedSession: COMPACTED_SESSION,
   });
@@ -1390,7 +1392,7 @@ test('a compacted session renders the divider, the collapsed originals and the s
 
 test('repeated compaction renders one closed fold, the latest summary, then live messages', () => {
   const markup = render({
-    sessions: [TWICE_COMPACTED_SESSION],
+    sessions: [summarizeChatSession(TWICE_COMPACTED_SESSION)],
     selectedSessionId: TWICE_COMPACTED_SESSION.id,
     selectedSession: TWICE_COMPACTED_SESSION,
   });
@@ -1489,7 +1491,7 @@ test('a real compacting stream persists and immediately renders one boundary', a
       .ensureSession(terminal.session.id, '')
       .apply({ kind: 'context-usage', sessionId: terminal.session.id, contextUsage: terminal.contextUsage });
     const markup = render({
-      sessions: [terminal.session],
+      sessions: [summarizeChatSession(terminal.session)],
       selectedSessionId: terminal.session.id,
       selectedSession: terminal.session,
       selectedRuntime: responseStore.get(terminal.session.id),
@@ -1523,7 +1525,7 @@ test('a flagged message after the summary row stays in compacted history', () =>
     ],
   } satisfies ChatSession;
 
-  const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
+  const markup = render({ sessions: [summarizeChatSession(session)], selectedSessionId: session.id, selectedSession: session });
 
   assert.match(markup, /Context compacted \(3 messages summarized\)/u);
   assert.doesNotMatch(markup, /stale flagged answer/u);
@@ -1543,7 +1545,7 @@ test('flagged messages stay hidden from the live conversation when the summary r
     ],
   } satisfies ChatSession;
 
-  const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
+  const markup = render({ sessions: [summarizeChatSession(session)], selectedSessionId: session.id, selectedSession: session });
 
   assert.match(markup, /live answer/u);
   assert.doesNotMatch(markup, /orphaned answer/u);
@@ -1898,4 +1900,10 @@ test('the approval mode control is disabled during a local non-repo-agent operat
   for (const name of ['Manual', 'Auto', 'Approve all']) {
     assert.equal(screen.getByRole('button', { name }).hasAttribute('disabled'), true);
   }
+});
+
+test('shows the loading spinner instead of the transcript while the selected session loads', () => {
+  const html = renderToStaticMarkup(<ChatTab {...buildProps({ selectedSessionLoading: true })} />);
+  assert.match(html, /session-loading/u);
+  assert.match(html, /Loading session…/u);
 });

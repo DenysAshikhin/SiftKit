@@ -92,13 +92,14 @@ export class PresetRuntimeCoordinator {
   }
 
   async ensureActivePresetReady(): Promise<void> {
-    // Join an in-flight switch instead of racing it: concurrent callers wait rather than fail.
-    while (this.switchPromise) await this.switchPromise;
-    const configuredPreset = this.getConfiguredPreset();
-    if (!this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) {
-      await this.applyPreset(configuredPreset.id);
+    // Join a running switch and re-check, since config can be re-saved mid-switch. A queued switch is
+    // not joined: it waits on in-flight model requests, which may be the caller (or a minutes-long run).
+    for (;;) {
+      while (this.switchPromise) await this.switchPromise;
+      const configuredPreset = this.getConfiguredPreset();
+      if (this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) break;
+      if (await this.applyPreset(configuredPreset.id) === 'queued') break;
     }
-    if (this.switchPromise) await this.switchPromise;
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.runtime;
     const modelState = runtime.getModelState();

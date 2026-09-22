@@ -1,6 +1,6 @@
-import { ChatSessionSchema, ChatSessionResponseSchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport } from '@siftkit/contracts';
+import { ChatSessionSchema, ChatSessionResponseSchema, ChatSessionSummarySchema, PersistedChatTranscriptMessageSchema, type ChatRecoveryReport } from '@siftkit/contracts';
 import type { SiftConfig } from '../config/types.js';
-import type { ChatSession } from '../state/chat-sessions.js';
+import type { ChatSession, ChatSessionSummary } from '../state/chat-sessions.js';
 import { buildChatPromptContext } from './chat-prompt-context.js';
 import { buildContextUsage, resolveChatSessionContextWindow, resolveChatSessionModel } from './chat.js';
 import { buildChatSessionThroughput } from './chat-turn-telemetry.js';
@@ -9,17 +9,26 @@ export function withPromptContext(config: SiftConfig, session: ChatSession): Cha
   return { ...session, promptContext: buildChatPromptContext(config, session) };
 }
 
+/**
+ * The persisted session plus the three fields the wire derives rather than stores. The schema owns
+ * the field list, so a new session column reaches the wire with its own edit; `modelPreset` is the
+ * request-shaping payload the detail never renders, so it is the one field dropped on the way out.
+ */
 export function toWireChatSession(config: SiftConfig, session: ChatSession) {
   const messages = (session.messages ?? []).map(message => PersistedChatTranscriptMessageSchema.parse({ ...message, sourceRunId: message.sourceRunId ?? null }));
+  const { modelPreset: _requestShapingPreset, ...persisted } = session;
   return ChatSessionSchema.parse({
-    id: session.id, title: session.title, modelPresetId: session.modelPresetId,
-    model: resolveChatSessionModel(config, session), contextWindowTokens: resolveChatSessionContextWindow(config, session),
-    thinkingEnabled: session.thinkingEnabled, webSearchEnabled: session.webSearchEnabled, presetId: session.presetId,
-    mode: session.mode, planRepoRoot: session.planRepoRoot, createdAtUtc: session.createdAtUtc, updatedAtUtc: session.updatedAtUtc,
+    ...persisted,
     messages,
+    model: resolveChatSessionModel(config, session),
+    contextWindowTokens: resolveChatSessionContextWindow(config, session),
     sessionThroughput: buildChatSessionThroughput(messages).rates,
-    promptContext: session.promptContext,
   });
+}
+
+/** The rail's row: the state summary as the wire schema declares it, which keeps the config out of the listing. */
+export function toWireChatSessionSummary(summary: ChatSessionSummary) {
+  return ChatSessionSummarySchema.parse(summary);
 }
 
 export function buildChatSessionResponse(config: SiftConfig, session: ChatSession, recovery: readonly ChatRecoveryReport[] = []) {

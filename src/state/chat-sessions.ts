@@ -55,6 +55,11 @@ export const StoredChatSessionSchema = ChatSessionSchema.pick({
 });
 export type ChatSession = z.infer<typeof StoredChatSessionSchema>;
 
+export const StoredChatSessionSummarySchema = StoredChatSessionSchema
+  .omit({ messages: true, promptContext: true })
+  .extend({ lastToolCallExitCode: z.number().int().nullable() });
+export type ChatSessionSummary = z.infer<typeof StoredChatSessionSummarySchema>;
+
 const SessionIdRowSchema = z.object({ id: z.string().nullable() });
 
 const SessionRowSchema = z.object({
@@ -70,6 +75,11 @@ const SessionRowSchema = z.object({
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
 });
+
+const SessionSummaryRowSchema = SessionRowSchema.extend({ last_tool_call_exit_code: z.number().int().nullable() });
+
+const SESSION_SELECT_COLUMNS = `id, title, model_preset_id, model_preset_json, thinking_enabled, web_search_enabled,
+      preset_id, mode, plan_repo_root, created_at_utc, updated_at_utc`;
 
 const MessageRowSchema = z.object({
   id: z.string(),
@@ -373,22 +383,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
 
 /** Reads an already-open, current-schema database without opening or migrating another file. */
 export function readChatSessionFromDatabase(database: ReturnType<typeof getRuntimeDatabase>, sessionId: string): ChatSession | null {
-  const row = database.prepare(`
-    SELECT
-      id,
-      title,
-      model_preset_id,
-      model_preset_json,
-      thinking_enabled,
-      web_search_enabled,
-      preset_id,
-      mode,
-      plan_repo_root,
-      created_at_utc,
-      updated_at_utc
-    FROM chat_sessions
-    WHERE id = ?
-  `).get(sessionId);
+  const row = database.prepare(`SELECT ${SESSION_SELECT_COLUMNS} FROM chat_sessions WHERE id = ?`).get(sessionId);
   if (row === undefined || row === null) {
     return null;
   }
@@ -404,6 +399,13 @@ export function readChatSessionFromDatabase(database: ReturnType<typeof getRunti
   const messages = z.array(MessageRowSchema).parse(messageRows);
 
   return {
+    ...mapSessionRow(session),
+    messages: attachRunOutcomes(database, sessionId, messages.map((message) => mapMessageRow(message))),
+  };
+}
+
+function mapSessionRow(session: z.infer<typeof SessionRowSchema>): Omit<ChatSession, 'messages' | 'promptContext'> {
+  return {
     id: session.id,
     title: session.title,
     modelPresetId: session.model_preset_id,
@@ -415,8 +417,19 @@ export function readChatSessionFromDatabase(database: ReturnType<typeof getRunti
     planRepoRoot: session.plan_repo_root,
     createdAtUtc: session.created_at_utc,
     updatedAtUtc: session.updated_at_utc,
-    messages: attachRunOutcomes(database, sessionId, messages.map((message) => mapMessageRow(message))),
   };
+}
+
+/** One query for the whole rail: no transcripts, only what a session row plus its last message says. */
+export function readChatSessionSummaries(runtimeRoot: string): ChatSessionSummary[] {
+  const rows = getSessionDatabase(runtimeRoot).prepare(`
+    SELECT ${SESSION_SELECT_COLUMNS},
+      (SELECT tool_call_exit_code FROM chat_messages WHERE session_id = chat_sessions.id ORDER BY position DESC LIMIT 1) AS last_tool_call_exit_code
+    FROM chat_sessions
+    ORDER BY updated_at_utc DESC
+  `).all();
+  return z.array(SessionSummaryRowSchema).parse(rows)
+    .map(row => ({ ...mapSessionRow(row), lastToolCallExitCode: row.last_tool_call_exit_code }));
 }
 
 export function readChatSessionFromPath(targetPath: string): ChatSession | null {

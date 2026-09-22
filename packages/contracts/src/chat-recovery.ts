@@ -9,6 +9,7 @@ import {
   ChatStreamPromptEventSchema,
   ChatStreamUsageEventSchema,
   ChatSessionSchema,
+  ChatSessionSummarySchema,
   ContextUsageSchema,
   ChatToolExecutionStateSchema,
   ChatTranscriptMessageSchema,
@@ -113,7 +114,7 @@ export type ChatRecoveryReport = z.infer<typeof ChatRecoveryReportSchema>;
 export const ChatSessionResponseSchema = z.object({ session: ChatSessionSchema, contextUsage: ContextUsageSchema,
   recovery: z.array(ChatRecoveryReportSchema).optional() });
 export type ChatSessionResponse = z.infer<typeof ChatSessionResponseSchema>;
-export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSchema), recovery: z.array(ChatRecoveryReportSchema).optional() });
+export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSummarySchema), recovery: z.array(ChatRecoveryReportSchema).optional() });
 export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
 
 export const ChatApprovalOutcomeSchema = z.enum([

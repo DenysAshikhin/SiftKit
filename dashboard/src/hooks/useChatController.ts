@@ -95,6 +95,7 @@ export function useChatController(deps: {
     sessions: chatSessionsHook.sessions,
     selectedSessionId: chatSessionsHook.selectedSessionId,
     selectedSession,
+    selectedSessionLoading: chatSessionsHook.selectedSessionLoading,
     selectedRuntime,
     sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),
     sessionPromptCacheStats,

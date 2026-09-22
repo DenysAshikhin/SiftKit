@@ -274,7 +274,8 @@ for (const streamCase of STOPPABLE_STREAM_CASES) {
       const listedSessions = asObjectArray(listed.body.sessions);
       const stoppedSession = listedSessions.find((session) => session.id === sessionA);
       assert.ok(stoppedSession, 'Expected the stopped session in the session list.');
-      const persistedMessages = asObjectArray(stoppedSession.messages);
+      const detail = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}`);
+      const persistedMessages = asObjectArray(asObject(detail.body.session).messages);
       assert.deepEqual(persistedMessages.map((message) => message.kind), doneMessages.map((message) => message.kind));
       assert.deepEqual(persistedMessages.map((message) => message.content), doneMessages.map((message) => message.content));
 
@@ -450,7 +451,8 @@ test('stopping a message stream persists the complete generated transcript in tu
     const listedSessions = asObjectArray(listed.body.sessions);
     const persisted = listedSessions.find((session) => session.id === sessionId);
     assert.ok(persisted, 'Expected the stopped session in the session list.');
-    const persistedMessages = asObjectArray(persisted.messages);
+    const detail = await requestJson(`${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionId}`);
+    const persistedMessages = asObjectArray(asObject(detail.body.session).messages);
     assert.deepEqual(persistedMessages.map((message) => message.kind), doneMessages.map((message) => message.kind));
     assert.deepEqual(persistedMessages.map((message) => message.content), doneMessages.map((message) => message.content));
     const persistedTools = persistedMessages.filter((message) => message.kind === 'assistant_tool_call');

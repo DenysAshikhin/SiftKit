@@ -95,6 +95,9 @@ export const CHAT_MESSAGES_SCHEMA_SQL = `
     throughput_json TEXT,
     PRIMARY KEY (session_id, id)
   );
+  -- Transcript reads are always per session and in transcript order: the rail's last-message lookup and
+  -- every message read sort by position, which the (session_id, id) primary key cannot serve.
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_session_position ON chat_messages(session_id, position);
 `;
 
 /**
