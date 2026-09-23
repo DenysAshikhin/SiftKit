@@ -14,11 +14,13 @@ function readLiveBinding(ctx: ServerContext, sessionId: string, operationId: str
   const active = ctx.chatSessionOperations.getActiveOperation(sessionId);
   const activeOperation = active ? { operationId: active.operationId, operationKind: active.operationKind } : null;
   const lease = ctx.chatSessionOperations.getActive(sessionId);
-  if (!lease || lease.recorder?.operationId !== operationId) return { approval: null, controlOperationId: null, activeOperation };
+  if (!lease || lease.recorder?.operationId !== operationId) return { approval: null, question: null, controlOperationId: null, activeOperation };
   const binding = ctx.chatRepoAgentRuns.get(sessionId);
   const state = binding ? ctx.repoAgentSessions.get(binding.runId)?.getState() : null;
+  const questionId = lease.questionGate?.pendingQuestionId ?? null;
   return { controlOperationId: lease.operationId, activeOperation,
-    approval: binding && state?.status === 'approval_required' ? { runId: binding.runId, approvalId: state.approval.approvalId } : null };
+    approval: binding && state?.status === 'approval_required' ? { runId: binding.runId, approvalId: state.approval.approvalId } : null,
+    question: questionId === null ? null : { questionId } };
 }
 
 /** One record as bounded frames, each submitted whole before its drain; false once the client is gone. */

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatSessionResponseSchema, DurableChatApprovalSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
@@ -407,7 +407,7 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
     onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
-    onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {},
+    onSendRepoAgent: async () => {}, onSubmitRepoAgentDecision: async () => {}, onAnswerQuestion: async () => {},
     onChangeRepoAgentApprovalMode: async () => {},
     onStopOperation: async () => {},
     onForceQueue: async () => {},
@@ -1389,27 +1389,23 @@ test('a compacted session renders the divider, the collapsed originals and the s
   assert.match(markup, /new answer/u);
 });
 
-test('repeated compaction renders one closed fold, the latest summary, then live messages', () => {
+test('repeated compaction renders one closed fold per summary, in order, then live messages', () => {
   const markup = render({
     sessions: [summarizeChatSession(TWICE_COMPACTED_SESSION)],
     selectedSessionId: TWICE_COMPACTED_SESSION.id,
     selectedSession: TWICE_COMPACTED_SESSION,
   });
-  const foldStart = markup.indexOf('<details class="compaction-history">');
-  const foldEnd = markup.indexOf('</details>', foldStart);
-  const foldedMarkup = markup.slice(foldStart, foldEnd);
-  const latestSummaryIndex = markup.indexOf('LATEST SUMMARY');
-  const liveQuestionIndex = markup.indexOf('live question');
-  const liveAnswerIndex = markup.indexOf('live answer');
+  const folds = [...markup.matchAll(/<details class="compaction-history">/gu)].map((match) => match.index ?? -1);
+  const firstSummary = markup.indexOf('FIRST SUMMARY');
+  const latestSummary = markup.indexOf('LATEST SUMMARY');
+  const liveQuestion = markup.indexOf('live question');
 
-  assert.ok(foldStart >= 0);
-  assert.ok(foldEnd > foldStart);
-  assert.equal((markup.match(/<details class="compaction-history">/gu) ?? []).length, 1);
-  assert.equal((foldedMarkup.match(/<article class="msg/gu) ?? []).length, 0);
-  assert.match(renderExpanded({ selectedSessionId: TWICE_COMPACTED_SESSION.id, selectedSession: TWICE_COMPACTED_SESSION }), /FIRST SUMMARY/u);
-  assert.ok(latestSummaryIndex > foldEnd);
-  assert.ok(liveQuestionIndex > latestSummaryIndex);
-  assert.ok(liveAnswerIndex > liveQuestionIndex);
+  assert.equal(folds.length, 2);
+  assert.match(markup, /Context compacted \(2 messages summarized\)/u);
+  assert.ok((folds[0] ?? -1) < firstSummary && firstSummary < (folds[1] ?? -1));
+  assert.ok((folds[1] ?? -1) < latestSummary && latestSummary < liveQuestion);
+  assert.doesNotMatch(markup, /compaction-originals/u);
+  assert.doesNotMatch(markup, /middle answer/u);
 });
 
 test('a real compacting stream persists and immediately renders one boundary', async () => {
@@ -1964,4 +1960,57 @@ test('the usage popover keeps the row estimate breakdown for an unmeasured sessi
   });
   assert.match(text, /Context: 40 \/ 100 tokens/u);
   assert.match(text, /40 \(70 with tools\)/u);
+});
+
+test('the chat head offers Compact while idle and runs the condense operation', async () => {
+  let condensed = 0;
+  const view = renderComponent(<ChatTab {...buildProps({ onCondense: async () => { condensed += 1; } })} />);
+  try {
+    const button = screen.getByRole('button', { name: 'Compact' });
+    assert.equal(button.hasAttribute('disabled'), false);
+    await act(async () => { fireEvent.click(button); });
+    assert.equal(condensed, 1);
+  } finally { view.unmount(); }
+});
+
+test('Compact is disabled while a run is active or there is nothing to compact', () => {
+  const busy = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message', operationId: OPERATION_ID });
+  const busyView = renderComponent(<ChatTab {...buildProps({ selectedRuntime: busy.get('session-a') })} />);
+  try { assert.equal(screen.getByRole('button', { name: 'Compact' }).hasAttribute('disabled'), true); } finally { busyView.unmount(); }
+  const emptyView = renderComponent(<ChatTab {...buildProps({ selectedSession: { ...SESSION_A, messages: [] } })} />);
+  try { assert.equal(screen.getByRole('button', { name: 'Compact' }).hasAttribute('disabled'), true); } finally { emptyView.unmount(); }
+});
+
+test('an image the assistant showed renders in its bubble outside Internal Logic', () => {
+  const session = { ...SESSION_A, messages: [
+    msg({ id: 'q', role: 'user', kind: 'user_text', content: 'show me' }),
+    msg({ id: 'img', kind: 'assistant_tool_call', toolCallCommand: 'show_image path="shot.png"', toolCallActivityKind: 'image',
+      toolCallActivitySubject: { kind: 'file', value: 'shot.png' }, toolCallTurn: 1, toolCallMaxTurns: 5, toolCallExitCode: 0,
+      toolCallStatus: 'done', toolCallExecutionState: 'completed', images: [IMAGE], imageMeta: [IMAGE_META], sourceRunId: 'run-1' }),
+    msg({ id: 'a', kind: 'assistant_answer', content: 'Here it is.', sourceRunId: 'run-1' }),
+  ] } satisfies ChatSession;
+  const markup = render({ selectedSession: session });
+  const turnStart = markup.indexOf('class="msg ai turn');
+  const logicStart = markup.indexOf('Internal Logic');
+  const imageAt = markup.indexOf('class="shown-images"');
+  assert.ok(turnStart >= 0 && imageAt > turnStart);
+  assert.ok(logicStart === -1 || imageAt > logicStart);
+  assert.ok(imageAt < markup.indexOf('Here it is.'));
+});
+
+test('an actionable question renders the card and Cancel stops the run', async () => {
+  let stopped = 0;
+  const question = DurableChatQuestionSchema.parse({
+    questionId: '4f9c1f9a-0000-4000-8000-00000000000e', toolCallId: 'call', question: 'Proceed?', choices: ['Yes'],
+    requestedAtUtc: '2026-09-22T00:00:00.000Z', expiresAtUtc: '2999-01-01T00:00:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
+  });
+  const store = buildDefaultStore('session-b').apply({ kind: 'snapshot', sessionId: 'session-b',
+    snapshot: chatSnapshot({ sessionId: 'session-b', operationKind: 'message', question }) });
+  const view = renderComponent(<ChatTab {...buildProps({ selectedSessionId: 'session-b', selectedRuntime: store.get('session-b'),
+    onStopOperation: async () => { stopped += 1; } })} />);
+  try {
+    assert.ok(screen.getByRole('region', { name: 'Question from the assistant' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
+    assert.equal(stopped, 1);
+  } finally { view.unmount(); }
 });

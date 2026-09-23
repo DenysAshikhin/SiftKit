@@ -9,6 +9,8 @@ import {
   ChatSessionBusyResponseSchema,
   ChatSessionOperationKindSchema,
   ImageMetadataSchema,
+  isDisplayOnlyImageMessage,
+  sumContextImageTokens,
 } from '@siftkit/contracts';
 
 const NO_SESSION_THROUGHPUT = { promptTokensPerSecond: null, generationTokensPerSecond: null };
@@ -156,4 +158,13 @@ test('persisted image metadata rejects unsupported MIME values', () => {
   });
 
   assert.equal(result.success, false);
+});
+
+test('only images shown to the user are display-only and cost no context', () => {
+  const imageMeta = [ImageMetadataSchema.parse({ width: 8, height: 8, originalWidth: 8, originalHeight: 8, mime: 'image/png', byteLength: 1, tokenEstimate: 64, resized: false, caption: null })];
+  assert.equal(isDisplayOnlyImageMessage({ toolCallActivityKind: 'image' }), true);
+  assert.equal(isDisplayOnlyImageMessage({ toolCallActivityKind: 'read' }), false);
+  assert.equal(isDisplayOnlyImageMessage({}), false);
+  assert.equal(sumContextImageTokens({ toolCallActivityKind: 'image', imageMeta }), 0);
+  assert.equal(sumContextImageTokens({ toolCallActivityKind: 'read', imageMeta }), 64);
 });

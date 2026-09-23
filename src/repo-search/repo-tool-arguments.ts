@@ -1,4 +1,5 @@
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
+import { CHAT_QUESTION_MAX_CHOICES } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 
@@ -146,6 +147,15 @@ export const WebFetchToolArgsSchema = z.object({
   url: RequiredTrimmedTextSchema,
 }).strict();
 
+export const AskUserToolArgsSchema = z.object({
+  question: RequiredTrimmedTextSchema,
+  choices: z.array(RequiredTrimmedTextSchema).max(CHAT_QUESTION_MAX_CHOICES).optional(),
+}).strict();
+
+export const ShowImageToolArgsSchema = z.object({
+  path: PathSchema,
+}).strict();
+
 export const REPO_TOOL_ARGUMENT_SCHEMAS = {
   read: ReadToolArgsSchema,
   grep: GrepToolArgsSchema,
@@ -157,11 +167,13 @@ export const REPO_TOOL_ARGUMENT_SCHEMAS = {
   git: GitToolArgsSchema,
   web_search: WebSearchToolArgsSchema,
   web_fetch: WebFetchToolArgsSchema,
+  ask_user: AskUserToolArgsSchema,
+  show_image: ShowImageToolArgsSchema,
 } as const;
 
 export type RepoToolName = keyof typeof REPO_TOOL_ARGUMENT_SCHEMAS;
 
-export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
+const REPO_EXECUTABLE_TOOL_CALLS = [
   z.object({ toolName: z.literal('read'), args: ReadToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('grep'), args: GrepToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('find'), args: FindToolArgsSchema }).strict(),
@@ -172,9 +184,18 @@ export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
   z.object({ toolName: z.literal('git'), args: GitToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('web_search'), args: WebSearchToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('web_fetch'), args: WebFetchToolArgsSchema }).strict(),
+  z.object({ toolName: z.literal('show_image'), args: ShowImageToolArgsSchema }).strict(),
+] as const;
+
+/** What the repository executes; ask_user is answered by the person in the chat, never run here. */
+export const RepoExecutableToolCallSchema = z.discriminatedUnion('toolName', REPO_EXECUTABLE_TOOL_CALLS);
+export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
+  ...REPO_EXECUTABLE_TOOL_CALLS,
+  z.object({ toolName: z.literal('ask_user'), args: AskUserToolArgsSchema }).strict(),
 ]);
 
 export type RepoNativeToolCall = z.infer<typeof RepoNativeToolCallSchema>;
+export type RepoExecutableToolCall = z.infer<typeof RepoExecutableToolCallSchema>;
 export type ReadToolArgs = z.infer<typeof ReadToolArgsSchema>;
 export type GrepToolArgs = z.infer<typeof GrepToolArgsSchema>;
 export type FindToolArgs = z.infer<typeof FindToolArgsSchema>;
@@ -185,3 +206,4 @@ export type RunToolArgs = z.infer<typeof RunToolArgsSchema>;
 export type GitToolArgs = z.infer<typeof GitToolArgsSchema>;
 export type WebSearchToolArgs = z.infer<typeof WebSearchToolArgsSchema>;
 export type WebFetchToolArgs = z.infer<typeof WebFetchToolArgsSchema>;
+export type AskUserToolArgs = z.infer<typeof AskUserToolArgsSchema>;

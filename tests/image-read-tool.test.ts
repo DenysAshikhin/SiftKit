@@ -6,8 +6,8 @@ import path from 'node:path';
 import { executeRepoTool } from '../src/repo-search/engine/repo-tools.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
-  RepoNativeToolCallSchema,
-  type RepoNativeToolCall,
+  RepoExecutableToolCallSchema,
+  type RepoExecutableToolCall,
 } from '../src/repo-search/repo-tool-arguments.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
@@ -16,8 +16,8 @@ import { gifBufferWithSize, rasterBuffer } from './helpers/image-fixtures.js';
 import { makeRepoToolContext } from './helpers/repo-tool-context.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 
-function nativeCall(toolName: string, args: JsonObject): RepoNativeToolCall {
-  return RepoNativeToolCallSchema.parse({ toolName, args });
+function nativeCall(toolName: string, args: JsonObject): RepoExecutableToolCall {
+  return RepoExecutableToolCallSchema.parse({ toolName, args });
 }
 
 function writeFixtureImages(repoRoot: string): void {

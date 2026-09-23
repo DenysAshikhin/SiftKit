@@ -1,4 +1,5 @@
 import { buildChatAnswerCompletion,type ChatRunRecorder } from './chat-run-recorder.js';
+import type { QuestionGate } from '../repo-search/engine/question-gate.js';
 
 import {
 getActiveModelPreset,
@@ -18,7 +19,7 @@ import {
 type ChatSession, saveChatSessionMetadata
 } from '../state/chat-sessions.js';
 import {
-buildChatOperationAllowedTools,
+resolveChatRunAllowedTools,
 ChatOperationPresetSelector,
 } from './chat-operation-preset.js';
 import {
@@ -43,6 +44,7 @@ type ChatRepoOperation = 'plan' | 'repo-search';
 
 export type ChatRepoOperationRequest = {
   recorder: ChatRunRecorder;
+  questionGate: QuestionGate;
   runtimeRoot: string;
   session: ChatSession;
   config: SiftConfig;
@@ -121,15 +123,12 @@ export class ChatRepoOperationRunner {
     const activePreset = getActiveModelPreset(effectiveConfig);
     const admitted = admitImagesForPreset(activePreset, request.images);
     const admittedImages = admitted.map((image) => image.dataUrl);
-    const session = {
-      ...selected.session,
-      planRepoRoot: request.repoRoot,
-    };
-    saveChatSessionMetadata(request.runtimeRoot, session);
+    saveChatSessionMetadata(request.runtimeRoot, selected.session);
     const settings = request.recorder.settings;
     request.recorder.bindEngine({ requestId: request.requestId, repoAgentSessionId: null });
     const engineResult: RepoSearchExecutionResult = await request.engineService.executeRepoSearch({
         evidenceRecorder: request.recorder,
+        questionGate: request.questionGate,
         presetId: selected.preset.id,
         taskKind: operation,
         modelPresetId: selected.session.modelPresetId,
@@ -140,7 +139,7 @@ export class ChatRepoOperationRunner {
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
         config: effectiveConfig,
-        allowedTools: buildChatOperationAllowedTools(request.config, selected.preset),
+        allowedTools: resolveChatRunAllowedTools({ operation, config: request.config, preset: selected.preset }),
         webToolsEnabled: settings.webSearchEnabled,
         maxTurns: settings.maxTurns ?? undefined,
         logFile: request.logFile,

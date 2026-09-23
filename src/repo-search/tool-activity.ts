@@ -21,6 +21,10 @@ function deriveActivityKind(call: RepoNativeToolCall): ToolActivityKind {
       return 'web_fetch';
     case 'run':
       return isValidationCommand(call.args.command) ? 'validate' : 'command';
+    case 'ask_user':
+      return 'ask';
+    case 'show_image':
+      return 'image';
   }
 }
 
@@ -35,6 +39,7 @@ function getActivitySubject(call: RepoNativeToolCall): ToolActivitySubject {
     case 'read':
     case 'write':
     case 'edit':
+    case 'show_image':
       return getFileSubject(call.args.path);
     case 'web_fetch':
       try {
@@ -51,6 +56,7 @@ function getActivitySubject(call: RepoNativeToolCall): ToolActivitySubject {
     case 'git':
     case 'run':
     case 'web_search':
+    case 'ask_user':
       return { kind: 'none' };
   }
 }

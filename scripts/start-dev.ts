@@ -7,6 +7,7 @@ import {
   decideAssistantShellAction,
   getAssistantShellPath,
 } from './start-dev-assistant-shell.js';
+import { resolveDashboardLaunch } from './start-dev-dashboard.js';
 import { isBackendReadyStatusCode } from './start-dev-health.js';
 import { buildStartupPortChecks, getStatusServerConnectHost, getStatusServerPort, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
@@ -134,6 +135,13 @@ async function syncAssistantShell(): Promise<void> {
 }
 
 void (async () => {
+  const dashboardLaunch = resolveDashboardLaunch(useStableStatus, process.cwd());
+  if (dashboardLaunch.kind === 'missing_build') {
+    process.stderr.write(`[start-dev] Stable mode serves the built dashboard, but ${dashboardLaunch.indexPath} is missing. Run npm run build first.
+`);
+    process.exit(1);
+    return;
+  }
   for (const portCheck of buildStartupPortChecks(process.env)) {
     if (await isPortInUse(portCheck.host, portCheck.port)) {
       if (portCheck.fatalIfInUse) {
@@ -177,7 +185,7 @@ void (async () => {
   if (reuseExistingDashboard) {
     return;
   }
-  dashboardProcess = startProcess(npmCommand, ['run', 'start:dashboard']);
+  dashboardProcess = startProcess(npmCommand, ['run', dashboardLaunch.script]);
   dashboardProcess.on('exit', (code) => {
     if (!shuttingDown) {
       process.stderr.write(`[start-dev] Dashboard exited with code ${code ?? 0}; stopping status server.\n`);

@@ -48,6 +48,7 @@ import { InferenceThroughputSchema, RunOperationTypeSchema, type ThroughputAudit
 import { mergeInferenceThroughput } from '../lib/inference-throughput.js';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
 import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
+import type { QuestionGate } from './engine/question-gate.js';
 
 export { type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
@@ -170,6 +171,7 @@ export async function runRepoSearch(options: {
   timingRecorder?: TemporaryTimingRecorder | null;
   queueDelivery?: ChatMessageQueueDelivery;
   evidenceRecorder?: ChatRunEvidenceRecorder;
+  questionGate?: QuestionGate;
 }): Promise<{ scorecard: Scorecard; turnRecords: TurnTokenRecord[] }> {
   throwIfAborted(options.abortSignal);
   if (options.taskPrompt === undefined) {
@@ -257,6 +259,7 @@ export async function runRepoSearch(options: {
       timingRecorder: options.timingRecorder || null,
       queueDelivery: options.queueDelivery,
       evidenceRecorder: options.evidenceRecorder,
+      questionGate: options.questionGate,
     });
     const result = await loop.run();
     tasks.push(result);

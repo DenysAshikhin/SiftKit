@@ -42,6 +42,7 @@ import { ChatMemorySeam } from '../chat-memory-seam.js';
 import { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
 import {
 ChatOperationPresetSelector,
+resolveChatRunAllowedTools,
 type SelectedChatOperationPreset,
 } from '../chat-operation-preset.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
@@ -56,6 +57,7 @@ parseChatSessionCreateRequest,
 parseChatSessionUpdateRequest,
 } from '../chat-route-request-normalizers.js';
 import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import {
 ChatStreamProgressWriter,
 } from '../chat-stream-progress-writer.js';
@@ -105,11 +107,13 @@ ChatRepoAgentDecideEndpoint,
 GetChatRepoAgentActiveEndpoint,
 StreamChatRepoAgentEndpoint,
 } from './chat-repo-agent.js';
+import { ChatQuestionAnswerEndpoint } from './chat-question.js';
 import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.js';
 import {
+ChatRepoRootOperationEndpoint,
 ChatSessionOperationEndpoint,
 parseChatMessageOperationRequest,
-parseChatRepoOperationRequest,requireChatRunRecorder,type ChatSessionOperationRequest,
+parseChatRepoOperationRequest,requireChatRunRecorder,requireQuestionGate,type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest
 } from './chat-session-operation-endpoint.js';
 
@@ -161,6 +165,7 @@ function readRouteMockResponses(reader: JsonRecordReader, key: string): MockPlan
 
 function buildChatRepoOperationRequest(options: {
   recorder: ChatRunRecorder;
+  questionGate: QuestionGate;
   ctx: ServerContext;
   runtimeRoot: string;
   session: ChatSession;
@@ -178,6 +183,7 @@ function buildChatRepoOperationRequest(options: {
   return {
     runtimeRoot: options.runtimeRoot,
     recorder: options.recorder,
+    questionGate: options.questionGate,
     session: options.session,
     config: options.config,
     content: options.content,
@@ -312,6 +318,7 @@ async function runChatEngineTurn(options: {
   ctx: ServerContext;
   config: SiftConfig;
   recorder: ChatRunRecorder;
+  questionGate: QuestionGate;
   session: ChatSession;
   content: string;
   images: string[];
@@ -341,6 +348,7 @@ async function runChatEngineTurn(options: {
   options.recorder.bindEngine({ requestId: options.requestId, repoAgentSessionId: null });
   const result = await options.ctx.engineService.executeRepoSearch({
     evidenceRecorder: options.recorder,
+    questionGate: options.questionGate,
     presetId: selected.preset.id,
     requestId: options.requestId,
     taskKind: 'chat',
@@ -357,7 +365,7 @@ async function runChatEngineTurn(options: {
     ),
     history: options.recorder.readHistory(),
     thinkingEnabled: selected.session.thinkingEnabled !== false,
-    allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
+    allowedTools: resolveChatRunAllowedTools({ operation: 'chat', webEnabled }),
     webToolsEnabled: webEnabled,
     retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selected.session) : [],
     maxTurns: settings.maxTurns ?? undefined,
@@ -700,6 +708,7 @@ class ChatMessageTurn {
     private readonly userImages: string[],
     private readonly parsedBody: JsonObject,
     private readonly recorder: ChatRunRecorder,
+    private readonly questionGate: QuestionGate,
   ) {
     this.memory = new ChatMemorySeam(ctx.assistant);
   }
@@ -710,7 +719,7 @@ class ChatMessageTurn {
       const mockResponses = readRouteMockResponses(new JsonRecordReader(this.parsedBody), 'mockResponses');
       await this.measureInputTokens(getMockTokenConfig(this.config, mockResponses));
       const { updatedSession, failure } = await runChatEngineTurn({
-        ctx: this.ctx, config: this.config, recorder: this.recorder,
+        ctx: this.ctx, config: this.config, recorder: this.recorder, questionGate: this.questionGate,
         session: this.session, content: this.userContent, images: this.userImages, requestId: this.requestId,
         progressWriter: progress, operationProgressWriter: progress, parsedBody: this.parsedBody, startedAtMs: this.startedAt,
         queueDelivery: this.ctx.chatMessageQueue.createDelivery({ recorder: this.recorder, sessionId: this.session.id,
@@ -863,6 +872,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         selectedImages.images,
         request.parsedBody,
         requireChatRunRecorder(request),
+        requireQuestionGate(request),
       );
       if (providedAssistantContent) {
         return await turn.runProvidedAssistantTurn(providedAssistantContent);
@@ -933,6 +943,7 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
         ctx,
         config,
         recorder: requireChatRunRecorder(request),
+        questionGate: requireQuestionGate(request),
         session: activeSession,
         content: userContent,
         images: messageRequest.images,
@@ -966,7 +977,7 @@ const CHAT_REPO_OPERATION_SETTINGS = {
   'repo-search': { lockKind: 'dashboard_repo_search', streamLockKind: 'dashboard_repo_search_stream', logPrefix: 'rs' },
 } as const;
 
-abstract class ChatRepoOperationEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+abstract class ChatRepoOperationEndpoint extends ChatRepoRootOperationEndpoint<ResolvedChatRepoRequest> {
   constructor(protected readonly operationKind: 'plan' | 'repo-search') { super(); }
 
   /** A repository operation records the root it ran against and the turn limit the engine gets. */
@@ -1031,6 +1042,7 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
       const result = await new ChatRepoOperationRunner().run(this.operationKind, buildChatRepoOperationRequest({
         ctx,
         recorder: requireChatRunRecorder(request),
+        questionGate: requireQuestionGate(request),
         runtimeRoot,
         session: activeSession,
         config,
@@ -1103,6 +1115,7 @@ export class StreamChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
       const result = await new ChatRepoOperationRunner().run(this.operationKind, buildChatRepoOperationRequest({
         ctx,
         recorder: requireChatRunRecorder(request),
+        questionGate: requireQuestionGate(request),
         runtimeRoot,
         session: activeSession,
         config,
@@ -1258,6 +1271,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamChatRepoOperationEndpoint('repo-search') },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/stream$/u, endpoint: new StreamChatRepoAgentEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/decide$/u, endpoint: new ChatRepoAgentDecideEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/question$/u, endpoint: new ChatQuestionAnswerEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/approval-mode$/u, endpoint: new ChatRepoAgentApprovalModeEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-agent\/active$/u, endpoint: new GetChatRepoAgentActiveEndpoint() },
   { method: 'GET', path: /^\/dashboard\/chat\/operations$/u, endpoint: new GetActiveChatOperationsEndpoint() },

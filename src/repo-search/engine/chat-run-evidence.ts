@@ -11,6 +11,8 @@ export type ChatToolResultFinalizedEvidence = EvidenceBody<'tool_result_finalize
 export type ChatApprovalReviewedEvidence = EvidenceBody<'approval_reviewed'>;
 export type ChatApprovalRequestedEvidence = EvidenceBody<'approval_requested'>;
 export type ChatApprovalResolvedEvidence = EvidenceBody<'approval_resolved'>;
+export type ChatQuestionRequestedEvidence = EvidenceBody<'question_requested'>;
+export type ChatQuestionResolvedEvidence = EvidenceBody<'question_resolved'>;
 
 /**
  * Where planner history is written down before it is applied. A run bound to a durable chat supplies

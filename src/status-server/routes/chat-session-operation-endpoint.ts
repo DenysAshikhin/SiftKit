@@ -23,6 +23,7 @@ import { getRuntimeRoot } from '../paths.js';
 import {
   getChatSessionPath,
   readChatSessionFromPath,
+  saveChatSessionMetadata,
 } from '../../state/chat-sessions.js';
 import {
   parseChatMessageRequest,
@@ -32,6 +33,7 @@ import {
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { ChatRunRecorder } from '../chat-run-recorder.js';
+import { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import { importChatSessionBaseline } from '../chat-history-import.js';
 import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.js';
 import { readConfig } from '../config-store.js';
@@ -89,11 +91,20 @@ export type ChatSessionOperationRequest<TParsed> = {
   lease: ChatSessionOperation | null;
   /** The run's durable writer, present whenever `describeRun` claimed this is a model run. */
   recorder: ChatRunRecorder | null;
+  /** The run's question channel; present exactly when `recorder` is. */
+  questionGate: QuestionGate | null;
 };
+
+type AdmittedChatOperationRequest<TParsed> = Omit<ChatSessionOperationRequest<TParsed>, 'questionGate'>;
 
 export function requireChatRunRecorder(request: { recorder: ChatRunRecorder | null }): ChatRunRecorder {
   if (request.recorder === null) throw new Error('Web model operation has no admitted chat recorder.');
   return request.recorder;
+}
+
+export function requireQuestionGate(request: { questionGate: QuestionGate | null }): QuestionGate {
+  if (request.questionGate === null) throw new Error('Web model operation has no question gate.');
+  return request.questionGate;
 }
 
 function readChatSessionIdFromMatch(routeMatch: RouteMatch): string {
@@ -195,6 +206,18 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     config: SiftConfig,
   ): ChatRunSubmission | null;
 
+  /** The session as this run changes it; repo runs make their directory the session's directory. */
+  protected bindSessionToRun(session: ChatSession, _value: TParsed): ChatSession {
+    return session;
+  }
+
+  /** Persists what an admitted run changed on its session, so a reload restores it. */
+  private admitSession(session: ChatSession, value: TParsed): ChatSession {
+    const bound = this.bindSessionToRun(session, value);
+    if (bound.planRepoRoot !== session.planRepoRoot) saveChatSessionMetadata(getRuntimeRoot(), bound);
+    return bound;
+  }
+
   /** Returns null after sending its own 4xx response. */
   protected abstract parseRequest(
     res: ServerResponse,
@@ -212,11 +235,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
   /** A successor opens its own run record: it is a separate operation, not a continuation. */
   async executeDetached(
     ctx: ServerContext,
-    request: Omit<ChatSessionOperationRequest<TParsed>, 'recorder'>,
+    request: Omit<AdmittedChatOperationRequest<TParsed>, 'recorder'>,
   ): Promise<void> {
     if (!this.clientOwnedOperation || !request.lease) throw new Error('This operation cannot execute detached.');
-    const recorder = this.beginRun(ctx, request.sessionId, request.session, request.value, request.queuedMessages?.[0]?.id);
-    await this.runRecorded(ctx, null, null, { ...request, recorder });
+    const session = this.admitSession(request.session, request.value);
+    const recorder = this.beginRun(ctx, request.sessionId, session, request.value, request.queuedMessages?.[0]?.id);
+    await this.runRecorded(ctx, null, null, { ...request, session, recorder });
   }
 
   /**
@@ -227,15 +251,20 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     ctx: ServerContext,
     req: IncomingMessage | null,
     res: ServerResponse | null,
-    request: ChatSessionOperationRequest<TParsed>,
+    admitted: AdmittedChatOperationRequest<TParsed>,
   ): Promise<void> {
-    const recorder = request.recorder;
+    const recorder = admitted.recorder;
     if (recorder === null) {
-      const outcome = ChatOperationOutcomeSchema.parse(await this.run(ctx, req, res, request));
-      if (outcome.failure && request.lease) request.lease.failure = outcome.failure;
+      const outcome = ChatOperationOutcomeSchema.parse(await this.run(ctx, req, res, { ...admitted, questionGate: null }));
+      if (outcome.failure && admitted.lease) admitted.lease.failure = outcome.failure;
       return;
     }
-    if (request.lease) request.lease.recorder = recorder;
+    // One question channel per run, built beside the lease that the answer route and live views read.
+    const request = { ...admitted, questionGate: new QuestionGate(recorder) };
+    if (request.lease) {
+      request.lease.recorder = recorder;
+      request.lease.questionGate = request.questionGate;
+    }
     // The memoized verdict was computed against the journals this run is about to write, so it dies
     // with the run: whichever read comes next — a detail GET or the following turn's admission gate —
     // replays against what this run actually persisted instead of repeating a stale verdict.
@@ -439,15 +468,19 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     }
     const lease = acquisition?.kind === 'acquired' ? acquisition.lease : null;
     try {
-      const recorder = this.beginRun(ctx, sessionId, session, value, randomUUID(), identity?.success && requestDigest
+      const runSession = this.admitSession(session, value);
+      const recorder = this.beginRun(ctx, sessionId, runSession, value, randomUUID(), identity?.success && requestDigest
         ? { submissionId: identity.data.submissionId, requestDigest }
         : null);
       if (lease && recorder) lease.recorder = recorder;
+      // A fresh send is the documented way out of a pause left by Stop or a failed run.
+      if (lease && recorder && ChatQueueOperationKindSchema.safeParse(this.operationKind).success
+        && ctx.chatMessageQueue.store.state(sessionId).paused) ctx.chatMessageQueue.store.setPaused(sessionId, false);
       if (lease) ctx.chatMessageQueue.publish(sessionId);
       await this.runRecorded(ctx, req, res, {
         sessionId,
         sessionPath,
-        session,
+        session: runSession,
         parsedBody,
         value,
         lease,
@@ -485,5 +518,12 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
       }
       throw error;
     }
+  }
+}
+
+/** A repository operation remembers the directory it ran in, once its run is admitted. */
+export abstract class ChatRepoRootOperationEndpoint<TParsed extends { repoRoot: string }> extends ChatSessionOperationEndpoint<TParsed> {
+  protected override bindSessionToRun(session: ChatSession, value: TParsed): ChatSession {
+    return { ...session, planRepoRoot: value.repoRoot };
   }
 }

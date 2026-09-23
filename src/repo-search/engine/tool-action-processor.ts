@@ -37,6 +37,7 @@ import {
   type RepoToolExecution,
 } from './repo-tools.js';
 import { buildApprovalReviewPayload, type ApprovalRequester } from './approval-gate.js';
+import { formatQuestionReply, type QuestionGate } from './question-gate.js';
 import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
@@ -60,6 +61,8 @@ import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget, type AvailableToolResultCapacity } from './turn-budget.js';
 import {
   RepoNativeToolCallSchema,
+  type AskUserToolArgs,
+  type RepoExecutableToolCall,
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.js';
 import { getAbortError, throwIfAborted } from '../../lib/abort.js';
@@ -170,6 +173,8 @@ export type ToolActionProcessorDeps = {
   approvalGate: ApprovalRequester | null;
   /** Present only for a run bound to a durable chat; a terminal run records nothing. */
   evidenceRecorder: ChatRunEvidenceRecorder | null;
+  /** The Web run's question channel; ask_user parks here. */
+  questionGate: QuestionGate | null;
   runtimeProfile: RepoSearchRuntimeProfile;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
@@ -861,8 +866,36 @@ export class ToolActionProcessor {
     }
   }
 
+  /** Web chat tools are answered by the person in the chat; every other tool runs natively. */
+  private async executeTool(turn: number, state: TurnBatchState, context: AcceptedToolContext): Promise<RepoToolExecution> {
+    const call = context.nativeCall;
+    if (call.toolName === 'ask_user') return this.askUser(turn, state, context.progressToolCallId, call.args, context.command);
+    return this.runNativeExecution(call, context.command, context.runFullOutputDecision);
+  }
+
+  /** The user's answer is the tool result; an unanswered question closes the call, then ends the run. */
+  private async askUser(
+    turn: number,
+    state: TurnBatchState,
+    progressToolCallId: string,
+    args: AskUserToolArgs,
+    command: string,
+  ): Promise<RepoToolExecution> {
+    const gate = this.deps.questionGate;
+    // ask_user is offered only to runs given a question gate.
+    if (!gate) throw new Error('ask_user reached a run without a web chat question gate.');
+    const choices = args.choices ?? [];
+    try {
+      const reply = await gate.ask({ call: this.callIdentity(turn, state, progressToolCallId), question: args.question, choices });
+      return { ok: true, requestedCommand: command, command, exitCode: 0, output: formatQuestionReply(choices, reply), toolType: 'ask_user' };
+    } catch (error) {
+      this.recordRejectionEvidence(turn, state, progressToolCallId, 'The user did not answer the question; the run was stopped.');
+      throw error;
+    }
+  }
+
   private async runNativeExecution(
-    nativeCall: RepoNativeToolCall,
+    nativeCall: RepoExecutableToolCall,
     command: string,
     runFullOutputDecision: RunOutputDecision | null,
   ): Promise<RepoToolExecution> {
@@ -1024,11 +1057,7 @@ export class ToolActionProcessor {
       commandChars: context.command.length,
       native: true,
     });
-    const nativeExecution = await this.runNativeExecution(
-      context.nativeCall,
-      context.command,
-      context.runFullOutputDecision,
-    );
+    const nativeExecution = await this.executeTool(turn, state, context);
     const nativeContext: NativeExecutionContext = { ...context, nativeExecution };
     toolExecutionSpan?.end({
       exitCode: nativeExecution.ok ? nativeExecution.exitCode : -1,

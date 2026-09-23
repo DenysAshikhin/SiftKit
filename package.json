@@ -11,6 +11,7 @@
     "start:status:stable": "tsx .\\scripts\\start-dev.ts --stable",
     "start:status:stable:server": "node .\\dist\\status-server\\main.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
+    "start:dashboard:stable": "npm --prefix .\\dashboard run preview",
     "build": "tsc -b .\\tsconfig.json && node --experimental-strip-types .\\scripts\\dashboard-stamp.ts && node --experimental-strip-types .\\scripts\\sync-dist-runtime.ts",
     "build:clean": "node --experimental-strip-types .\\scripts\\build-clean.ts",
     "build:test": "node --experimental-strip-types .\\scripts\\build-test.ts",

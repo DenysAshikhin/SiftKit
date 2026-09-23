@@ -15,6 +15,9 @@ import {
   ToolActivityKindSchema,
   ToolActivitySubjectSchema,
   ChatApprovalOutcomeSchema,
+  ChatQuestionOutcomeSchema,
+  ChatQuestionReplySchema,
+  CHAT_QUESTION_MAX_CHOICES,
   ChatRecoveryStatusSchema,
   ChatRunPresentationEventSchema,
 } from '@siftkit/contracts';
@@ -195,6 +198,22 @@ export const ChatJournalEventSchema = z.discriminatedUnion('kind', [
     outcome: ChatApprovalOutcomeSchema,
     decision: RepoAgentDecisionSchema.nullable(),
     reason: z.string().nullable(),
+    decidedAtUtc: z.string().datetime(),
+  }),
+  z.strictObject({
+    kind: z.literal('question_requested'),
+    call: ChatToolCallIdentitySchema,
+    questionId: z.string().uuid(),
+    question: z.string().trim().min(1),
+    choices: z.array(z.string().trim().min(1)).max(CHAT_QUESTION_MAX_CHOICES),
+    requestedAtUtc: z.string().datetime(),
+    expiresAtUtc: z.string().datetime(),
+  }),
+  z.strictObject({
+    kind: z.literal('question_resolved'),
+    questionId: z.string().uuid(),
+    outcome: ChatQuestionOutcomeSchema,
+    reply: ChatQuestionReplySchema.nullable(),
     decidedAtUtc: z.string().datetime(),
   }),
   z.strictObject({

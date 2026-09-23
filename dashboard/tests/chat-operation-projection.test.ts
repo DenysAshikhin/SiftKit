@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatTextRowMetadataSchema, ChatTranscriptMessageSchema, ChatSessionResponseSchema, ChatRecoveryReportSchema, type ChatProjectionRecord, type ChatProjectionFrame } from '@siftkit/contracts';
+import { CHAT_PROJECTION_PROTOCOL_VERSION, ChatTextRowMetadataSchema, ChatTranscriptMessageSchema, ChatSessionResponseSchema, ChatRecoveryReportSchema, DurableChatQuestionSchema, type ChatProjectionRecord, type ChatProjectionFrame } from '@siftkit/contracts';
 import { createChatSnapshotRecords, createChatUpdateRecords, encodeChatProjectionRecords } from '../../src/status-server/chat-projection-encoder.js';
 import { ChatOperationProjection } from '../src/lib/chat-operation-projection';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
@@ -220,7 +220,7 @@ test('commit counts, append offsets, anchors and record order are validated', ()
   assert.throws(attempt([begin, begin]), /begin inside an open transfer/u);
   assert.throws(attempt([begin, { kind: 'commit', cursor: { operationId, sequence: 6, historyRevision: 0 }, counts: { messages: 1, tools: 0, tokenTurns: 0, warnings: 0, issues: 0 } }]), /commit cursor mismatch/u);
   const malformed = new ChatOperationProjection('s1');
-  assert.throws(() => malformed.acceptFrame({ version: 2, transferId: nextTransferId(), recordIndex: 0, chunkIndex: 0, finalChunk: true, data: '{"kind":"begin"' }), /malformed record/u);
+  assert.throws(() => malformed.acceptFrame({ version: CHAT_PROJECTION_PROTOCOL_VERSION, transferId: nextTransferId(), recordIndex: 0, chunkIndex: 0, finalChunk: true, data: '{"kind":"begin"' }), /malformed record/u);
 });
 
 test('two sessions assemble independently', () => {
@@ -241,8 +241,8 @@ test('two sessions assemble independently', () => {
 });
 
 function stateOf(source: ReturnType<typeof capture>) {
-  const { sessionId, operationId: _operationId, cursor, messages, tools, approval, tokenTurns, warnings, issues, ...state } = source.snapshot;
-  void [sessionId, cursor, messages, tools, approval, tokenTurns, warnings, issues];
+  const { sessionId, operationId: _operationId, cursor, messages, tools, approval, question, tokenTurns, warnings, issues, ...state } = source.snapshot;
+  void [sessionId, cursor, messages, tools, approval, question, tokenTurns, warnings, issues];
   return state;
 }
 
@@ -293,4 +293,15 @@ test('GET recovery reports survive parsing and block continuation without cleari
   assert.equal(store.get('s1').recoveryStatus, 'recovery_failed');
   assert.equal(store.get('s1').liveMessages[0]?.content, 'partial');
   assert.equal(store.apply({ kind: 'recovery', sessionId: 's1', reports: [] }).get('s1').recoveryStatus, 'ok');
+});
+
+test('a question record survives the projection round trip', () => {
+  const question = DurableChatQuestionSchema.parse({
+    questionId: '4f9c1f9a-0000-4000-8000-00000000000b', toolCallId: 'call', question: 'Which?', choices: ['a', 'b'],
+    requestedAtUtc: '2026-09-22T00:00:00.000Z', expiresAtUtc: '2026-09-22T00:10:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
+  });
+  const delivery = feed(new ChatOperationProjection('s1'), chatSnapshotFrames(chatProjectionCapture({ question })));
+  assert.equal(delivery?.kind, 'view');
+  if (delivery?.kind !== 'view') return;
+  assert.deepEqual(delivery.snapshot.question, question);
 });

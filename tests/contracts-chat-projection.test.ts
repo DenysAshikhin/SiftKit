@@ -28,7 +28,7 @@ const textMessage = {
 };
 const metadata = ChatTextRowMetadataSchema.parse({ kind: 'assistant_narration', inputTokensEstimate: 0, outputTokensEstimate: 3, thinkingTokens: 0 });
 const state = { runOrder: 1, controlOperationId: null, operationKind: 'repo-agent', recordKind: 'execution', startedAtUtc: AT,
-  terminalCause: null, status: 'ok', streamedCharsSinceBase: 0 };
+  terminalCause: null, status: 'ok', streamedCharsSinceBase: 0, compactedEarlierHistory: false };
 const queue = ChatMessageQueueStateSchema.parse({ sessionId: 's1', revision: 0, messages: [], paused: false, force: null });
 const tool = { toolCallId: 'call_a', messageId: 'run-tool-tc_0', executionState: 'completed', toolCallStatus: 'done' };
 const tokenTurn = { turn: 1, prompt: null, usage: null };
@@ -53,11 +53,12 @@ const VALID_RECORDS: ChatProjectionRecord[] = [
   { kind: 'terminal', cursor, terminalCause: 'completed', issue: null },
   { kind: 'terminal', cursor, terminalCause: 'execution_failure', issue: { ...issue, code: 'projection_failed' } },
   { kind: 'error', failure: { error: 'stream failed' } },
+  { kind: 'question', question: null },
 ];
 
 test('every projection record variant round-trips through its schema', () => {
   for (const record of VALID_RECORDS) assert.deepEqual(ChatProjectionRecordSchema.parse(record), record);
-  assert.equal(ChatProjectionRecordSchema.options.length, 14);
+  assert.equal(ChatProjectionRecordSchema.options.length, 15);
 });
 
 const INVALID_RECORDS: [string, object][] = [
@@ -97,12 +98,11 @@ for (const [name, record] of INVALID_RECORDS) test(`projection records reject ${
 });
 
 test('frames carry exactly the protocol version and bounded data', () => {
-  assert.equal(CHAT_PROJECTION_PROTOCOL_VERSION, 2);
   assert.equal(CHAT_PROJECTION_MAX_FRAME_BYTES, 64 * 1024);
-  const frame = { version: 2, transferId: TRANSFER_ID, recordIndex: 0, chunkIndex: 0, finalChunk: true, data: '{"kind":"commit"}' };
+  const frame = { version: CHAT_PROJECTION_PROTOCOL_VERSION, transferId: TRANSFER_ID, recordIndex: 0, chunkIndex: 0, finalChunk: true, data: '{"kind":"commit"}' };
   assert.equal(ChatProjectionFrameSchema.safeParse(frame).success, true);
-  assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, version: 1, data: '{}' }).success, false);
-  assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, version: 3 }).success, false);
+  assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, version: CHAT_PROJECTION_PROTOCOL_VERSION - 1, data: '{}' }).success, false);
+  assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, version: CHAT_PROJECTION_PROTOCOL_VERSION + 1 }).success, false);
   assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, transferId: 'transfer' }).success, false);
   assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, recordIndex: -1 }).success, false);
   assert.equal(ChatProjectionFrameSchema.safeParse({ ...frame, chunkIndex: 1.5 }).success, false);
@@ -123,8 +123,8 @@ test('a projection cursor advances only when both components hold or grow on the
 test('a capture binds its snapshot, projection cursor and queue to one operation and sequence', () => {
   const snapshot = ChatOperationSnapshotSchema.parse({ sessionId: 's1', operationId: OPERATION_ID, runOrder: 1, controlOperationId: null,
     operationKind: 'repo-agent', recordKind: 'execution', startedAtUtc: AT, terminalCause: null, status: 'ok',
-    cursor: { operationId: OPERATION_ID, sequence: 4 }, messages: [], tools: [], approval: null,
-    tokenTurns: [], streamedCharsSinceBase: 0, warnings: [], issues: [] });
+    cursor: { operationId: OPERATION_ID, sequence: 4 }, messages: [], tools: [], approval: null, question: null,
+    tokenTurns: [], streamedCharsSinceBase: 0, compactedEarlierHistory: false, warnings: [], issues: [] });
   assert.equal(ChatProjectionCaptureSchema.safeParse({ snapshot, cursor, queue }).success, true);
   assert.equal(ChatProjectionCaptureSchema.safeParse({ snapshot, cursor: { ...cursor, sequence: 5 }, queue }).success, false);
   assert.equal(ChatProjectionCaptureSchema.safeParse({ snapshot, cursor: { ...cursor, operationId: OTHER_OPERATION_ID }, queue }).success, false);
@@ -134,8 +134,8 @@ test('a capture binds its snapshot, projection cursor and queue to one operation
 test('deliveries are exactly a view, a terminal or a failure', () => {
   const snapshot = ChatOperationSnapshotSchema.parse({ sessionId: 's1', operationId: OPERATION_ID, runOrder: 1, controlOperationId: null,
     operationKind: 'repo-agent', recordKind: 'execution', startedAtUtc: AT, terminalCause: null, status: 'ok',
-    cursor: { operationId: OPERATION_ID, sequence: 4 }, messages: [], tools: [], approval: null,
-    tokenTurns: [], streamedCharsSinceBase: 0, warnings: [], issues: [] });
+    cursor: { operationId: OPERATION_ID, sequence: 4 }, messages: [], tools: [], approval: null, question: null,
+    tokenTurns: [], streamedCharsSinceBase: 0, compactedEarlierHistory: false, warnings: [], issues: [] });
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'view', snapshot, queue: null }).success, true);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'view', snapshot, queue }).success, true);
   assert.equal(ChatProjectionDeliverySchema.safeParse({ kind: 'terminal', terminal: VALID_RECORDS[15] }).success, true);

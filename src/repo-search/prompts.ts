@@ -6,6 +6,7 @@ import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import {
   EXPOSED_REPO_TOOL_NAMES,
   INTERACTIVE_REPO_TOOL_NAMES,
+  WEB_CHAT_TOOL_NAMES,
 } from '../planner-protocol/repo-search.js';
 import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import type { IgnorePolicy } from './command-safety.js';
@@ -218,10 +219,24 @@ export function readAgentsMd(repoRoot: string): string {
 // System prompt
 // ---------------------------------------------------------------------------
 
+const WEB_CHAT_TOOL_NAME_SET = new Set<string>(WEB_CHAT_TOOL_NAMES);
+
+/** Web chat tools ride on top of any surface, so they never turn a full surface into a restricted one. */
 function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: readonly string[]): boolean {
-  const actual = new Set(toolNames);
+  const actual = new Set(toolNames.filter((toolName) => !WEB_CHAT_TOOL_NAME_SET.has(toolName)));
   return actual.size === expectedToolNames.length
     && expectedToolNames.every((toolName) => actual.has(toolName));
+}
+
+const WEB_CHAT_TOOL_GUIDANCE: Record<(typeof WEB_CHAT_TOOL_NAMES)[number], string> = {
+  ask_user: '- ask_user: ask the user one question and wait for the reply. Use it only when you cannot proceed without a decision only they can make (unclear requirements, a choice between materially different options, information the repository does not hold). Never use it to confirm routine steps, to ask permission for work already requested, or to report progress. Ask one clear question; offer up to 3 short choices when the answer is one of a few options. If the user stops the run instead of answering, the run ends.',
+  show_image: '- show_image: show the user one image file from the repository inline in the chat when seeing it helps them (a screenshot, plot, or diagram you are discussing). It is display-only and not added to your context.',
+};
+
+/** The one guidance block for the web chat tools a run is offered; empty when it is offered none. */
+export function buildWebChatToolInstructions(toolNames: readonly string[]): string {
+  const lines = WEB_CHAT_TOOL_NAMES.filter((toolName) => toolNames.includes(toolName)).map((toolName) => WEB_CHAT_TOOL_GUIDANCE[toolName]);
+  return lines.length === 0 ? '' : ['Web chat tools:', ...lines].join('\n');
 }
 
 const COMPLETION_REVIEW_INSTRUCTION =

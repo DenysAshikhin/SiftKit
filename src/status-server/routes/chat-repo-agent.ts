@@ -25,10 +25,11 @@ RepoSearchMockCommandResultSchema,
 import type { ChatSession } from '../../state/chat-sessions.js';
 import { readChatSessionFromPath } from '../../state/chat-sessions.js';
 import type { ChatOperationBroadcast } from '../chat-operation-broadcast.js';
-import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
+import { ChatOperationPresetSelector, resolveChatRunAllowedTools } from '../chat-operation-preset.js';
 import { ChatOperationSseSubscriber } from '../chat-operation-sse-subscriber.js';
 import type { ChatRepoAgentDecisionRecord, ChatRepoAgentRunBinding } from '../chat-repo-agent-types.js';
 import { buildChatAnswerCompletion,buildChatRunSettings,type ChatRunRecorder } from '../chat-run-recorder.js';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
 import { auditCompletedChatSessionThroughput } from '../chat-turn-telemetry.js';
@@ -52,9 +53,10 @@ import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-operation-endpoint.js';
 import {
-ChatSessionOperationEndpoint,
+ChatRepoRootOperationEndpoint,
 parseChatRepoOperationRequest,
 requireChatRunRecorder,
+requireQuestionGate,
 type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
@@ -70,7 +72,7 @@ const ChatRepoAgentRequestExtrasSchema = z.strictObject({
 
 type ChatRepoAgentRequest = ResolvedChatRepoRequest & z.infer<typeof ChatRepoAgentRequestExtrasSchema>;
 
-export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<ChatRepoAgentRequest> {
+export class StreamChatRepoAgentEndpoint extends ChatRepoRootOperationEndpoint<ChatRepoAgentRequest> {
   protected readonly operationKind = 'repo-agent' as const;
   protected readonly clientOwnedOperation = true;
 
@@ -161,6 +163,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
       const { failure } = await executeChatRepoAgentOperation({
         ctx,
         recorder: requireChatRunRecorder(request),
+        questionGate: requireQuestionGate(request),
         sessionId: request.sessionId,
         session: activeSession,
         content: request.value.content,
@@ -188,6 +191,7 @@ export class StreamChatRepoAgentEndpoint extends ChatSessionOperationEndpoint<Ch
 /** Shared chat repo-agent execution used by attached streams and detached Force successors. */
 export async function executeChatRepoAgentOperation(options: {
   recorder: ChatRunRecorder;
+  questionGate: QuestionGate;
   ctx: ServerContext;
   sessionId: string;
   session: ChatSessionOperationRequest<ChatRepoAgentRequest>['session'];
@@ -210,6 +214,8 @@ export async function executeChatRepoAgentOperation(options: {
   const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
   const started = startRepoAgentRun(options.ctx, {
     evidenceRecorder: options.recorder,
+    questionGate: options.questionGate,
+    allowedTools: resolveChatRunAllowedTools({ operation: 'repo-agent' }),
     modelQueueTimeout: WEB_UI_MODEL_QUEUE_TIMEOUT,
     requestId: engineRequestId,
     presetId: settings.presetId,

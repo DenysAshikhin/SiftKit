@@ -18,8 +18,8 @@ export function chatSnapshot(overrides: Partial<ChatOperationSnapshot> = {}): Ch
   const operationId = overrides.operationId ?? FIXTURE_OPERATION_ID;
   return ChatOperationSnapshotSchema.parse({ sessionId: 's1', operationId, runOrder: 1, controlOperationId: operationId,
     operationKind: 'repo-agent', recordKind: 'execution', startedAtUtc: '2026-09-08T12:00:00.000Z', terminalCause: null,
-    status: 'ok', cursor: { operationId, sequence: 1 }, messages: [], tools: [], approval: null,
-    tokenTurns: [], streamedCharsSinceBase: 0, warnings: [], issues: [], ...overrides });
+    status: 'ok', cursor: { operationId, sequence: 1 }, messages: [], tools: [], approval: null, question: null,
+    tokenTurns: [], streamedCharsSinceBase: 0, compactedEarlierHistory: false, warnings: [], issues: [], ...overrides });
 }
 
 export function chatQueueState(overrides: Partial<ChatMessageQueueState> = {}): ChatMessageQueueState {

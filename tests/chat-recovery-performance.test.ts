@@ -90,7 +90,7 @@ test('incident-scale journal: appends stay per-delta, reads are paged, and repla
   assert.equal(rows.filter(message => message.kind === 'assistant_narration').length, PERFORMANCE_MODEL_TURNS);
 
   // Attach transfers are bounded frames; no frame carries the whole transcript, and nothing is lost.
-  const capture = new ChatOperationSnapshotReader(recorder.operationId).capture(database, { approval: null, controlOperationId: null, activeOperation: null });
+  const capture = new ChatOperationSnapshotReader(recorder.operationId).capture(database, { approval: null, question: null, controlOperationId: null, activeOperation: null });
   const transferId = '4f9c1f9a-1111-4000-8000-000000000001';
   const frames = [...encodeChatProjectionRecords(createChatSnapshotRecords(capture), transferId)];
   assert.ok(frames.length > 1);

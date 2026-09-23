@@ -4,6 +4,7 @@ import type { ChatSessionOperationKind } from '@siftkit/contracts';
 
 import { ChatOperationBroadcast } from './chat-operation-broadcast.js';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
+import type { QuestionGate } from '../repo-search/engine/question-gate.js';
 
 export type ChatSessionOperation = {
   token: string;
@@ -15,6 +16,8 @@ export type ChatSessionOperation = {
   failure?: string;
   stopRequested?: boolean;
   recorder?: ChatRunRecorder;
+  /** The run's question channel, beside its recorder so the answer route and live views reach it. */
+  questionGate?: QuestionGate;
 };
 
 export type ChatSessionOperationAcquireResult =

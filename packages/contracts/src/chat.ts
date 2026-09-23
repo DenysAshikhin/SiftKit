@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ModelRuntimePresetSchema } from './config.js';
-import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
+import { ImageDataUrlSchema, ImageMetadataSchema, sumImageTokens } from './image.js';
 import { InferenceThroughputSchema, ThroughputRatesSchema } from './inference-throughput.js';
 
 /** How a run ended. These stay distinct: a stop is not a failure and a restart is not a completion. */
@@ -23,6 +23,8 @@ export const ToolActivityKindSchema = z.enum([
   'web_search',
   'web_fetch',
   'command',
+  'ask',
+  'image',
 ]);
 export type ToolActivityKind = z.infer<typeof ToolActivityKindSchema>;
 
@@ -242,6 +244,31 @@ export const ChatTranscriptMessageSchema = z.discriminatedUnion('kind', [
   ChatTranscriptStreamTextMessageSchema,
 ]);
 export type ChatTranscriptMessage = z.infer<typeof ChatTranscriptMessageSchema>;
+
+/** The one rule for which images never reach the model: those a tool showed to the user (show_image). */
+export function isDisplayOnlyImageMessage(message: Pick<ChatTranscriptMessage, 'toolCallActivityKind'>): boolean {
+  return message.toolCallActivityKind === 'image';
+}
+
+/** Display-only images never enter the model's context, so they cost none. */
+export function sumContextImageTokens(message: Pick<ChatTranscriptMessage, 'toolCallActivityKind' | 'imageMeta'>): number {
+  return isDisplayOnlyImageMessage(message) ? 0 : sumImageTokens(message.imageMeta);
+}
+
+export const CHAT_QUESTION_MAX_CHOICES = 3;
+export const CHAT_QUESTION_MAX_NOTE_CHARS = 4000;
+
+/** A choice, the user's own words, or both; an empty reply is not an answer. */
+export const ChatQuestionReplySchema = z.strictObject({
+  choiceIndex: z.number().int().min(0).max(CHAT_QUESTION_MAX_CHOICES - 1).nullable(),
+  note: z.string().trim().max(CHAT_QUESTION_MAX_NOTE_CHARS),
+}).refine((reply) => reply.choiceIndex !== null || reply.note.length > 0, { message: 'Pick a choice or write a reply.' });
+export type ChatQuestionReply = z.infer<typeof ChatQuestionReplySchema>;
+
+export const ChatQuestionAnswerRequestSchema = z.strictObject({ questionId: z.string().uuid(), reply: ChatQuestionReplySchema });
+export type ChatQuestionAnswerRequest = z.infer<typeof ChatQuestionAnswerRequestSchema>;
+export const ChatQuestionAnswerResponseSchema = z.strictObject({ ok: z.literal(true), answeredAtUtc: z.string().datetime() });
+export type ChatQuestionAnswerResponse = z.infer<typeof ChatQuestionAnswerResponseSchema>;
 
 /** Streamed assistant text kinds; the only rows a text suffix may extend. */
 export const ChatTextRowKindSchema = z.enum(['assistant_thinking', 'assistant_narration', 'assistant_progress', 'assistant_answer']);

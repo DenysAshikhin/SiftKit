@@ -34,6 +34,7 @@ import { APPROVAL_MODE_ERROR, type ApprovalMode } from '@siftkit/contracts';
 import type { RepoSearchExecutionRequest, RepoSearchMockCommandResult } from '../../repo-search/types.js';
 import type { MockPlannerResponseInput } from '../../planner-protocol/mock-response.js';
 import type { ChatRunRecorder } from '../chat-run-recorder.js';
+import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import { requireChatRunRecorder } from './chat-session-operation-endpoint.js';
 import type { ChatMessageQueue } from '../chat-message-queue.js';
 import type { ModelRuntimePreset } from '../../config/types.js';
@@ -71,6 +72,7 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       // A standalone run has no chat session to read a toggle from, so the web tool policy
       // falls back to the configured default.
       webToolsEnabled: undefined,
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: input.availableModels,
       mockResponses: input.mockResponses, mockCommandResults: input.mockCommandResults,
     });
@@ -93,6 +95,7 @@ export type StartRepoAgentRunInput = {
   promptPrefix?: string;
   /** Explicit per-run web intent; `undefined` defers to `WebSearch.EnabledDefault`. */
   webToolsEnabled: boolean | undefined;
+  allowedTools: string[];
   /** Chat-launched runs pass the session's replayed conversation; standalone callers omit it. */
   history?: RepoSearchExecutionRequest['history'];
   config?: RepoSearchExecutionRequest['config'];
@@ -105,6 +108,8 @@ export type StartRepoAgentRunInput = {
   queue?: { owner: ChatMessageQueue; sessionId: string; modelPreset: ModelRuntimePreset; forceId?: string };
   /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
   evidenceRecorder?: ChatRunRecorder;
+  /** The Web run's question channel; supplied with the recorder, absent for standalone runs. */
+  questionGate?: QuestionGate;
   /** Model queue deadline; Web runs wait until admitted, standalone runs omit it for the server default. */
   modelQueueTimeout?: ModelQueueTimeout;
 };
@@ -156,7 +161,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       config,
       modelPresetId: input.modelPresetId,
       modelPreset: input.modelPreset,
-      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      allowedTools: input.allowedTools,
       ...(input.webToolsEnabled === undefined ? {} : { webToolsEnabled: input.webToolsEnabled }),
       model: input.model ?? undefined,
       maxTurns: input.maxTurns,
@@ -166,6 +171,7 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
       mockCommandResults: input.mockCommandResults,
       ...(input.history === undefined ? {} : { history: input.history }),
       ...(input.evidenceRecorder === undefined ? {} : { evidenceRecorder: input.evidenceRecorder }),
+      ...(input.questionGate === undefined ? {} : { questionGate: input.questionGate }),
       initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
       ...(input.queue
         ? {

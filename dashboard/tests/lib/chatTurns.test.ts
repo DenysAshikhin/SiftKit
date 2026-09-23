@@ -451,3 +451,11 @@ test('a settled run keeps its status updates in Internal Logic under the answer'
   assert.equal(turns[0]?.main?.id, 'ans');
   assert.deepEqual(turns[0]?.steps.map((step) => step.id), ['n1', 'tc1']);
 });
+
+test('show_image rows surface on the turn and stay out of Internal Logic', () => {
+  const shown = message({ id: 'img', kind: 'assistant_tool_call', toolCallActivityKind: 'image', images: ['data:image/png;base64,AA=='], sourceRunId: 'run-1' });
+  const answer = message({ id: 'ans', kind: 'assistant_answer', sourceRunId: 'run-1' });
+  const [turn] = groupMessagesIntoTurns([shown, answer], new Set());
+  assert.deepEqual(turn?.shownImages.map((row) => row.id), ['img']);
+  assert.equal(turn?.steps.some((row) => row.id === 'img'), false);
+});

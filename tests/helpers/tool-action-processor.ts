@@ -11,6 +11,7 @@ import { TokenUsageTracker } from '../../src/repo-search/engine/token-usage.js';
 import { ToolActionProcessor } from '../../src/repo-search/engine/tool-action-processor.js';
 import type { ApprovalRequester } from '../../src/repo-search/engine/approval-gate.js';
 import type { ChatRunEvidenceRecorder } from '../../src/repo-search/engine/chat-run-evidence.js';
+import type { QuestionGate } from '../../src/repo-search/engine/question-gate.js';
 import { ToolResultBudgeter } from '../../src/repo-search/engine/tool-result-budgeter.js';
 import { ToolStatsRecorder } from '../../src/repo-search/engine/tool-stats.js';
 import { TranscriptManager } from '../../src/repo-search/engine/transcript-manager.js';
@@ -39,6 +40,7 @@ export function makeProcessor(
     visionImageRetention?: number;
     visionMaxImagePixels?: number;
     evidenceRecorder?: ChatRunEvidenceRecorder;
+    questionGate?: QuestionGate;
   } = {},
 ): {
   processor: ToolActionProcessor;
@@ -79,6 +81,7 @@ export function makeProcessor(
     allowedPlannerToolNames,
     approvalGate,
     evidenceRecorder: options.evidenceRecorder ?? null,
+    questionGate: options.questionGate ?? null,
     runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),

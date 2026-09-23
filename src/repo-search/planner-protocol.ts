@@ -141,6 +141,16 @@ const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
     description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
     exampleArgs: { url: 'https://example.com/' },
   }),
+  ask_user: buildRepoToolDefinition({
+    toolName: 'ask_user',
+    description: 'Ask the user one question and wait for the answer. Offer up to 3 short choices when the answer is one of a few options; the user may pick one, reply in their own words, or stop the run.',
+    exampleArgs: { question: 'Which database should the migration target?', choices: ['PostgreSQL', 'SQLite'] },
+  }),
+  show_image: buildRepoToolDefinition({
+    toolName: 'show_image',
+    description: 'Show the user one image file from the repository inline in the chat (a screenshot, plot, or diagram).',
+    exampleArgs: { path: 'docs/screenshot.png' },
+  }),
 };
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);

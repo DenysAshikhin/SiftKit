@@ -293,6 +293,10 @@ export class ChatSessionRuntimeStore {
   }
 
   /** Readers must name a session that exists; a miss is a bug, not a default. */
+  has(sessionId: string): boolean {
+    return this.runtimesBySessionId.has(sessionId);
+  }
+
   get(sessionId: string): ChatSessionRuntime {
     const runtime = this.runtimesBySessionId.get(sessionId);
     if (!runtime) {

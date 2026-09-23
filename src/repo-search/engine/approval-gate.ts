@@ -9,6 +9,7 @@ import type { ChatMessage } from '../planner-chat-message.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { ChatToolCallIdentity } from '../../state/chat-journal-schema.js';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
+import { WEB_CHAT_TOOL_NAMES } from '../../planner-protocol/repo-search.js';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;
 
@@ -56,6 +57,8 @@ const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
   'grep',
   'find',
   'ls',
+  // Web chat tools never mutate the tree, and a question card is itself the human decision.
+  ...WEB_CHAT_TOOL_NAMES,
 ]);
 
 export function isApprovalExemptReadOnlyTool(toolName: string): boolean {

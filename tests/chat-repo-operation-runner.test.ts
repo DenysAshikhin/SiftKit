@@ -29,6 +29,7 @@ import { resolveChatSessionConfig } from '../src/status-server/chat.js';
 import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
+import { QuestionGate } from '../src/repo-search/engine/question-gate.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
@@ -62,6 +63,7 @@ class StubStatusEngineService extends StatusEngineService {
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     assert.ok(request.evidenceRecorder, 'repository Web operations require their admitted recorder');
+    assert.ok(request.questionGate, 'repository Web operations are given their question gate');
     this.request = request;
     const transcript = new TranscriptManager({ systemPromptContent: 'system', historyMessages: request.history ?? [],
       initialUserContent: request.prompt, initialUserImages: request.initialUserImages ?? [], liveImagePathKeys: new Set(), contextRecorder: request.evidenceRecorder });
@@ -203,7 +205,7 @@ function chatFixtureMessage(overrides: ChatFixtureMessageOverrides): ChatMessage
   };
 }
 
-type RunnerTestRequest = Omit<ChatRepoOperationRequest, 'recorder'> & { maxTurns?: number };
+type RunnerTestRequest = Omit<ChatRepoOperationRequest, 'recorder' | 'questionGate'> & { maxTurns?: number };
 
 function createRequest(
   runtimeRoot: string,
@@ -247,7 +249,7 @@ function admitRequest(request: RunnerTestRequest, operation: 'plan' | 'repo-sear
   const recorder = createTestChatRunRecorder(request.runtimeRoot, request.session, request.config, {
     operationKind: operation, content: request.content, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata),
   }, { presetId: selected.preset.id, maxTurns: maxTurns ?? selected.preset.maxTurns, webSearchEnabled: selected.session.webSearchEnabled === true });
-  return { ...runnerRequest, recorder, progressWriter: new CompositeRepoSearchProgressWriter(
+  return { ...runnerRequest, recorder, questionGate: new QuestionGate(recorder), progressWriter: new CompositeRepoSearchProgressWriter(
     new ChatStreamProgressWriter(new ChatOperationBroadcast(), null, true, recorder), request.progressWriter) };
 }
 

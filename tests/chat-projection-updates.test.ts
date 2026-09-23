@@ -11,7 +11,7 @@ import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
 import { applyChatProjectionRecords, asWireView, chatProjectionWireBytes, decodeChatProjectionFrames } from './helpers/chat-projection-decoder.js';
 
-const NO_LIVE_BINDING = { approval: null, controlOperationId: null, activeOperation: null };
+const NO_LIVE_BINDING = { approval: null, question: null, controlOperationId: null, activeOperation: null };
 const TRANSFER_ID = 'e08682f5-9b0d-49ab-b4ef-cc0f027089ff';
 const AT = '2026-09-10T12:09:36.905Z';
 const MIB = 1024 * 1024;

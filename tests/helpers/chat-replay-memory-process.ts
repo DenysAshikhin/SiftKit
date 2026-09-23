@@ -135,7 +135,7 @@ export function runChatReplayMemoryProcess(config: ReplayMemoryConfig): void {
     sample('rebuild');
     const history = buildRecoveredChatHistory(database, PERFORMANCE_SESSION_ID);
     sample('history');
-    const snapshot = new ChatOperationSnapshotReader(config.operationId).capture(database, { approval: null, controlOperationId: null, activeOperation: null }).snapshot;
+    const snapshot = new ChatOperationSnapshotReader(config.operationId).capture(database, { approval: null, question: null, controlOperationId: null, activeOperation: null }).snapshot;
     sample('snapshot');
     const rows = readChatRunMessages(database, PERFORMANCE_SESSION_ID, config.operationId);
     sample('rows');

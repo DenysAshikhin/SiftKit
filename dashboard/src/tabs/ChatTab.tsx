@@ -28,7 +28,8 @@ import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
 import type { RepoAgentDecision } from '../api';
-import { REPO_AGENT_DEFAULT_MAX_TURNS, type ApprovalMode } from '@siftkit/contracts';
+import { REPO_AGENT_DEFAULT_MAX_TURNS, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
+import { ChatQuestionCard } from '../components/ChatQuestionCard';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
 import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl';
 import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs';
@@ -38,6 +39,7 @@ import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { groupMessagesIntoTurns, type ChatTurn } from '../lib/chatTurns';
+import { buildCompactionSegments, markEarlierRunsCompacted } from '../lib/compaction-segments';
 import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import { hasSamePresetExecutionContext } from '../dashboard-presets';
 import type {
@@ -103,6 +105,7 @@ export type ChatTabProps = ChatPendingQueueActions & {
   onSendRepoSearch(): Promise<void>;
   onSendRepoAgent(): Promise<void>;
   onSubmitRepoAgentDecision(decision: RepoAgentDecision): Promise<void>;
+  onAnswerQuestion(reply: ChatQuestionReply): Promise<void>;
   onChangeRepoAgentApprovalMode(mode: ApprovalMode): Promise<void>;
   onStopOperation(): Promise<void>;
   onSendMessage(): Promise<void>;
@@ -203,6 +206,7 @@ export function ChatTab({
   onSendRepoSearch,
   onSendRepoAgent,
   onSubmitRepoAgentDecision,
+  onAnswerQuestion,
   onChangeRepoAgentApprovalMode,
   onStopOperation,
   onSendMessage,
@@ -228,16 +232,16 @@ export function ChatTab({
   const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
   const snapshot = selectedRuntime?.journalSnapshot;
   const savedMessages = selectedSession ? selectedSession.messages : [];
-  const persistedMessages = snapshot ? savedMessages.filter(message => message.sourceRunId !== snapshot.operationId) : savedMessages;
+  const persistedMessages = markEarlierRunsCompacted(
+    snapshot ? savedMessages.filter(message => message.sourceRunId !== snapshot.operationId) : savedMessages,
+    snapshot?.compactedEarlierHistory ?? false,
+  );
   const retainedIds = new Set(persistedMessages.map(message => message.id));
   const currentMessages = [...persistedMessages, ...liveMessages.filter(message => !retainedIds.has(message.id))];
-  // The persisted flag is the boundary, exactly as it is for the history the model
-  // replays: a flagged row is compacted history wherever it sits in the session.
-  const compactedMessages = currentMessages.filter((message) => message.compressedIntoSummary === true);
-  const liveHistory = currentMessages.filter((message) => message.compressedIntoSummary !== true);
-  const compactionSummaryMessage = liveHistory.find((message) => message.kind === 'compaction_summary') ?? null;
-  const conversationMessages = liveHistory.filter((message) => message.kind !== 'compaction_summary');
-  const visibleMessages = conversationMessages;
+  // The persisted flag is the boundary, exactly as it is for the history the model replays.
+  const segments = buildCompactionSegments(currentMessages);
+  const visibleMessages = currentMessages.filter((message) => message.kind !== 'compaction_summary' && message.compressedIntoSummary !== true);
+  const liveMessageIds = new Set(liveMessages.map((message) => message.id));
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
@@ -250,7 +254,7 @@ export function ChatTab({
     selectedSessionId,
     visibleMessageIds,
     liveMessageScrollSignature,
-    selectedRuntime?.pendingApproval?.approvalId ?? null,
+    selectedRuntime?.pendingApproval?.approvalId ?? selectedRuntime?.journalSnapshot?.question?.questionId ?? null,
   );
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
@@ -259,6 +263,16 @@ export function ChatTab({
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
   const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
+  const [compactingSessionId, setCompactingSessionId] = React.useState<string | null>(null);
+  const compacting = compactingSessionId === selectedSessionId;
+  const hasCompactableHistory = visibleMessages.length > 0;
+
+  async function compactNow(): Promise<void> {
+    const sessionId = selectedSessionId;
+    setCompactingSessionId(sessionId);
+    try { await onCondense(); }
+    finally { setCompactingSessionId((current) => (current === sessionId ? null : current)); }
+  }
 
   React.useEffect(() => {
     pendingImageReadState.current.generation += 1;
@@ -397,6 +411,15 @@ export function ChatTab({
                   per-step thinking
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => { void compactNow(); }}
+                disabled={selectedSessionBusy || compacting || !hasCompactableHistory}
+                title="Summarize the conversation so far to free context"
+              >
+                {compacting ? 'Compacting…' : 'Compact'}
+              </button>
               <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={selectedSessionBusy || !selectedSessionId}>
                 Delete
               </button>
@@ -410,17 +433,6 @@ export function ChatTab({
                 </div>
               ) : null}
               <div className="msgs" ref={chatLogRef} onScroll={onChatLogScroll} hidden={selectedSessionLoading}>
-              {compactedMessages.length > 0 ? (
-                <CompactedHistoryPanel
-                  compactedMessages={compactedMessages}
-                  summary={compactionSummaryMessage}
-                  sessionId={selectedSessionId}
-                  isDirectChatMode={isDirectChatMode}
-                  chatBusy={selectedSessionBusy}
-                  onDeleteMessage={onDeleteMessage}
-                  onDeleteMessageImage={onDeleteMessageImage}
-                />
-              ) : null}
               {promptContext && promptContext.content.trim() ? (
                 <article className="msg ai system_context">
                   <div className="who">system · first message</div>
@@ -430,60 +442,46 @@ export function ChatTab({
                   </details>
                 </article>
               ) : null}
-              {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
-                if (turn.steps.length === 0
-                  && turn.liveThinking.length === 0
-                  && turn.recentActivities.length === 0
-                  && !turn.showRecentActivity) {
-                  const message = turn.main;
-                  if (!message) { return null; }
-                  if (message.kind === 'repo_agent_approval') {
-                    return (
-                      <React.Fragment key={message.id}>
-                      <RepoAgentApprovalRow
-                        decision={message.approvalDecision}
-                        command={message.approvalCommand}
-                        reason={message.approvalReason}
-                        decidedAtUtc={message.createdAtUtc}
-                      />
-                      <RunOutcomeNotice cause={message.runTerminalCause} detail={message.runTerminalDetail} />
-                      </React.Fragment>
-                    );
-                  }
-                  return (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      tokenDisplay={turn.isLive ? requireLiveTokenDisplay(liveTokenDisplays, message.id) : null}
-                      sessionId={selectedSessionId}
-                      isLive={turn.isLive}
-                      isPending={message.id === pendingUserMessageId}
-                      isDirectChatMode={isDirectChatMode}
-                      chatBusy={selectedSessionBusy}
-                      onDeleteMessage={onDeleteMessage}
-                      onDeleteMessageImage={onDeleteMessageImage}
-                    />
-                  );
-                }
-                return (
-                  <ChatTurnBubble
-                    key={turn.key}
-                    turn={turn}
-                    tokenDisplays={turn.isLive ? liveTokenDisplays : new Map()}
-                    sessionId={selectedSessionId}
-                    isDirectChatMode={isDirectChatMode}
-                    chatBusy={selectedSessionBusy}
-                    onDeleteMessage={onDeleteMessage}
-                    onDeleteMessageImage={onDeleteMessageImage}
-                    onDeleteTurn={onDeleteTurn}
-                  />
-                );
-              })}
+              {segments.map((segment) => segment.kind === 'compaction' ? (
+                <CompactedHistoryPanel
+                  key={segment.key}
+                  compactedMessages={segment.originals}
+                  summary={segment.summary}
+                  sessionId={selectedSessionId}
+                  isDirectChatMode={isDirectChatMode}
+                  chatBusy={selectedSessionBusy}
+                  onDeleteMessage={onDeleteMessage}
+                  onDeleteMessageImage={onDeleteMessageImage}
+                  onDeleteTurn={onDeleteTurn}
+                />
+              ) : (
+                <TurnList
+                  key={segment.key}
+                  messages={segment.messages}
+                  liveMessageIds={liveMessageIds}
+                  liveTokenDisplays={liveTokenDisplays}
+                  sessionId={selectedSessionId}
+                  pendingUserMessageId={pendingUserMessageId}
+                  isDirectChatMode={isDirectChatMode}
+                  chatBusy={selectedSessionBusy}
+                  onDeleteMessage={onDeleteMessage}
+                  onDeleteMessageImage={onDeleteMessageImage}
+                  onDeleteTurn={onDeleteTurn}
+                />
+              ))}
               {selectedRuntime?.journalSnapshot?.approval?.actionable ? (
                 <RepoAgentApprovalCard
                   key={selectedRuntime.journalSnapshot.approval.approvalId}
                   approval={selectedRuntime.journalSnapshot.approval}
                   onDecide={(decision) => { void onSubmitRepoAgentDecision(decision); }}
+                />
+              ) : null}
+              {selectedRuntime?.journalSnapshot?.question?.actionable ? (
+                <ChatQuestionCard
+                  key={selectedRuntime.journalSnapshot.question.questionId}
+                  question={selectedRuntime.journalSnapshot.question}
+                  onAnswer={(reply) => { void onAnswerQuestion(reply); }}
+                  onCancel={() => { void onStopOperation(); }}
                 />
               ) : null}
               {selectedRuntime?.awaitingResponse || selectedRuntime?.submissionPhase === 'reconnecting' ? (
@@ -527,8 +525,6 @@ export function ChatTab({
                   contextUsage={contextUsage}
                   liveToolPromptTokenCount={liveTokenBase?.promptTokens ?? null}
                   isRepoToolMode={isRepoToolMode}
-                  chatBusy={selectedSessionBusy}
-                  onCondense={onCondense}
                 />
               ) : null}
               {isRepoToolMode ? (
@@ -644,6 +640,74 @@ export function ChatTab({
   );
 }
 
+function TurnList({ messages, liveMessageIds, liveTokenDisplays, sessionId, pendingUserMessageId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn }: {
+  messages: ChatMessage[];
+  liveMessageIds: ReadonlySet<string>;
+  liveTokenDisplays: ReadonlyMap<string, TokenDisplay>;
+  sessionId: string;
+  pendingUserMessageId: string | null;
+  isDirectChatMode: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
+  onDeleteTurn(messageIds: string[]): Promise<void>;
+}) {
+  return (
+    <>
+      {groupMessagesIntoTurns(messages, new Set(liveMessageIds)).map((turn) => {
+        if (turn.steps.length === 0
+          && turn.shownImages.length === 0
+          && turn.liveThinking.length === 0
+          && turn.recentActivities.length === 0
+          && !turn.showRecentActivity) {
+          const message = turn.main;
+          if (!message) { return null; }
+          if (message.kind === 'repo_agent_approval') {
+            return (
+              <React.Fragment key={message.id}>
+              <RepoAgentApprovalRow
+                decision={message.approvalDecision}
+                command={message.approvalCommand}
+                reason={message.approvalReason}
+                decidedAtUtc={message.createdAtUtc}
+              />
+              <RunOutcomeNotice cause={message.runTerminalCause} detail={message.runTerminalDetail} />
+              </React.Fragment>
+            );
+          }
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              tokenDisplay={turn.isLive ? requireLiveTokenDisplay(liveTokenDisplays, message.id) : null}
+              sessionId={sessionId}
+              isLive={turn.isLive}
+              isPending={message.id === pendingUserMessageId}
+              isDirectChatMode={isDirectChatMode}
+              chatBusy={chatBusy}
+              onDeleteMessage={onDeleteMessage}
+              onDeleteMessageImage={onDeleteMessageImage}
+            />
+          );
+        }
+        return (
+          <ChatTurnBubble
+            key={turn.key}
+            turn={turn}
+            tokenDisplays={turn.isLive ? liveTokenDisplays : new Map()}
+            sessionId={sessionId}
+            isDirectChatMode={isDirectChatMode}
+            chatBusy={chatBusy}
+            onDeleteMessage={onDeleteMessage}
+            onDeleteMessageImage={onDeleteMessageImage}
+            onDeleteTurn={onDeleteTurn}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function CompactedHistoryPanel(props: {
   compactedMessages: ChatMessage[];
   /** Null when the rows were flagged but their summary row is no longer in the session. */
@@ -653,33 +717,25 @@ function CompactedHistoryPanel(props: {
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
+  onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const { compactedMessages, summary, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage } = props;
+  const { compactedMessages, summary, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn } = props;
   const messageCount = compactedMessages.length;
   const [expanded, setExpanded] = React.useState(false);
   return (
     <section className="compaction">
-      <details className="compaction-history" onToggle={(event) => setExpanded(event.currentTarget.open)}>
-        <summary className="compaction-divider">
-          — Context compacted ({messageCount} {messageCount === 1 ? 'message' : 'messages'} summarized) —
-        </summary>
-        {expanded ? <div className="compaction-originals">
-          {compactedMessages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              tokenDisplay={null}
-              sessionId={sessionId}
-              isLive={false}
-              isPending={false}
-              isDirectChatMode={isDirectChatMode}
-              chatBusy={chatBusy}
-              onDeleteMessage={onDeleteMessage}
-              onDeleteMessageImage={onDeleteMessageImage}
-            />
-          ))}
-        </div> : null}
-      </details>
+      {messageCount > 0 ? (
+        <details className="compaction-history" onToggle={(event) => setExpanded(event.currentTarget.open)}>
+          <summary className="compaction-divider">
+            — Context compacted ({messageCount} {messageCount === 1 ? 'message' : 'messages'} summarized) —
+          </summary>
+          {expanded ? <div className="compaction-originals">
+            <TurnList messages={compactedMessages} liveMessageIds={new Set()} liveTokenDisplays={new Map()} sessionId={sessionId}
+              pendingUserMessageId={null} isDirectChatMode={isDirectChatMode} chatBusy={chatBusy}
+              onDeleteMessage={onDeleteMessage} onDeleteMessageImage={onDeleteMessageImage} onDeleteTurn={onDeleteTurn} />
+          </div> : null}
+        </details>
+      ) : null}
       {summary ? (
         <article className="msg ai compaction-summary">
           <div className="who">assistant · Compacted summary</div>
@@ -694,10 +750,8 @@ function SettingsPopover(props: {
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
   isRepoToolMode: boolean;
-  chatBusy: boolean;
-  onCondense(): Promise<void>;
 }) {
-  const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onCondense } = props;
+  const { contextUsage, liveToolPromptTokenCount, isRepoToolMode } = props;
   if (!contextUsage) { return null; }
   const measured = contextUsage.usedTokensMeasured;
   // A measured total does not depend on the row estimates, so their fallbacks cannot hide it.
@@ -744,9 +798,6 @@ function SettingsPopover(props: {
           Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
         </span>
       ) : null}
-      {contextUsage.shouldCondense && (
-        <button type="button" onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
-      )}
     </div>
   );
 }
@@ -976,6 +1027,22 @@ function ChatTurnBubble({ turn, tokenDisplays, sessionId, isDirectChatMode, chat
             {turn.recentActivities.map((activity) => <ToolActivityRow key={activity.key} group={activity} />)}
           </div>
         </section>
+      ) : null}
+      {turn.shownImages.length > 0 ? (
+        <div className="shown-images">
+          {turn.shownImages.map((message) => (
+            <MessageImages
+              key={`${sessionId}:${message.id}`}
+              sessionId={sessionId}
+              messageId={message.id}
+              images={message.images ?? []}
+              imageMeta={message.imageMeta ?? []}
+              removedImageCount={message.removedImageCount ?? 0}
+              chatBusy={chatBusy || turn.isLive}
+              onDeleteImage={(imageIndex: number) => onDeleteMessageImage(message.id, imageIndex)}
+            />
+          ))}
+        </div>
       ) : null}
       {turn.main ? renderTurnMessage(turn.main, 'turn-main') : null}
       <RunOutcomeNotice cause={terminalMessage?.runTerminalCause} detail={terminalMessage?.runTerminalDetail} />

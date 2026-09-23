@@ -1,7 +1,7 @@
 import { syncDerivedSettingsFields } from '../settings-runtime.js';
 import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
 import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.js';
-import { sumImageTokens } from '@siftkit/contracts';
+import { sumContextImageTokens } from '@siftkit/contracts';
 import type {
   ChatMessage,
   ChatSession,
@@ -114,7 +114,7 @@ export function getReplayDisplayTokenCount(message: ChatMessage): number | null 
 
 export function formatMessageTokenLabel(message: ChatMessage): string {
   const textTokens = getReplayDisplayTokenCount(message);
-  const imageTokens = sumImageTokens(message.imageMeta);
+  const imageTokens = sumContextImageTokens(message);
   if (textTokens === 0 && imageTokens > 0) {
     return `${formatNumber(imageTokens)} image tokens`;
   }
@@ -130,7 +130,7 @@ export type TokenDisplay = {
 
 export function getLiveMessageTokenDisplay(message: ChatMessage): TokenDisplay {
   const components = getMessageTokenComponents(message);
-  const imageTokens = sumImageTokens(message.imageMeta);
+  const imageTokens = sumContextImageTokens(message);
   return {
     tokenCount: components.input.tokenCount + components.output.tokenCount + components.thinking.tokenCount + imageTokens,
     exact: components.input.exact && components.output.exact && components.thinking.exact,

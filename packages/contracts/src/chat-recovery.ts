@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ApprovalModeSchema,
+  CHAT_QUESTION_MAX_CHOICES,
   ChatRunTerminalCauseSchema,
   ChatOperationIdSchema,
   ChatSessionModeSchema,
@@ -142,6 +143,23 @@ export const DurableChatApprovalSchema = ChatStreamApprovalSchema.extend({
 });
 export type DurableChatApproval = z.infer<typeof DurableChatApprovalSchema>;
 
+export const ChatQuestionOutcomeSchema = z.enum(['answered', 'aborted', 'timeout', 'interrupted']);
+export type ChatQuestionOutcome = z.infer<typeof ChatQuestionOutcomeSchema>;
+
+/** A question as durable evidence; like an approval, only `actionable` depends on a live run. */
+export const DurableChatQuestionSchema = z.strictObject({
+  questionId: z.string().uuid(),
+  toolCallId: z.string().trim().min(1),
+  question: z.string().min(1),
+  choices: z.array(z.string().min(1)).max(CHAT_QUESTION_MAX_CHOICES),
+  requestedAtUtc: z.string().datetime(),
+  expiresAtUtc: z.string().datetime(),
+  outcome: ChatQuestionOutcomeSchema.nullable(),
+  decidedAtUtc: z.string().datetime().nullable(),
+  actionable: z.boolean(),
+});
+export type DurableChatQuestion = z.infer<typeof DurableChatQuestionSchema>;
+
 export const ChatRunPresentationEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('prompt'), prompt: ChatStreamPromptEventSchema }),
   z.strictObject({ kind: z.literal('warning'), warning: z.string() }),
@@ -183,8 +201,11 @@ export const ChatOperationSnapshotSchema = z.strictObject({
   messages: z.array(ChatTranscriptMessageSchema),
   tools: z.array(ChatRecoveredToolSchema),
   approval: DurableChatApprovalSchema.nullable(),
+  question: DurableChatQuestionSchema.nullable(),
   tokenTurns: z.array(ChatSnapshotTokenTurnSchema),
   streamedCharsSinceBase: z.number().int().nonnegative(),
+  /** This run compacted the conversation, so every earlier run's row is now compacted history. */
+  compactedEarlierHistory: z.boolean(),
   warnings: z.array(z.string()),
   issues: z.array(ChatRecoveryIssueSchema),
 });

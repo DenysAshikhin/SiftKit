@@ -1,4 +1,4 @@
-import { buildChatRunMessageIdPrefix, buildChatMessageId, ChatOperationIdSchema, ChatSessionOperationKindSchema, DurableChatApprovalSchema, type ChatOperationSnapshot, type ChatProjectionCapture, type DurableChatApproval, type ChatSnapshotTokenTurn, type ChatTranscriptMessage, type ChatRecoveryStatus, type ChatRecoveryIssue } from '@siftkit/contracts';
+import { buildChatRunMessageIdPrefix, buildChatMessageId, ChatOperationIdSchema, ChatSessionOperationKindSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, type ChatOperationSnapshot, type ChatProjectionCapture, type DurableChatApproval, type DurableChatQuestion, type ChatSnapshotTokenTurn, type ChatTranscriptMessage, type ChatRecoveryStatus, type ChatRecoveryIssue } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 import { ChatJournalStore, ChatRecoveryInvariantError } from '../state/chat-journal.js';
@@ -12,6 +12,8 @@ import type { ChatRun } from '../state/chat-journal-schema.js';
 const ChatLiveApprovalBindingSchema = z.strictObject({ runId: z.string().uuid(), approvalId: z.string().uuid() });
 export const ChatLiveOperationBindingSchema = z.strictObject({
   approval: ChatLiveApprovalBindingSchema.nullable(), controlOperationId: z.string().uuid().nullable(),
+  /** The question the live run's gate is parked on; only it can be answered. */
+  question: z.strictObject({ questionId: z.string().uuid() }).nullable(),
   /** The registry's live lease, which the durable queue state reports alongside its rows. */
   activeOperation: z.strictObject({ operationId: ChatOperationIdSchema, operationKind: ChatSessionOperationKindSchema }).nullable(),
 });
@@ -40,10 +42,12 @@ export class ChatOperationSnapshotReader {
       let previous = this.snapshot;
       if (previous && (historyHead !== this.historyHead || previous.status === 'recovery_failed')) previous = null;
       // A compaction folded on top of a retained view restarts the fold from the run's first event.
-      const { messages, status, issues, warnings, streamedCharsSinceBase, approval } = this.fold(database, store, run, previous) ?? this.fold(database, store, run, null);
+      const { messages, status, issues, warnings, streamedCharsSinceBase, compactedEarlierHistory, approval, question } = this.fold(database, store, run, previous) ?? this.fold(database, store, run, null);
       if (approval) approval.actionable = status !== 'recovery_failed' && run.terminalCause === null
         && approval.outcome === null && binding.approval?.runId === approval.runId && binding.approval.approvalId === approval.approvalId
         && nowMs < Date.parse(approval.expiresAtUtc);
+      if (question) question.actionable = status !== 'recovery_failed' && run.terminalCause === null && question.outcome === null
+        && binding.question?.questionId === question.questionId && nowMs < Date.parse(question.expiresAtUtc);
       const tools = messages.flatMap(message => {
         if (message.kind !== 'assistant_tool_call') return [];
         const toolCallId = this.calls.get(message.id);
@@ -54,8 +58,8 @@ export class ChatOperationSnapshotReader {
         sessionId: run.sessionId, operationId, runOrder: run.runOrder, controlOperationId: binding.controlOperationId,
         operationKind: run.operationKind, recordKind: run.recordKind, startedAtUtc: run.createdAtUtc, terminalCause: run.terminalCause,
         status: tools.some(tool => tool.executionState === 'uncertain' || tool.executionState === 'not_started') && status === 'ok' ? 'recovery_needed' : status,
-        cursor: { operationId, sequence: run.latestSequence }, messages, tools, approval,
-        tokenTurns: [...this.tokenTurns.values()].sort((a, b) => a.turn - b.turn), streamedCharsSinceBase, warnings, issues,
+        cursor: { operationId, sequence: run.latestSequence }, messages, tools, approval, question,
+        tokenTurns: [...this.tokenTurns.values()].sort((a, b) => a.turn - b.turn), streamedCharsSinceBase, compactedEarlierHistory, warnings, issues,
       };
       this.snapshot = snapshot;
       this.historyHead = historyHead;
@@ -81,10 +85,13 @@ export class ChatOperationSnapshotReader {
     }
     const warnings = [...(previous?.warnings ?? [])];
     let streamedCharsSinceBase = previous?.streamedCharsSinceBase ?? 0;
+    let compactedEarlierHistory = previous?.compactedEarlierHistory ?? false;
     let approval: DurableChatApproval | null = previous?.approval ? { ...previous.approval } : null;
+    let question: DurableChatQuestion | null = previous?.question ? { ...previous.question } : null;
     for (const envelope of store.readAll(operationId, previous?.cursor.sequence ?? 0)) {
       const event = envelope.event;
       if (projection && event.kind === 'context_spliced' && event.reason === 'compacted') return null;
+      if (event.kind === 'context_spliced' && event.reason === 'compacted') compactedEarlierHistory = true;
       projection?.apply(envelope);
       if (event.kind === 'presentation') {
         if (event.event.kind === 'warning') warnings.push(event.event.warning);
@@ -112,18 +119,28 @@ export class ChatOperationSnapshotReader {
       } else if (event.kind === 'approval_resolved' && approval?.approvalId === event.approvalId) {
         approval.outcome = event.outcome;
         approval.decidedAtUtc = event.decidedAtUtc;
+      } else if (event.kind === 'question_requested') {
+        question = DurableChatQuestionSchema.parse({
+          questionId: event.questionId, toolCallId: event.call.toolCallId, question: event.question, choices: event.choices,
+          requestedAtUtc: event.requestedAtUtc, expiresAtUtc: event.expiresAtUtc, outcome: null, decidedAtUtc: null, actionable: false,
+        });
+      } else if (event.kind === 'question_resolved' && question?.questionId === event.questionId) {
+        question.outcome = event.outcome;
+        question.decidedAtUtc = event.decidedAtUtc;
       }
     }
     if (projection && previous) {
       const projected = projection.finish();
-      return { messages: projected.messages, status: projected.status, issues: previous.issues, warnings, streamedCharsSinceBase, approval };
+      return { messages: projected.messages, status: projected.status, issues: previous.issues, warnings, streamedCharsSinceBase, compactedEarlierHistory, approval, question };
     }
     const report = reconcileChatRun(database, operationId);
-    return { messages: readChatRunMessages(database, run.sessionId, operationId), status: report.status, issues: report.issues, warnings, streamedCharsSinceBase, approval };
+    return { messages: readChatRunMessages(database, run.sessionId, operationId), status: report.status, issues: report.issues, warnings, streamedCharsSinceBase, compactedEarlierHistory, approval, question };
   }
 }
 
 type FoldedSnapshot = {
   messages: ChatTranscriptMessage[]; status: ChatRecoveryStatus; issues: ChatRecoveryIssue[];
-  warnings: ChatOperationSnapshot['warnings']; streamedCharsSinceBase: number; approval: DurableChatApproval | null;
+  warnings: ChatOperationSnapshot['warnings']; streamedCharsSinceBase: number; compactedEarlierHistory: boolean;
+  approval: DurableChatApproval | null;
+  question: DurableChatQuestion | null;
 };

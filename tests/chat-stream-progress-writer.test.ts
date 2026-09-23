@@ -6,6 +6,7 @@ import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progr
 import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS } from '../src/status-server/live-text-delta.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
+import { QuestionGate } from '../src/repo-search/engine/question-gate.js';
 
 function fixture() {
   const { database, recorder } = beginRepoAgentTestRun('chat-stream-progress-writer-');
@@ -72,4 +73,17 @@ test('pending progress flushes on the latency timer without another event', (t) 
   assert.deepEqual(displayEvents(), []);
   t.mock.timers.tick(LIVE_TEXT_FLUSH_MAX_LATENCY_MS);
   assert.deepEqual(displayEvents(), [{ kind: 'progress', delta: { turn: 1, offset: 0, text: 'slow' } }]);
+});
+test('asking and answering a question each publish to live viewers', async () => {
+  const { database, recorder } = beginRepoAgentTestRun('chat-question-publish-');
+  let publishes = 0;
+  new ChatStreamProgressWriter({ publish: () => { publishes += 1; } }, null, true, recorder);
+  const gate = new QuestionGate(recorder);
+  const asked = gate.ask({ call: { toolCallId: 'call-1', displayToolCallId: 'display-1', batchId: 'batch-1', turn: 1, indexInBatch: 0 },
+    question: 'Which db?', choices: [] });
+  assert.equal(publishes, 1);
+  assert.equal(gate.answer(gate.pendingQuestionId ?? '', { choiceIndex: null, note: 'sqlite' }), 'answered');
+  await asked;
+  assert.equal(publishes, 2);
+  assert.equal(Array.from(new ChatJournalStore(database).readAll(recorder.operationId)).at(-1)?.event.kind, 'question_resolved');
 });

@@ -10,9 +10,10 @@ import type {
   ActiveChatRepoAgentResponse,
   ChatOperationSnapshot,
   ChatRepoAgentApprovalModeResponse,
+  ChatQuestionAnswerResponse,
   ChatRepoAgentDecideResponse,
 } from '@siftkit/contracts';
-import { ChatQueueEnqueueRequestSchema, DurableChatApprovalSchema, type ChatQueueEnqueueRequest } from '@siftkit/contracts';
+import { ChatQueueEnqueueRequestSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, type ChatQueueEnqueueRequest } from '@siftkit/contracts';
 import { renderHook, waitFor } from '../react-test-environment.js';
 
 import {
@@ -291,6 +292,7 @@ class ChatFetchFixture {
     /** Rejects the first submitted turn as another client's, the way a live server would. */
     conflictOperationKind?: ActiveChatOperation['operationKind'];
     decideResponse?: ChatRepoAgentDecideResponse;
+    questionResponse?: ChatQuestionAnswerResponse;
     approvalModeResponse?: ChatRepoAgentApprovalModeResponse;
     holdStream?: boolean;
     stopStatus?: number;
@@ -435,6 +437,9 @@ class ChatFetchFixture {
       }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/decide` && this.options.decideResponse) {
         return new Response(JSON.stringify(this.options.decideResponse), { status: 200 });
+      }
+      if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/question` && this.options.questionResponse) {
+        return new Response(JSON.stringify(this.options.questionResponse), { status: 200 });
       }
       if (requestedSession && url === `/dashboard/chat/sessions/${requestedSession.id}/repo-agent/approval-mode` && this.options.approvalModeResponse) {
         return new Response(JSON.stringify(this.options.approvalModeResponse), { status: 200 });
@@ -1455,4 +1460,60 @@ test('returning to a session last seen busy refetches it once the attach finds i
   } finally {
     fixture.restore();
   }
+});
+
+test('a reload whose URL names a deleted session falls back to an existing session', async () => {
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 'deleted-session', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.equal(hook.result.current.selectedSessionId, 's1'); });
+    await waitFor(() => { assert.equal(hook.result.current.selectedSession?.id, 's1'); });
+  } finally {
+    fixture.restore();
+  }
+});
+
+test('a failure for a session with no runtime becomes a toast instead of a crash', async () => {
+  const toasts: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('server restarting'); };
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 'never-listed', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true,
+      enqueueToast: (_level, text) => { toasts.push(text); },
+    }));
+    await waitFor(() => { assert.ok(toasts.includes('server restarting')); });
+    assert.equal(hook.result.current.selectedSession, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('answering a pending question posts its id and reply', async () => {
+  const question = DurableChatQuestionSchema.parse({
+    questionId: '4f9c1f9a-0000-4000-8000-00000000000c', toolCallId: 'call', question: 'Which?', choices: ['a', 'b'],
+    requestedAtUtc: '2026-09-04T09:59:00.000Z', expiresAtUtc: '2026-09-04T10:09:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
+  });
+  const fixture = new ChatFetchFixture({
+    session: SESSION, detailResponse: { session: SESSION, contextUsage: CONTEXT_USAGE }, streamResponse: { session: SESSION, contextUsage: CONTEXT_USAGE },
+    activeOperations: [{ sessionId: 's1', operationKind: 'message', operationId: OPERATION_ID, startedAtUtc: '2026-09-04T09:58:00.000Z' }],
+    operationStream: snapshotBody({ question, operationKind: 'message' }), holdOperationStream: true,
+    questionResponse: { ok: true, answeredAtUtc: '2026-09-04T10:00:00.000Z' },
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({ initialSelectedSessionId: 's1', refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }), confirmDeleteSession: () => true, enqueueToast: () => {} }));
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').journalSnapshot?.question?.questionId, question.questionId); });
+    await act(async () => { await hook.result.current.answerQuestion({ choiceIndex: 1, note: 'because' }); });
+    assert.ok(fixture.sentBodies.includes(JSON.stringify({ questionId: question.questionId, reply: { choiceIndex: 1, note: 'because' } })));
+  } finally { fixture.restore(); }
 });

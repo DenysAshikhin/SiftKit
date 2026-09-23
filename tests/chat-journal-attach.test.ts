@@ -8,8 +8,9 @@ import { beginRepoAgentTestRun } from './helpers/chat-run-recorder.js';
 import { ChatStreamProgressWriter } from '../src/status-server/chat-stream-progress-writer.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { recordChatHistoryRevision } from '../src/state/chat-history-revisions.js';
+import { COMPACTION_SUMMARY_MARKER } from '../src/repo-search/engine/transcript-compactor.js';
 
-const NO_LIVE_BINDING = { approval: null, controlOperationId: null, activeOperation: null };
+const NO_LIVE_BINDING = { approval: null, question: null, controlOperationId: null, activeOperation: null };
 const TRANSFER_ID = '4f9c1f9a-1111-4000-8000-000000000001';
 
 function fixture() {
@@ -63,12 +64,12 @@ test('approval snapshot retains its original deadline and only its exact live bi
     activityKind: 'command', activitySubject: { kind: 'file', value: 'a.ts' }, maxTurns: 200, promptTokenCount: 0, executionState: 'pending_approval' });
   recorder.recordApprovalRequested({ call, approvalId, toolName: 'run', command: 'work', reviewPayload: null,
     mode: 'interactive', requestedAtUtc, expiresAtUtc });
-  const binding = { approval: { runId, approvalId }, controlOperationId: randomUUID(), activeOperation: null };
+  const binding = { approval: { runId, approvalId }, question: null, controlOperationId: randomUUID(), activeOperation: null };
   const now = Date.parse(requestedAtUtc) + 1;
   assert.equal(reader.capture(database, binding, now).snapshot.controlOperationId, binding.controlOperationId);
   assert.equal(reader.capture(database, binding, now).snapshot.approval?.actionable, true);
   assert.equal(reader.capture(database, NO_LIVE_BINDING, now).snapshot.approval?.actionable, false);
-  assert.equal(reader.capture(database, { approval: { runId: randomUUID(), approvalId }, controlOperationId: binding.controlOperationId, activeOperation: null }, now).snapshot.approval?.actionable, false);
+  assert.equal(reader.capture(database, { approval: { runId: randomUUID(), approvalId }, question: null, controlOperationId: binding.controlOperationId, activeOperation: null }, now).snapshot.approval?.actionable, false);
   const expired = reader.capture(database, binding, Date.parse(expiresAtUtc)).snapshot;
   assert.equal(expired.approval?.actionable, false);
   assert.equal(expired.approval?.expiresAtUtc, expiresAtUtc);
@@ -145,4 +146,13 @@ test('a cached snapshot incorporates history edits and deletions even without ne
   const records = [...createChatUpdateRecords(edited, deleted)];
   assert.deepEqual(records.flatMap(record => record.kind === 'remove_message' ? [record.messageId] : []), [answer.id]);
   assert.equal(applyChatProjectionRecords(records, edited).snapshot.messages.some(message => message.id === answer.id), false);
+});
+
+test('a snapshot reports when its run compacted the history before it', () => {
+  const { recorder, database, reader } = fixture();
+  recorder.recordContextInitialized({ contextRevision: 0, turnBoundary: 1, messages: [{ role: 'user', content: 'long history' }] });
+  assert.equal(reader.capture(database, NO_LIVE_BINDING).snapshot.compactedEarlierHistory, false);
+  recorder.recordContextSpliced({ expectedRevision: 0, contextRevision: 1, startIndex: 0, deleteCount: 1,
+    inserted: [{ role: 'assistant', content: `${COMPACTION_SUMMARY_MARKER} summary` }], turnBoundary: 1, reason: 'compacted', compressedMessageIds: [], coalescedToolCallIds: [] });
+  assert.equal(reader.capture(database, NO_LIVE_BINDING).snapshot.compactedEarlierHistory, true);
 });

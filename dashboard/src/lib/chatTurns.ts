@@ -1,3 +1,4 @@
+import { isDisplayOnlyImageMessage } from '@siftkit/contracts';
 import type { ChatMessage, ChatToolCallMessage } from '../types';
 import { buildToolActivityRing, type ToolActivityGroup } from './tool-activity-ring';
 
@@ -9,6 +10,8 @@ export type ChatTurn = {
   isLive: boolean;
   messages: ChatMessage[];
   steps: ChatMessage[];
+  /** Images the assistant showed with show_image; rendered in the bubble, never folded away. */
+  shownImages: ChatToolCallMessage[];
   /** Live-only: the newest thinking blocks, oldest first. Always empty once settled. */
   liveThinking: ChatMessage[];
   /** Live-only: the newest grouped tool activities, oldest first. */
@@ -37,6 +40,10 @@ function isThinkingMessage(message: ChatMessage): boolean {
 
 function isToolCallMessage(message: ChatMessage): message is ChatToolCallMessage {
   return message.kind === 'assistant_tool_call';
+}
+
+function isShownImageMessage(message: ChatMessage): message is ChatToolCallMessage {
+  return isToolCallMessage(message) && isDisplayOnlyImageMessage(message) && (message.images?.length ?? 0) > 0;
 }
 
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
@@ -85,9 +92,11 @@ function finalizeTurn(turn: ChatTurn): void {
   turn.showRecentActivity = liveUnanswered && turn.messages.some((message) => message.role === 'assistant');
   // Live tools belong only to the recent ring. Everything else that is not the
   // main slot or thinking stack stays in Internal Logic.
+  turn.shownImages = turn.messages.filter(isShownImageMessage);
   turn.steps = turn.messages.filter((message) => (
     message !== main
     && !liveThinking.includes(message)
+    && !isShownImageMessage(message)
     && !(liveUnanswered && isToolCallMessage(message))
   ));
 }
@@ -107,6 +116,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
         isLive,
         messages: [message],
         steps: [],
+        shownImages: [],
         liveThinking: [],
         recentActivities: [],
         showRecentActivity: false,

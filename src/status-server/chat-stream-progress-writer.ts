@@ -64,6 +64,11 @@ export class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressE
     this.broadcast.publish();
   }
 
+  /** Wakes readers for evidence committed outside the progress stream, such as a question. */
+  publish(): void {
+    this.broadcast.publish();
+  }
+
   flushPending(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;

@@ -69,12 +69,12 @@ type QueuedMessage = Extract<ChatJournalEvent, { kind: 'queue_delivered' }>['mes
 type OrphanScan = {
   stopped: boolean; initialized: boolean; sawTool: boolean;
   started: Extract<ChatJournalEvent, { kind: 'run_started' }> | null;
-  unresolvedApprovalIds: string[]; delivered: QueuedMessage[];
+  unresolvedApprovalIds: string[]; unresolvedQuestionIds: string[]; delivered: QueuedMessage[];
 };
 
 /** One bounded pass collecting the compact facts orphan closure needs; no event array is retained. */
 function scanOrphan(store: ChatJournalStore, operationId: string): OrphanScan {
-  const scan: OrphanScan = { stopped: false, initialized: false, sawTool: false, started: null, unresolvedApprovalIds: [], delivered: [] };
+  const scan: OrphanScan = { stopped: false, initialized: false, sawTool: false, started: null, unresolvedApprovalIds: [], unresolvedQuestionIds: [], delivered: [] };
   for (const { event } of store.readAll(operationId)) {
     if (event.kind === 'stop_requested') scan.stopped = true;
     else if (event.kind === 'context_initialized') scan.initialized = true;
@@ -82,6 +82,8 @@ function scanOrphan(store: ChatJournalStore, operationId: string): OrphanScan {
     else if (event.kind === 'queue_delivered') scan.delivered.push(event.message);
     else if (event.kind === 'approval_requested') scan.unresolvedApprovalIds.push(event.approvalId);
     else if (event.kind === 'approval_resolved') scan.unresolvedApprovalIds = scan.unresolvedApprovalIds.filter(id => id !== event.approvalId);
+    else if (event.kind === 'question_requested') scan.unresolvedQuestionIds.push(event.questionId);
+    else if (event.kind === 'question_resolved') scan.unresolvedQuestionIds = scan.unresolvedQuestionIds.filter(id => id !== event.questionId);
     else if (event.kind.startsWith('tool_')) scan.sawTool = true;
   }
   return scan;
@@ -114,6 +116,10 @@ export function closeOrphanedChatRun(
       for (const approvalId of scan.unresolvedApprovalIds) {
         recorder.recordApprovalResolved({ approvalId, outcome: stopped ? 'aborted' : 'interrupted', decision: null,
           reason: stopped ? 'Stopped by user.' : closure.detail, decidedAtUtc: new Date().toISOString() });
+      }
+      for (const questionId of scan.unresolvedQuestionIds) {
+        recorder.recordQuestionResolved({ questionId, outcome: stopped ? 'aborted' : 'interrupted', reply: null,
+          decidedAtUtc: new Date().toISOString() });
       }
       if (!scan.initialized) {
         const prior = buildRecoveredChatHistory(database, orphan.sessionId, orphan.operationId);

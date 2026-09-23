@@ -140,6 +140,7 @@ export function* createChatSnapshotRecords(capture: ChatProjectionCapture): Gene
   for (const [index, warning] of snapshot.warnings.entries()) yield { kind: 'warning', index, warning };
   for (const [index, issue] of snapshot.issues.entries()) yield { kind: 'issue', index, issue };
   yield { kind: 'approval', approval: snapshot.approval };
+  yield { kind: 'question', question: snapshot.question };
   yield { kind: 'queue', queue };
   yield { kind: 'commit', cursor, counts: commitCounts(snapshot) };
 }
@@ -230,6 +231,7 @@ export function* createChatUpdateRecords(before: ChatProjectionCapture, after: C
     if (issue !== undefined) yield { kind: 'issue', index, issue };
   }
   if (!same(before.snapshot.approval, after.snapshot.approval)) yield { kind: 'approval', approval: after.snapshot.approval };
+  if (!same(before.snapshot.question, after.snapshot.question)) yield { kind: 'question', question: after.snapshot.question };
   if (!same(before.queue, after.queue)) yield { kind: 'queue', queue: after.queue };
   yield { kind: 'commit', cursor: after.cursor, counts: commitCounts(after.snapshot) };
 }

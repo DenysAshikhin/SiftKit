@@ -70,6 +70,7 @@ export function applyChatProjectionRecords(records: readonly ChatProjectionRecor
   const warnings = [...(base?.warnings ?? [])];
   const issues = [...(base?.issues ?? [])];
   let approval = base?.approval ?? null;
+  let question = base?.question ?? null;
   let queue: ChatMessageQueueState | null = null;
   let committed = false;
   for (const record of rest) {
@@ -94,6 +95,7 @@ export function applyChatProjectionRecords(records: readonly ChatProjectionRecor
     else if (record.kind === 'warning') { assert.ok(record.index <= warnings.length); warnings[record.index] = record.warning; }
     else if (record.kind === 'issue') { assert.ok(record.index <= issues.length); issues[record.index] = record.issue; }
     else if (record.kind === 'approval') approval = record.approval;
+    else if (record.kind === 'question') question = record.question;
     else if (record.kind === 'queue') queue = record.queue;
     else if (record.kind === 'commit') {
       assert.deepEqual(record.counts, { messages: messages.length, tools: tools.size, tokenTurns: tokenTurns.size, warnings: warnings.length, issues: issues.length });
@@ -104,7 +106,7 @@ export function applyChatProjectionRecords(records: readonly ChatProjectionRecor
   assert.equal(committed, true, 'a transfer must commit');
   const snapshot = ChatOperationSnapshotSchema.parse({
     ...begin.state, sessionId: begin.sessionId, operationId: begin.operationId, cursor: { operationId: begin.cursor.operationId, sequence: begin.cursor.sequence },
-    messages, tools: [...tools.values()], approval,
+    messages, tools: [...tools.values()], approval, question,
     tokenTurns: [...tokenTurns.values()].sort((a, b) => a.turn - b.turn), warnings, issues,
   });
   return { snapshot, queue };

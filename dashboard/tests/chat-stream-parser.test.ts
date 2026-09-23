@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CHAT_PROJECTION_MAX_FRAME_BYTES, ChatTranscriptMessageSchema, type ChatProjectionFrame } from '@siftkit/contracts';
+import { CHAT_PROJECTION_MAX_FRAME_BYTES, CHAT_PROJECTION_PROTOCOL_VERSION, ChatTranscriptMessageSchema, type ChatProjectionFrame } from '@siftkit/contracts';
 import { parseChatStreamPacket, ChatStreamReader, type ChatStreamEvent } from '../src/lib/chat-stream-parser';
 import { ChatOperationProjection } from '../src/lib/chat-operation-projection';
 import { chatProjectionCapture, chatQueueState, chatSnapshotFrames, nextTransferId, projectionPackets } from './chat-snapshot-fixture.js';
@@ -30,7 +30,7 @@ async function collect(reader: ReadableStreamDefaultReader<Uint8Array>, maxPacke
 }
 
 function frameOf(data: string, overrides: Partial<ChatProjectionFrame> = {}): ChatProjectionFrame {
-  return { version: 2, transferId: nextTransferId(), recordIndex: 0, chunkIndex: 0, finalChunk: true, data, ...overrides };
+  return { version: CHAT_PROJECTION_PROTOCOL_VERSION, transferId: nextTransferId(), recordIndex: 0, chunkIndex: 0, finalChunk: true, data, ...overrides };
 }
 
 test('malformed, unknown and incomplete packets fail instead of disappearing; empty ones are ignored', () => {
@@ -53,7 +53,7 @@ test('projection frames and queue state parse from their packets, with CRLF and 
 });
 
 test('a frame with another protocol version or an oversized data field is rejected', () => {
-  assert.throws(() => parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify({ ...frameOf('{}'), version: 1 })}`), /Malformed/u);
+  assert.throws(() => parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify({ ...frameOf('{}'), version: CHAT_PROJECTION_PROTOCOL_VERSION - 1 })}`), /Malformed/u);
   assert.throws(() => parseChatStreamPacket(`event: chat_projection\ndata: ${JSON.stringify(frameOf('x'.repeat(CHAT_PROJECTION_MAX_FRAME_BYTES + 1)))}`), /Malformed/u);
 });
 
@@ -83,7 +83,7 @@ test('one network chunk carrying many packets is processed packet by packet', as
 });
 
 test('a packet that outgrows the frame bound fails before more of it is buffered', async () => {
-  const oversized = encoder.encode(`event: chat_projection\ndata: {"version":2,"data":"${'y'.repeat(CHAT_PROJECTION_MAX_FRAME_BYTES)}`);
+  const oversized = encoder.encode(`event: chat_projection\ndata: {"version":${CHAT_PROJECTION_PROTOCOL_VERSION},"data":"${'y'.repeat(CHAT_PROJECTION_MAX_FRAME_BYTES)}`);
   const chunks = [oversized.slice(0, 40_000), oversized.slice(40_000, 70_000)];
   let reads = 0;
   const reader = readerOf([...chunks, encoder.encode('never read')]);

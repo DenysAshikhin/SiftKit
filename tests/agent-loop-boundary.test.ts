@@ -96,7 +96,7 @@ test('native repo-tool execution consumes canonical typed calls', () => {
     'utf8',
   );
 
-  assert.match(repoTools, /executeRepoTool\(\s*call:\s*RepoNativeToolCall/u);
+  assert.match(repoTools, /executeRepoTool\(\s*call:\s*RepoExecutableToolCall/u);
   assert.doesNotMatch(repoTools, /executeRepoTool\(\s*toolName:\s*string/u);
   assert.match(processor, /RepoNativeToolCallSchema/u);
 });

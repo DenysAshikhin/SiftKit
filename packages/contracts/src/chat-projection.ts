@@ -14,9 +14,10 @@ import {
   ChatSnapshotTokenTurnSchema,
   ChatStreamErrorSchema,
   DurableChatApprovalSchema,
+  DurableChatQuestionSchema,
 } from './chat-recovery.js';
 
-export const CHAT_PROJECTION_PROTOCOL_VERSION = 2;
+export const CHAT_PROJECTION_PROTOCOL_VERSION = 3;
 /** Upper bound on one encoded `chat_projection` SSE event, escaping and framing included. */
 export const CHAT_PROJECTION_MAX_FRAME_BYTES = 64 * 1024;
 
@@ -49,7 +50,7 @@ export type ChatProjectionCapture = z.infer<typeof ChatProjectionCaptureSchema>;
 /** Run state that is not a collection, identity, approval or cursor: carried once per transfer. */
 export const ChatProjectionStateSchema = ChatOperationSnapshotSchema.omit({
   sessionId: true, operationId: true, cursor: true,
-  messages: true, tools: true, approval: true, tokenTurns: true, warnings: true, issues: true,
+  messages: true, tools: true, approval: true, question: true, tokenTurns: true, warnings: true, issues: true,
 });
 export type ChatProjectionState = z.infer<typeof ChatProjectionStateSchema>;
 
@@ -106,6 +107,7 @@ const ChatProjectionIssueRecordSchema = z.strictObject({
   kind: z.literal('issue'), index: z.number().int().nonnegative(), issue: ChatRecoveryIssueSchema,
 });
 const ChatProjectionApprovalRecordSchema = z.strictObject({ kind: z.literal('approval'), approval: DurableChatApprovalSchema.nullable() });
+const ChatProjectionQuestionRecordSchema = z.strictObject({ kind: z.literal('question'), question: DurableChatQuestionSchema.nullable() });
 const ChatProjectionQueueRecordSchema = z.strictObject({ kind: z.literal('queue'), queue: ChatMessageQueueStateSchema });
 
 export const ChatProjectionCommitCountsSchema = z.strictObject({
@@ -146,6 +148,7 @@ export const ChatProjectionRecordSchema = z.discriminatedUnion('kind', [
   ChatProjectionWarningRecordSchema,
   ChatProjectionIssueRecordSchema,
   ChatProjectionApprovalRecordSchema,
+  ChatProjectionQuestionRecordSchema,
   ChatProjectionQueueRecordSchema,
   ChatProjectionCommitRecordSchema,
   ChatProjectionTerminalRecordSchema,

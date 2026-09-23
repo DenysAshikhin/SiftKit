@@ -395,6 +395,7 @@ export async function executeRepoSearchRequest(
       webSearch: config.WebSearch,
       webToolsEnabled: request.webToolsEnabled,
       visionEnabled: activeVisionPreset.VisionEnabled === true,
+      webChatTools: request.questionGate !== undefined,
     };
     const runPromptRequest: RunSystemPromptRequest = taskKind === 'chat'
       ? { ...runPromptBase, promptKind: 'chat', chatSystemPrompt: request.systemPrompt || '' }
@@ -446,6 +447,7 @@ export async function executeRepoSearchRequest(
       approvalGate: request.approvalGate,
       queueDelivery: request.queueDelivery,
       evidenceRecorder: request.evidenceRecorder,
+      questionGate: request.questionGate,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

@@ -22,6 +22,8 @@ import {
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { mergeConfig } from '../src/config/normalization.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
+import { resolveChatRunAllowedTools } from '../src/status-server/chat-operation-preset.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import { normalizeConfig } from '../src/status-server/config-store.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
 import { z } from '../src/lib/zod.js';
@@ -316,6 +318,21 @@ test('buildChatSystemContent contains only system prompt and explicit web instru
   assert.doesNotMatch(systemContent, /custom system prompt/u);
   assert.match(promptContext.content, /custom system prompt/u);
   assert.doesNotMatch(promptContext.content, /Internal tool-call context/u);
+});
+
+test('buildChatPromptContext shows a plain chat session the web chat tools it is offered and their guidance', () => {
+  const session = createSession();
+  session.webSearchEnabled = false;
+
+  const context = buildChatPromptContext(createConfig(), session);
+
+  assert.equal(context.label, 'System prompt and tool schema');
+  assert.match(context.content, /coder friendly assistant/u);
+  assert.match(context.content, /Web chat tools:/u);
+  const toolSchemaSection = context.content.split('## Tool schema')[1] || '';
+  assert.match(toolSchemaSection, /"ask_user"/u);
+  assert.match(toolSchemaSection, /"show_image"/u);
+  assert.doesNotMatch(toolSchemaSection, /"web_search"/u);
 });
 
 test('buildChatPromptContext rejects a session without an exact preset id', () => {
@@ -939,4 +956,17 @@ test('buildChatSessionResponse mirrors the stored repo root onto the wire sessio
   const response = buildChatSessionResponse(config, createManagedTempDir('chat-response-root-'), mockChatSession({ ...session, planRepoRoot: 'C:/srv/pinned' }));
 
   assert.equal(response.session.planRepoRoot, 'C:/srv/pinned');
+});
+
+test('every web chat launch path takes its tool surface from one resolver', () => {
+  const config = createConfig();
+  const preset = config.Presets.find((candidate) => candidate.id === 'repo-search');
+  if (!preset) throw new Error('Default repo-search preset is missing.');
+  preset.allowedTools = ['grep'];
+  assert.deepEqual(resolveChatRunAllowedTools({ operation: 'repo-agent' }), [...INTERACTIVE_REPO_TOOL_NAMES]);
+  assert.deepEqual(resolveChatRunAllowedTools({ operation: 'chat', webEnabled: true }), ['web_search', 'web_fetch']);
+  assert.deepEqual(resolveChatRunAllowedTools({ operation: 'chat', webEnabled: false }), []);
+  const repoSearch = resolveChatRunAllowedTools({ operation: 'repo-search', config, preset });
+  assert.ok(repoSearch.includes('grep') && repoSearch.includes('web_search'));
+  assert.equal(repoSearch.includes('read'), false);
 });

@@ -7,6 +7,8 @@ import type {
   ChatApprovalRequestedEvidence,
   ChatApprovalResolvedEvidence,
   ChatApprovalReviewedEvidence,
+  ChatQuestionRequestedEvidence,
+  ChatQuestionResolvedEvidence,
 } from '../repo-search/engine/chat-run-evidence.js';
 import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-chat-message.js';
 import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent, type ThroughputAuditOperation } from '@siftkit/contracts';
@@ -317,6 +319,17 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
 
   recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void {
     this.commit({ kind: 'approval_resolved', ...evidence }, evidence.decidedAtUtc, `approval_resolved:${evidence.approvalId}`);
+  }
+
+  recordQuestionRequested(evidence: ChatQuestionRequestedEvidence): void {
+    this.progressWriter?.flushPending();
+    this.commit({ kind: 'question_requested', ...evidence }, evidence.requestedAtUtc, `question_requested:${evidence.questionId}`);
+    this.progressWriter?.publish();
+  }
+
+  recordQuestionResolved(evidence: ChatQuestionResolvedEvidence): void {
+    this.commit({ kind: 'question_resolved', ...evidence }, evidence.decidedAtUtc, `question_resolved:${evidence.questionId}`);
+    this.progressWriter?.publish();
   }
 
   recordToolStarted(evidence: ChatToolStartedEvidence): void {

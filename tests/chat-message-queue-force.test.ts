@@ -289,3 +289,25 @@ test('force intent snapshots pending IDs durably and retries by idempotency key'
     closeAllRuntimeDatabases();
   }
 });
+
+test('a fresh send resumes automatic delivery that an earlier stop paused', async (t) => {
+  const command = buildRepoToolRequestedCommand('read', { path: 'package.json' });
+  const service = new HoldingCaptureEngineService(command);
+  const harness = await startHarness('siftkit-queue-resume-', t, { engineService: service });
+  const sessionId = String(asObject((await requestJson(`${harness.baseUrl}/dashboard/chat/sessions`, { method: 'POST', body: JSON.stringify({ title: 'resume' }) })).body.session).id);
+  const url = `${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`;
+  new ChatMessageQueueStore(getRuntimeDatabase()).setPaused(sessionId, true);
+  const original = requestSse(`${url}/repo-search/stream`, { method: 'POST', body: JSON.stringify({
+    operationId: randomUUID(), submissionId: randomUUID(), content: 'original task', repoRoot: process.cwd(), maxTurns: 3,
+    mockResponses: [{ toolCalls: [{ name: 'read', arguments: { path: 'package.json' } }] }, { content: 'answer after steering' }],
+    mockCommandResults: { [command]: { exitCode: 0, stdout: 'tool evidence', delayMs: 500 } },
+  }) });
+  await service.waitUntilHoldingTool();
+  assert.equal((await requestJson(`${url}/queue`, { method: 'POST', body: JSON.stringify({ id: randomUUID(), content: 'steer', images: [], options: { operationKind: 'repo-search' } }) })).statusCode, 200);
+  await original;
+  const messages = asObjectArray(asObject((await requestJson(url)).body.session).messages);
+  assert.deepEqual(messages.filter((row) => row.role === 'user').map((row) => row.content), ['original task', 'steer']);
+  const state = asObject((await requestJson(`${url}/queue`)).body.queue);
+  assert.equal(state.paused, false);
+  assert.equal(asObjectArray(state.messages).length, 0);
+});

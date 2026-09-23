@@ -9,6 +9,7 @@ import {
 } from '../presets.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import type { ChatSession } from '../state/chat-sessions.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../planner-protocol/repo-search.js';
 
 export type ChatPresetOperation = 'chat' | 'plan' | 'repo-search' | 'repo-agent';
 
@@ -57,17 +58,21 @@ export class ChatOperationPresetSelector {
   }
 }
 
+export type ChatRunToolSurface =
+  | { operation: 'repo-agent' }
+  | { operation: 'chat'; webEnabled: boolean }
+  | { operation: 'plan' | 'repo-search'; config: SiftConfig; preset: SiftPreset };
+
 /**
- * Tool surface a chat-launched plan/repo-search run offers. Web tools are always part of the
- * surface; the web tool policy reading `webToolsEnabled` decides whether they are actually offered.
+ * The tools each web chat launch path offers; the runs and the prompt preview all read it here.
+ * A plan/repo-search surface always lists the web tools; the web tool policy decides whether they are offered.
  */
-export function buildChatOperationAllowedTools(
-  config: SiftConfig,
-  preset: SiftPreset,
-): SiftPreset['allowedTools'] {
+export function resolveChatRunAllowedTools(surface: ChatRunToolSurface): string[] {
+  if (surface.operation === 'repo-agent') return [...INTERACTIVE_REPO_TOOL_NAMES];
+  if (surface.operation === 'chat') return surface.webEnabled ? [...WEB_RESEARCH_PRESET_TOOLS] : [];
   const allowedTools = resolvePresetAllowedTools(
-    preset,
-    normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
+    surface.preset,
+    normalizeOperationModeAllowedTools(surface.config.OperationModeAllowedTools),
   );
   return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
 }

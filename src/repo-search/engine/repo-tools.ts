@@ -19,6 +19,7 @@ import type {
   GrepToolArgs,
   LsToolArgs,
   RepoNativeToolCall,
+  RepoExecutableToolCall,
   RunToolArgs,
   WriteToolArgs,
 } from '../repo-tool-arguments.js';
@@ -27,7 +28,7 @@ import { ReadOnlyGitTool, buildReadOnlyGitCommand } from './read-only-git-tool.j
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
 import { isImagePath } from '../../llm-protocol/image-attachments.js';
-import { executeImageRead } from './image-read.js';
+import { executeImageRead, executeImageShow } from './image-read.js';
 import { isRepoRelativePathIgnored, resolveRepoScopedPath, toPosixPath } from './repo-paths.js';
 
 export const GREP_DEFAULT_LIMIT = 100;
@@ -271,6 +272,12 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
   }
   if (toolName === 'web_fetch') {
     return formatToolCommand('web_fetch', [['url', readString(args.url)]]);
+  }
+  if (toolName === 'ask_user') {
+    return formatToolCommand('ask_user', [['question', readString(args.question)]]);
+  }
+  if (toolName === 'show_image') {
+    return formatToolCommand('show_image', [['path', readString(args.path)]]);
   }
   return formatToolCommand(toolName, []);
 }
@@ -893,7 +900,7 @@ async function executeRun(args: RunToolArgs, context: RepoToolContext): Promise<
 // ---------------------------------------------------------------------------
 
 async function executeRepoToolUnguarded(
-  call: RepoNativeToolCall,
+  call: RepoExecutableToolCall,
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
   if (call.toolName === 'read') {
@@ -944,6 +951,17 @@ async function executeRepoToolUnguarded(
       abortSignal: context.abortSignal,
     }).execute(call.args);
   }
+  if (call.toolName === 'show_image') {
+    const requestedCommand = buildRepoToolRequestedCommand('show_image', call.args);
+    const resolvedPath = resolveRepoScopedPath(context.repoRoot, call.args.path);
+    if (!resolvedPath) {
+      return failure('show_image', requestedCommand, 'path must stay within the repository root');
+    }
+    if (isRepoRelativePathIgnored(resolvedPath.relativePath, context.ignorePolicy)) {
+      return failure('show_image', requestedCommand, 'path is ignored by runtime policy');
+    }
+    return executeImageShow({ requestedCommand, absolutePath: resolvedPath.absolutePath, displayPath: resolvedPath.relativePath, context });
+  }
   if (call.toolName === 'web_search') {
     const command = buildRepoToolRequestedCommand('web_search', call.args);
     try {
@@ -974,7 +992,7 @@ async function executeRepoToolUnguarded(
  * nothing above this function catches.
  */
 export async function executeRepoTool(
-  call: RepoNativeToolCall,
+  call: RepoExecutableToolCall,
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
   try {

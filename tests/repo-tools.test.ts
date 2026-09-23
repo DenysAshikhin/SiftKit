@@ -21,6 +21,8 @@ import {
 } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { makeContext, makeRepo, nativeCall } from './helpers/repo-tools-fixtures.js';
+import { makeRepoToolContext } from './helpers/repo-tool-context.js';
+import { rasterBuffer } from './helpers/image-fixtures.js';
 
 // ---------------------------------------------------------------------------
 // Synthetic command strings — these are the dedup / transcript / progress key
@@ -735,4 +737,27 @@ test('run includes timeoutMs in its requested command so differing timeouts are 
     buildRepoToolRequestedCommand('run', { command: 'echo hi', timeoutMs: 30_000 }),
     'run command="echo hi" timeoutMs=30000',
   );
+});
+
+test('show_image returns the image for display without a context path key', async () => {
+  const repoRoot = createManagedTempDir('siftkit-show-image-');
+  fs.writeFileSync(path.join(repoRoot, 'shot.png'), rasterBuffer('png', 64, 48));
+  const result = await executeRepoTool(nativeCall('show_image', { path: 'shot.png' }), makeRepoToolContext({ repoRoot, visionEnabled: false }));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolType, 'show_image');
+  assert.match(result.output, /Showed shot\.png \(64×48\) to the user\./u);
+  assert.ok(result.imageDataUrl?.startsWith('data:image/png;base64,'));
+  assert.equal(result.imagePathKey, undefined);
+});
+
+test('show_image refuses paths outside the repo, missing files, and non-images', async () => {
+  const repoRoot = createManagedTempDir('siftkit-show-image-bad-');
+  const context = makeRepoToolContext({ repoRoot, visionEnabled: false });
+  fs.writeFileSync(path.join(repoRoot, 'notes.txt'), 'x', 'utf8');
+  for (const [target, reason] of [['../outside.png', /within the repository root/u], ['missing.png', /not a readable file/u], ['notes.txt', /not a supported image/u]] as const) {
+    const result = await executeRepoTool(nativeCall('show_image', { path: target }), context);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.reason, reason);
+  }
 });

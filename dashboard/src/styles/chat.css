@@ -173,3 +173,7 @@
 .chat-pending-queue li { padding: 4px 0; overflow-wrap: anywhere; }
 .chat-pending-queue .mini-btn { margin-left: 8px; }
 .chat-pending-queue textarea { width: 100%; min-height: 80px; }
+
+.shown-images { display: grid; gap: 8px; justify-items: start; }
+.question-card .question-text { margin: 0; white-space: pre-wrap; }
+.question-card textarea { min-height: 3.2em; resize: vertical; }

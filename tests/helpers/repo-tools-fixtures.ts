@@ -5,13 +5,13 @@ import { buildIgnorePolicy } from '../../src/repo-search/command-safety.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
 import type { RepoToolContext } from '../../src/repo-search/engine/repo-tools.js';
 import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.js';
-import { RepoNativeToolCallSchema, type RepoNativeToolCall } from '../../src/repo-search/repo-tool-arguments.js';
+import { RepoExecutableToolCallSchema, type RepoExecutableToolCall } from '../../src/repo-search/repo-tool-arguments.js';
 import { makeMockWebTools } from './mock-web-tools.js';
 import { makeTestPreset } from './model-presets.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
-export function nativeCall(toolName: string, args: JsonObject): RepoNativeToolCall {
-  return RepoNativeToolCallSchema.parse({ toolName, args });
+export function nativeCall(toolName: string, args: JsonObject): RepoExecutableToolCall {
+  return RepoExecutableToolCallSchema.parse({ toolName, args });
 }
 
 export function makeRepo(): string {

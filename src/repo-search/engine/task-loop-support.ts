@@ -25,6 +25,7 @@ import type { ApprovalGate } from './approval-gate.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 import type { ChatMessageQueueDelivery } from './queue-delivery.js';
 import type { ChatRunEvidenceRecorder } from './chat-run-evidence.js';
+import type { QuestionGate } from './question-gate.js';
 import { InferenceThroughputSchema, type ThroughputAuditOperation } from '@siftkit/contracts';
 
 // ---------------------------------------------------------------------------
@@ -267,6 +268,8 @@ export type RunTaskLoopOptions = {
   queueDelivery?: ChatMessageQueueDelivery;
   /** Durable evidence for a run bound to a Web chat; absent for terminal and benchmark runs. */
   evidenceRecorder?: ChatRunEvidenceRecorder;
+  /** The Web run's question channel that ask_user parks on; absent wherever ask_user is not offered. */
+  questionGate?: QuestionGate;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig): boolean {

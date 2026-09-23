@@ -8,6 +8,7 @@ import { TaskCommandSchema } from '../src/repo-search/prompts.js';
 import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+import { QuestionGate } from '../src/repo-search/engine/question-gate.js';
 import { decayInvalidResponses, type LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -951,3 +952,23 @@ for (const [kind, failAt] of [['proposal', 'tool_proposed'], ['rejected result',
     }
   });
 }
+
+const ASK_USER_ACTION: AgentLoopToolAction = { kind: 'tool', callId: 'ask_call_1', toolName: 'ask_user', args: { question: 'Which database?', choices: ['PostgreSQL', 'SQLite'] } };
+
+test('ask_user parks on the question gate the run was given and returns the answer as the tool result', async () => {
+  const root = createManagedTempDir('siftkit-ask-user-gate-');
+  const controller = new AbortController();
+  const gate = new QuestionGate({ abortSignal: controller.signal, recordQuestionRequested: () => {}, recordQuestionResolved: () => {} });
+  const { processor, commands } = makeProcessor(root, ['ask_user'], 'repo-search', null, undefined, { questionGate: gate });
+  const running = processor.executeBatch(1, [ASK_USER_ACTION], '', 0, false);
+  while (gate.pendingQuestionId === null) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gate.answer(gate.pendingQuestionId, { choiceIndex: 1, note: '' }), 'answered');
+  await running;
+  assert.match(commands[0]?.output ?? '', /^The user chose: SQLite$/mu);
+});
+
+test('ask_user in a run without a question gate fails loudly instead of running as a repository tool', async () => {
+  const root = createManagedTempDir('siftkit-ask-user-no-gate-');
+  const { processor } = makeProcessor(root, ['ask_user']);
+  await assert.rejects(processor.executeBatch(1, [ASK_USER_ACTION], '', 0, false), /ask_user reached a run without a web chat question gate/u);
+});

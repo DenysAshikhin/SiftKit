@@ -10,6 +10,7 @@ import {
   type ChatMessageStreamRequest,
   type ChatRepoStreamRequest,
   type ChatRepoAgentStreamRequest,
+  type ChatQuestionReply,
 } from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.js';
 import {
@@ -18,6 +19,7 @@ import {
   deleteChatMessage,
   deleteChatMessageImage,
   deleteChatSession,
+  answerChatQuestion,
   decideRepoAgent,
   attachChatOperationStream,
   getActiveRepoAgentRun,
@@ -155,11 +157,13 @@ export function useChatSessions(deps: {
     setRuntimeStore((previous) => previous.ensureSession(session.id, session.planRepoRoot));
   }
 
+  /** A session without a runtime (never listed, or deleted) has nowhere to show its error. */
   function recordSessionError(sessionId: string, error: Error): void {
-    if (!sessionId) {
+    if (!runtimeStoreRef.current.has(sessionId)) {
+      deps.enqueueToast('error', error.message);
       return;
     }
-    setRuntimeStore((prev) => prev.apply({ kind: 'failure', sessionId, message: error.message }));
+    setRuntimeStore((prev) => prev.has(sessionId) ? prev.apply({ kind: 'failure', sessionId, message: error.message }) : prev);
   }
 
   useEffect(() => {
@@ -199,7 +203,10 @@ export function useChatSessions(deps: {
         const oldestRunning = [...active.operations]
           .sort((left, right) => left.startedAtUtc.localeCompare(right.startedAtUtc))[0];
         const firstId = oldestRunning?.sessionId || pickFirstSessionId(response.sessions);
-        if (firstId) setSelectedSessionId((current) => current || firstId);
+        // A URL can name a session deleted since; only a listed or already-loaded one stays selected.
+        setSelectedSessionId((current) => (
+          response.sessions.some((session) => session.id === current) || loadedSessionsRef.current.has(current) ? current : firstId
+        ));
       } catch (error) {
         if (!cancelled) {
           recordSessionError(selectedSessionIdRef.current, toError(error));
@@ -796,6 +803,17 @@ export function useChatSessions(deps: {
     await decideRepoAgent(session.id, decision);
   }
 
+  async function answerQuestion(reply: ChatQuestionReply): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const question = runtimeStore.get(session.id).journalSnapshot?.question;
+    if (!question?.actionable) return;
+    try {
+      await answerChatQuestion(session.id, { questionId: question.questionId, reply });
+    } catch (error) {
+      recordSessionError(session.id, toError(error));
+    }
+  }
+
   function shouldQueue(sessionId: string): boolean {
     const runtime = runtimeStore.get(sessionId);
     return isSessionBusy(runtime) || Boolean(runtime.queue?.messages.some((message) => message.state === 'pending'));
@@ -938,6 +956,7 @@ export function useChatSessions(deps: {
     sendRepoSearch,
     sendRepoAgent,
     submitRepoAgentDecision,
+    answerQuestion,
     setRepoAgentApprovalMode,
     stopOperation,
     forceQueue,

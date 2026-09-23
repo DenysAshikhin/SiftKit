@@ -260,3 +260,27 @@ test('a running server re-acquires its lease after it expires and closes the run
   assert.equal(response.statusCode, 200);
   assert.equal(asObjectArray(asObject(response.body.session).messages).filter(message => message.content === 'accepted before the lease expired').length, 1);
 });
+
+test('startup closes an orphaned question as interrupted with no reply', () => {
+  const root = createManagedTempDir('chat-orphan-question-');
+  const session = createTestChatSession(root);
+  const recorder = createTestChatRunRecorder(root, session, getDefaultConfigObject());
+  recorder.recordContextInitialized({ messages: [{ role: 'user', content: 'pick a db' }], contextRevision: 0, turnBoundary: 0 });
+  const call = { toolCallId: 'call-q', displayToolCallId: 'display-q', batchId: 'batch-q', turn: 1, indexInBatch: 0 };
+  recorder.recordToolProposed({ call, toolName: 'ask_user', arguments: { question: 'Which?' }, command: 'ask_user question="Which?"',
+    activityKind: 'ask', activitySubject: { kind: 'none' }, maxTurns: 2, promptTokenCount: 0, executionState: 'proposed' });
+  recorder.recordToolStarted({ call, startedAtUtc: new Date().toISOString() });
+  const now = Date.now();
+  const questionId = '4f9c1f9a-0000-4000-8000-0000000000aa';
+  recorder.recordQuestionRequested({ call, questionId, question: 'Which?', choices: ['a'],
+    requestedAtUtc: new Date(now).toISOString(), expiresAtUtc: new Date(now + 600_000).toISOString() });
+  const databasePath = join(root, 'runtime.sqlite');
+  const owner = ChatRuntimeOwner.acquire(getRuntimeDatabase(databasePath), 'replacement');
+  const store = new ChatJournalStore(getRuntimeDatabase(databasePath));
+  recoverInterruptedChatRuns(owner, 'server_restart');
+  assert.equal(store.readRun(recorder.operationId)?.terminalCause, 'server_restart');
+  const resolved = store.readAfter(recorder.operationId, 0, 500).find(envelope => envelope.event.kind === 'question_resolved')?.event;
+  assert.equal(resolved?.kind === 'question_resolved' ? resolved.questionId : null, questionId);
+  assert.equal(resolved?.kind === 'question_resolved' ? resolved.outcome : null, 'interrupted');
+  assert.equal(resolved?.kind === 'question_resolved' ? resolved.reply : 'missing', null);
+});

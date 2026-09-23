@@ -32,3 +32,10 @@ test('getToolActivity reuses validation-command recognition and leaves commands 
     activityKind: 'command', activitySubject: { kind: 'none' },
   });
 });
+
+test('web chat tools map to their own activity kinds', () => {
+  assert.deepEqual(getToolActivity({ toolName: 'show_image', args: { path: 'docs/a/shot.png' } }),
+    { activityKind: 'image', activitySubject: { kind: 'file', value: 'shot.png' } });
+  assert.deepEqual(getToolActivity({ toolName: 'ask_user', args: { question: 'Which?' } }),
+    { activityKind: 'ask', activitySubject: { kind: 'none' } });
+});

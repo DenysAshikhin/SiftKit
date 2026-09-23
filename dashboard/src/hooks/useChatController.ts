@@ -136,6 +136,7 @@ export function useChatController(deps: {
     onSendRepoSearch: chatSessionsHook.sendRepoSearch,
     onSendRepoAgent: chatSessionsHook.sendRepoAgent,
     onSubmitRepoAgentDecision: chatSessionsHook.submitRepoAgentDecision,
+    onAnswerQuestion: chatSessionsHook.answerQuestion,
     onChangeRepoAgentApprovalMode: chatSessionsHook.setRepoAgentApprovalMode,
     onStopOperation: chatSessionsHook.stopOperation,
     onSendMessage: chatSessionsHook.sendMessage,

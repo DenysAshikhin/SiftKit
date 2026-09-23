@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
-import { buildChatMessageId, DEFAULT_REASONING_EFFORT, isReplayableChatMessage, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
+import { buildChatMessageId, DEFAULT_REASONING_EFFORT, isReplayableChatMessage, resolveEffectiveImagePixelCeiling, sumContextImageTokens } from '@siftkit/contracts';
 import type { ChatTurnTokenRecord, ContextUsage, ReasoningEffort, ReplayableChatMessage } from '@siftkit/contracts';
 import {
   getActiveModelPreset,
@@ -58,7 +58,7 @@ function getMessageContextTokenEstimate(message: PersistedChatTranscriptMessage)
   return message.inputTokensEstimate
     + message.outputTokensEstimate
     + getMessageThinkingTokenEstimate(message)
-    + sumImageTokens(message.imageMeta);
+    + sumContextImageTokens(message);
 }
 
 function getMessageThinkingTokenEstimate(message: PersistedChatTranscriptMessage): number {
@@ -206,7 +206,7 @@ class ContextUsageBuilder {
     const messageTokens = messages.reduce((sum, message) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum, message) => sum + getMessageThinkingTokenEstimate(message), 0);
     const toolUsedTokens = messages.reduce((sum, message) => sum + getMessageToolTokenEstimate(message), 0);
-    const imageUsedTokens = messages.reduce((sum, message) => sum + sumImageTokens(message.imageMeta), 0);
+    const imageUsedTokens = messages.reduce((sum, message) => sum + sumContextImageTokens(message), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
     const estimatedToolTokens = messages.reduce((sum, message) => sum + getMessageToolTokenFallbackEstimate(message), 0);

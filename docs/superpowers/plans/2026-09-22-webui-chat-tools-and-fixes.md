@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status (2026-09-23):** Tasks 1–4, 6–17 implemented with tests. Commit steps skipped (user commits). Browser checks (Task 1 step 5 reload, Tasks 5, 7 step 5, 17 step 5) not run: the Chrome extension was unavailable. Deviations: Part C also covers repo-agent (repo-search already persisted its root); trailing flagged rows join the last compaction fold, so the existing out-of-order test stays green; `useExpired` skips timers past the 32-bit setTimeout limit.
+
 **Goal:** Add two web-chat-only LLM tools (`ask_user` question card, `show_image` inline images) and fix six chat defects: stable mode hot-reloading the page, stacked compactions, the queue never resuming, page reloads crashing, the repo directory being forgotten, and no manual compaction button.
 
 **Architecture:** Each part is independent and ships green on its own. Parts A–F are small, local fixes whose root causes were confirmed during planning (evidence is noted per part). Parts G–H add tools to the shared engine (`src/repo-search/engine`). The tools are offered only when a run has a durable chat recorder (`request.evidenceRecorder`), which means web runs only; the CLI never sees them. `ask_user` copies the durable approval pipeline: journal events, then a snapshot field, then a projection record, then a dashboard card. `show_image` reuses image admission and tool-result images, but the image is never inserted into the model transcript.

@@ -23,6 +23,9 @@ import {
   ActiveChatRepoAgentResponseSchema,
   ChatRepoAgentApprovalModeResponseSchema,
   ChatRepoAgentDecideResponseSchema,
+  ChatQuestionAnswerResponseSchema,
+  type ChatQuestionAnswerRequest,
+  type ChatQuestionAnswerResponse,
   AssistantMemoryHistoryEntryDtoSchema,
   AssistantValidationCandidateDtoSchema,
   AssistantMutationResponseSchema,
@@ -693,6 +696,14 @@ export function streamRepoAgentMessage(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-agent/stream`,
     payload,
     signal,
+  );
+}
+
+export function answerChatQuestion(sessionId: string, request: ChatQuestionAnswerRequest): Promise<ChatQuestionAnswerResponse> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/question`,
+    ChatQuestionAnswerResponseSchema,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },
   );
 }
 

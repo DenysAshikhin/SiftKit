@@ -13,6 +13,7 @@ import {
   type ChatRecoveredTool,
   type ChatSnapshotTokenTurn,
   type DurableChatApproval,
+  type DurableChatQuestion,
 } from '@siftkit/contracts';
 import { parseJsonValueText } from '../../../src/lib/json.js';
 
@@ -32,6 +33,7 @@ type Staged = {
   warnings: string[];
   issues: ChatOperationSnapshot['issues'];
   approval: DurableChatApproval | null;
+  question: DurableChatQuestion | null;
   queue: ChatMessageQueueState | null;
 };
 
@@ -137,6 +139,7 @@ export class ChatOperationProjection {
       warnings: [...(base?.snapshot.warnings ?? [])],
       issues: [...(base?.snapshot.issues ?? [])],
       approval: base?.snapshot.approval ?? null,
+      question: base?.snapshot.question ?? null,
       queue: null,
     };
   }
@@ -189,6 +192,9 @@ export class ChatOperationProjection {
       case 'approval':
         staged.approval = record.approval;
         return;
+      case 'question':
+        staged.question = record.question;
+        return;
       case 'queue':
         if (record.queue.sessionId !== this.sessionId) fail('queue session mismatch');
         staged.queue = record.queue;
@@ -209,7 +215,7 @@ export class ChatOperationProjection {
     const snapshot: ChatOperationSnapshot = {
       ...begin.state, sessionId: begin.sessionId, operationId: begin.operationId,
       cursor: { operationId: begin.cursor.operationId, sequence: begin.cursor.sequence },
-      messages: staged.messages, tools, approval: staged.approval,
+      messages: staged.messages, tools, approval: staged.approval, question: staged.question,
       tokenTurns: [...staged.tokenTurns.values()].sort((a, b) => a.turn - b.turn), warnings: staged.warnings, issues: staged.issues,
     };
     this.committed = { snapshot, cursor: begin.cursor };

@@ -99,6 +99,12 @@ function activeLabel(group: ToolActivityGroup): string {
     }
     case 'command':
       return 'Running command…';
+    case 'ask':
+      return 'Waiting for your answer…';
+    case 'image': {
+      const files = subjectValues(group, 'file');
+      return files.length === 1 ? `Showing image ${files[0]}…` : 'Showing images…';
+    }
   }
 }
 
@@ -127,6 +133,12 @@ function completedLabel(group: ToolActivityGroup): string {
     }
     case 'command':
       return 'Ran command';
+    case 'ask':
+      return 'Asked you a question';
+    case 'image': {
+      const files = subjectValues(group, 'file');
+      return files.length === 1 ? `Showed image ${files[0]}` : 'Showed images';
+    }
   }
 }
 

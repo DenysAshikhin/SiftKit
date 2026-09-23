@@ -16,3 +16,9 @@ export const INTERACTIVE_REPO_TOOL_NAMES = [
   'edit',
   'run',
 ] as const;
+
+/** Tools only a web chat can serve: they need a person looking at the conversation. */
+export const WEB_CHAT_TOOL_NAMES = [
+  'ask_user',
+  'show_image',
+] as const;

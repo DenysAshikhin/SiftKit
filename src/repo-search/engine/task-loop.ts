@@ -328,6 +328,7 @@ export class TaskLoop {
       allowedPlannerToolNames: this.allowedPlannerToolNames,
       approvalGate: this.buildApprovalRequester(options),
       evidenceRecorder: options.evidenceRecorder ?? null,
+      questionGate: options.questionGate ?? null,
       runtimeProfile: options.runtimeProfile,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,

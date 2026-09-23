@@ -9,7 +9,9 @@ import {
   ChatRecoveryReportSchema,
   ChatRunEffectiveSettingsSchema,
   ChatToolExecutionStateSchema,
+  ChatQuestionReplySchema,
   DurableChatApprovalSchema,
+  DurableChatQuestionSchema,
   toolCallStatusForExecutionState,
 } from '@siftkit/contracts';
 
@@ -147,12 +149,25 @@ test('an operation snapshot carries its cursor and derived tool states', () => {
       toolCallStatus: toolCallStatusForExecutionState('uncertain'),
     }],
     approval: null,
+    question: null,
     issues: [],
     tokenTurns: [],
     streamedCharsSinceBase: 0,
+    compactedEarlierHistory: false,
     warnings: [],
   });
   assert.equal(snapshot.cursor.sequence, 412);
   assert.equal(snapshot.tools[0]?.toolCallStatus, 'stopped');
   assert.throws(() => ChatOperationSnapshotSchema.parse({ ...snapshot, replayTruncated: false }));
+});
+
+test('question replies need a choice or a note, and choices are capped at three', () => {
+  assert.equal(ChatQuestionReplySchema.safeParse({ choiceIndex: null, note: '  ' }).success, false);
+  assert.equal(ChatQuestionReplySchema.safeParse({ choiceIndex: 0, note: '' }).success, true);
+  assert.equal(ChatQuestionReplySchema.safeParse({ choiceIndex: null, note: 'my own answer' }).success, true);
+  assert.equal(ChatQuestionReplySchema.safeParse({ choiceIndex: 3, note: '' }).success, false);
+  assert.equal(DurableChatQuestionSchema.safeParse({
+    questionId: '4f9c1f9a-0000-4000-8000-00000000000a', toolCallId: 'call', question: 'Which?', choices: ['a', 'b', 'c', 'd'],
+    requestedAtUtc: '2026-09-22T00:00:00.000Z', expiresAtUtc: '2026-09-22T00:10:00.000Z', outcome: null, decidedAtUtc: null, actionable: true,
+  }).success, false);
 });

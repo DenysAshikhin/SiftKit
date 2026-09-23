@@ -13,6 +13,7 @@ import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ApprovalGate } from './engine/approval-gate.js';
 import type { ChatMessageQueueDelivery } from './engine/queue-delivery.js';
 import type { ChatRunEvidenceRecorder } from './engine/chat-run-evidence.js';
+import type { QuestionGate } from './engine/question-gate.js';
 import type { ChatMessage } from './planner-chat-message.js';
 import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
@@ -235,6 +236,8 @@ export type RepoSearchExecutionRequest = {
   queueDelivery?: ChatMessageQueueDelivery;
   /** Durable chat evidence writer; a Web operation supplies one, a CLI run does not. */
   evidenceRecorder?: ChatRunEvidenceRecorder;
+  /** The Web run's question channel; its presence is what offers the web chat tools. */
+  questionGate?: QuestionGate;
   abortSignal?: AbortSignal;
 };
 

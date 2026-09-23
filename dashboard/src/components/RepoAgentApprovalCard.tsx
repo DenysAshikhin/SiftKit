@@ -3,6 +3,7 @@ import React from 'react';
 import type { DurableChatApproval } from '@siftkit/contracts';
 import type { RepoAgentDecision } from '../api';
 import { formatDate } from '../lib/format';
+import { useExpired } from '../hooks/useExpired';
 
 export function RepoAgentApprovalCard({ approval, onDecide }: {
   approval: DurableChatApproval;
@@ -10,18 +11,10 @@ export function RepoAgentApprovalCard({ approval, onDecide }: {
 }) {
   const [rejecting, setRejecting] = React.useState(false);
   const [reason, setReason] = React.useState('');
-  const expiresAt = Date.parse(approval.expiresAtUtc);
-  const [expired, setExpired] = React.useState(() => Date.now() >= expiresAt);
-  React.useEffect(() => {
-    const remaining = expiresAt - Date.now();
-    setExpired(remaining <= 0);
-    if (remaining <= 0) return;
-    const timer = setTimeout(() => setExpired(true), remaining);
-    return () => clearTimeout(timer);
-  }, [expiresAt]);
+  const expired = useExpired(approval.expiresAtUtc);
   const disabled = expired || !approval.actionable || approval.outcome !== null;
   function decide(decision: RepoAgentDecision): void {
-    if (!disabled && Date.now() < expiresAt) onDecide(decision);
+    if (!disabled && Date.now() < Date.parse(approval.expiresAtUtc)) onDecide(decision);
   }
   return (
     <section className="approval-card" aria-label="Repo-agent approval required">
