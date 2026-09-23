@@ -414,7 +414,6 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -503,7 +502,6 @@ test('planner token accounting treats tool-step completion tokens as thinking an
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -608,7 +606,6 @@ test('summary below planner threshold disables thinking for fully ingested one-s
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -647,7 +644,6 @@ test('summary above planner threshold respects runtime reasoning for planner req
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -748,7 +744,6 @@ test('oversized transition extraction uses native planner tools before returning
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -812,7 +807,6 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -846,7 +840,6 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');

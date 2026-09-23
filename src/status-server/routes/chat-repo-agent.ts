@@ -8,9 +8,9 @@ ApprovalModeSchema,
 ChatRepoAgentApprovalModeRequestSchema,
 ChatRepoAgentApprovalModeResponseSchema,
 ChatRepoAgentDecideResponseSchema,
+type RepoAgentApproval,
 type RepoAgentDecision,
 } from '@siftkit/contracts';
-import type { SiftConfig } from '../../config/types.js';
 import { toError } from '../../lib/errors.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { z } from '../../lib/zod.js';
@@ -18,7 +18,6 @@ import {
 MockPlannerResponsesSchema,
 } from '../../planner-protocol/mock-response.js';
 import { RepoAgentDecisionSchema } from '../../repo-agent/api-schemas.js';
-import type { RepoAgentApproval } from '../../repo-agent/run-schemas.js';
 import {
 RepoSearchMockCommandResultSchema,
 } from '../../repo-search/types.js';
@@ -35,7 +34,6 @@ import { ChatStreamProgressWriter } from '../chat-stream-progress-writer.js';
 import { auditCompletedChatSessionThroughput } from '../chat-turn-telemetry.js';
 import {
 buildRepoAgentResultMarkdown,
-resolveChatSessionConfig
 } from '../chat.js';
 import { readConfig } from '../config-store.js';
 import type { ChatMessage as PlannerChatMessage } from '../../repo-search/planner-chat-message.js';
@@ -55,13 +53,14 @@ import type { ChatRunSubmission, ChatOperationOutcome } from './chat-session-ope
 import {
 ChatRepoRootOperationEndpoint,
 parseChatRepoOperationRequest,
+previewChatOperationTarget,
 requireChatRunRecorder,
 requireQuestionGate,
 type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
 import { requireChatOperationBroadcast } from './chat.js';
-import { startRepoAgentRun } from './repo-agent.js';
+import { startRepoWorkerRun } from './repo-agent.js';
 import { WEB_UI_MODEL_QUEUE_TIMEOUT } from '../server-ops.js';
 
 const ChatRepoAgentRequestExtrasSchema = z.strictObject({
@@ -76,17 +75,15 @@ export class StreamChatRepoAgentEndpoint extends ChatRepoRootOperationEndpoint<C
   protected readonly operationKind = 'repo-agent' as const;
   protected readonly clientOwnedOperation = true;
 
-  protected describeRun(
-    session: ChatSession,
-    value: ChatRepoAgentRequest,
-    config: SiftConfig,
-  ): ChatRunSubmission {
+  protected describeRun(ctx: ServerContext, session: ChatSession, value: ChatRepoAgentRequest): ChatRunSubmission {
     // The session's own repo-agent preset supplies the default turn limit; other kinds run built-in.
-    const preset = new ChatOperationPresetSelector(config.Presets).select(session, 'repo-agent').preset;
+    const preset = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, 'repo-agent').preset;
+    const target = previewChatOperationTarget(ctx, preset.id);
     return {
+      target,
       settings: buildChatRunSettings({
         session,
-        config,
+        target,
         operationKind: 'repo-agent',
         presetId: preset.id,
         repoRoot: value.repoRoot,
@@ -139,14 +136,12 @@ export class StreamChatRepoAgentEndpoint extends ChatRepoRootOperationEndpoint<C
     if (req && res && rejectNestedAgentSelfCall(ctx, req, res, 'repo-search')) {
       return { failure: 'Nested repo-agent execution is not allowed.' };
     }
-    const config = readConfig(ctx.configPath);
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       if (!res) throw new Error('Session not found.');
       sendJson(res, 404, { error: 'Session not found.' });
       return { failure: 'Session not found.' };
     }
-    const effectiveConfig = resolveChatSessionConfig(config, activeSession);
     // Replay enforces the full-result contract itself; a row it refuses is reported here, before
     // any engine dispatch, as the actionable conflict it is.
     let history;
@@ -173,7 +168,6 @@ export class StreamChatRepoAgentEndpoint extends ChatRepoRootOperationEndpoint<C
         mockResponses: request.value.mockResponses,
         mockCommandResults: request.value.mockCommandResults,
         history,
-        effectiveConfig,
         stream,
         ...(sse ? { connection: sse } : {}),
         queueStart: request,
@@ -202,7 +196,6 @@ export async function executeChatRepoAgentOperation(options: {
   mockResponses?: ChatRepoAgentRequest['mockResponses'];
   mockCommandResults?: ChatRepoAgentRequest['mockCommandResults'];
   history: PlannerChatMessage[];
-  effectiveConfig: SiftConfig;
   queueOwner: ServerContext['chatMessageQueue'];
   stream: ChatOperationBroadcast;
   connection?: SseResponseWriter;
@@ -212,7 +205,9 @@ export async function executeChatRepoAgentOperation(options: {
   const engineRequestId = options.lease?.operationId ?? randomUUID();
   const settings = options.recorder.settings;
   const progressWriter = new ChatStreamProgressWriter(options.stream, null, true, options.recorder);
-  const started = startRepoAgentRun(options.ctx, {
+  const started = startRepoWorkerRun(options.ctx, {
+    taskKind: 'repo-agent',
+    repositoryAccess: 'exclusive',
     evidenceRecorder: options.recorder,
     questionGate: options.questionGate,
     allowedTools: resolveChatRunAllowedTools({ operation: 'repo-agent' }),
@@ -227,12 +222,9 @@ export async function executeChatRepoAgentOperation(options: {
     maxTurns: settings.maxTurns ?? undefined,
     history: options.history,
     webToolsEnabled: settings.webSearchEnabled,
-    config: options.effectiveConfig,
-    modelPresetId: options.session.modelPresetId,
-    modelPreset: options.session.modelPreset,
     mockResponses: options.mockResponses,
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.mockCommandResults),
-    queue: { owner: options.queueOwner, sessionId: options.sessionId, modelPreset: options.session.modelPreset, forceId: options.queueStart?.queueIntentId },
+    queue: { owner: options.queueOwner, sessionId: options.sessionId, forceId: options.queueStart?.queueIntentId },
   });
   if (!options.lease || !options.ctx.chatSessionOperations.registerAbort(options.lease, () => started.session.abort())) {
     started.session.abort();
@@ -272,14 +264,14 @@ export async function executeChatRepoAgentOperation(options: {
         operationId: executionResult.scorecard.runId,
         requestId: executionResult.requestId,
         model: executionResult.scorecard.model,
-        presetId: options.session.modelPresetId,
+        presetId: options.recorder.admittedModel.id,
       }) : { content: text })
       : options.recorder.stop(cause, cause === 'user_stop' ? null : text);
     if (result.status === 'completed' && executionResult) {
       auditCompletedChatSessionThroughput(updatedSession, {
         requestId: executionResult.requestId,
         model: executionResult.scorecard.model,
-        presetId: options.session.modelPresetId,
+        presetId: options.recorder.admittedModel.id,
       });
     }
     return { updatedSession, failure: cause === 'completed' || cause === 'user_stop' ? null : text };

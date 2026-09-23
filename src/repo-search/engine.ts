@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostEngineRuntimeSettings,
-  applyModelOverrideToConfig,
   getConfiguredEngineBaseUrl,
   getConfiguredEngineNumCtx,
   getConfiguredModel,
@@ -144,7 +143,6 @@ export async function runRepoSearch(options: {
   systemContext: PresetSystemContext;
   taskKind: RepoSearchTaskKind;
   config?: SiftConfig;
-  model?: string;
   baseUrl?: string;
   plannerToolDefinitions: readonly PlannerToolDefinition[];
   maxTurns?: number;
@@ -186,10 +184,7 @@ export async function runRepoSearch(options: {
   });
   // In pass-through mode the prompt-budget math must use the host SiftKit's
   // real context window, not this client's (possibly stale) local NumCtx.
-  const config = applyModelOverrideToConfig(
-    await applyHostEngineRuntimeSettings(options.config || await loadConfig({ ensure: true })),
-    options.model,
-  );
+  const config = await applyHostEngineRuntimeSettings(options.config || await loadConfig({ ensure: true }));
   configSpan?.end();
   if (options.plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
@@ -202,7 +197,6 @@ export async function runRepoSearch(options: {
   options.logger?.write({
     kind: 'run_start',
     repoRoot,
-    requestedModel: options.model || null,
     configuredModel: model,
     baseUrl,
     operationType: RunOperationTypeSchema.parse(options.taskKind),

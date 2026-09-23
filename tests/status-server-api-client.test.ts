@@ -21,12 +21,29 @@ const streamedError = {
     cause: { name: 'Error', message: 'socket reset' },
   },
   modelRequests: {
+    resident: { modelPresetId: 'model-a', residencyFingerprint: 'a'.repeat(64) },
     activeCount: 0,
     activeRequests: [],
     queueLength: 2,
     queuedRequests: [
-      { kind: 'summary', enqueuedAtUtc: '2026-07-22T12:00:00.000Z', waitMs: 25, hasDeadline: true },
-      { kind: 'repo_search', enqueuedAtUtc: '2026-07-22T12:00:01.000Z', waitMs: 10, hasDeadline: true },
+      {
+        kind: 'summary',
+        enqueuedAtUtc: '2026-07-22T12:00:00.000Z',
+        waitMs: 25,
+        hasDeadline: true,
+        requested: { presetId: null, model: null },
+        resolved: null,
+        waitingReason: 'capacity',
+      },
+      {
+        kind: 'repo_search',
+        enqueuedAtUtc: '2026-07-22T12:00:01.000Z',
+        waitMs: 10,
+        hasDeadline: true,
+        requested: { presetId: 'repo-search', model: null },
+        resolved: { modelPresetId: 'model-b', residencyFingerprint: 'b'.repeat(64) },
+        waitingReason: 'different_model',
+      },
     ],
   },
 };
@@ -88,6 +105,7 @@ test('StatusServerApiClient uses its injected HttpClient and preserves streamed 
       assert.equal(error.diagnosticId, 'err_test');
       assert.equal(error.diagnostic.cause?.message, 'socket reset');
       assert.equal(error.modelRequests?.queueLength, 2);
+      assert.deepEqual(error.modelRequests?.queuedRequests.map((entry) => entry.waitingReason), ['capacity', 'different_model']);
       return true;
     },
   );

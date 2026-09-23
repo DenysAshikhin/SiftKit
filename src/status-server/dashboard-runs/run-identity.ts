@@ -48,14 +48,12 @@ export function buildRunIdentity(options: {
   operationType: RunOperationType;
   operationPreset: SiftPreset | null;
   modelPreset: ModelRuntimePreset | null;
-  /** The id a session references; defaults to the snapshot's own id. */
-  modelPresetId?: string;
 }): RunIdentity {
   return {
     operationType: options.operationType,
     operationPresetId: options.operationPreset?.id ?? null,
     operationPresetJson: options.operationPreset ? serializeOperationPresetSnapshot(options.operationPreset) : null,
-    modelPresetId: options.modelPresetId ?? options.modelPreset?.id ?? null,
+    modelPresetId: options.modelPreset?.id ?? null,
     modelPresetJson: options.modelPreset ? serializeModelPresetSnapshot(options.modelPreset) : null,
   };
 }

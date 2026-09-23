@@ -234,6 +234,12 @@ export function useSettingsController(deps: {
     setSummaryDefault(presetId) {
       applySettingsAction({ type: 'set-summary-default-preset', presetId });
     },
+    setModelPreset(presetId, value) {
+      applySettingsAction({ type: 'set-preset-model', presetId, value });
+    },
+    setMaxSubagents(presetId, value) {
+      applySettingsAction({ type: 'set-orchestrator-max-subagents', presetId, value });
+    },
     addPreset() {
       if (!dashboardConfig) {
         return;

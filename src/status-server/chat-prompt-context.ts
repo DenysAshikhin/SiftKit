@@ -5,7 +5,7 @@ import { PresetCatalog } from '../preset-catalog.js';
 import { resolveRunSystemPrompt, type RunSystemPromptSurface } from '../repo-search/run-system-prompt.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import { resolveChatRunAllowedTools } from './chat-operation-preset.js';
-import { buildChatSystemContent, resolveChatSessionConfig } from './chat.js';
+import { buildChatSystemContent, resolveChatPreviewConfig } from './chat.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 
 export type ChatPromptContext = {
@@ -39,9 +39,8 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession)
     throw new Error('Chat session presetId is required.');
   }
   const preset = presets.requireById(presetId);
-  // The run reads the session's model preset overlay, so the preview must resolve against the
-  // same effective config rather than the raw one.
-  const effectiveConfig = resolveChatSessionConfig(config, session);
+  // Resolved like the next run's admission would be, so the preview shows the model it would use.
+  const effectiveConfig = resolveChatPreviewConfig(config, session);
   // Every path goes through the resolver the engine itself calls, so this panel cannot drift from the run.
   const { systemPrompt, toolDefinitions } = resolveRunSystemPrompt({
     ...resolvePromptSurface(effectiveConfig, session, preset),

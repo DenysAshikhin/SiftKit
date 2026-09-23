@@ -17,7 +17,6 @@ test('runCommand saves a raw log and respects no-summarize mode when the externa
         ArgumentList: ['-e', "console.log('stdout line'); console.error('stderr line');"],
         Question: 'what failed?',
         Provider: 'mock',
-        Model: 'mock-model',
         NoSummarize: true,
       });
 
@@ -42,7 +41,6 @@ test('runCommand classifies missing executables as command failures with raw rev
         ArgumentList: [],
         Question: 'Summarize the main result and any actionable failures.',
         Provider: 'mock',
-        Model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);

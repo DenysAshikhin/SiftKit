@@ -15,6 +15,11 @@ export class AppliedModelPresetState {
     return this.preset;
   }
 
+  /** Exact profile match, sampler and label fields included; residency compares loading identity instead. */
+  isApplied(preset: ModelRuntimePreset): boolean {
+    return JSON.stringify(preset) === JSON.stringify(this.preset);
+  }
+
   getParallelSlots(): number {
     return this.preset.ParallelSlots;
   }

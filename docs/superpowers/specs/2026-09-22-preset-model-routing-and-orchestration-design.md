@@ -1,6 +1,6 @@
 # Preset model routing, resident-model scheduling, and orchestration
 
-Status: implementation authorized on 2026-09-22 through defined `repo-agent` tasks. Based on the inspected working tree and the user's subsequent drift-review/correction requirements.
+Status: implemented on 2026-09-23 and uncommitted. Sections A–C are delivered. For section C deviations, see the [orchestrator plan's delivery status](../plans/2026-09-22-orchestrator-preset.md#delivery-status-2026-09-23): dedicated Web routes instead of the chat journal, `/preset/run` rejecting orchestrator presets, and in-repository artifacts.
 
 ## Confirmed requirements
 
@@ -150,7 +150,7 @@ Treat both the child terminal status and independent verification as authoritati
 
 On first implementation failure, retain its diff and evidence, update the instruction with the exact observed failure and remaining acceptance criteria, and start implementation attempt 2 against the current checkout. Include any confirmed drift from the failed attempt in those updated instructions. The second instruction explicitly preserves successful partial work and forbids restarting unrelated tasks. On a second implementation failure, stop scheduling, settle/cancel owned active children, preserve changes and evidence, and report the failed task. No third implementation attempt, hidden parent implementation attempt, or automatic plan rewrite that resets the budget. The separate drift-fix budget applies after functional verification succeeds; it cannot disguise another attempt at a failed implementation.
 
-Approval pauses resume the same attempt. Record whether each approval belongs to a parent inference phase or a child, with its exact execution and approval IDs. A denial must not be evaded by redispatching the same forbidden action. Abort cancels queued model requests and active children and waits for their owned processes to settle before cleanup.
+A child's approval request is decided by the parent model, not by the child's model (user requirement). The parked child releases its model lease. The parent runs a finite approval phase through normal admission, loading its model if needed, told that it is deciding a subagent's permission request. It releases the lease after deciding. The child re-queues for its own model, reloading it if needed, and resumes. Under `interactive` approval mode the request goes to the user instead. Approval pauses resume the same attempt. Record whether each approval belongs to a parent inference phase or a child, with its exact execution and approval IDs. A denial must not be evaded by redispatching the same forbidden action. Abort cancels queued model requests and active children and waits for their owned processes to settle before cleanup.
 
 ### Critical drift review after code changes
 

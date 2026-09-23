@@ -35,6 +35,7 @@ import {
 } from './streamed-operation-endpoint.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import { MockPlannerResponsesSchema } from '../../planner-protocol/mock-response.js';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
 
 type ParsedRepoSearchRoute = {
   parsedBody: JsonObject;
@@ -60,6 +61,10 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     markRepoSearchAdmissionFailed(parsed.admission, errorMessage);
   }
 
+  protected modelIntent(parsed: ParsedRepoSearchRoute): ModelRequestIntent {
+    return { presetId: 'repo-search', model: parsed.repoSearchRequest.model };
+  }
+
   protected lockOwnerRunId(parsed: ParsedRepoSearchRoute): string | null {
     return parsed.admission.requestId;
   }
@@ -74,7 +79,6 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
       await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
     }
-    const config = readConfig(ctx.configPath);
     const interactive = parsedBody.interactive === true;
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
@@ -105,9 +109,8 @@ export class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         additionalPromptPrefix: reader.optionalString('promptPrefix'),
         repoRoot: admission.repoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config,
+        config: stream.model.config,
         allowedTools,
-        model: reader.optionalString('model'),
         maxTurns: reader.number('maxTurns') ?? undefined,
         logFile: reader.optionalString('logFile'),
         availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,

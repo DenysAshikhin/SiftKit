@@ -31,7 +31,8 @@ export class RepoSearchRuntimeProfile {
   }
 
   get loopKind(): RepoSearchLoopKind {
-    return this.taskKind === 'plan' ? 'repo-search' : this.taskKind;
+    if (this.taskKind === 'plan') return 'repo-search';
+    return this.taskKind === 'orchestrator' ? 'repo-agent' : this.taskKind;
   }
 
   /**

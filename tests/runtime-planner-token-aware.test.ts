@@ -88,7 +88,6 @@ test('oversized inference summaries stay on planner status path without leaf chu
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -586,7 +585,6 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
       const nonPlannerRequest = server.state.chatRequests[server.state.chatRequests.length - 1];
       assert.doesNotMatch(JSON.stringify(nonPlannerRequest?.response_format || {}), /tool_name/u);

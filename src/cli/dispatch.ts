@@ -18,6 +18,8 @@ import { runPresetList } from './run-preset-list.js';
 import { runPresetCli } from './run-preset.js';
 import { runRepoSearchCli } from './run-repo-search.js';
 import { runRepoAgentCli } from './run-repo-agent.js';
+import { parseOrchestratorInvocation } from './orchestrator-args.js';
+import { runOrchestratorCli } from './run-orchestrator.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
 import { assertStdinIsTty } from './tty.js';
@@ -47,8 +49,9 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   const commandName = invocation.command.name;
   const commandArgs = invocation.args;
   const nestedAgentRunId = readNestedAgentRunId();
-  const repoAgentControl = commandName === 'repo-agent'
-    && (commandArgs[0] === 'decide' || commandArgs[0] === 'status');
+  // Control verbs only read or answer an existing run; they never wait on the model lock.
+  const repoAgentControl = (commandName === 'repo-agent' && (commandArgs[0] === 'decide' || commandArgs[0] === 'status'))
+    || (commandName === 'orchestrator' && ['decide', 'status', 'abort', 'attach'].includes(commandArgs[0] ?? ''));
   if (
     nestedAgentRunId
     && invocation.command.modelLock
@@ -158,6 +161,8 @@ export async function runCli(options: CliRunOptions): Promise<number> {
           stderr,
           stdin: options.stdin,
         });
+      case 'orchestrator':
+        return await runOrchestratorCli({ invocation: parseOrchestratorInvocation(commandArgs, process.cwd()), stdout, stderr });
       case 'find-files':
         return await runFindFiles({ args: commandArgs, stdout });
       case 'test':

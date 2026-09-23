@@ -32,7 +32,6 @@ buildPlanMarkdownFromRepoSearch,
 buildPlanRequestPrompt,
 buildRepoSearchMarkdown,
 getChatRunFailure,
-resolveChatSessionConfig
 } from './chat.js';
 import type { StatusEngineService } from './engine-service.js';
 import {
@@ -119,9 +118,7 @@ export class ChatRepoOperationRunner {
     const progress = new ChatRepoOperationProgressTracker(request.progressWriter);
     const selected = new ChatOperationPresetSelector(request.config.Presets)
       .select(request.session, operation);
-    const effectiveConfig = resolveChatSessionConfig(request.config, selected.session);
-    const activePreset = getActiveModelPreset(effectiveConfig);
-    const admitted = admitImagesForPreset(activePreset, request.images);
+    const admitted = admitImagesForPreset(getActiveModelPreset(request.config), request.images);
     const admittedImages = admitted.map((image) => image.dataUrl);
     saveChatSessionMetadata(request.runtimeRoot, selected.session);
     const settings = request.recorder.settings;
@@ -131,14 +128,12 @@ export class ChatRepoOperationRunner {
         questionGate: request.questionGate,
         presetId: selected.preset.id,
         taskKind: operation,
-        modelPresetId: selected.session.modelPresetId,
-        modelPreset: selected.session.modelPreset,
         prompt: this.buildPrompt(operation, request.content),
         history: request.recorder.readHistory(),
         initialUserImages: admittedImages,
         repoRoot: request.repoRoot,
         statusBackendUrl: request.statusBackendUrl,
-        config: effectiveConfig,
+        config: request.config,
         allowedTools: resolveChatRunAllowedTools({ operation, config: request.config, preset: selected.preset }),
         webToolsEnabled: settings.webSearchEnabled,
         maxTurns: settings.maxTurns ?? undefined,
@@ -166,7 +161,7 @@ export class ChatRepoOperationRunner {
         operationId: engineResult.scorecard.runId,
         requestId: engineResult.requestId,
         model: engineResult.scorecard.model,
-        presetId: selected.session.modelPresetId,
+        presetId: request.recorder.admittedModel.id,
       }),
       requestDurationMs: Date.now() - startedAt,
       ...progress.snapshot(),
@@ -175,7 +170,7 @@ export class ChatRepoOperationRunner {
     auditCompletedChatSessionThroughput(updatedSession, {
       requestId: engineResult.requestId,
       model: engineResult.scorecard.model,
-      presetId: selected.session.modelPresetId,
+      presetId: request.recorder.admittedModel.id,
     });
     return {
       updatedSession,

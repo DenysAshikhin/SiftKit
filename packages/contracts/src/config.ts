@@ -240,7 +240,7 @@ export const AssistantConfigSchema = z.object({
 }).strict();
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 
-export const PresetKindSchema = z.enum(['summary', 'chat', 'plan', 'repo-search', 'repo-agent']);
+export const PresetKindSchema = z.enum(['summary', 'chat', 'plan', 'repo-search', 'repo-agent', 'orchestrator']);
 export type PresetKind = z.infer<typeof PresetKindSchema>;
 export const PresetOperationModeSchema = z.enum(['summary', 'read-only', 'full']);
 export type PresetOperationMode = z.infer<typeof PresetOperationModeSchema>;
@@ -270,6 +270,10 @@ READ_ONLY_PRESET_TOOLS satisfies readonly PresetToolName[];
 WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];
 FULL_PRESET_TOOLS satisfies readonly PresetToolName[];
 
+/** Options only an orchestrator preset carries; every other kind stores null. */
+export const OrchestratorPresetOptionsSchema = z.object({ maxSubagents: z.number().int().positive() }).strict();
+export type OrchestratorPresetOptions = z.infer<typeof OrchestratorPresetOptionsSchema>;
+
 export const SiftPresetSchema = z.object({
   id: z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   label: z.string(), description: z.string(), presetKind: PresetKindSchema,
@@ -280,6 +284,7 @@ export const SiftPresetSchema = z.object({
   maxTurns: z.number().int().positive().nullable(),
   /** Model this operation uses; null keeps the active model. Must reference a model preset id. */
   modelPresetId: z.string().trim().min(1).nullable(),
+  orchestrator: OrchestratorPresetOptionsSchema.nullable(),
 }).strict();
 export type SiftPreset = z.infer<typeof SiftPresetSchema>;
 
@@ -294,6 +299,15 @@ export const SiftPresetCollectionSchema = z.array(SiftPresetSchema).superRefine(
       });
     } else {
       firstIndexById.set(preset.id, index);
+    }
+    if ((preset.presetKind === 'orchestrator') !== (preset.orchestrator !== null)) {
+      context.addIssue({
+        code: 'custom',
+        path: [index, 'orchestrator'],
+        message: preset.presetKind === 'orchestrator'
+          ? `Orchestrator preset '${preset.id}' requires orchestrator options.`
+          : `Preset '${preset.id}' has kind '${preset.presetKind}' and must not carry orchestrator options.`,
+      });
     }
   }
 

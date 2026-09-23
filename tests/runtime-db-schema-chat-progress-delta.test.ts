@@ -53,7 +53,7 @@ function seedMarker73(prefix: string, rows: EventRow[]): string {
   const insert = database.prepare(`INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const r of rows) insert.run(r.operation_id, r.sequence, r.event_id, r.version, r.recorded_at_utc, r.kind, r.body_json, r.payload_digest);
-  database.exec('UPDATE runtime_schema SET version = 73 WHERE id = 1');
+  database.exec('DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 73 WHERE id = 1');
   closeAllRuntimeDatabases();
   return dbPath;
 }
@@ -68,7 +68,7 @@ test('the marker-73 upgrade rewrites legacy progress payloads as offset-0 deltas
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 76);
+    assert.equal(CURRENT_SCHEMA_VERSION, 78);
     const after = readRows(database);
     assert.equal(after.length, before.length);
     assert.deepEqual(JSON.parse(after[0].body_json), UPGRADED_PROGRESS);

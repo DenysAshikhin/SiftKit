@@ -9,7 +9,8 @@ import { getDefaultConfig, writeConfig } from '../../src/status-server/config-st
 import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { waitForAsyncExpectation } from '../_runtime-helpers.js';
-import { asObject, getAddressInfo, requestJson } from './dashboard-http.js';
+import { getAddressInfo, requestJson } from './dashboard-http.js';
+import { readStatusModelRequests } from './model-request-status.js';
 import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
 import { requestSse } from './sse-http.js';
 
@@ -97,8 +98,7 @@ export async function runManagedEngineReadinessScenario(
 
     // Readiness runs before the lock is granted, so the selected request waits in the queue.
     await waitForAsyncExpectation(async () => {
-      const status = await requestJson(`${baseUrl}/status`);
-      const modelRequests = asObject(status.body.modelRequests);
+      const modelRequests = await readStatusModelRequests(baseUrl);
       assert.equal(modelRequests.activeCount, 0);
       assert.equal(modelRequests.queueLength, 1);
     });
@@ -113,8 +113,7 @@ export async function runManagedEngineReadinessScenario(
       },
     });
     await waitForAsyncExpectation(async () => {
-      const status = await requestJson(`${baseUrl}/status`);
-      const modelRequests = asObject(status.body.modelRequests);
+      const modelRequests = await readStatusModelRequests(baseUrl);
       assert.equal(modelRequests.activeCount, 0);
       assert.equal(modelRequests.queueLength, 2);
     });

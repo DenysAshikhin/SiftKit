@@ -3,7 +3,7 @@ import { join, basename } from 'node:path';
 import { z } from '../lib/zod.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
-import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/index.js';
+import { getConfiguredModel, initializeRuntime, loadConfig, type SiftConfig } from '../config/index.js';
 import { summarizeRequest } from '../summary/core.js';
 import { resolveSummaryProvider } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
@@ -75,11 +75,13 @@ export async function runEvaluation(
   options: {
     progressWriter?: ProgressWriter<SummaryProgressEvent>;
     abortSignal?: AbortSignal;
+    /** The admitted execution snapshot; every fixture is summarized on its model. */
+    config?: SiftConfig;
   } = {},
 ): Promise<EvaluationResult> {
-  const config = await loadConfig({ ensure: true });
+  const config = options.config ?? await loadConfig({ ensure: true });
   const provider = resolveSummaryProvider(request.Provider);
-  const model = request.Model || getConfiguredModel(config);
+  const model = getConfiguredModel(config);
   const repoRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
   if (repoRoot === null) {
     throw new Error('Unable to locate the SiftKit repo root for eval fixtures.');
@@ -97,7 +99,7 @@ export async function runEvaluation(
       inputText: source,
       format: fixture.Format,
       provider,
-      model,
+      config,
       policyProfile: fixture.PolicyProfile,
       sourceKind: 'standalone',
       progressWriter: options.progressWriter,
@@ -136,7 +138,7 @@ export async function runEvaluation(
       inputText: source,
       format: 'text',
       provider,
-      model,
+      config,
       policyProfile: 'general',
       sourceKind: 'standalone',
       progressWriter: options.progressWriter,

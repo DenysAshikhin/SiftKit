@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
-import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, PRESET } from '../dashboard/tests/fixtures.js';
+import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, ORCHESTRATOR_PRESET, PRESET, SECOND_MODEL_PRESET, TWO_MODEL_DASHBOARD_CONFIG } from '../dashboard/tests/fixtures.js';
 
 test('settings draft editor replaces the assistant config as one validated value', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
@@ -245,4 +245,54 @@ test('the reasoning effort survives a round trip through the reasoning toggle', 
 
   const preset = editor.getConfig().Server.ModelPresets.Presets.find((entry) => entry.id === MANAGED_PRESET.id);
   assert.equal(preset?.ReasoningEffort, 'low');
+});
+
+function operationModel(editor: DashboardSettingsDraftEditor, presetId: string): string | null | undefined {
+  return editor.getConfig().Presets.find((preset) => preset.id === presetId)?.modelPresetId;
+}
+
+test('settings draft editor assigns an operation preset to a model and back to the current model', () => {
+  const editor = new DashboardSettingsDraftEditor(TWO_MODEL_DASHBOARD_CONFIG);
+
+  editor.apply({ type: 'set-preset-model', presetId: CUSTOM_PRESET.id, value: SECOND_MODEL_PRESET.id });
+  assert.equal(operationModel(editor, CUSTOM_PRESET.id), SECOND_MODEL_PRESET.id);
+  assert.equal(editor.getConfig().Server.ModelPresets.ActivePresetId, MANAGED_PRESET.id, 'assigning a model does not switch the active one');
+  editor.apply({ type: 'set-preset-model', presetId: CUSTOM_PRESET.id, value: null });
+  assert.equal(operationModel(editor, CUSTOM_PRESET.id), null);
+
+  assert.throws(
+    () => editor.apply({ type: 'set-preset-model', presetId: CUSTOM_PRESET.id, value: 'missing' }),
+    /Unknown model preset: missing/u,
+  );
+  assert.throws(
+    () => editor.apply({ type: 'set-preset-model', presetId: 'missing', value: null }),
+    /Unknown preset: missing/u,
+  );
+});
+
+test('a model preset assigned to operation presets cannot be deleted until they are reassigned', () => {
+  const editor = new DashboardSettingsDraftEditor(TWO_MODEL_DASHBOARD_CONFIG);
+  editor.apply({ type: 'set-preset-model', presetId: CUSTOM_PRESET.id, value: SECOND_MODEL_PRESET.id });
+  editor.apply({ type: 'set-preset-model', presetId: PRESET.id, value: SECOND_MODEL_PRESET.id });
+
+  assert.throws(
+    () => editor.apply({ type: 'delete-model-preset', presetId: SECOND_MODEL_PRESET.id }),
+    /Model preset model-b is assigned to Summary, Deep Dive; reassign them before deleting it\./u,
+  );
+  editor.apply({ type: 'set-preset-model', presetId: CUSTOM_PRESET.id, value: null });
+  editor.apply({ type: 'set-preset-model', presetId: PRESET.id, value: MANAGED_PRESET.id });
+  editor.apply({ type: 'delete-model-preset', presetId: SECOND_MODEL_PRESET.id });
+
+  assert.deepEqual(editor.getConfig().Server.ModelPresets.Presets.map((preset) => preset.id), [MANAGED_PRESET.id]);
+});
+
+test('the subagent cap applies only to orchestrator presets and only as a positive integer', () => {
+  const editor = new DashboardSettingsDraftEditor({ ...DASHBOARD_CONFIG, Presets: [...DASHBOARD_CONFIG.Presets, ORCHESTRATOR_PRESET] });
+  editor.apply({ type: 'set-orchestrator-max-subagents', presetId: ORCHESTRATOR_PRESET.id, value: 3 });
+  assert.deepEqual(editor.getConfig().Presets.find((preset) => preset.id === ORCHESTRATOR_PRESET.id)?.orchestrator, { maxSubagents: 3 });
+  for (const value of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(() => editor.apply({ type: 'set-orchestrator-max-subagents', presetId: ORCHESTRATOR_PRESET.id, value }), String(value));
+  }
+  assert.throws(() => editor.apply({ type: 'set-orchestrator-max-subagents', presetId: CUSTOM_PRESET.id, value: 2 }),
+    /Preset 'deep-dive' is not an orchestrator preset/u);
 });

@@ -14,6 +14,8 @@ import { retireRepoAgentHistoryRepairMarkers, upgradeChatProjectionCheckpoints, 
 import { upgradeChatJournalEventsToVersion2 } from './schema-upgrades/chat-replay-transport.js';
 import { upgradeChatProgressEventsToDeltas } from './schema-upgrades/chat-progress-delta.js';
 import { upgradePresetModelRouting } from './schema-upgrades/preset-model-routing.js';
+import { upgradeOrchestratorPreset } from './schema-upgrades/orchestrator.js';
+import { upgradeOrchestratorRuns } from './schema-upgrades/orchestrator-runs.js';
 import { upgradeChatStatusNarration } from './schema-upgrades/chat-status-narration.js';
 import type { RuntimeDatabase } from './database-handle.js';
 export type { RuntimeDatabase } from './database-handle.js';
@@ -25,7 +27,7 @@ const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 const ObjectCountRowSchema = z.object({ object_count: z.number() });
 const RuntimeSchemaTableRowSchema = z.object({ type: z.literal('table') });
 
-export const CURRENT_SCHEMA_VERSION = 76;
+export const CURRENT_SCHEMA_VERSION = 78;
 
 type SchemaUpgradeStep = { from: number; apply(database: RuntimeDatabase): void };
 
@@ -45,6 +47,8 @@ const SCHEMA_UPGRADES: readonly SchemaUpgradeStep[] = [
   { from: 73, apply: upgradeChatProgressEventsToDeltas },
   { from: 74, apply: upgradePresetModelRouting },
   { from: 75, apply: upgradeChatStatusNarration },
+  { from: 76, apply: upgradeOrchestratorPreset },
+  { from: 77, apply: upgradeOrchestratorRuns },
 ];
 
 function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {

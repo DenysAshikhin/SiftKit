@@ -87,7 +87,7 @@ function seedLegacyJournal(prefix: string, mutate: (rows: EventRow[]) => EventRo
   const insert = database.prepare(`INSERT INTO chat_run_events (operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const row of rows) insert.run(row.operation_id, row.sequence, row.event_id, row.version, row.recorded_at_utc, row.kind, row.body_json, row.payload_digest);
-  database.exec('DROP TABLE chat_submissions; UPDATE runtime_schema SET version = 70 WHERE id = 1');
+  database.exec('DROP TABLE chat_submissions; DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 70 WHERE id = 1');
   closeAllRuntimeDatabases();
   return { dbPath, rows };
 }
@@ -103,7 +103,7 @@ test('the marker-70 upgrade converts version-1 journal events to version 2 and a
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 76);
+    assert.equal(CURRENT_SCHEMA_VERSION, 78);
     assert.equal(CHAT_JOURNAL_EVENT_VERSION, 2);
     assert.equal(database.prepare("SELECT name FROM sqlite_schema WHERE name='chat_context_snapshots'").get(), undefined);
     const after = readRows(dbPath);

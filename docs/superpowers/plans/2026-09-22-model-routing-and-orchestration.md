@@ -1,6 +1,6 @@
 # Model Routing and Orchestration Implementation Plan
 
-**Execution paused at the user's request:** M1–M3 are accepted; M4-C1 is checkpointed with unresolved validation. Read the [fresh-session handoff](2026-09-22-model-routing-orchestration-handoff.md) before resuming.
+**Status (2026-09-23): implemented, verified, and uncommitted.** Routing M1–M7 and orchestrator O1–O8, including O5b, are complete. The [handoff](2026-09-22-model-routing-orchestration-handoff.md) has the evidence. Deviations and open items are in the [orchestrator plan's delivery status](2026-09-22-orchestrator-preset.md#delivery-status-2026-09-23).
 
 > **For agentic workers:** Execution is now authorized using `siftkit repo-agent` for defined task batches, with primary-agent review and validation. Use the applicable Superpowers execution workflow. Do not create worktrees or commit. Steps in the linked plans use checkboxes for tracking.
 

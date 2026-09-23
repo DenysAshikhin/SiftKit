@@ -1,5 +1,6 @@
 import type { ChatHistoryRevision, ChatJournalEvent } from '../../state/chat-journal-schema.js';
 import type { ChatContextInit, ChatContextSplice } from '../planner-chat-message.js';
+import type { ModelRuntimePreset } from '../../config/types.js';
 
 /** One journal event family without the discriminator, which the recorder stamps on itself. */
 type EvidenceBody<Kind extends ChatJournalEvent['kind']> = Omit<Extract<ChatJournalEvent, { kind: Kind }>, 'kind'>;
@@ -36,6 +37,8 @@ export interface ChatContextRecorder {
  */
 export interface ChatRunEvidenceRecorder extends ChatContextRecorder {
   readonly abortSignal: AbortSignal;
+  /** Called once the run's model is admitted, before any model call; queued images are admitted against it. */
+  recordModelAdmitted(modelPreset: ModelRuntimePreset, contextWindowTokens: number): void;
   recordApprovalReviewed(evidence: ChatApprovalReviewedEvidence): void;
   recordApprovalRequested(evidence: ChatApprovalRequestedEvidence): void;
   recordApprovalResolved(evidence: ChatApprovalResolvedEvidence): void;

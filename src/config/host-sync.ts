@@ -73,19 +73,26 @@ async function fetchHostPresetSettings(baseUrl: string): Promise<HostPresetSetti
   return settings;
 }
 
-/** A host that reports no model has nothing to say about it, so the local model stands. */
-function buildPresetOverlay(settings: HostPresetSettings): Partial<ModelRuntimePreset> {
+/**
+ * A host that reports no model leaves the local one standing, and an unnamed local model adopts the
+ * host's. A host serving another model fails loudly: this SiftKit cannot switch the host, and
+ * overlaying its model would silently run the operation on something it was not admitted for.
+ */
+function buildPresetOverlay(config: SiftConfig, settings: HostPresetSettings): Partial<ModelRuntimePreset> {
   const { Model, ...requestFields } = settings;
-  return Model === null ? requestFields : { ...requestFields, Model };
+  const localModel = getActiveModelPreset(config).Model?.trim() || null;
+  if (Model === null || Model === localModel) return requestFields;
+  if (localModel === null) return { ...requestFields, Model };
+  throw new Error(`The pass-through host serves model '${Model}', but this operation was admitted for '${localModel}'; this SiftKit cannot switch the host's model.`);
 }
 
 /**
  * Returns `config` unchanged when this SiftKit owns its inference server. In
  * pass-through mode, overlays the host SiftKit's request-shaping preset fields
- * so prompt-budget math, the requested model, and the samplers match the server
- * that actually serves the request. Falls back to the unchanged local config when
- * the host is unreachable or is not a SiftKit (e.g. `BaseUrl` points straight at a
- * raw TabbyAPI endpoint).
+ * so prompt-budget math and the samplers match the server that actually serves
+ * the request, and rejects a host serving a different model. Falls back to the
+ * unchanged local config when the host is unreachable or is not a SiftKit (e.g.
+ * `BaseUrl` points straight at a raw TabbyAPI endpoint).
  */
 export async function applyHostEngineRuntimeSettings(config: SiftConfig): Promise<SiftConfig> {
   if (!isPassThroughMode(config)) {
@@ -103,7 +110,7 @@ export async function applyHostEngineRuntimeSettings(config: SiftConfig): Promis
     return config;
   }
 
-  return overlayActivePreset(config, buildPresetOverlay(settings));
+  return overlayActivePreset(config, buildPresetOverlay(config, settings));
 }
 
 /** Test-only: clears the in-process host-settings cache. */

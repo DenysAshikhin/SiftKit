@@ -50,7 +50,7 @@ function imageMetadata(width = 1, height = 1, caption: string | null = null) {
 function seedCaptionSession(options: {
   visionEnabled?: boolean;
   visionImageRetention?: number;
-  snapshotPreset?: boolean;
+  routedPreset?: boolean;
   withMetadata?: boolean;
 } = {}) {
   const runtimeRoot = path.dirname(getConfigPath());
@@ -61,9 +61,9 @@ function seedCaptionSession(options: {
   configuredPreset.BaseUrl = DEAD_BASE_URL;
   configuredPreset.VisionEnabled = options.visionEnabled ?? true;
   configuredPreset.VisionImageRetention = options.visionImageRetention ?? 8;
-  const snapshotPreset = {
+  const routedPreset = {
     ...configuredPreset,
-    id: 'caption-snapshot',
+    id: 'caption-routed',
     VisionEnabled: true,
     VisionImageRetention: 8,
   };
@@ -73,15 +73,18 @@ function seedCaptionSession(options: {
     VisionEnabled: false,
     VisionImageRetention: 8,
   };
-  if (options.snapshotPreset) {
-    config.Server.ModelPresets.Presets = [globalPreset, snapshotPreset];
-    config.Server.ModelPresets.ActivePresetId = globalPreset.id;
+  if (options.routedPreset) {
+    config.Server.ModelPresets.Presets = [globalPreset, routedPreset];
+    // Without a coordinator only the resident model is admissible, so the routed model is resident.
+    config.Server.ModelPresets.ActivePresetId = routedPreset.id;
+    config.Presets = config.Presets.map((preset) => preset.id === 'chat' ? { ...preset, modelPresetId: routedPreset.id } : preset);
   }
   writeConfig(getConfigPath(), config);
   const session = createTestChatSession(runtimeRoot);
-  if (options.snapshotPreset) {
-    session.modelPresetId = snapshotPreset.id;
-    session.modelPreset = snapshotPreset;
+  if (options.routedPreset) {
+    // The stored snapshot names the vision-less global model; routing, not the snapshot, decides.
+    session.modelPresetId = globalPreset.id;
+    session.modelPreset = globalPreset;
   } else {
     session.modelPresetId = configuredPreset.id;
     session.modelPreset = configuredPreset;
@@ -538,8 +541,8 @@ test('caption route rejects malformed bodies and missing image targets with expl
   }
 });
 
-test('caption route uses the session snapshot when the global active preset changes', async () => {
-  const harness = await withCaptionServer({ snapshotPreset: true });
+test('caption route runs on the model its chat preset is assigned to, not the session snapshot', async () => {
+  const harness = await withCaptionServer({ routedPreset: true });
   try {
     const response = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${harness.fixture.session.id}/images/caption`, {
       method: 'POST',
@@ -1004,7 +1007,8 @@ test('admission records the preset, turn limit, web override and history revisio
       assert.equal(run.settings?.presetId, request.presetId);
       assert.equal(run.settings?.maxTurns, request.maxTurns ?? null);
       assert.equal(run.settings?.webSearchEnabled, request.webToolsEnabled);
-      assert.equal(run.settings?.modelPresetId, request.modelPresetId);
+      assert.ok(request.config);
+      assert.equal(run.settings?.modelPresetId, getActiveModelPreset(request.config).id);
     });
     assert.equal(runs[0]?.settings?.maxTurns, 3);
     assert.equal(runs[0]?.settings?.webSearchEnabled, true);

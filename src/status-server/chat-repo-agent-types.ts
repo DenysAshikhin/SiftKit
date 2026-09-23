@@ -1,6 +1,4 @@
-import type { RepoAgentDecision } from '@siftkit/contracts';
-
-import type { RepoAgentApproval } from '../repo-agent/run-schemas.js';
+import type { RepoAgentApproval, RepoAgentDecision } from '@siftkit/contracts';
 
 export type ChatRepoAgentDecisionRecord = {
   decision: RepoAgentDecision;

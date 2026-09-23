@@ -1,6 +1,7 @@
 import { z } from './zod.js';
 import { ServerErrorPayloadSchema, type ErrorDiagnostic } from './error-diagnostics.js';
 import { parseJsonObjectText, parseJsonText } from './json.js';
+import { ModelRequestIntentSchema } from './model-request-intent.js';
 import type { JsonObject } from './json-types.js';
 import type { SseFrame } from './sse-frame-parser.js';
 import type { HttpClient, SseStreamOptions } from './http-client.js';
@@ -11,20 +12,37 @@ export const OPERATION_STREAM_EVENTS = {
   error: 'error',
 } as const;
 
+/** A model profile and an opaque SHA-256 fingerprint of its loading identity; null when underivable. */
+export const ModelResidencyDiagnosticsSchema = z.object({
+  modelPresetId: z.string(),
+  residencyFingerprint: z.string().nullable(),
+});
+export type ModelResidencyDiagnostics = z.infer<typeof ModelResidencyDiagnosticsSchema>;
+
+export const ModelRequestWaitingReasonSchema = z.enum(['capacity', 'different_model', 'transition']);
+export type ModelRequestWaitingReason = z.infer<typeof ModelRequestWaitingReasonSchema>;
+
 export const ModelRequestQueueDiagnosticsSchema = z.object({
+  resident: ModelResidencyDiagnosticsSchema,
   activeCount: z.number(),
   activeRequests: z.array(z.object({
     kind: z.string(),
     startedAtUtc: z.string(),
     heldMs: z.number(),
     ownerRunId: z.string().nullable(),
+    model: ModelResidencyDiagnosticsSchema,
   })),
   queueLength: z.number(),
+  /** Arrival order, not service order: work for the resident model is admitted ahead of older requests. */
   queuedRequests: z.array(z.object({
     kind: z.string(),
     enqueuedAtUtc: z.string(),
     waitMs: z.number(),
     hasDeadline: z.boolean(),
+    requested: ModelRequestIntentSchema,
+    /** Null until a scheduling pass has resolved the request. */
+    resolved: ModelResidencyDiagnosticsSchema.nullable(),
+    waitingReason: ModelRequestWaitingReasonSchema,
   })),
 });
 export type ModelRequestQueueDiagnostics = z.infer<typeof ModelRequestQueueDiagnosticsSchema>;

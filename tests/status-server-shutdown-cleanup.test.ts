@@ -19,6 +19,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { getRuntimeRoot } from '../src/status-server/paths.js';
 import { buildChatRunSettings, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import { serverLogger } from '../src/status-server/server-logger.js';
 import type { ChatOwnerTickOutcome, ExtendedServer } from '../src/status-server/server-types.js';
 import { IsolatedRuntime } from './helpers/isolated-runtime.js';
@@ -207,7 +208,7 @@ async function admitOrphanedChatRun(server: ExtendedServer): Promise<void> {
     operationId: randomUUID(), sessionId: session.id, ownerEpoch: `${owner.owner_id}:${owner.epoch}`,
     operationKind: 'message', userMessageId: randomUUID(), content: 'accepted before the lease expired',
     images: [], imageMeta: [], retainedHistoryRevision: 0,
-    settings: buildChatRunSettings({ session, config: getDefaultConfigObject(), operationKind: 'message',
+    settings: buildChatRunSettings({ session, target: currentModelTarget(getDefaultConfigObject()), operationKind: 'message',
       presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
     startedAtUtc: new Date().toISOString(),
   });

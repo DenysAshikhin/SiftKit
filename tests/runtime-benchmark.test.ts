@@ -412,7 +412,6 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
               format: 'text',
               policyProfile: 'general',
               provider: 'mock',
-              model: 'mock-model',
               sourceKind: 'standalone',
             }),
             new RegExp(`Error: recieved input of ${normalizedInputLength} characters, current maximum is \\d+ chars`, 'u'),
@@ -428,7 +427,6 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
           format: 'text',
           policyProfile: 'general',
           provider: 'mock',
-          model: 'mock-model',
           sourceKind: 'standalone',
         });
 

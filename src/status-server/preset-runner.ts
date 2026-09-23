@@ -1,6 +1,4 @@
 import {
-  applyModelOverrideToConfig,
-  getActiveModelPreset,
   getConfigPath,
   getConfiguredReasoning,
   type SiftConfig,
@@ -38,9 +36,12 @@ import {
 import { readConfig } from './config-store.js';
 import type { StatusEngineService } from './engine-service.js';
 import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
+import type { ModelRequestContext } from './model-request-context.js';
 
 type PresetRunOptions = {
   statusBackendUrl: string;
+  /** The admitted snapshot: the run executes on its config and model preset. */
+  model: ModelRequestContext;
   summaryProgressWriter?: ProgressWriter<SummaryProgressEvent>;
   repoSearchProgressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   abortSignal?: AbortSignal;
@@ -63,8 +64,8 @@ function getCliPresets(): SiftPreset[] {
   return PresetCatalog.fromPresets(config.Presets).forSurface('cli');
 }
 
-function getPresetById(presetId: string): SiftPreset {
-  const preset = PresetCatalog.fromPresets(readPresetConfig().Presets).requireById(presetId);
+function getCliPresetById(config: SiftConfig, presetId: string): SiftPreset {
+  const preset = PresetCatalog.fromPresets(config.Presets).requireById(presetId);
   if (!preset.surfaces.includes('cli')) {
     throw new Error(`Preset '${presetId}' was not found.`);
   }
@@ -91,8 +92,15 @@ function getRepoRoot(request: PresetRunRequest): string {
   return String(request.repoRoot || process.cwd()).trim() || process.cwd();
 }
 
+export const ORCHESTRATOR_PRESET_RUN_ERROR =
+  'Orchestrator presets do not run as a single request; start it with POST /orchestrator or `siftkit orchestrator`.';
+
 /** Which runner branch a preset kind dispatches to; `plan` and `repo-search` share the repo-search runner. */
 export function selectPresetRunKind(presetKind: PresetKind): 'summary' | 'chat' | 'repo-search' {
+  if (presetKind === 'orchestrator') {
+    // An orchestrator holds no model lease of its own; it runs through its parent lifecycle instead.
+    throw new Error(ORCHESTRATOR_PRESET_RUN_ERROR);
+  }
   if (presetKind === 'summary') {
     return 'summary';
   }
@@ -126,8 +134,8 @@ export class StatusPresetRunner {
   }
 
   async run(request: PresetRunRequest, options: PresetRunOptions): Promise<PresetRunResult> {
-    const config = readPresetConfig();
-    const preset = getPresetById(request.presetId);
+    const { config } = options.model;
+    const preset = getCliPresetById(config, request.presetId);
     const effectiveAllowedTools = resolvePresetAllowedTools(
       preset,
       normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
@@ -167,7 +175,6 @@ export class StatusPresetRunner {
       format: request.format === 'json' ? 'json' : 'text',
       policyProfile: normalizePresetPolicyProfile(request.profile),
       provider: request.provider,
-      model: request.model,
       allowedPlannerTools: effectiveAllowedTools.filter(isSummaryPlannerTool),
       sourceKind: request.sourceKind === 'command-output' ? 'command-output' : 'standalone',
       commandExitCode: Number.isFinite(Number(request.commandExitCode)) ? Number(request.commandExitCode) : undefined,
@@ -190,15 +197,13 @@ export class StatusPresetRunner {
       throw new Error('A prompt is required.');
     }
     const now = new Date().toISOString();
-    // Snapshot after the --model overlay so the session records the model it ran with.
-    const effectiveConfig = applyModelOverrideToConfig(config, request.model);
-    const activeModelPreset = getActiveModelPreset(effectiveConfig);
-    const thinkingEnabled = getConfiguredReasoning(effectiveConfig) !== 'off';
+    const { modelPreset } = options.model;
+    const thinkingEnabled = getConfiguredReasoning(config) !== 'off';
     const session: ChatSession = {
       id: 'cli-ephemeral',
       title: preset.label,
-      modelPresetId: activeModelPreset.id,
-      modelPreset: activeModelPreset,
+      modelPresetId: modelPreset.id,
+      modelPreset,
       thinkingEnabled,
       presetId: preset.id,
       mode: 'chat',
@@ -210,13 +215,11 @@ export class StatusPresetRunner {
     const result = await this.engineService.executeRepoSearch({
       presetId: preset.id,
       taskKind: 'chat',
-      modelPresetId: session.modelPresetId,
-      modelPreset: session.modelPreset,
       prompt,
       repoRoot: getRepoRoot(request),
-      config: effectiveConfig,
+      config,
       statusBackendUrl: options.statusBackendUrl,
-      systemPrompt: buildChatSystemContent(effectiveConfig, session),
+      systemPrompt: buildChatSystemContent(config, session),
       history: [],
       thinkingEnabled,
       allowedTools: [],
@@ -244,7 +247,6 @@ export class StatusPresetRunner {
       prompt: preset.presetKind === 'plan' ? buildPlanRequestPrompt(prompt) : prompt,
       repoRoot,
       config,
-      model: request.model,
       statusBackendUrl: options.statusBackendUrl,
       maxTurns: Number.isFinite(Number(request.maxTurns)) && Number(request.maxTurns) > 0
         ? Number(request.maxTurns)

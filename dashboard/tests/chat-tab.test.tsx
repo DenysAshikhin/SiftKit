@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatSessionResponseSchema, DurableChatApprovalSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, DurableChatApprovalSchema, OrchestratorRunStateSchema, DurableChatQuestionSchema, buildChatRunMessageIdPrefix, buildChatMessageId } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore, type ChatSessionRuntimeTransition } from '../src/lib/chat-session-runtime-store';
 import { toRuntimeTransitions } from '../src/lib/chat-stream-transitions';
@@ -89,9 +89,8 @@ test('active token badges grow before usage and settle without losing late text 
 
 import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
 import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
-import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
+import { getDefaultConfig } from '../../src/status-server/config-store.js';
 import { getActiveModelPreset } from '../../src/config/getters.js';
-import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getRuntimeRoot } from '../../src/config/paths.js';
 import { saveChatSession } from '../../src/state/chat-sessions.js';
 import { CONTEXT_USAGE as BASE_CONTEXT_USAGE } from './fixtures.js';
@@ -331,7 +330,7 @@ const PRESET = {
   promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
 } satisfies DashboardPreset;
 
 const REPO_AGENT_PRESET = {
@@ -624,6 +623,59 @@ test('changing only preset metadata does not claim the model context is invalida
   } finally {
     window.confirm = originalConfirm;
   }
+});
+
+const ORCHESTRATOR_CHAT_PRESET = { ...REPO_AGENT_PRESET, id: 'orchestrator', label: 'Orchestrator', presetKind: 'orchestrator',
+  operationMode: 'read-only', orchestrator: { maxSubagents: 1 } } satisfies DashboardPreset;
+const ORCHESTRATOR_RUN_ID = '4f9c1f9a-0000-4000-8000-0000000000aa';
+
+function orchestratorProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
+  return buildProps({ chatMode: 'orchestrator', isRepoToolMode: true, isDirectChatMode: false,
+    webPresets: [ORCHESTRATOR_CHAT_PRESET], selectedChatPreset: ORCHESTRATOR_CHAT_PRESET, ...overrides });
+}
+
+test('orchestrator mode starts a run for the saved repository and shows its live panel', async () => {
+  const bodies: Array<[string, string]> = [];
+  const originalFetch = globalThis.fetch;
+  const drafts: string[] = [];
+  const running = OrchestratorRunStateSchema.parse({
+    runId: ORCHESTRATOR_RUN_ID,
+    request: { submissionId: ORCHESTRATOR_RUN_ID, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null },
+    revision: 1, phase: 'preparing_plan', planPath: null, planHash: null, plan: null, tasks: [], attempts: [], phaseRunIds: [],
+    approval: null, failure: null, createdAtUtc: '2026-09-23T12:00:00.000Z', updatedAtUtc: '2026-09-23T12:00:00.000Z',
+  });
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    bodies.push([url, typeof init?.body === 'string' ? init.body : '']);
+    if (url.startsWith('/orchestrator/runs')) return new Response(JSON.stringify({ runs: [] }));
+    if (url === '/orchestrator') return new Response(JSON.stringify(running), { status: 202 });
+    if (url === '/orchestrator/events') return new Response(`event: result
+data: ${JSON.stringify({ ...running, phase: 'interrupted' })}
+
+`);
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({ onChangeDraft: (value) => { drafts.push(value); } })} />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Run orchestrator' })); });
+    await screen.findByText('interrupted');
+    const start = bodies.find(([url]) => url === '/orchestrator');
+    const request = JSON.parse(start?.[1] ?? '{}');
+    assert.deepEqual({ ...request, submissionId: null },
+      { submissionId: null, repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'interactive', task: 'hi', planPath: null });
+    assert.deepEqual(drafts, ['']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('orchestrator mode cannot start without a saved repository folder', () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => { throw new Error(`Unexpected fetch ${String(input)}`); };
+  try {
+    renderComponent(<ChatTab {...orchestratorProps({ selectedSession: { ...SESSION_A, planRepoRoot: '' } })} />);
+    assert.equal(screen.getByRole('button', { name: 'Run orchestrator' }).hasAttribute('disabled'), true);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('repo-agent pending approval renders actions and reject requires a reason', async () => {
@@ -1417,7 +1469,9 @@ test('a real compacting stream persists and immediately renders one boundary', a
     preset.NumCtx = 9_000;
     // Compaction reserves two thirds of generation for reasoning and guarantees
     // a 512-token summary-output floor, so the fixture needs the full 3x budget.
-    writeConfig(getRuntimeDatabasePath(), config);
+    // Saved through the config route, which moves the applied model the next run is admitted on.
+    const saved = await requestJson(`${server.baseUrl}/config?skip_ready=1`, { method: 'PUT', body: JSON.stringify(config) });
+    assert.equal(saved.statusCode, 200, JSON.stringify(saved.body));
 
     const created = ChatSessionResponseSchema.parse((await requestJson(
       `${server.baseUrl}/dashboard/chat/sessions`,

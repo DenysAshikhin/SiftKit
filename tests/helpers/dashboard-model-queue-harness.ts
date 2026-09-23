@@ -12,14 +12,14 @@ import type { StatusEngineService } from '../../src/status-server/engine-service
 import { readConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { getConfigPath } from '../../src/status-server/paths.js';
 import { FakeTabbyModelState } from './tabby-fake.js';
+import { readStatusModelRequests } from './model-request-status.js';
+import type { ModelRequestQueueDiagnostics } from '../../src/lib/operation-stream.js';
 import {
   asObject,
-  asObjectArray,
   getAddressInfo,
   closeHttpServer,
   requestJson,
   requestSse,
-  type Dict,
   type SseResponse,
 } from './dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
@@ -69,7 +69,11 @@ export interface DashboardModelQueueHarnessOptions {
    */
   parallelSlots: number;
   engineService?: StatusEngineService;
+  /** Adds `exl3-alt` (model `model-b`, no vision) beside the exl3 main preset on the same fake engine. */
+  alternateModel?: boolean;
 }
+
+export const ALTERNATE_MODEL_PRESET_ID = 'exl3-alt';
 
 export class DashboardModelQueueHarness {
   private readonly tempRoot: string;
@@ -79,6 +83,9 @@ export class DashboardModelQueueHarness {
   private readonly exl3ActivePreset: boolean;
   private readonly parallelSlots: number;
   private readonly engineService: StatusEngineService | undefined;
+  private readonly alternateModel: boolean;
+  /** Every model name the fake engine was asked to load, in order. */
+  readonly loadedModelNames: string[] = [];
   private readonly fakeTabbyModel = new FakeTabbyModelState();
   private fakeTabbyServer: http.Server | null = null;
   private readonly pendingChatRequests = new Map<string, PendingChatRequest>();
@@ -94,6 +101,8 @@ export class DashboardModelQueueHarness {
     this.exl3ActivePreset = options.exl3ActivePreset ?? false;
     this.parallelSlots = options.parallelSlots;
     this.engineService = options.engineService;
+    this.alternateModel = options.alternateModel ?? false;
+    if (this.alternateModel && !this.exl3ActivePreset) throw new Error('An alternate model needs the exl3 runtime.');
     this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -133,6 +142,7 @@ export class DashboardModelQueueHarness {
         request.on('data', (chunk) => { body += chunk; });
         request.on('end', () => {
           this.fakeTabbyModel.applyLoad(body);
+          this.loadedModelNames.push(this.fakeTabbyModel.residentModelName());
           response.writeHead(200, { 'content-type': 'text/event-stream' });
           response.end("data: {\"model_type\":\"model\",\"module\":1,\"modules\":1,\"status\":\"finished\"}\n\n");
         });
@@ -260,19 +270,23 @@ export class DashboardModelQueueHarness {
         ShutdownTimeoutMs: 2_000,
         Environment: {},
       };
+      const mainPreset = {
+        ...basePreset,
+        id: 'exl3-main',
+        label: 'EXL3 main',
+        Backend: 'exl3' as const,
+        BaseUrl: fakeBaseUrl,
+        Model: 'model-a',
+        ModelPath: path.join(this.tempRoot, 'model-a'),
+        ParallelSlots: this.parallelSlots,
+        HealthcheckIntervalMs: 10,
+      };
       config.Server.ModelPresets = {
         ActivePresetId: 'exl3-main',
-        Presets: [{
-          ...basePreset,
-          id: 'exl3-main',
-          label: 'EXL3 main',
-          Backend: 'exl3',
-          BaseUrl: fakeBaseUrl,
-          Model: 'model-a',
-          ModelPath: path.join(this.tempRoot, 'model-a'),
-          ParallelSlots: this.parallelSlots,
-          HealthcheckIntervalMs: 10,
-        }],
+        Presets: this.alternateModel
+          ? [mainPreset, { ...mainPreset, id: ALTERNATE_MODEL_PRESET_ID, label: 'EXL3 alternate', Model: 'model-b',
+            ModelPath: path.join(this.tempRoot, 'model-b'), VisionEnabled: false }]
+          : [mainPreset],
       };
     } else {
       config.Server.ModelPresets = {
@@ -311,6 +325,21 @@ export class DashboardModelQueueHarness {
     });
     if (response.statusCode !== 200) {
       throw new Error(`Expected config update to succeed, received ${response.statusCode}.`);
+    }
+  }
+
+  /** Saves an operation preset's model selection; null inherits the current model. */
+  async assignOperationModel(presetId: string, modelPresetId: string | null): Promise<void> {
+    const config = readConfig(getConfigPath());
+    const response = await requestJson(`${this.getBaseUrl()}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...config,
+        Presets: config.Presets.map((preset) => preset.id === presetId ? { ...preset, modelPresetId } : preset),
+      }),
+    });
+    if (response.statusCode !== 200) {
+      throw new Error(`Expected the model assignment to save, received ${response.statusCode}.`);
     }
   }
 
@@ -399,8 +428,7 @@ export class DashboardModelQueueHarness {
   async waitForActiveRequests(kind: string, count = 1): Promise<void> {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const response = await requestJson(`${this.getBaseUrl()}/status`);
-      const activeRequests = asObjectArray(asObject(response.body.modelRequests).activeRequests);
+      const { activeRequests } = await readStatusModelRequests(this.getBaseUrl());
       if (activeRequests.filter((request) => request.kind === kind).length >= count) {
         return;
       }
@@ -410,11 +438,10 @@ export class DashboardModelQueueHarness {
   }
 
   /** Returns the first queued model request that reports `kind`. */
-  async waitForQueuedRequest(kind: string): Promise<Dict> {
+  async waitForQueuedRequest(kind: string): Promise<ModelRequestQueueDiagnostics['queuedRequests'][number]> {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const response = await requestJson(`${this.getBaseUrl()}/status`);
-      const queuedRequests = asObjectArray(asObject(response.body.modelRequests).queuedRequests);
+      const { queuedRequests } = await readStatusModelRequests(this.getBaseUrl());
       for (const request of queuedRequests) {
         if (request.kind === kind) {
           return request;
@@ -428,10 +455,7 @@ export class DashboardModelQueueHarness {
   async waitForModelQueueIdle(): Promise<void> {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const response = await requestJson(`${this.getBaseUrl()}/status`);
-      const modelRequests = asObject(response.body.modelRequests);
-      const activeRequests = asObjectArray(modelRequests.activeRequests);
-      const queuedRequests = asObjectArray(modelRequests.queuedRequests);
+      const { activeRequests, queuedRequests } = await readStatusModelRequests(this.getBaseUrl());
       if (activeRequests.length === 0 && queuedRequests.length === 0) {
         return;
       }
@@ -447,7 +471,6 @@ export class DashboardModelQueueHarness {
       body: JSON.stringify({
         prompt,
         repoRoot: this.tempRoot,
-        model: LOCK_HOLDER_MODEL,
         maxTurns: 1,
         simulateWorkMs: 80,
         availableModels: [LOCK_HOLDER_MODEL],

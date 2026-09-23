@@ -70,7 +70,6 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
     config: mockSiftConfig({
       Server: { ModelPresets: { Presets: [{ BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 }] } },
     }),
-    model: 'Qwen3.5-9B-EXL3',
     baseUrl: 'http://127.0.0.1:8097',
     availableModels: ['Qwen3.5-27B-EXL3'],
     maxTurns: 1,
@@ -103,7 +102,6 @@ test('repo-search executes a native web_search tool when allowed', async () => {
         FetchMaxCharacters: 12000,
       },
     }),
-    model: 'Qwen3.5-9B-EXL3',
     baseUrl: 'http://127.0.0.1:8097',
     availableModels: ['Qwen3.5-9B-EXL3'],
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['web_search']),

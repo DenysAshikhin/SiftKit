@@ -63,7 +63,6 @@ test('repo-search carries TabbyAPI draft stats and second-based timings into the
             },
             },
         },
-        model: 'mock-model',
         maxTurns: 1,
       });
 
@@ -132,7 +131,6 @@ test('a tool-call-only turn contributes its emitted tokens to the run throughput
             },
           },
         },
-        model: 'mock-model',
         maxTurns: 2,
       });
 
@@ -174,7 +172,6 @@ test('summary carries TabbyAPI draft stats into terminal status metadata', async
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -222,7 +219,6 @@ test('a summary retried after an empty decision folds both physical requests', a
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);

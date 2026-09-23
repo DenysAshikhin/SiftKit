@@ -368,6 +368,8 @@ export async function executeRepoSearchRequest(
   // Engine the run actually executed on, for the run log. Stays null when the run fails
   // before the config loads, because no engine was selected at that point.
   let activeBackend: InferenceBackendId | null = null;
+  // The model the run executed on, from its admitted config; null when it failed before loading it.
+  let executedModel: string | null = null;
   // Canonical identity for the run log: the operation is known up front, while the preset
   // snapshots are filled in once they resolve and stay null if the run fails before that.
   let identity: RunIdentity = operationOnlyRunIdentity(executionTaskKind);
@@ -376,6 +378,7 @@ export async function executeRepoSearchRequest(
     const config = request.config ?? await loadConfig({ ensure: true });
     const activeVisionPreset = getActiveModelPreset(config);
     activeBackend = activeVisionPreset.Backend;
+    executedModel = activeVisionPreset.Model ?? null;
     const requestedImages = request.initialUserImages ?? [];
     const admittedImages = admitImagesForPreset(activeVisionPreset, requestedImages)
       .map((image) => image.dataUrl);
@@ -383,8 +386,7 @@ export async function executeRepoSearchRequest(
     identity = buildRunIdentity({
       operationType: executionTaskKind,
       operationPreset: preset,
-      modelPreset: request.modelPreset ?? activeVisionPreset,
-      modelPresetId: request.modelPresetId,
+      modelPreset: activeVisionPreset,
     });
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const runPromptBase = {
@@ -399,7 +401,7 @@ export async function executeRepoSearchRequest(
     };
     const runPromptRequest: RunSystemPromptRequest = taskKind === 'chat'
       ? { ...runPromptBase, promptKind: 'chat', chatSystemPrompt: request.systemPrompt || '' }
-      : { ...runPromptBase, promptKind: isAgent ? 'repo-agent' : 'planner' };
+      : { ...runPromptBase, promptKind: isAgent ? 'repo-agent' : executionTaskKind === 'orchestrator' ? 'orchestrator' : 'planner' };
     const {
       systemPrompt: systemPromptOverride,
       toolDefinitions: plannerToolDefinitions,
@@ -417,23 +419,21 @@ export async function executeRepoSearchRequest(
       config,
       systemContext,
       taskKind: executionTaskKind,
-      model: request.model,
       maxTurns: request.maxTurns,
       plannerToolDefinitions,
       allowEmptyTools: taskKind === 'chat',
       streamFinishAsAnswer: taskKind === 'chat',
-      minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
+      minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent || executionTaskKind === 'orchestrator') ? 0 : undefined,
       systemPromptOverride,
       historyMessages: request.history ?? (taskKind === 'chat' ? [] : undefined),
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,
       logger: runLogger,
-      // The engine stamps the model it actually resolves; only the requested override is known here.
       throughputAudit: {
         operationType: executionTaskKind,
         operationId: requestId,
         requestId,
-        model: request.model ?? null,
+        model: executedModel,
         presetId: identity.modelPresetId ?? null,
       },
       availableModels: request.availableModels,
@@ -473,7 +473,7 @@ export async function executeRepoSearchRequest(
       requestId,
       prompt,
       repoRoot,
-      model: request.model ?? null,
+      model: executedModel,
       backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
@@ -557,7 +557,7 @@ export async function executeRepoSearchRequest(
       identity,
       prompt,
       repoRoot,
-      model: request.model ?? null,
+      model: executedModel,
       backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
@@ -622,7 +622,7 @@ export async function executeRepoSearchRequest(
       requestId,
       prompt,
       repoRoot,
-      model: request.model ?? null,
+      model: executedModel,
       backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
@@ -685,7 +685,7 @@ export async function executeRepoSearchRequest(
       identity,
       prompt,
       repoRoot,
-      model: request.model ?? null,
+      model: executedModel,
       backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,

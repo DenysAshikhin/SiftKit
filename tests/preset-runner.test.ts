@@ -6,7 +6,8 @@ import { buildScorecard } from '../src/repo-search/engine.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { getConfigPath, type SiftConfig } from '../src/config/index.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { writeConfig } from '../src/status-server/config-store.js';
+import { readConfig, writeConfig } from '../src/status-server/config-store.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import { mockConfig, withTempEnv } from './_runtime-helpers.js';
 
 class CapturingEngineService extends StatusEngineService {
@@ -48,10 +49,11 @@ function buildCliChatConfig(reasoning: 'on' | 'off'): SiftConfig {
 async function runCliChatPreset(reasoning: 'on' | 'off'): Promise<RepoSearchExecutionRequest> {
   return withTempEnv(async () => {
     writeConfig(getConfigPath(), buildCliChatConfig(reasoning));
+    const config = readConfig(getConfigPath());
     const engineService = new CapturingEngineService();
     await new StatusPresetRunner(engineService).run(
       { presetId: 'cli-chat', prompt: 'hello', repoRoot: process.cwd() },
-      { statusBackendUrl: 'http://127.0.0.1:1/status' },
+      { statusBackendUrl: 'http://127.0.0.1:1/status', model: currentModelTarget(config) },
     );
     const request = engineService.repoSearchRequests[0];
     assert.ok(request, 'expected the chat preset to reach executeRepoSearch');
@@ -82,4 +84,8 @@ test('cli chat enables thinking when the active preset reasoning is on', async (
   const request = await runCliChatPreset('on');
 
   assert.equal(request.thinkingEnabled, true);
+});
+
+test('selectPresetRunKind refuses orchestrator presets, which never run as one locked request', () => {
+  assert.throws(() => selectPresetRunKind('orchestrator'), /start it with POST \/orchestrator/u);
 });

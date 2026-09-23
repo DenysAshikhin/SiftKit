@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/index.js';
+import { initializeRuntime, loadConfig } from '../config/index.js';
 import { summarizeRequest } from '../summary/core.js';
 import { resolveSummaryProvider } from '../summary/types.js';
 import { getDeterministicExcerpt } from '../summary/measure.js';
@@ -113,7 +113,6 @@ export class CommandOutputAnalyzer {
   async analyze(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
     const config = request.config || await loadConfig({ ensure: true });
     const provider = resolveSummaryProvider(request.provider);
-    const model = request.model || getConfiguredModel(config);
     void initializeRuntime();
 
     const maxInteractiveCharacters = Number(config.Interactive?.MaxTranscriptCharacters || 0);
@@ -174,7 +173,6 @@ export class CommandOutputAnalyzer {
       format,
       policyProfile: effectiveProfile,
       provider,
-      model,
       sourceKind: 'command-output',
       commandExitCode: request.exitCode,
       debugCommand: request.commandText,

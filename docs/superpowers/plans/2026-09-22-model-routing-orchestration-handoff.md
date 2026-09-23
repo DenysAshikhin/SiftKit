@@ -1,16 +1,68 @@
 # Model routing and orchestrator handoff
 
-## Pause state
+## Current state (2026-09-23)
 
-The user requested: **after the current repo-agent finishes, pause and provide enough information to continue in a fresh session.** That run has finished. Do not start another task until the user resumes the work.
+The model-routing plan (M1–M7) and the orchestrator plan (O1–O8, including O5b) are implemented and verified. The work is **uncommitted** on `main` on top of `df72a321`. The user said not to use SiftKit, so the primary agent implemented everything directly.
 
-- Repository: `C:/Users/denys/Documents/GitHub/SiftKit`; PowerShell; branch `main`.
-- Latest implementation checkpoint: `afc4dc888fd58c59126b94c67cd32006be61e57c` — **unverified M4-C1 work, not an accepted task**.
-- The worker returned JSON `status: completed`, but its own final report says acceptance remains unresolved. Its last focused test run had **75 tests: 66 passed, 8 failed, 1 cancelled**. It made additional fixes afterward without rebuilding, retesting, or running final typecheck/lint.
-- The primary checked file scope and `git diff --check`, then committed the partial work for a clean continuation baseline. The primary has **not** independently validated or fully reviewed the M4-C1 implementation, including critical drift, at this final revision. No new tests were launched after the user's pause request took effect.
-- No repo-agent from this execution remains active. The completion event listener exited. No next task or correction has been dispatched.
-- Worker run: `52550c50-27c6-41f4-9f1b-9f6b1a155392`; terminal revision 2 at `2026-09-22T17:05:55.502Z`.
-- Engine/transcript run: `bc685cc3-7708-4990-a2cf-91eb56965abe`; 59.8 minutes, 101 turns, no human approval wait.
+**Final tree**
+
+| Check | Result |
+|---|---|
+| `npm run build:test` then `npm test` | 4210 tests: 4206 pass, 0 fail, 4 skipped |
+| `npm run test:dashboard` | 542 of 542 pass |
+| `npm run typecheck` | clean |
+| `npm run lint` | clean |
+
+**Routing (M5–M7)**
+
+- The admitted config is the only model config an engine sees.
+- `--model` strictly selects a configured model preset.
+- Chat journals a `model_admitted` event for each run.
+- Operation presets have a **Model preset** selector.
+- E2E coverage: `tests/preset-model-routing.e2e.test.ts` and `tests/admitted-model-routes.e2e.test.ts`.
+
+**Orchestrator: storage and approvals**
+
+- Contracts: `packages/contracts/src/orchestrator.ts`.
+- Runtime schema upgrades: 76→77 adds the preset, 77→78 adds the run, attempt, and event tables.
+- Durable store: `src/orchestrator/run-store.ts`.
+- `src/status-server/orchestrator-runs.ts` holds:
+  - the server-owned `RepositoryGate` (shared or exclusive, keyed by real path, always taken before model admission)
+  - `OrchestratorRunRegistry` (startup reconcile to `interrupted`, awaited shutdown)
+- Parked approvals no longer hold a model lock:
+  - `ApprovalGate` takes an `ApprovalParkLease`.
+  - `RepoAgentSession` releases the lock on park and re-acquires it on resume, and fails loudly if the model preset changed.
+
+**Orchestrator: run loop** (`src/orchestrator/`)
+
+- `run.ts` is the state machine. Each parent phase acquires and releases its model through `phase-runner.ts`.
+- `workers.ts` starts children through `startRepoWorkerRun` with boundary approval delivery.
+- Separate two-attempt budgets for implementation and drift correction.
+- `verification.ts` runs checks on the host.
+- `workspace.ts` provides the git-status baseline, diff digest, and owned-scratch cleanup.
+- `drift-review.ts` validates evidence.
+- Parent-decided child approvals are pinned by an e2e test: with one slot, the model load order is child B, parent A, child B.
+
+**Orchestrator: surfaces**
+
+- HTTP: `src/status-server/routes/orchestrator.ts`.
+- CLI: `siftkit orchestrator` (`src/cli/orchestrator-args.ts`, `run-orchestrator.ts`).
+- Web:
+  - `dashboard/src/orchestrator-api.ts`, `hooks/useOrchestratorRun.ts`, and `components/OrchestratorRunPanel.tsx`
+  - the chat tab's orchestrator mode
+  - the Settings cap field
+- `/preset/run` rejects orchestrator presets.
+- README has an orchestrator section.
+
+**Deviations and open items** are listed in the orchestrator plan's "Delivery status" section. In short:
+
+- Web uses dedicated routes, not the chat journal.
+- The plan file is not rehashed before each dispatch.
+- There are no fixtures for the drift-review threshold.
+- Per-phase model evidence is missing from aggregate views.
+- Several e2e matrix rows are not covered.
+
+**Unverified:** live two-model GPU switching and live-model orchestrator behavior. All tests use recording runtimes and scripted engines.
 
 ## Read these plans
 
@@ -45,7 +97,7 @@ The continuation document refines the unfinished M4 work. It does not authorize 
 5. After a code-changing step, perform a critical drift review. Correct confirmed issues through repo-agent with actionable bullets; a separate full Markdown correction plan is unnecessary. Each step has a **separate two-attempt correction budget**, shared across findings and re-reviews. Revalidate before dependent work advances.
 6. Per-task commits and clean baselines are this implementation session's workflow, not an added automatic-commit feature of the future orchestrator.
 
-## Completed work and commits
+## Historical: completed work and commits
 
 | Task | Commit | Accepted result |
 |---|---|---|
@@ -59,7 +111,7 @@ The continuation document refines the unfinished M4 work. It does not authorize 
 
 M3 important implementation boundaries: residency derives from actual load/launch inputs and normalized endpoints/effective environment, excludes labels/IDs/samplers/idle timers, and includes parallel-slot capacity. Equivalent metadata changes still reach the runtime without unloading. Missing targets fail before unloading; failed load/rollback clears admission blockers. Conditional config persistence preserves newer saved selection/profile changes. Cancellation suppression at lock grant belongs to M4.
 
-## What the last worker changed
+## Historical: what the M4 worker changed
 
 The checkpoint contains exactly these ten paths:
 
@@ -75,7 +127,7 @@ These are worker-reported behaviors, not a completed primary code review. Valida
 
 The explicit no-coordinator decision is documented in the continuation plan: runtime construction already occurs even when startup is disabled; expose its canonical identity without starting it. Such a server must reject incompatible targets instead of pretending to switch a model. Normal production admission still uses M3's coordinator. Do not duplicate the identity algorithm or substitute an optional compatibility path.
 
-## Validation gaps and known evidence
+## Historical: M4-C1 validation gaps (since resolved; final tree is green)
 
 - Worker turn 97: `npm run build:test; npm test -- model-request-selection model-request-queue model-request-queue-http model-residency-actions routes-model-residency assistant-idle-gate` returned exit 1: **66 pass, 8 fail, 1 cancelled**.
 - Its captured output is truncated even though the worker requested full output. Known named failures include:
@@ -88,7 +140,7 @@ The explicit no-coordinator decision is documented in the continuation plan: run
 - No final M4-C1 primary tests, broader suite, typecheck/lint, full review, or critical drift review has been completed. M4-C2 and M5 must remain gated.
 - Live two-model switching has not been smoke-tested. All accepted task validation used isolated fixtures. Do not exercise the user's live models merely to validate code.
 
-## First actions when the user resumes
+## Historical: first actions from the earlier pause (M4–M7 now done)
 
 1. Read this handoff and the short M4 continuation plan. Check `git status --porcelain=v1` and preserve any newer changes. Checkpoint `afc4dc88` is an unverified baseline, not proof the tree is green.
 2. Independently rebuild and reproduce the focused failures, capturing complete output in the same scratch directory. Start with `npm run build:test`, then the focused command listed above. Also run `npm run typecheck` (it invokes lint). Avoid trusting stale bundles or inferring all failure names from truncated worker output.

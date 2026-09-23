@@ -3,6 +3,7 @@ import { jsonrepair } from 'jsonrepair';
 import { SummaryClassificationSchema } from '../planner-protocol/summary-tools.js';
 import type { StructuredModelDecision } from '../summary/types.js';
 import { getErrorMessage } from './errors.js';
+import type { z } from './zod.js';
 import { JsonRecordReader } from './json-record-reader.js';
 import {
   JsonValueSchema,
@@ -28,6 +29,15 @@ export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
     const parsed = this.parseModelObject(text, 'SiftKit decision').value;
     return this.validateSummaryDecision(parsed);
+  }
+
+  /** A model's typed JSON answer; a repair that invents a missing value is rejected, not accepted. */
+  static parseObject<T>(text: string, schema: z.ZodType<T>, payloadName: string): T {
+    const parsed = this.parseModelObject(text, payloadName);
+    if (parsed.repaired && parsed.synthesizedNull) {
+      throw new Error(`Provider returned an invalid ${payloadName} payload: JSON repair synthesized a missing value.`);
+    }
+    return schema.parse(parsed.value);
   }
 
   static parseToolArguments(value: OptionalJsonValue): JsonObject | null {

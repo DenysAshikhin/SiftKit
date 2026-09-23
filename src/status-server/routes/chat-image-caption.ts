@@ -15,7 +15,6 @@ import {
 import { getActiveModelPreset } from '../../config/getters.js';
 import { readConfig } from '../config-store.js';
 import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
-import { resolveChatSessionConfig } from '../chat.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sendJson } from '../http-utils.js';
 import {
@@ -25,6 +24,7 @@ import {
 } from './chat-session-operation-endpoint.js';
 import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import {
+  ModelRequestTargetError,
   UncancelledModelWaitError,
   acquireWebUiModelRequest,
   releaseModelRequest,
@@ -99,13 +99,16 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
       return { failure: null };
     }
 
+    // A caption is a chat turn: it runs on the model the session's chat preset resolves to.
+    const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(request.session, 'chat');
     let modelRequestLock: ModelRequestLock | null;
     try {
-      modelRequestLock = await acquireWebUiModelRequest(ctx, 'dashboard_image_caption', req, res);
+      modelRequestLock = await acquireWebUiModelRequest(ctx, 'dashboard_image_caption',
+        { presetId: selected.preset.id, model: null }, undefined, req, res);
     } catch (error) {
       // Admission readies the model before granting; a refused target or failed load lands here.
       const message = toError(error).message;
-      sendJson(res, 503, { error: message });
+      sendJson(res, error instanceof ModelRequestTargetError ? 400 : 503, { error: message });
       return { failure: message };
     }
     if (!modelRequestLock) {
@@ -130,20 +133,15 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
       }
 
       try {
-        const config = readConfig(ctx.configPath);
-        const selected = new ChatOperationPresetSelector(config.Presets).select(authoritativeSession, 'chat');
-        const effectiveConfig = resolveChatSessionConfig(config, selected.session);
-        const activePreset = getActiveModelPreset(effectiveConfig);
-        assertPresetAcceptsImages(activePreset, [target.dataUrl]);
+        const { config } = modelRequestLock.context;
+        assertPresetAcceptsImages(getActiveModelPreset(config), [target.dataUrl]);
         const result = await ctx.engineService.executeRepoSearch({
           presetId: selected.preset.id,
           taskKind: 'chat',
-          modelPresetId: selected.session.modelPresetId,
-          modelPreset: selected.session.modelPreset,
           prompt: CAPTION_PROMPT,
           repoRoot: process.cwd(),
           statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-          config: effectiveConfig,
+          config,
           systemPrompt: 'Independently assess the supplied image. Return only the requested caption.',
           history: [],
           thinkingEnabled: false,

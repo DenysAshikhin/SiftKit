@@ -397,8 +397,13 @@ export async function runOne(config: ValidationConfig, workload: Workload, repet
     if (signal.aborted) return unverified(workload, repetition, 'timeout', wall());
     if (error instanceof RunFailure) return unverified(workload, repetition, error.reason, wall());
     if (error instanceof z.ZodError) return unverified(workload, repetition, 'malformed_response', wall());
-    return unverified(workload, repetition, `error:${error instanceof Error ? error.message : String(error)}`, wall());
+    return unverified(workload, repetition, `error:${error instanceof Error ? describeRunError(error) : String(error)}`, wall());
   }
+}
+
+/** fetch reports every transport failure as "fetch failed"; the cause names the real one (e.g. ECONNRESET). */
+function describeRunError(error: Error): string {
+  return error.cause instanceof Error ? `${error.message} (${error.cause.message})` : error.message;
 }
 
 /** Runs every workload sequentially, `repetitions` times, and returns the artifact without writing it. */

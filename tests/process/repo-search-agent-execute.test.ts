@@ -39,7 +39,6 @@ test('repo-agent automatically trims noisy validation run output', async () => {
       prompt: 'run the validation test',
       repoRoot: dir,
       config: MOCK_CONFIG,
-      model: 'mock',
       maxTurns: 4,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],

@@ -18,5 +18,6 @@ export const RunOperationTypeSchema = z.enum([
   'assistant',
   'passthrough',
   'evaluation',
+  'orchestrator',
 ]);
 export type RunOperationType = z.infer<typeof RunOperationTypeSchema>;

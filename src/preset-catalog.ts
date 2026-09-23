@@ -11,7 +11,7 @@ import {
 
 import type { OptionalJsonValue } from './lib/json-types.js';
 
-const BUILTIN_PRESET_IDS = ['summary', 'repo-search', 'chat', 'plan', 'repo-agent'] as const;
+const BUILTIN_PRESET_IDS = ['summary', 'repo-search', 'chat', 'plan', 'repo-agent', 'orchestrator'] as const;
 
 function clonePreset(preset: SiftPreset): SiftPreset {
   return {
@@ -19,6 +19,7 @@ function clonePreset(preset: SiftPreset): SiftPreset {
     allowedTools: [...preset.allowedTools],
     surfaces: [...preset.surfaces],
     autoloadFiles: [...preset.autoloadFiles],
+    orchestrator: preset.orchestrator === null ? null : { ...preset.orchestrator },
   };
 }
 
@@ -42,6 +43,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
+    orchestrator: null,
   },
   {
     id: 'repo-search',
@@ -62,6 +64,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: 45,
     modelPresetId: null,
+    orchestrator: null,
   },
   {
     id: 'chat',
@@ -82,6 +85,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
+    orchestrator: null,
   },
   {
     id: 'plan',
@@ -102,6 +106,7 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: 45,
     modelPresetId: null,
+    orchestrator: null,
   },
   {
     id: 'repo-agent',
@@ -122,6 +127,28 @@ const BUILTIN_PRESETS: readonly SiftPreset[] = [
     repoRootRequired: true,
     maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
     modelPresetId: null,
+    orchestrator: null,
+  },
+  {
+    id: 'orchestrator',
+    label: 'Orchestrator',
+    description: 'Prepares an implementation plan, delegates bounded steps to repo-agent and repo-search workers, and verifies each one.',
+    presetKind: 'orchestrator',
+    operationMode: 'read-only',
+    promptPrefix: '',
+    allowedTools: [...READ_ONLY_PRESET_TOOLS],
+    surfaces: ['cli', 'web'],
+    useForSummary: false,
+    builtin: true,
+    deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
+    assistantMemory: false,
+    autoloadFiles: [],
+    repoRootRequired: true,
+    maxTurns: 45,
+    modelPresetId: null,
+    orchestrator: { maxSubagents: 1 },
   },
 ];
 

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getConfigPath } from '../src/config/index.js';
-import type { SiftConfig } from '../src/config/types.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getChatSessionPath, saveChatSession, type ChatSession } from '../src/state/chat-sessions.js';
 import { getRuntimeRoot } from '../src/status-server/paths.js';
 import { buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
-import { writeConfig } from '../src/status-server/config-store.js';
+import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import { ChatSessionOperationEndpoint, requireChatRunRecorder, type ChatOperationOutcome, type ChatSessionOperationRequest } from '../src/status-server/routes/chat-session-operation-endpoint.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
@@ -22,8 +22,9 @@ class OutcomeProbeEndpoint extends ChatSessionOperationEndpoint<'probe'> {
   protected readonly operationKind = 'message';
   protected readonly clientOwnedOperation = true;
   constructor(private readonly failure: string | null) { super(); }
-  protected describeRun(session: ChatSession, _value: 'probe', config: SiftConfig) {
-    return { content: 'probe', images: [], settings: buildChatRunSettings({ session, config,
+  protected describeRun(ctx: ServerContext, session: ChatSession) {
+    const target = currentModelTarget(readConfig(ctx.configPath));
+    return { content: 'probe', images: [], target, settings: buildChatRunSettings({ session, target,
       operationKind: 'message', presetId: 'chat', repoRoot: session.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }) };
   }
   protected parseRequest(): 'probe' { return 'probe'; }

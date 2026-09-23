@@ -98,16 +98,27 @@ test('applyHostEngineRuntimeSettings leaves the config untouched when this SiftK
   assert.equal(getConfiguredEngineNumCtx(resolved), 150_000);
 });
 
-test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/Model in pass-through mode', async () => {
+test('applyHostEngineRuntimeSettings rejects a host serving a model other than the admitted one', async () => {
+  resetHostEngineSettingsCacheForTests();
+  const hostConfig = makeClientConfig({ externalServer: false, baseUrl: DEAD_BASE_URL, localNumCtx: 75_008 });
+  getActiveModelPreset(hostConfig).Model = 'host-loaded-model.exl3';
+  const host = await startHostConfigServer(hostConfig);
+  try {
+    const config = makeClientConfig({ externalServer: true, baseUrl: host.baseUrl, localNumCtx: 150_000 });
+
+    await assert.rejects(applyHostEngineRuntimeSettings(config), /serves model 'host-loaded-model\.exl3'.*admitted for 'mock-model'/u);
+  } finally {
+    await host.close();
+  }
+});
+
+test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning in pass-through mode', async () => {
   resetHostEngineSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
     baseUrl: DEAD_BASE_URL,
     localNumCtx: 75_008,
   });
-  const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
-  if (!hostPreset) throw new Error('Host model preset is missing');
-  hostPreset.Model = 'host-loaded-model.exl3';
   getActiveModelPreset(hostConfig).Reasoning = 'off';
   const host = await startHostConfigServer(hostConfig);
   try {
@@ -121,8 +132,8 @@ test('applyHostEngineRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/
 
     // The client's stale local NumCtx (150k) is replaced by the host's real 75008.
     assert.equal(getConfiguredEngineNumCtx(resolved), 75_008);
-    // The client's stale local model ('mock-model') is replaced by the host's.
-    assert.equal(getConfiguredModel(resolved), 'host-loaded-model.exl3');
+    // Both serve the admitted model, so it stands.
+    assert.equal(getConfiguredModel(resolved), 'mock-model');
     // The host config is read without booting the host's managed engine.
     assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
 

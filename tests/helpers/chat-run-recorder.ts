@@ -14,6 +14,13 @@ import { createTestChatSession } from './chat-sessions.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import { mockModelPreset } from './mock-config.js';
 import { createManagedTempDir } from './temp-dirs.js';
+import { resolveModelRequestContext, type ModelRequestContext } from '../../src/status-server/model-request-context.js';
+import { getActiveModelPreset } from '../../src/config/getters.js';
+
+/** The target an inheriting operation resolves to under `config`: its active model. */
+export function currentModelTarget(config: SiftConfig): ModelRequestContext {
+  return resolveModelRequestContext(config, getActiveModelPreset(config), { presetId: null, model: null });
+}
 
 export function createTestChatRunRecorder(runtimeRoot: string, session: ChatSession, config: SiftConfig,
   submission: Pick<ChatRunRecorderStart, 'operationKind' | 'content' | 'images' | 'imageMeta'> = {
@@ -27,7 +34,7 @@ export function createTestChatRunRecorder(runtimeRoot: string, session: ChatSess
     userMessageId: randomUUID(), retainedHistoryRevision: 0,
     startedAtUtc: new Date().toISOString(),
     settings: buildChatRunSettings({
-      session, config, operationKind: submission.operationKind, repoRoot: session.planRepoRoot,
+      session, target: currentModelTarget(config), operationKind: submission.operationKind, repoRoot: session.planRepoRoot,
       presetId: settings.presetId ?? session.presetId ?? submission.operationKind,
       approval: settings.approval ?? null, maxTurns: settings.maxTurns ?? null,
       webSearchEnabled: settings.webSearchEnabled ?? session.webSearchEnabled === true,

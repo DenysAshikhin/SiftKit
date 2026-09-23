@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardModelRuntimePreset } from './types.js';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from './types.js';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')
@@ -50,6 +50,11 @@ export function addModelPreset(config: DashboardConfig): string {
   presets.push({ ...activePreset, id: nextId, label: activePreset.label });
   config.Server.ModelPresets.ActivePresetId = nextId;
   return nextId;
+}
+
+/** Operation presets that route to `modelPresetId`; a referenced model preset must not be deleted. */
+export function getModelPresetAssignments(config: DashboardConfig, modelPresetId: string): DashboardPreset[] {
+  return config.Presets.filter((preset) => preset.modelPresetId === modelPresetId);
 }
 
 export function deleteModelPreset(config: DashboardConfig, presetId: string): void {

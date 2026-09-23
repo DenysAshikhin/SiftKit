@@ -33,7 +33,7 @@ test('PresetCatalog.createDefault returns every complete built-in and cloned val
 
   assert.deepEqual(
     first.map((preset) => preset.id),
-    ['summary', 'repo-search', 'chat', 'plan', 'repo-agent'],
+    ['summary', 'repo-search', 'chat', 'plan', 'repo-agent', 'orchestrator'],
   );
   for (const preset of first) {
     assert.equal(preset.builtin, true);
@@ -131,7 +131,7 @@ test('PresetCatalog performs exact lookup, kind validation, filtering, and Chat 
   assert.equal(catalog.requireSummaryDefault().id, 'summary');
   assert.deepEqual(
     catalog.forSurface('web').map((preset) => preset.id),
-    ['repo-search', 'chat', 'plan', 'repo-agent', 'custom-research'],
+    ['repo-search', 'chat', 'plan', 'repo-agent', 'orchestrator', 'custom-research'],
   );
   assert.equal(catalog.deriveChatSessionMode('plan'), 'plan');
   assert.equal(catalog.deriveChatSessionMode('custom-research'), 'repo-search');

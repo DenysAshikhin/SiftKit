@@ -6,8 +6,10 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { asObject, asObjectArray, requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
+import { requestJson, requestSse, type SseResponse } from './helpers/dashboard-http.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
+import type { ModelRequestQueueDiagnostics } from '../src/lib/operation-stream.js';
+import { readStatusModelRequests } from './helpers/model-request-status.js';
 import { readChatStream } from './helpers/chat-stream-views.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
@@ -45,14 +47,8 @@ test('DashboardModelQueueHarness validates options before acquiring process reso
   assert.deepEqual(leftovers, []);
 });
 
-async function readModelRequestDiagnostics(baseUrl: string): Promise<{ activeCount: number; activeKinds: string[]; queueLength: number }> {
-  const response = await requestJson(`${baseUrl}/status`);
-  const modelRequests = asObject(response.body.modelRequests);
-  return {
-    activeCount: Number(modelRequests.activeCount),
-    activeKinds: asObjectArray(modelRequests.activeRequests).map((entry) => String(entry.kind)),
-    queueLength: Number(modelRequests.queueLength),
-  };
+function readActiveKinds(diagnostics: ModelRequestQueueDiagnostics): string[] {
+  return diagnostics.activeRequests.map((entry) => entry.kind);
 }
 
 test('ParallelSlots limits exl3 HTTP admission and queues the second request', async () => {
@@ -64,10 +60,14 @@ test('ParallelSlots limits exl3 HTTP admission and queues the second request', a
     const second = harness.holdModelLock('queued request', 10);
     await harness.waitForQueuedRequest('repo_search');
 
-    const diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
+    const diagnostics = await readStatusModelRequests(harness.getBaseUrl());
     assert.equal(diagnostics.activeCount, 1);
-    assert.deepEqual(diagnostics.activeKinds, ['repo_search']);
+    assert.deepEqual(readActiveKinds(diagnostics), ['repo_search']);
     assert.equal(diagnostics.queueLength, 1);
+    assert.equal(diagnostics.queuedRequests[0]?.waitingReason, 'capacity');
+    assert.deepEqual(diagnostics.queuedRequests[0]?.requested, { presetId: 'repo-search', model: null });
+    assert.equal(diagnostics.activeRequests[0]?.model.modelPresetId, diagnostics.resident.modelPresetId);
+    assert.match(diagnostics.resident.residencyFingerprint ?? '', /^[0-9a-f]{64}$/u);
 
     for (const response of await Promise.all([first, second])) {
       assert.equal(response.statusCode, 200);
@@ -87,9 +87,9 @@ test('ParallelSlots allows two inference requests before queueing the third', as
     const second = harness.holdModelLock('second request', 400);
     await harness.waitForActiveRequests('repo_search', 2);
 
-    const diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
+    const diagnostics = await readStatusModelRequests(harness.getBaseUrl());
     assert.equal(diagnostics.activeCount, 2);
-    assert.deepEqual(diagnostics.activeKinds, ['repo_search', 'repo_search']);
+    assert.deepEqual(readActiveKinds(diagnostics), ['repo_search', 'repo_search']);
     assert.equal(diagnostics.queueLength, 0);
 
     for (const response of await Promise.all([first, second])) {
@@ -111,9 +111,9 @@ test('ParallelSlots is one global FIFO limit across repo-search and dashboard ch
     const chat = harness.startChatStream(sessionId, 'queued chat prompt');
     await harness.waitForQueuedRequest('dashboard_chat_stream');
 
-    const diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
+    const diagnostics = await readStatusModelRequests(harness.getBaseUrl());
     assert.equal(diagnostics.activeCount, 1);
-    assert.deepEqual(diagnostics.activeKinds, ['repo_search']);
+    assert.deepEqual(readActiveKinds(diagnostics), ['repo_search']);
     assert.equal(diagnostics.queueLength, 1);
 
     assert.equal((await repoSearch).statusCode, 200);

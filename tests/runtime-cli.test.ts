@@ -149,7 +149,6 @@ test('unsupported input returns the exact terminal message', async () => {
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, false);

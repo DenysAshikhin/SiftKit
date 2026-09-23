@@ -9,14 +9,11 @@ import {
   buildRepoSearchMarkdown,
   resolveChatSessionModel,
   resolveChatSessionContextWindow,
-  resolveChatSessionConfig,
-  sessionUsesActiveModelPreset,
+  resolveChatPreviewConfig,
 } from '../src/status-server/chat.js';
 import { buildChatSessionResponse } from '../src/status-server/chat-session-response.js';
 import {
   getActiveModelPreset,
-  getConfiguredEngineNumCtx,
-  getConfiguredModel,
   getConfiguredReasoning,
 } from '../src/config/getters.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
@@ -173,113 +170,45 @@ function createSession(): ChatSession {
   });
 }
 
-test('active model preset identity uses current configured inference metadata', () => {
+test('the session preview uses the model its preset resolves to, not its stored snapshot', () => {
   const config = createConfig();
   const preset = getActiveModelPreset(config);
-  preset.Backend = 'exl3';
   preset.Model = 'active-model';
   preset.NumCtx = 150_000;
 
-  const staleSnapshotSession = mockChatSession({
-    id: 'active',
-    modelPresetId: 'default',
-    modelPreset: mockModelPreset({ id: 'default', Model: 'stale-model-snapshot', NumCtx: 30_000 }),
+  const staleSnapshotSession = mockChatSession({ presetId: 'chat',
+    id: 'stale',
+    modelPresetId: 'historical-preset',
+    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'stale-model-snapshot', NumCtx: 30_000 }),
   });
   assert.equal(resolveChatSessionContextWindow(config, staleSnapshotSession), 150_000);
   assert.equal(resolveChatSessionModel(config, staleSnapshotSession), 'active-model');
-  assert.equal(resolveChatSessionConfig(config, staleSnapshotSession), config);
+  assert.equal(getActiveModelPreset(resolveChatPreviewConfig(config, staleSnapshotSession)).id, 'default');
 });
 
-test('inactive model preset identity preserves inference snapshots', () => {
+test('the session preview follows its operation preset model assignment', () => {
   const config = createConfig();
-  getActiveModelPreset(config).Model = 'active-model';
+  config.Server.ModelPresets.Presets.push(mockModelPreset({ id: 'model-b', Model: 'model-b', NumCtx: 30_000, Reasoning: 'off' }));
+  const session = mockChatSession({ presetId: 'chat', id: 'routed' });
+  if (!session.presetId) throw new Error('Expected the chat session to name its preset.');
+  const presetId = session.presetId;
+  config.Presets = config.Presets.map((preset) => preset.id === presetId ? { ...preset, modelPresetId: 'model-b' } : preset);
 
-  const session = mockChatSession({
-    id: 'historical',
-    modelPresetId: 'historical-preset',
-    modelPreset: mockModelPreset({
-      id: 'historical-preset',
-      Backend: 'exl3',
-      Model: 'historical-model',
-      NumCtx: 30_000,
-      Temperature: 0.2,
-    }),
-  });
-  assert.equal(sessionUsesActiveModelPreset(config, session), false);
+  const preview = resolveChatPreviewConfig(config, session);
+
+  assert.equal(getActiveModelPreset(preview).id, 'model-b');
+  assert.equal(getConfiguredReasoning(preview), 'off');
   assert.equal(resolveChatSessionContextWindow(config, session), 30_000);
-  assert.equal(resolveChatSessionModel(config, session), 'historical-model');
-
-  // The snapshot preset becomes the active preset for every request the session drives.
-  const resolved = resolveChatSessionConfig(config, session);
-  assert.equal(getActiveModelPreset(resolved).Temperature, 0.2);
-  assert.equal(getConfiguredModel(resolved), 'historical-model');
-  assert.equal(getConfiguredEngineNumCtx(resolved), 30_000);
+  assert.equal(resolveChatSessionModel(config, session), 'model-b');
+  assert.equal(config.Server.ModelPresets.ActivePresetId, 'default');
 });
 
-// The substituted snapshot must reach the resolved runtime too, or the session would run
-// against the live preset's context window.
-test('a snapshot session runs against its own context window and reasoning mode', () => {
+test('the session preview rejects a resolved model preset without a model', () => {
   const config = createConfig();
-  const session = mockChatSession({
-    id: 'historical-removed-backend',
-    modelPresetId: 'historical-preset',
-    modelPreset: mockModelPreset({
-      id: 'historical-preset',
-      Backend: 'exl3',
-      Model: 'historical-model',
-      NumCtx: 30_000,
-      Reasoning: 'off',
-    }),
-  });
-
-  const resolved = resolveChatSessionConfig(config, session);
-
-  assert.equal(getConfiguredEngineNumCtx(resolved), 30_000);
-  assert.equal(getConfiguredReasoning(resolved), 'off');
-  assert.equal(resolveChatSessionContextWindow(config, session), getConfiguredEngineNumCtx(resolved));
-});
-
-test('substituting a snapshot preset keeps the other presets resolvable', () => {
-  const config = createConfig();
-  config.Server.ModelPresets.Presets.push(mockModelPreset({ id: 'second', Model: 'second-model' }));
-  const session = mockChatSession({
-    id: 'historical-sibling',
-    modelPresetId: 'historical-preset',
-    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }),
-  });
-
-  const resolved = resolveChatSessionConfig(config, session);
-
-  assert.equal(resolved.Server.ModelPresets.Presets.length, 2);
-  assert.equal(resolved.Server.ModelPresets.Presets[1]?.Model, 'second-model');
-  assert.equal(getActiveModelPreset(resolved).id, 'default');
-});
-
-test('inactive model preset identity rejects an invalid context snapshot', () => {
-  const config = createConfig();
-  const preset = getActiveModelPreset(config);
-  preset.Backend = 'exl3';
-  preset.NumCtx = 150_000;
-
+  getActiveModelPreset(config).Model = null;
   assert.throws(
-    () => resolveChatSessionContextWindow(config, mockChatSession({
-      id: 'invalid',
-      modelPresetId: 'historical-preset',
-      modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 0 }),
-    })),
-    /Chat session invalid has an invalid context window snapshot\./u,
-  );
-});
-
-test('inactive model preset identity rejects a missing model snapshot', () => {
-  const config = createConfig();
-  assert.throws(
-    () => resolveChatSessionModel(config, mockChatSession({
-      id: 'missing-model',
-      modelPresetId: 'historical-preset',
-      modelPreset: mockModelPreset({ id: 'historical-preset', Model: null, NumCtx: 30_000 }),
-    })),
-    /Chat session missing-model has an invalid model snapshot\./u,
+    () => resolveChatSessionModel(config, mockChatSession({ presetId: 'chat', id: 'missing-model' })),
+    /Chat session missing-model resolves to a model preset without a model\./u,
   );
 });
 
@@ -291,7 +220,7 @@ test('buildContextUsage uses the resolved active-model context', () => {
   preset.NumCtx = 150_000;
   preset.VisionMaxImagePixels = 500_000;
 
-  const usage = buildContextUsage(config, mockChatSession({
+  const usage = buildContextUsage(config, mockChatSession({ presetId: 'chat',
     id: 'usage',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'stale-model', NumCtx: 30_000 }),
@@ -438,7 +367,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
 
 test('buildContextUsage sums stored session token fields instead of provider prompt telemetry', () => {
   const session: ChatSession = {
-    id: 'session-usage',
+    id: 'session-usage', presetId: 'chat',
     title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 75000 }),
@@ -489,7 +418,7 @@ test('buildContextUsage sums stored session token fields instead of provider pro
 });
 
 test('buildContextUsage sums stored thinking and tool token fields', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 'session-usage-typed',
     modelPreset: mockModelPreset({ id: 'default', Model: 'managed-exl3', NumCtx: 75000 }),
     messages: [
@@ -528,7 +457,7 @@ test('buildContextUsage sums stored thinking and tool token fields', () => {
 });
 
 test('buildChatHistoryMessages replays user answers and tool calls in persisted order', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'What did the page say?' },
@@ -569,7 +498,7 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
 });
 
 test('buildChatHistoryMessages excludes stopped-stream display rows and stopped tools', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'Inspect it.' },
@@ -595,7 +524,7 @@ test('buildChatHistoryMessages excludes stopped-stream display rows and stopped 
 });
 
 test('buildRetainedWebToolCalls excludes stopped tools', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [{
       id: 'tool-running',
@@ -612,7 +541,7 @@ test('buildRetainedWebToolCalls excludes stopped tools', () => {
 });
 
 test('buildChatHistoryMessages composes the removal notice from the stored count', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'compare these', removedImageCount: 2 },
@@ -630,7 +559,7 @@ test('buildChatHistoryMessages composes the removal notice from the stored count
 
 test('buildChatHistoryMessages carries the removal notice into a tool image replay', () => {
   const imageUrl = 'data:image/png;base64,AA==';
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [
       {
@@ -657,7 +586,7 @@ test('buildChatHistoryMessages carries the removal notice into a tool image repl
 });
 
 test('buildChatHistoryMessages replays persisted repo tool calls with real protocol names', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     messages: [
       {
@@ -695,10 +624,11 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
 
 test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
   const session: ChatSession = {
-    id: 'session-replay-usage',
+    id: 'session-replay-usage', presetId: 'chat',
     title: 'Test session', createdAtUtc: '2026-01-01T00:00:00.000Z', updatedAtUtc: '2026-01-01T00:00:00.000Z',
     modelPresetId: 'historical-preset',
-    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 250_000 }),
+    // The stored snapshot's window is historical; usage measures against the model the next run resolves to.
+    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }),
     planRepoRoot: 'C:/repo',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
@@ -714,7 +644,9 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     ],
   };
 
-  const usage = buildContextUsage(createConfig(), session, null);
+  const config = createConfig();
+  getActiveModelPreset(config).NumCtx = 250_000;
+  const usage = buildContextUsage(config, session, null);
 
   assert.equal(usage.chatUsedTokens, estimateTokenCount('general, coder friendly assistant') + 161239 + 42073 + 2048);
   assert.equal(usage.toolUsedTokens, 42073);
@@ -724,7 +656,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
 });
 
 test('buildContextUsage excludes every compressed message cost and counts the active summary plus live turn', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     ...createSession(),
     messages: [
       {
@@ -778,7 +710,7 @@ test('buildContextUsage excludes every compressed message cost and counts the ac
 });
 
 test('buildChatHistoryMessages replays retained thinking when preserve thinking is enabled', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     thinkingEnabled: true,
     messages: [
@@ -824,7 +756,7 @@ test('buildChatHistoryMessages replays retained thinking when preserve thinking 
 });
 
 test('buildChatHistoryMessages omits retained thinking when preserve thinking is disabled', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 's1',
     thinkingEnabled: true,
     messages: [
@@ -854,7 +786,7 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
 });
 
 test('buildRetainedWebToolCalls extracts command result state from undeleted web calls', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 'session-retained-web',
     messages: [
       {
@@ -895,7 +827,7 @@ test('buildRetainedWebToolCalls extracts command result state from undeleted web
 });
 
 test('buildRetainedWebToolCalls ignores deleted tool messages because they are absent from the session', () => {
-  const session = mockChatSession({
+  const session = mockChatSession({ presetId: 'chat',
     id: 'session-retained-web-deleted',
     messages: [
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer' },
@@ -906,7 +838,7 @@ test('buildRetainedWebToolCalls ignores deleted tool messages because they are a
 });
 
 test('buildChatSystemContent returns the default chat system prompt', () => {
-  const content = buildChatSystemContent(createConfig(), mockChatSession({ id: 's', messages: [] }));
+  const content = buildChatSystemContent(createConfig(), mockChatSession({ presetId: 'chat', id: 's', messages: [] }));
   assert.match(content, /coder friendly assistant/);
 });
 
@@ -924,7 +856,7 @@ test('buildContextUsage counts persisted image tokens', () => {
   };
   const session = createSession();
   const withoutImages = buildContextUsage(config, mockChatSession({ ...session, messages: [baseMessage] }), null);
-  const withImages = buildContextUsage(config, mockChatSession({
+  const withImages = buildContextUsage(config, mockChatSession({ presetId: 'chat',
     ...session,
     messages: [{
       ...baseMessage,

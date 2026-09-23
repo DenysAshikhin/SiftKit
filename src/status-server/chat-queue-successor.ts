@@ -11,8 +11,7 @@ import type { ChatQueuedMessage } from '../state/chat-message-queue.js';
 import { getRuntimeRoot } from './paths.js';
 import type { ServerContext } from './server-types.js';
 import type { ChatSessionOperation } from './chat-session-operation-registry.js';
-import { StreamChatMessageEndpoint, StreamChatRepoOperationEndpoint, admitSelectedChatImages } from './routes/chat.js';
-import { readConfig } from './config-store.js';
+import { StreamChatMessageEndpoint, StreamChatRepoOperationEndpoint, validateQueuedChatImages } from './routes/chat.js';
 import { StreamChatRepoAgentEndpoint } from './routes/chat-repo-agent.js';
 import { awaitRepoSearchRunPersistence } from '../repo-search/execute.js';
 
@@ -46,8 +45,7 @@ export class ChatQueueSuccessorRunner {
     const sessionPath = getChatSessionPath(getRuntimeRoot(), sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) throw new Error('Chat session not found.');
-    const config = readConfig(this.ctx.configPath);
-    for (const message of queuedMessages) admitSelectedChatImages(config, session, message.images);
+    for (const message of queuedMessages) validateQueuedChatImages(this.ctx, session, message.options.operationKind, message.images);
     const acquired = this.ctx.chatSessionOperations.acquire(sessionId, first.options.operationKind, force.successorOperationId, Date.now());
     if (acquired.kind !== 'acquired') throw new Error('Chat session has a competing operation.');
     const lease = acquired.lease;

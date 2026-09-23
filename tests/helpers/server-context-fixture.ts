@@ -20,6 +20,8 @@ import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
 import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
 import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
+import { OrchestratorRunStore } from '../../src/orchestrator/run-store.js';
+import { OrchestratorRunRegistry } from '../../src/status-server/orchestrator-runs.js';
 import { AssistantRateLimiter } from '../../src/status-server/assistant-rate-limiter.js';
 
 /**
@@ -33,6 +35,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
   const chatSessionOperations = new ChatSessionOperationRegistry();
   const runtimeDatabasePath = path.join(root, 'runtime.sqlite');
   const runtimeDatabase = getRuntimeDatabase(runtimeDatabasePath);
+  const orchestratorRunStore = new OrchestratorRunStore(runtimeDatabase);
   return {
     configPath,
     statusPath: path.join(root, 'status.txt'),
@@ -49,6 +52,8 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     chatRuntimeOwner: new ChatRuntimeOwner(runtimeDatabase, 'test-owner', 1),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
+    orchestratorRunStore,
+    orchestratorRuns: new OrchestratorRunRegistry(orchestratorRunStore),
     server: null,
     getServiceBaseUrl(): string {
       return 'http://127.0.0.1:0';

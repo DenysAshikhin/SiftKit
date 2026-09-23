@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -41,7 +42,7 @@ function begin(sessionId: string, userMessageId = randomUUID(), images: string[]
   return ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId, ownerEpoch: `${owner.owner_id}:${owner.epoch}`, operationKind: 'repo-agent',
     userMessageId, content: 'accepted prompt', images, imageMeta, retainedHistoryRevision: 0,
-    startedAtUtc: new Date().toISOString(), settings: buildChatRunSettings({ session, config: readConfig(getConfigPath()),
+    startedAtUtc: new Date().toISOString(), settings: buildChatRunSettings({ session, target: currentModelTarget(readConfig(getConfigPath())),
       operationKind: 'repo-agent', presetId: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'interactive', maxTurns: 20, webSearchEnabled: false }),
   });
 }
@@ -68,7 +69,7 @@ test('the real subscriber and dashboard assembler reject an image-bearing transf
   const recorder = ChatRunRecorder.begin(context.runtimeDatabase, {
     operationId, sessionId: session.id, ownerEpoch: context.chatRunOwnerEpoch, operationKind: 'repo-agent',
     userMessageId, content: 'image prompt', images: [image], imageMeta: [imageMeta], retainedHistoryRevision: 0,
-    startedAtUtc: session.createdAtUtc, settings: buildChatRunSettings({ session, config: getDefaultConfig(),
+    startedAtUtc: session.createdAtUtc, settings: buildChatRunSettings({ session, target: currentModelTarget(getDefaultConfig()),
       operationKind: 'repo-agent', presetId: 'repo-agent', repoRoot: session.planRepoRoot, approval: 'off', maxTurns: 20, webSearchEnabled: false }),
   });
   lease.recorder = recorder;

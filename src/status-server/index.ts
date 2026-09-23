@@ -52,6 +52,8 @@ import { ChatRuntimeOwner, CHAT_OWNER_HEARTBEAT_MS, CHAT_OWNER_HEARTBEAT_LATE_MS
 import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
 import { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import { RepoAgentSessionManager } from './repo-agent-sessions.js';
+import { OrchestratorRunStore } from '../orchestrator/run-store.js';
+import { OrchestratorRunRegistry } from './orchestrator-runs.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import { SHUTDOWN_PERSISTENCE_TIMEOUT_MS } from './shutdown-budget.js';
@@ -257,6 +259,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const runtimeDatabasePath = getRuntimeDatabasePath();
   const runtimeDatabase = getRuntimeDatabase(runtimeDatabasePath);
   const chatRuntimeOwner = ChatRuntimeOwner.acquire(runtimeDatabase, randomUUID());
+  const orchestratorRunStore = new OrchestratorRunStore(runtimeDatabase);
+  const orchestratorRuns = new OrchestratorRunRegistry(orchestratorRunStore);
+  orchestratorRuns.reconcileOnStartup();
   const inferenceRunFlushQueue = new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) });
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
@@ -273,6 +278,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     gpuMemoryProbe: options.gpuMemoryProbe ?? new NvidiaSmiGpuMemoryProbe(),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
+    orchestratorRunStore,
+    orchestratorRuns,
     runtimeDatabasePath,
     runtimeDatabase,
     chatSessionRecovery: new ChatSessionRecoveryCache(runtimeDatabase),
@@ -497,6 +504,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       return server;
     }
     closeRequested = true;
+    // Stop scheduling and abort owned children first; the close handler awaits their settlement.
+    void orchestratorRuns.shutdown().catch(() => {});
     ctx.modelIdleController?.cancelForPresetChange();
     void presetRuntimeCoordinator.shutdown().catch((error) => {
       process.stderr.write(`[siftKitStatus] Failed to stop inference runtime: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -559,6 +568,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     void (async () => {
       let failure: Error | null = null;
       try {
+        await orchestratorRuns.shutdown();
         await server.waitForRequestsIdle();
         await ctx.inferenceRunFlushQueue.drainForShutdown(SHUTDOWN_PERSISTENCE_TIMEOUT_MS);
         await flushTerminalMetadataForShutdown(ctx, SHUTDOWN_PERSISTENCE_TIMEOUT_MS);

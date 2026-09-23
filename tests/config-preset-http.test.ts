@@ -16,7 +16,7 @@ test('config HTTP boundary creates defaults once and rejects invalid persisted c
     assert.equal(initial.statusCode, 200);
     assert.deepEqual(
       asObjectArray(initial.body.Presets).map((preset) => preset.id),
-      ['summary', 'repo-search', 'chat', 'plan', 'repo-agent'],
+      ['summary', 'repo-search', 'chat', 'plan', 'repo-agent', 'orchestrator'],
     );
 
     const missingBuiltin = structuredClone(initial.body);

@@ -9,8 +9,7 @@ import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import type { ChatQueueSubscriber } from '../chat-message-queue.js';
-import { admitSelectedChatImages } from './chat.js';
-import { readConfig } from '../config-store.js';
+import { validateQueuedChatImages } from './chat.js';
 import { z } from '../../lib/zod.js';
 
 function readQueueSessionId(match: RouteMatch, res: ServerResponse): string | null {
@@ -69,10 +68,9 @@ export class ChatMessageQueueEndpoint implements RouteEndpoint {
           sendJson(res, 409, { error: 'Queued messages must use the current operation mode.', queue: owner.state(sessionId) });
           return;
         }
-        let images;
-        try { images = admitSelectedChatImages(readConfig(ctx.configPath), session, parsed.data.images).images; }
+        try { validateQueuedChatImages(ctx, session, parsed.data.options.operationKind, parsed.data.images); }
         catch (error) { sendJson(res, 400, { error: toError(error).message }); return; }
-        kind = owner.store.enqueue(sessionId, { ...parsed.data, images }).kind;
+        kind = owner.store.enqueue(sessionId, parsed.data).kind;
         afterOperationId = parsed.data.afterOperationId;
       } else {
         const parsed = ChatQueueEditRequestSchema.safeParse(body);

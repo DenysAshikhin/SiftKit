@@ -7,8 +7,10 @@ export type EvalRequest = {
   FixtureRoot?: string;
   RealLogPath?: string[];
   Provider?: SummaryProviderId;
-  Model?: string;
 };
+
+/** The `/eval/run` wire request: the CLI model argument is resolved to a configured profile at admission. */
+export type EvalApiRequest = EvalRequest & { Model?: string };
 
 export const EvalCaseResultSchema = z.object({
   Name: z.string(),

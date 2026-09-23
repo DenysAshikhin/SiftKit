@@ -165,6 +165,19 @@ test('malformed or missing usage never yields a rate', async () => {
   });
 });
 
+test('a transport failure keeps its underlying cause in the unverified reason', async () => {
+  const server = http.createServer((req) => { req.socket.destroy(); });
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+  try {
+    const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+    const artifact = await runValidation(config({ serverBaseUrl: baseUrl, tabbyBaseUrl: baseUrl }));
+    assert.equal(artifact.runs[0]?.status, 'unverified');
+    assert.match(artifact.runs[0]?.reason ?? '', /^error:fetch failed \(.+\)$/u);
+  } finally {
+    await closeHttpServer(server);
+  }
+});
+
 test('a SiftKit chat run compares the published answer rates with the persisted backend reference', async () => {
   const fold = readTabbyThroughput({ usage: buildTabbyUsage({ promptTokens: 3365, completionTokens: 754, promptTime: 3.88, completionTime: 35.07 }) });
   const answer = { throughput: fold, promptTokensPerSecond: 3365 / 3.88, generationTokensPerSecond: 16.5198, promptCacheTokens: 0 };

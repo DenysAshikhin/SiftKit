@@ -7,6 +7,7 @@ import { ChatMessageQueueEndpoint,ChatMessageQueueForceEndpoint,ChatMessageQueue
  */
 import {
 StopChatOperationRequestSchema,
+type ChatQueueOperationKind,
 type ChatSessionsResponse,
 type ImageMetadata,
 } from '@siftkit/contracts';
@@ -14,7 +15,6 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import {
-applyHostEngineRuntimeSettings,
 getActiveModelPreset,
 getConfiguredReasoning,
 notifyStatusBackend,
@@ -67,9 +67,10 @@ import {
 buildChatSystemContent,
 buildRetainedWebToolCalls,
 condenseChatSession,
-resolveChatSessionConfig
 } from '../chat.js';
 import { readConfig } from '../config-store.js';
+import { getConfiguredEngineNumCtx } from '../../config/getters.js';
+import { applyHostEngineRuntimeSettings } from '../../config/host-sync.js';
 import {
 removeDashboardRunCommandFromLogs,
 type RepoSearchProgressEvent,
@@ -90,10 +91,12 @@ import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js'
 import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.js';
 import { createServerJsonLogger,serverLogger } from '../server-logger.js';
 import {
+ModelRequestTargetError,
 UncancelledModelWaitError,
 acquireWebUiModelRequest,
 releaseModelRequest,
 } from '../server-ops.js';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
 import type { ModelRequestLock,ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
@@ -113,14 +116,9 @@ import {
 ChatRepoRootOperationEndpoint,
 ChatSessionOperationEndpoint,
 parseChatMessageOperationRequest,
-parseChatRepoOperationRequest,requireChatRunRecorder,requireQuestionGate,type ChatSessionOperationRequest,
+parseChatRepoOperationRequest,previewChatOperationTarget,requireChatRunRecorder,requireQuestionGate,type ChatSessionOperationRequest,
 type ResolvedChatRepoRequest
 } from './chat-session-operation-endpoint.js';
-
-async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
-  const localConfig = readConfig(configPath);
-  return await applyHostEngineRuntimeSettings(localConfig);
-}
 
 function normalizeChatGroundingStatus(value: ChatGroundingStatus | null | undefined): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
@@ -134,19 +132,32 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
 }
 
 
-export function admitSelectedChatImages(
+/** Admits images against the model `config` executes on: an operation's admitted snapshot, or a preview target. */
+export function admitChatImagesForConfig(
   config: SiftConfig,
-  session: ChatSession,
   requestedImages: string[],
-): { effectiveConfig: SiftConfig; images: string[]; imageMeta: ImageMetadata[] } {
-  const effectiveConfig = resolveChatSessionConfig(config, session);
-  const activePreset = getActiveModelPreset(effectiveConfig);
-  const admitted = admitImagesForPreset(activePreset, requestedImages);
+): { images: string[]; imageMeta: ImageMetadata[] } {
+  const admitted = admitImagesForPreset(getActiveModelPreset(config), requestedImages);
   return {
-    effectiveConfig,
     images: admitted.map((image) => image.dataUrl),
     imageMeta: admitted.map((image) => image.metadata),
   };
+}
+
+/**
+ * Checks queued images against the model their operation resolves to now. They are stored unmodified:
+ * delivery admits them against the model the delivering run was actually admitted on.
+ */
+export function validateQueuedChatImages(ctx: ServerContext, session: ChatSession, operationKind: ChatQueueOperationKind,
+  images: string[]): void {
+  const operation = operationKind === 'message' ? 'chat' : operationKind;
+  const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, operation);
+  admitChatImagesForConfig(previewChatOperationTarget(ctx, selected.preset.id).config, images);
+}
+
+/** The operation preset the run was submitted under decides its model at admission. */
+function chatRunIntent(recorder: ChatRunRecorder): ModelRequestIntent {
+  return { presetId: recorder.settings.presetId, model: null };
 }
 
 export function formatChatEngineError(error: Error | string): string {
@@ -236,6 +247,11 @@ type OpenedChatOperationStream = {
   activeSession: ChatSession;
 };
 
+/** The granted model is journaled before any engine work, so every run names the model it executed on. */
+function journalChatAdmission(recorder: ChatRunRecorder, lock: ModelRequestLock): void {
+  recorder.recordModelAdmitted(lock.context.modelPreset, getConfiguredEngineNumCtx(lock.context.config));
+}
+
 /** Admission readies the model before granting, so a refused target or failed load answers 503 here. */
 async function acquireChatModelRequest(
   ctx: ServerContext,
@@ -247,13 +263,16 @@ async function acquireChatModelRequest(
   const recorder = requireChatRunRecorder(request);
   let lock: ModelRequestLock | null;
   try {
-    lock = await acquireWebUiModelRequest(ctx, lockKind, req, res, recorder.abortSignal);
+    lock = await acquireWebUiModelRequest(ctx, lockKind, chatRunIntent(recorder), recorder.abortSignal, req, res);
   } catch (error) {
     const message = toError(error).message;
-    sendJson(res, 503, { error: message });
+    sendJson(res, error instanceof ModelRequestTargetError ? 400 : 503, { error: message });
     return { failure: message };
   }
-  if (lock) return lock;
+  if (lock) {
+    journalChatAdmission(recorder, lock);
+    return lock;
+  }
   // The run record settles Stop, deletion, and a closed client as cancellations.
   if (recorder.stopRequested || recorder.sessionDeleted || res.destroyed) return { failure: null };
   throwIfAborted(recorder.abortSignal);
@@ -284,9 +303,9 @@ async function openChatOperationStream<TParsed extends { content: string; images
   const recorder = requireChatRunRecorder(request);
   let modelRequestLock: ModelRequestLock | null;
   try {
-    modelRequestLock = await acquireWebUiModelRequest(ctx, lockKind, undefined, undefined, recorder.abortSignal);
+    modelRequestLock = await acquireWebUiModelRequest(ctx, lockKind, chatRunIntent(recorder), recorder.abortSignal);
   } catch (error) {
-    return fail(503, toError(error).message);
+    return fail(error instanceof ModelRequestTargetError ? 400 : 503, toError(error).message);
   }
   if (!modelRequestLock) {
     if (recorder.stopRequested || recorder.sessionDeleted) return { failure: null };
@@ -295,6 +314,7 @@ async function openChatOperationStream<TParsed extends { content: string; images
     fail(503, defect.message);
     throw defect;
   }
+  journalChatAdmission(recorder, modelRequestLock);
   const activeSession = readChatSessionFromPath(request.sessionPath);
   if (!activeSession) {
     releaseModelRequest(ctx, modelRequestLock.token);
@@ -313,7 +333,8 @@ async function openChatOperationStream<TParsed extends { content: string; images
 }
 
 /** Runs one message operation without owning an HTTP request, so Force now can reuse the same
- * engine, transcript, persistence, and queue-delivery path as the attached stream. */
+ * engine, transcript, persistence, and queue-delivery path as the attached stream. `config` is the
+ * admitted snapshot: images, prompt, and engine all run on its model. */
 async function runChatEngineTurn(options: {
   ctx: ServerContext;
   config: SiftConfig;
@@ -335,7 +356,7 @@ async function runChatEngineTurn(options: {
   const abortSignal = options.abortSignal ? AbortSignal.any([options.abortSignal, options.recorder.abortSignal]) : options.recorder.abortSignal;
   throwIfAborted(abortSignal);
   const selected = new ChatOperationPresetSelector(config.Presets).select(options.session, 'chat');
-  const selectedImages = admitSelectedChatImages(config, selected.session, options.images);
+  const selectedImages = admitChatImagesForConfig(config, options.images);
   const memory = new ChatMemorySeam(options.ctx.assistant);
   const memoryContext = await memory.buildMemoryContext(selected.preset, options.content);
   throwIfAborted(abortSignal);
@@ -344,7 +365,6 @@ async function runChatEngineTurn(options: {
   const settings = options.recorder.settings;
   const webEnabled = settings.webSearchEnabled;
   const mockResponses = readRouteMockResponses(reader, 'mockResponses');
-  const effectiveConfig = selectedImages.effectiveConfig;
   options.recorder.bindEngine({ requestId: options.requestId, repoAgentSessionId: null });
   const result = await options.ctx.engineService.executeRepoSearch({
     evidenceRecorder: options.recorder,
@@ -352,14 +372,12 @@ async function runChatEngineTurn(options: {
     presetId: selected.preset.id,
     requestId: options.requestId,
     taskKind: 'chat',
-    modelPresetId: selected.session.modelPresetId,
-    modelPreset: selected.session.modelPreset,
     prompt: options.content,
     repoRoot: process.cwd(),
     statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
-    config: effectiveConfig,
+    config,
     systemPrompt: buildChatSystemContent(
-      effectiveConfig,
+      config,
       selected.session,
       memoryContext.length === 0 ? {} : { memoryContext },
     ),
@@ -390,7 +408,7 @@ async function runChatEngineTurn(options: {
       operationId: result.scorecard.runId,
       requestId: result.requestId,
       model: result.scorecard.model,
-      presetId: selected.session.modelPresetId,
+      presetId: options.recorder.admittedModel.id,
     }),
     ...phaseTimestamps,
     requestDurationMs: Date.now() - options.startedAtMs,
@@ -399,7 +417,7 @@ async function runChatEngineTurn(options: {
   auditCompletedChatSessionThroughput(updatedSession, {
     requestId: result.requestId,
     model: result.scorecard.model,
-    presetId: selected.session.modelPresetId,
+    presetId: options.recorder.admittedModel.id,
   });
   ingestAssistantMemoryTurn(memory, selected.preset, selected.session.id, phaseTimestamps.requestStartedAtUtc ?? new Date().toISOString(), updatedSession.messages ?? []);
   return { updatedSession, failure };
@@ -431,7 +449,6 @@ class GetChatSessionEndpoint implements RouteEndpoint {
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     let session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
@@ -442,7 +459,7 @@ class GetChatSessionEndpoint implements RouteEndpoint {
     const recovery = ctx.chatSessionRecovery.forSession(sessionId);
     session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     if (!session) throw new Error('Chat session disappeared during synchronous reconciliation.');
-    const config = readConfig(configPath);
+    const config = readConfig(ctx.configPath);
     sendJson(res, 200, buildChatSessionResponse(config, runtimeRoot, session, recovery));
     return;
   }
@@ -456,7 +473,6 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
@@ -492,7 +508,7 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
     if (updateRequest.webSearchEnabled !== undefined) {
       updated.webSearchEnabled = updateRequest.webSearchEnabled;
     }
-    const currentConfig = readConfig(configPath);
+    const currentConfig = readConfig(ctx.configPath);
     const presets = PresetCatalog.fromPresets(currentConfig.Presets);
     if (updateRequest.presetId) {
       try {
@@ -546,7 +562,6 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const match = /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u.exec(pathname);
     const sessionId = decodeURIComponent(match?.[1] || '');
@@ -568,7 +583,7 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
     }
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
     ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), runtimeRoot, session));
+    sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), runtimeRoot, session));
     return;
   }
 }
@@ -580,7 +595,6 @@ class DeleteChatMessageImageEndpoint implements RouteEndpoint {
     res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const match = /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)\/images\/([0-9]+)$/u
       .exec(routeMatch.pathname);
@@ -604,7 +618,7 @@ class DeleteChatMessageImageEndpoint implements RouteEndpoint {
       return;
     }
     ctx.chatSessionOperations.getBroadcast(sessionId)?.notifyHistoryRevised();
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), runtimeRoot, session));
+    sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), runtimeRoot, session));
   }
 }
 
@@ -615,7 +629,6 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
@@ -631,12 +644,16 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       return;
     }
     const now = new Date().toISOString();
-    const currentConfig = await readEffectiveChatRouteConfig(configPath);
+    const currentConfig = readConfig(ctx.configPath);
     const presets = PresetCatalog.fromPresets(currentConfig.Presets);
-    const activePreset = getActiveModelPreset(currentConfig);
     let preset: SiftPreset;
+    let previewConfig: SiftConfig;
+    let responseConfig: SiftConfig;
     try {
       preset = presets.requireById(createRequest.presetId);
+      // A new session previews the model its preset resolves to now, as a pass-through host reports it.
+      previewConfig = await applyHostEngineRuntimeSettings(previewChatOperationTarget(ctx, preset.id).config);
+      responseConfig = await applyHostEngineRuntimeSettings(currentConfig);
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       return;
@@ -644,9 +661,9 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     const session: ChatSession = {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
-      modelPresetId: activePreset.id,
-      modelPreset: activePreset,
-      thinkingEnabled: getConfiguredReasoning(currentConfig) !== 'off',
+      modelPresetId: getActiveModelPreset(previewConfig).id,
+      modelPreset: getActiveModelPreset(previewConfig),
+      thinkingEnabled: getConfiguredReasoning(previewConfig) !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
       presetId: preset.id,
       mode: presets.deriveChatSessionMode(preset.id),
@@ -656,7 +673,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       messages: [],
     };
     saveChatSessionMetadata(runtimeRoot, session);
-    sendJson(res, 200, buildChatSessionResponse(currentConfig, runtimeRoot, session));
+    sendJson(res, 200, buildChatSessionResponse(responseConfig, runtimeRoot, session));
     return;
   }
 }
@@ -723,7 +740,7 @@ class ChatMessageTurn {
         session: this.session, content: this.userContent, images: this.userImages, requestId: this.requestId,
         progressWriter: progress, operationProgressWriter: progress, parsedBody: this.parsedBody, startedAtMs: this.startedAt,
         queueDelivery: this.ctx.chatMessageQueue.createDelivery({ recorder: this.recorder, sessionId: this.session.id,
-          requestId: this.requestId, operationKind: 'message', modelPreset: this.session.modelPreset }),
+          requestId: this.requestId, operationKind: 'message' }),
       });
       this.respond(updatedSession);
       return { failure };
@@ -786,21 +803,23 @@ class ChatMessageTurn {
  * (falling back to the preset's), and the web override applied to the session default.
  */
 function describeChatMessageRun(
+  ctx: ServerContext,
   session: ChatSession,
   value: ChatMessageRequest,
-  config: SiftConfig,
   webToolsAllowed: boolean,
 ): ChatRunSubmission {
-  const selected = new ChatOperationPresetSelector(config.Presets).select(session, 'chat');
+  const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, 'chat');
+  const target = previewChatOperationTarget(ctx, selected.preset.id);
   const webSearchEnabled = webToolsAllowed && (value.webSearchOverride === 'on'
     ? true
     : value.webSearchOverride === 'off'
       ? false
       : selected.session.webSearchEnabled === true);
   return {
+    target,
     settings: buildChatRunSettings({
       session: selected.session,
-      config,
+      target,
       operationKind: 'message',
       presetId: selected.preset.id,
       repoRoot: session.planRepoRoot,
@@ -816,12 +835,8 @@ function describeChatMessageRun(
 class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
 
-  protected describeRun(
-    session: ChatSession,
-    value: ChatMessageRequest,
-    config: SiftConfig,
-  ): ChatRunSubmission {
-    return describeChatMessageRun(session, value, config, false);
+  protected describeRun(ctx: ServerContext, session: ChatSession, value: ChatMessageRequest): ChatRunSubmission {
+    return describeChatMessageRun(ctx, session, value, false);
   }
 
   protected parseRequest(
@@ -838,62 +853,55 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     res: ServerResponse,
     request: ChatSessionOperationRequest<ChatMessageRequest>,
   ): Promise<ChatOperationOutcome> {
-    const { configPath } = ctx;
-    const runtimeRoot = getRuntimeRoot();
     const messageRequest = request.value;
     const providedAssistantContent = messageRequest.assistantContent || '';
+    // Client-supplied assistant content makes no model call, so it neither queues nor loads a model.
+    if (providedAssistantContent) {
+      const turn = this.openTurn(ctx, res, request, request.session, readConfig(ctx.configPath));
+      return 'failure' in turn ? turn : await turn.runProvidedAssistantTurn(providedAssistantContent);
+    }
     const modelRequestLock = await acquireChatModelRequest(ctx, 'dashboard_chat', req, res, request);
     if ('failure' in modelRequestLock) return modelRequestLock;
-    const activeSession = readChatSessionFromPath(request.sessionPath);
-    if (!activeSession) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      sendJson(res, 404, { error: 'Session not found.' });
-      return { failure: 'Session not found.' };
-    }
     try {
-      const config = readConfig(configPath);
-      let selected: SelectedChatOperationPreset;
-      try {
-        selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
-      } catch (error) {
-        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
-        return { failure: toError(error).message };
+      const activeSession = readChatSessionFromPath(request.sessionPath);
+      if (!activeSession) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return { failure: 'Session not found.' };
       }
-      const selectedImages = admitSelectedChatImages(config, selected.session, messageRequest.images);
-      saveChatSessionMetadata(runtimeRoot, selected.session);
-      const turn = new ChatMessageTurn(
-        ctx,
-        runtimeRoot,
-        res,
-        selected.session,
-        selectedImages.effectiveConfig,
-        selected.preset,
-        messageRequest.content,
-        selectedImages.images,
-        request.parsedBody,
-        requireChatRunRecorder(request),
-        requireQuestionGate(request),
-      );
-      if (providedAssistantContent) {
-        return await turn.runProvidedAssistantTurn(providedAssistantContent);
-      } else {
-        return await turn.runEngineTurn();
-      }
+      const turn = this.openTurn(ctx, res, request, activeSession, modelRequestLock.context.config);
+      return 'failure' in turn ? turn : await turn.runEngineTurn();
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
+  }
+
+  /** `config` is the admitted snapshot for an engine turn, or the saved config for a provided answer. */
+  private openTurn(
+    ctx: ServerContext,
+    res: ServerResponse,
+    request: ChatSessionOperationRequest<ChatMessageRequest>,
+    session: ChatSession,
+    config: SiftConfig,
+  ): ChatMessageTurn | ChatOperationOutcome {
+    let selected: SelectedChatOperationPreset;
+    try {
+      selected = new ChatOperationPresetSelector(config.Presets).select(session, 'chat');
+    } catch (error) {
+      sendJson(res, 400, { error: toError(error).message });
+      return { failure: toError(error).message };
+    }
+    const images = admitChatImagesForConfig(config, request.value.images).images;
+    saveChatSessionMetadata(getRuntimeRoot(), selected.session);
+    return new ChatMessageTurn(ctx, getRuntimeRoot(), res, selected.session, config, selected.preset,
+      request.value.content, images, request.parsedBody, requireChatRunRecorder(request), requireQuestionGate(request));
   }
 }
 
 export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
   protected readonly operationKind = 'message' as const;
 
-  protected describeRun(
-    session: ChatSession,
-    value: ChatMessageRequest,
-    config: SiftConfig,
-  ): ChatRunSubmission {
-    return describeChatMessageRun(session, value, config, true);
+  protected describeRun(ctx: ServerContext, session: ChatSession, value: ChatMessageRequest): ChatRunSubmission {
+    return describeChatMessageRun(ctx, session, value, true);
   }
   protected readonly clientOwnedOperation = true;
 
@@ -911,7 +919,6 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
     res: ServerResponse | null,
     request: ChatSessionOperationRequest<ChatMessageRequest>,
   ): Promise<ChatOperationOutcome> {
-    const { configPath } = ctx;
     const messageRequest = request.value;
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
@@ -929,7 +936,6 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
       sessionId: activeSession.id,
       requestId: engineRequestId,
       operationKind: 'message',
-      modelPreset: activeSession.modelPreset,
       forceId: request.queueIntentId,
     });
     // One owner for the console: the presentation writer renders, this one logs.
@@ -938,10 +944,9 @@ export class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<Chat
       new RepoSearchToolLogProgressWriter('plan', engineRequestId),
     );
     try {
-      const config = readConfig(configPath);
       const { failure } = await runChatEngineTurn({
         ctx,
-        config,
+        config: modelRequestLock.context.config,
         recorder: requireChatRunRecorder(request),
         questionGate: requireQuestionGate(request),
         session: activeSession,
@@ -981,16 +986,14 @@ abstract class ChatRepoOperationEndpoint extends ChatRepoRootOperationEndpoint<R
   constructor(protected readonly operationKind: 'plan' | 'repo-search') { super(); }
 
   /** A repository operation records the root it ran against and the turn limit the engine gets. */
-  protected describeRun(
-    session: ChatSession,
-    value: ResolvedChatRepoRequest,
-    config: SiftConfig,
-  ): ChatRunSubmission {
-    const selected = new ChatOperationPresetSelector(config.Presets).select(session, this.operationKind);
+  protected describeRun(ctx: ServerContext, session: ChatSession, value: ResolvedChatRepoRequest): ChatRunSubmission {
+    const selected = new ChatOperationPresetSelector(readConfig(ctx.configPath).Presets).select(session, this.operationKind);
+    const target = previewChatOperationTarget(ctx, selected.preset.id);
     return {
+      target,
       settings: buildChatRunSettings({
         session: selected.session,
-        config,
+        target,
         operationKind: this.operationKind,
         presetId: selected.preset.id,
         repoRoot: value.repoRoot,
@@ -1020,7 +1023,6 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
     res: ServerResponse,
     request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<ChatOperationOutcome> {
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const modelRequestLock = await acquireChatModelRequest(ctx, CHAT_REPO_OPERATION_SETTINGS[this.operationKind].lockKind, req, res, request);
     if ('failure' in modelRequestLock) return modelRequestLock;
@@ -1033,7 +1035,7 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
-      const config = readConfig(configPath);
+      const { config } = modelRequestLock.context;
       const engineRequestId = randomUUID();
       const progressWriter = new CompositeRepoSearchProgressWriter(
         new ChatStreamProgressWriter(new ChatOperationBroadcast(), null, false, requireChatRunRecorder(request)),
@@ -1058,7 +1060,6 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
           sessionId: activeSession.id,
           requestId: engineRequestId,
           operationKind: this.operationKind,
-          modelPreset: activeSession.modelPreset,
           forceId: request.queueIntentId,
         }),
       }));
@@ -1086,7 +1087,6 @@ export class StreamChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
     res: ServerResponse | null,
     request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<ChatOperationOutcome> {
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const abortController = new AbortController();
     registerChatAbort(ctx, request, abortController);
@@ -1100,7 +1100,6 @@ export class StreamChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
       sessionId: activeSession.id,
       requestId: engineRequestId,
       operationKind: this.operationKind,
-      modelPreset: activeSession.modelPreset,
       forceId: request.queueIntentId,
     });
     // One owner for the console: the presentation writer renders, this one logs.
@@ -1111,7 +1110,7 @@ export class StreamChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
-      const config = readConfig(configPath);
+      const { config } = modelRequestLock.context;
       const result = await new ChatRepoOperationRunner().run(this.operationKind, buildChatRepoOperationRequest({
         ctx,
         recorder: requireChatRunRecorder(request),
@@ -1149,13 +1148,15 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
   protected readonly operationKind = 'condense' as const;
 
   /** Condense is a model run over the existing history; it carries no new user text of its own. */
-  protected describeRun(session: ChatSession, _value: 'condense', config: SiftConfig): ChatRunSubmission {
+  protected describeRun(ctx: ServerContext, session: ChatSession): ChatRunSubmission {
     // Condense summarizes under the session's own preset; it selects no task preset of its own.
     if (!session.presetId) throw new Error('Chat session presetId is required.');
+    const target = previewChatOperationTarget(ctx, session.presetId);
     return {
+      target,
       settings: buildChatRunSettings({
         session,
-        config,
+        target,
         operationKind: 'condense',
         presetId: session.presetId,
         repoRoot: session.planRepoRoot,
@@ -1183,7 +1184,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
     const modelRequestLock = await acquireChatModelRequest(ctx, 'dashboard_chat_condense', req, res, request);
     if ('failure' in modelRequestLock) return modelRequestLock;
     try {
-      const config = readConfig(ctx.configPath);
+      const { config } = modelRequestLock.context;
       const updatedSession = await condenseChatSession(
         requireChatRunRecorder(request),
         config,

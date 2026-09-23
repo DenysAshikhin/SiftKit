@@ -250,12 +250,13 @@ test('queue delivery and journal evidence commit together or leave the message p
   const id = randomUUID();
   queue.enqueue(SESSION_ID, { id, content: 'steering', images: [], options: { operationKind: 'repo-agent' } });
   const input = { requestId: 'request-queue', turn: 1, ids: [id] };
+  recorder.recordModelAdmitted(mockModelPreset({ Model: 'model-a', NumCtx: 4096 }), 4096);
   database.exec(`CREATE TRIGGER reject_delivery BEFORE INSERT ON chat_run_events WHEN NEW.kind = 'queue_delivered'
     BEGIN SELECT RAISE(ABORT, 'delivery write refused'); END;`);
-  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, input, mockModelPreset({ Model: 'model-a', NumCtx: 4096 })), /delivery write refused/u);
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, input), /delivery write refused/u);
   assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
   database.exec('DROP TRIGGER reject_delivery');
-  assert.equal(recorder.claimQueuedMessages(SESSION_ID, input, mockModelPreset({ Model: 'model-a', NumCtx: 4096 }))[0]?.id, id);
+  assert.equal(recorder.claimQueuedMessages(SESSION_ID, input)[0]?.id, id);
   const events = readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'queue_delivered');
   assert.equal(events.length, 1);
 });
@@ -377,6 +378,7 @@ class OrderSpy implements ChatRunEvidenceRecorder {
   resolveAssistantMessageId(turn: number): string { return `spy-narration-${turn}`; }
   resolveToolMessageId(toolCallId: string): string | null { return this.toolIds.get(toolCallId) ?? null; }
   readHistoryRevisions() { return []; }
+  recordModelAdmitted(): void { this.note('model_admitted'); }
   recordApprovalReviewed(): void { this.note('approval_reviewed'); }
   recordApprovalRequested(): void { this.note('approval_requested'); }
   recordApprovalResolved(): void { this.note('approval_resolved'); }
@@ -534,7 +536,8 @@ test('a mid-run queued delivery admits its images for the run preset and project
   const image = toDataUrl('image/png', rasterBuffer('png', 32, 24));
   const id = randomUUID();
   queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [image], options: { operationKind: 'repo-agent' } });
-  const claimed = recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }, modelPreset);
+  recorder.recordModelAdmitted(modelPreset, 4096);
+  const claimed = recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] });
   assert.equal(claimed.length, 1);
   assert.deepEqual(claimed[0]?.images, [image]);
   const delivered = readAll(database, recorder.operationId).find(envelope => envelope.event.kind === 'queue_delivered');
@@ -556,9 +559,34 @@ test('a queued delivery whose images the run preset refuses stays pending and re
   const queue = new ChatMessageQueueStore(database);
   const id = randomUUID();
   queue.enqueue(SESSION_ID, { id, content: 'look at this', images: [toDataUrl('image/png', rasterBuffer('png', 1, 1))], options: { operationKind: 'repo-agent' } });
-  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }, modelPreset), /image/iu);
+  recorder.recordModelAdmitted(modelPreset, 4096);
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-image', turn: 1, ids: [id] }), /image/iu);
   assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
   assert.equal(readAll(database, recorder.operationId).some(envelope => envelope.event.kind === 'queue_delivered'), false);
+});
+
+test('queue delivery before the run admitted its model is refused and leaves the message pending', () => {
+  const { database, databasePath } = openSessionDatabase('chat-queue-before-admission-');
+  const recorder = beginRecorder(databasePath);
+  const queue = new ChatMessageQueueStore(database);
+  const id = randomUUID();
+  queue.enqueue(SESSION_ID, { id, content: 'steering', images: [], options: { operationKind: 'repo-agent' } });
+  assert.throws(() => recorder.claimQueuedMessages(SESSION_ID, { requestId: 'request-early', turn: 1, ids: [id] }), /not admitted its model/u);
+  assert.equal(queue.get(SESSION_ID, id)?.state, 'pending');
+});
+
+test('model admission is journaled with its preset and restored when the run is resumed', () => {
+  const { database, databasePath } = openSessionDatabase('chat-model-admitted-');
+  const modelPreset = mockModelPreset({ id: 'model-b', Model: 'model-b', NumCtx: 8192 });
+  const recorder = beginRecorder(databasePath);
+  recorder.recordModelAdmitted(modelPreset, 8192);
+  const admitted = readAll(database, recorder.operationId).find(envelope => envelope.event.kind === 'model_admitted');
+  assert.ok(admitted && admitted.event.kind === 'model_admitted');
+  assert.equal(admitted.event.modelPreset.id, 'model-b');
+  assert.equal(admitted.event.contextWindowTokens, 8192);
+  const run = new ChatJournalStore(database).readRun(recorder.operationId);
+  assert.ok(run);
+  assert.equal(ChatRunRecorder.resume(database, recorder.operationId, run.ownerEpoch).admittedModel.id, 'model-b');
 });
 
 test('an automatic reviewer verdict is committed as evidence and projects no display row of its own', () => {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { getConfiguredModel } from '../src/config/getters.js';
+import { getConfiguredEngineNumCtx, getConfiguredModel } from '../src/config/getters.js';
 import { mockModelPreset } from './helpers/mock-config.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type {
@@ -25,7 +25,6 @@ import { buildMockScorecard } from './_test-helpers.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
-import { resolveChatSessionConfig } from '../src/status-server/chat.js';
 import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import { ChatOperationPresetSelector } from '../src/status-server/chat-operation-preset.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
@@ -244,11 +243,12 @@ function createRequest(
 /** Mirrors route admission: the selected preset and turn limit are recorded before the runner sees them. */
 function admitRequest(request: RunnerTestRequest, operation: 'plan' | 'repo-search'): ChatRepoOperationRequest {
   const selected = new ChatOperationPresetSelector(request.config.Presets).select(request.session, operation);
-  const admitted = admitImagesForPreset(getActiveModelPreset(resolveChatSessionConfig(request.config, selected.session)), request.images);
+  const admitted = admitImagesForPreset(getActiveModelPreset(request.config), request.images);
   const { maxTurns, ...runnerRequest } = request;
   const recorder = createTestChatRunRecorder(request.runtimeRoot, request.session, request.config, {
     operationKind: operation, content: request.content, images: admitted.map(image => image.dataUrl), imageMeta: admitted.map(image => image.metadata),
   }, { presetId: selected.preset.id, maxTurns: maxTurns ?? selected.preset.maxTurns, webSearchEnabled: selected.session.webSearchEnabled === true });
+  recorder.recordModelAdmitted(getActiveModelPreset(request.config), getConfiguredEngineNumCtx(request.config));
   return { ...runnerRequest, recorder, questionGate: new QuestionGate(recorder), progressWriter: new CompositeRepoSearchProgressWriter(
     new ChatStreamProgressWriter(new ChatOperationBroadcast(), null, true, recorder), request.progressWriter) };
 }
@@ -296,8 +296,7 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
       assert.deepEqual(engineRequest.initialUserImages, request.images);
       assert.equal(engineRequest.requestId, 'route-request');
       assert.equal(engineRequest.maxTurns, operation === 'plan' ? 7 : 45);
-      // The session drives the engine through its config, not a separate model argument.
-      assert.equal(engineRequest.model, undefined);
+      // The admitted config alone decides the model; there is no separate model argument.
       if (!engineRequest.config) {
         throw new Error('Expected the engine request to carry a config.');
       }
@@ -375,7 +374,7 @@ test('chat repo operations inherit the chat conversation history without a syste
       }
       const selected = new ChatOperationPresetSelector(request.config.Presets).select(request.session, operation);
       const expectedHistory = buildChatHistoryMessages(
-        resolveChatSessionConfig(request.config, selected.session),
+        request.config,
         { ...selected.session, planRepoRoot: request.repoRoot },
       );
       assert.deepEqual(engineRequest.history, expectedHistory);
@@ -530,7 +529,7 @@ test('chat repo operation runner rejects plan images when image retention is zer
   }
 });
 
-test('chat repo operation runner passes the session model-preset identity to the engine', async () => {
+test('chat repo operation runner executes on the admitted config, not the session snapshot', async () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-identity-');
   const engineService = new StubStatusEngineService(buildResult('done'));
   try {
@@ -545,8 +544,9 @@ test('chat repo operation runner passes the session model-preset identity to the
     if (!engineRequest) {
       throw new Error('Expected the engine request to be captured.');
     }
-    assert.equal(engineRequest.modelPresetId, 'session-snapshot');
-    assert.deepEqual(engineRequest.modelPreset, request.session.modelPreset);
+    assert.ok(engineRequest.config);
+    assert.equal(getActiveModelPreset(engineRequest.config).id, request.config.Server.ModelPresets.ActivePresetId);
+    assert.notEqual(getConfiguredModel(engineRequest.config), 'session-model');
   } finally {
     closeAllRuntimeDatabases();
     fs.rmSync(runtimeRoot, { force: true, recursive: true });

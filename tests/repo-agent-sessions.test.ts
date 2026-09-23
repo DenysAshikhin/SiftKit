@@ -10,6 +10,8 @@ import type { ProgressWriter } from '../src/lib/progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.js';
 import { createRepoSearchAdmissionRecord } from '../src/status-server/repo-search-admissions.js';
@@ -27,8 +29,10 @@ import {
   type RepoAgentModelLockAdapter,
   type RepoAgentModelLockHandle,
   type RepoAgentSession,
+  type RepoAgentSessionOptions,
   type RepoAgentSessionSubscriber,
 } from '../src/status-server/repo-agent-sessions.js';
+import { RepositoryGate } from '../src/status-server/orchestrator-runs.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { ApprovalMode } from '@siftkit/contracts';
 import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
@@ -51,10 +55,13 @@ function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
 }
 
 class ImmediateLockAdapter implements RepoAgentModelLockAdapter {
+  acquisitions = 0;
   releases = 0;
   renewals = 0;
   acquire(): Promise<RepoAgentModelLockHandle | null> {
+    this.acquisitions += 1;
     return Promise.resolve({
+      context: currentModelTarget(getDefaultConfigObject()),
       release: () => { this.releases += 1; },
       renewActivity: () => { this.renewals += 1; },
     });
@@ -305,7 +312,6 @@ function makeEngineRequest(tempRoot: string): RepoAgentEngineRequest {
     prompt: 'test task',
     repoRoot: tempRoot,
     taskKind: 'repo-agent',
-    model: 'mock-model',
     maxTurns: 4,
   };
 }
@@ -345,6 +351,7 @@ type SessionTestHarnessOptions = {
   approvalMode: ApprovalMode;
   approvalDelivery: RepoAgentApprovalDelivery;
   locks?: RepoAgentModelLockAdapter;
+  repositoryGate?: RepositoryGate;
   decisionTimeoutMs?: number;
 };
 
@@ -412,6 +419,7 @@ class SessionTestHarness {
   readonly approvalDelivery: RepoAgentApprovalDelivery;
   readonly engine: RepoAgentEngine;
   readonly locks: RepoAgentModelLockAdapter;
+  readonly repository: RepoAgentSessionOptions['repository'];
   readonly approvalGates = new Map<string, ApprovalGate>();
   readonly admission: ReturnType<typeof makeAdmission>;
   readonly engineRequest: RepoAgentEngineRequest;
@@ -435,6 +443,7 @@ class SessionTestHarness {
     approvalMode: ApprovalMode;
     approvalDelivery: RepoAgentApprovalDelivery;
     locks: RepoAgentModelLockAdapter;
+    repositoryGate: RepositoryGate | null;
     decisionTimeoutMs?: number;
   }) {
     this.tempRoot = options.tempRoot;
@@ -444,6 +453,8 @@ class SessionTestHarness {
     this.approvalMode = options.approvalMode;
     this.approvalDelivery = options.approvalDelivery;
     this.locks = options.locks;
+    this.repository = options.repositoryGate === null ? null
+      : { gate: options.repositoryGate, repoRoot: options.tempRoot, access: 'exclusive' };
     this.decisionTimeoutMs = options.decisionTimeoutMs;
     this.currentStore = makeTestStore(this.tempRoot);
     this.runId = randomUUID();
@@ -478,6 +489,7 @@ class SessionTestHarness {
         approvalMode: options.approvalMode,
         approvalDelivery: options.approvalDelivery,
         locks: options.locks ?? new ImmediateLockAdapter(),
+        repositoryGate: options.repositoryGate ?? null,
         ...(options.decisionTimeoutMs === undefined
           ? {}
           : { decisionTimeoutMs: options.decisionTimeoutMs }),
@@ -595,6 +607,7 @@ class SessionTestHarness {
       approvalMode: this.approvalMode,
       approvalDelivery: this.approvalDelivery,
       locks: this.locks,
+      repository: this.repository,
       approvalGates: this.approvalGates,
       engineRequest: this.engineRequest,
       ...(this.decisionTimeoutMs === undefined
@@ -1220,24 +1233,75 @@ test('provider activity on the session writer renews model ownership without a p
   assert.equal(harness.lockReleaseCount, 1);
 });
 
-test('an accepted approval decision renews model ownership', async (t) => {
+test('a parked approval releases the model lease and the decision re-acquires it before resuming', async (t) => {
+  const locks = new ImmediateLockAdapter();
   const harness = await SessionTestHarness.create({
     engine: new ParkingEngine(),
-    approvalMode: 'auto',
+    approvalMode: 'interactive',
     approvalDelivery: 'boundary',
+    locks,
   }, t);
   const session = harness.start();
 
   const parked = await session.waitForBoundary(0);
   assert.equal(parked.status, 'approval_required');
-  const renewalsWhileParked = harness.lockRenewalCount;
+  assert.deepEqual([locks.acquisitions, locks.releases], [1, 1], 'no lease is held while parked');
+  const renewalsWhileParked = locks.renewals;
   assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
-  assert.equal(harness.lockRenewalCount, renewalsWhileParked + 1);
+  assert.equal(locks.renewals, renewalsWhileParked, 'a released lease is never renewed');
 
   const completed = await session.waitForBoundary(session.currentRevision());
   assert.equal(completed.status, 'completed');
   await session.settled;
-  assert.equal(harness.lockReleaseCount, 1);
+  assert.deepEqual([locks.acquisitions, locks.releases], [2, 2]);
+});
+
+test('repository ownership is taken before the model and held across a park until the run settles', async (t) => {
+  const repositoryGate = new RepositoryGate();
+  const locks = new ImmediateLockAdapter();
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(), approvalMode: 'interactive', approvalDelivery: 'boundary', locks, repositoryGate,
+  }, t);
+  const blocker = await repositoryGate.acquire(harness.tempRoot, 'exclusive', new AbortController().signal);
+  const session = harness.start();
+  await delay(20);
+  assert.equal(locks.acquisitions, 0, 'no model admission while the repository is owned elsewhere');
+  blocker.release();
+  assert.equal((await session.waitForBoundary(0)).status, 'approval_required');
+  let readerGranted = false;
+  const reader = repositoryGate.acquire(harness.tempRoot, 'shared', new AbortController().signal)
+    .then((lease) => { readerGranted = true; return lease; });
+  await delay(20);
+  assert.equal(readerGranted, false, 'the parked run still owns the repository');
+  assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
+  await session.settled;
+  (await reader).release();
+});
+
+test('a resume that cannot re-acquire the model fails the run without executing the approved tool', async (t) => {
+  let acquisitions = 0;
+  const locks: RepoAgentModelLockAdapter = {
+    acquire: async () => {
+      acquisitions += 1;
+      return acquisitions === 1
+        ? { context: currentModelTarget(getDefaultConfigObject()), release: () => {}, renewActivity: () => {} }
+        : null;
+    },
+    queueLength: () => 0,
+  };
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'interactive',
+    approvalDelivery: 'boundary',
+    locks,
+  }, t);
+  const session = harness.start();
+  assert.equal((await session.waitForBoundary(0)).status, 'approval_required');
+  assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
+  const failed = await session.waitForBoundary(session.currentRevision());
+  assert.equal(failed.status, 'failed');
+  if (failed.status === 'failed') assert.match(failed.error, /model request queue/u);
+  assert.equal(failed.status === 'failed' && failed.output !== undefined, false, 'the approved tool never ran');
 });
 
 test('an aborted run releases model ownership and cannot renew it afterwards', async (t) => {

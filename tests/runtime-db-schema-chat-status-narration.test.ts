@@ -29,7 +29,7 @@ function seedMarker75(): string {
   insert.run(HIDDEN_STATUS_ID, 'assistant_progress', 'Reading the config.', 0);
   insert.run(PROGRESS_ID, 'assistant_progress', 'Step 2 of 5', 1);
   insert.run(PROMOTED_ID, 'assistant_answer', 'Done.', 2);
-  database.exec('UPDATE runtime_schema SET version = 75 WHERE id = 1');
+  database.exec('DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 75 WHERE id = 1');
   closeAllRuntimeDatabases();
   return dbPath;
 }
@@ -39,7 +39,7 @@ test('the marker-75 upgrade restores hidden status updates to narration and leav
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 76);
+    assert.equal(CURRENT_SCHEMA_VERSION, 78);
     const rows = KindRowsSchema.parse(database.prepare('SELECT id, kind, content FROM chat_messages ORDER BY position').all());
     assert.deepEqual(rows, [
       { id: HIDDEN_STATUS_ID, kind: 'assistant_narration', content: 'Reading the config.' },

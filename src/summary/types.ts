@@ -72,7 +72,6 @@ export type SummaryRequest = {
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
   provider?: SummaryProviderId;
-  model?: string;
   promptPrefix?: string;
   sourceKind?: SummarySourceKind;
   commandExitCode?: number | null;
@@ -86,6 +85,9 @@ export type SummaryRequest = {
   progressWriter?: ProgressWriter<SummaryProgressEvent>;
   abortSignal?: AbortSignal;
 };
+
+/** The `/summary` wire request: the CLI model argument is resolved to a configured profile at admission. */
+export type SummaryApiRequest = SummaryRequest & { model?: string };
 
 export const SummaryResultSchema = z.object({
   RequestId: z.string(),

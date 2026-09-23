@@ -370,6 +370,15 @@ export const ChatSubmissionConflictResponseSchema = z.strictObject({
 });
 export type ChatSubmissionConflictResponse = z.infer<typeof ChatSubmissionConflictResponseSchema>;
 
+/** A tool call a worker parked on; the decider answers it by this exact approval ID. */
+export const RepoAgentApprovalSchema = z.strictObject({
+  approvalId: z.string().uuid(),
+  toolName: z.string().min(1),
+  command: z.string().min(1),
+  reviewPayload: z.string().nullable(),
+});
+export type RepoAgentApproval = z.infer<typeof RepoAgentApprovalSchema>;
+
 export const RepoAgentApproveDecisionSchema = z.strictObject({ decision: z.literal('approve') });
 export const RepoAgentDenyDecisionSchema = z.strictObject({
   decision: z.literal('deny'),

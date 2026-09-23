@@ -1,4 +1,5 @@
 import { toError } from '../lib/errors.js';
+import { getConfiguredEngineNumCtx } from '../config/getters.js';
 import { getAbortError } from '../lib/abort.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import { classifyRepoAgentExecutionResult } from '../repo-agent/run-output.js';
@@ -7,17 +8,18 @@ import {
   isTerminalStatus,
   RepoAgentRunStateSchema,
   repoAgentStateToResult,
-  type RepoAgentApproval,
   type RepoAgentRunResult,
   type RepoAgentRunState,
 } from '../repo-agent/run-schemas.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
-import type { ApprovalMode } from '@siftkit/contracts';
+import type { ApprovalMode, RepoAgentApproval } from '@siftkit/contracts';
+import type { ModelRequestContext } from './model-request-context.js';
 import {
   ApprovalGate,
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
   type ApprovalGateObserver,
+  type ApprovalParkLease,
 } from '../repo-search/engine/approval-gate.js';
 import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.js';
 import type {
@@ -37,6 +39,7 @@ import {
   type RepoSearchAdmissionRecord,
 } from './repo-search-admissions.js';
 import { serverLogger } from './server-logger.js';
+import type { RepositoryAccess, RepositoryGate, RepositoryLease } from './orchestrator-runs.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
@@ -56,6 +59,8 @@ export type RepoAgentEngine = {
 };
 
 export type RepoAgentModelLockHandle = {
+  /** The admitted snapshot the run executes on. */
+  readonly context: ModelRequestContext;
   release(): void;
   /** Records a sign of life against the lock's inactivity timeout. */
   renewActivity(): void;
@@ -67,9 +72,10 @@ export type RepoAgentModelLockAdapter = {
   queueLength(): number;
 };
 
+/** The model snapshot fields are absent: the session takes them from its admitted lock. */
 export type RepoAgentEngineRequest = Omit<
   RepoSearchExecutionRequest,
-  'progressWriter' | 'approvalGate' | 'abortSignal'
+  'progressWriter' | 'approvalGate' | 'abortSignal' | 'config'
 >;
 
 /** Where a parked approval surfaces: as a progress frame to the attached client, or as a boundary result. */
@@ -116,6 +122,8 @@ export type RepoAgentSessionOptions = {
   store: RepoAgentRunStore;
   engine: RepoAgentEngine;
   locks: RepoAgentModelLockAdapter;
+  /** Held for the whole run, taken before the model; null when the caller already owns the repository. */
+  repository: { gate: RepositoryGate; repoRoot: string; access: RepositoryAccess } | null;
   approvalGates: Map<string, ApprovalGate>;
   engineRequest: RepoAgentEngineRequest;
   decisionTimeoutMs?: number;
@@ -126,7 +134,7 @@ export type RepoAgentSessionOptions = {
  * and every run-store transition. Client connections only attach/detach; they never
  * affect the run's lifetime.
  */
-export class RepoAgentSession implements ApprovalGateObserver {
+export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease {
   readonly runId: string;
   private readonly requestId: string;
   private readonly admission: RepoSearchAdmissionRecord;
@@ -134,6 +142,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly store: RepoAgentRunStore;
   private readonly engine: RepoAgentEngine;
   private readonly locks: RepoAgentModelLockAdapter;
+  private readonly repository: RepoAgentSessionOptions['repository'];
+  private repositoryLease: RepositoryLease | null = null;
   private readonly approvalGates: Map<string, ApprovalGate>;
   private readonly engineRequest: RepoAgentEngineRequest;
   private readonly abortController = new AbortController();
@@ -143,6 +153,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly waiters: BoundaryWaiter[] = [];
   private subscriber: RepoAgentSessionSubscriber | null = null;
   private lock: RepoAgentModelLockHandle | null = null;
+  private admittedModelPresetId: string | null = null;
   // In-memory only on purpose: large thinking text must never land in the persisted run state.
   private executionResult: RepoSearchExecutionResult | null = null;
   private state: RepoAgentRunState;
@@ -157,6 +168,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
     this.store = options.store;
     this.engine = options.engine;
     this.locks = options.locks;
+    this.repository = options.repository;
     this.approvalGates = options.approvalGates;
     this.engineRequest = options.engineRequest;
     this.executionSignal = options.engineRequest.evidenceRecorder?.abortSignal
@@ -170,6 +182,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
       mode: options.approvalMode,
       bypassReadOnlyTools: true,
       observer: this,
+      lease: this,
       ...(options.decisionTimeoutMs === undefined
         ? {}
         : { decisionTimeoutMs: options.decisionTimeoutMs }),
@@ -324,6 +337,26 @@ export class RepoAgentSession implements ApprovalGateObserver {
     ));
   }
 
+  // ---- ApprovalParkLease: no model lease is held while a decision is pending ----
+
+  park(): void {
+    this.lock?.release();
+    this.lock = null;
+  }
+
+  async resume(): Promise<void> {
+    const lock = await this.locks.acquire(this.runId, this.executionSignal);
+    if (!lock) {
+      if (this.executionSignal.aborted) throw getAbortError(this.executionSignal);
+      throw new Error('Timed out waiting for model request queue.');
+    }
+    if (lock.context.modelPreset.id !== this.admittedModelPresetId) {
+      lock.release();
+      throw new Error(`Run ${this.runId} resumed on model preset '${lock.context.modelPreset.id}' but started on '${this.admittedModelPresetId ?? 'none'}'.`);
+    }
+    this.lock = lock;
+  }
+
   // ---- progress routing ----
 
   handleProgressEvent(event: RepoSearchProgressEvent): void {
@@ -369,6 +402,10 @@ export class RepoAgentSession implements ApprovalGateObserver {
     lockWaitTimer.unref();
     try {
       try {
+        // Repository ownership before model admission; never the reverse.
+        if (this.repository) {
+          this.repositoryLease = await this.repository.gate.acquire(this.repository.repoRoot, this.repository.access, this.executionSignal);
+        }
         this.lock = await this.locks.acquire(this.runId, this.executionSignal);
       } finally {
         clearInterval(lockWaitTimer);
@@ -378,6 +415,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
         else this.settleFailure('Timed out waiting for model request queue.');
         return;
       }
+      this.admittedModelPresetId = this.lock.context.modelPreset.id;
+      this.engineRequest.evidenceRecorder?.recordModelAdmitted(this.lock.context.modelPreset, getConfiguredEngineNumCtx(this.lock.context.config));
       this.applyState(this.store.transition(this.runId, this.state.revision, {
         runId: this.runId,
         revision: this.state.revision + 1,
@@ -385,8 +424,10 @@ export class RepoAgentSession implements ApprovalGateObserver {
         status: 'running',
         pid: process.pid,
       }));
+      const { context } = this.lock;
       const result = await this.engine.executeRepoSearch({
         ...this.engineRequest,
+        config: context.config,
         abortSignal: this.executionSignal,
         progressWriter: this.progressWriter,
         approvalGate: this.gate,
@@ -412,6 +453,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
     } finally {
       this.lock?.release();
       this.lock = null;
+      this.repositoryLease?.release();
+      this.repositoryLease = null;
       this.approvalGates.delete(this.requestId);
     }
   }

@@ -14,9 +14,10 @@ import type { ChatContextInit, ChatContextSplice } from '../repo-search/planner-
 import { ChatAnswerCompletionSchema, buildChatRunMessageIdPrefix, buildChatMessageId, type ChatAnswerCompletion, ChatRunEffectiveSettingsSchema, type ApprovalMode, type ChatRunEffectiveSettings, type ChatRunTerminalCause, type ChatSessionOperationKind, type ChatRecoveryStatus, type ChatStreamUsageEvent, type ChatTranscriptEvent, type ChatRunPresentationEvent, type ThroughputAuditOperation } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { toError } from '../lib/errors.js';
-import { getChatSessionPath, readChatSessionFromPath, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
-import { resolveChatSessionContextWindow } from './chat.js';
+import { getChatSessionPath, readChatSessionFromPath, recordChatSessionModel, type ChatSession, estimateTokenCount } from '../state/chat-sessions.js';
+import type { ModelRuntimePreset } from '../config/types.js';
+import type { ModelRequestContext } from './model-request-context.js';
+import { getConfiguredEngineNumCtx } from '../config/getters.js';
 import { ChatJournalStore } from '../state/chat-journal.js';
 import {
   ChatEngineBindingSchema,
@@ -74,6 +75,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   private readonly toolMessageIds = new Map<string, string>();
   private historyRevisionValue = 0;
   private dispatched = false;
+  private admittedModelPreset: ModelRuntimePreset | null = null;
 
   get historyRevision(): number { return this.historyRevisionValue; }
   readHistoryRevisions() { return readChatHistoryRevisions(this.database, this.sessionId); }
@@ -261,8 +263,28 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
     return this.readSession();
   }
 
-  /** `modelPreset` is the run's admitted model preset: a queued image is admitted exactly as the submission was. */
-  claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, modelPreset: ModelRuntimePreset, forceId?: string) {
+  recordModelAdmitted(modelPreset: ModelRuntimePreset, contextWindowTokens: number): void {
+    const before = this.latestSequence;
+    try {
+      this.database.transaction(() => {
+        this.commit({ kind: 'model_admitted', modelPreset, contextWindowTokens });
+        recordChatSessionModel(this.database, this.sessionId, modelPreset);
+      }).immediate();
+    } catch (error) {
+      this.latestSequence = before;
+      throw error;
+    }
+  }
+
+  /** The model this run was admitted on; reading it before admission is a defect. */
+  get admittedModel(): ModelRuntimePreset {
+    if (this.admittedModelPreset === null) throw new Error('Chat run has not admitted its model yet.');
+    return this.admittedModelPreset;
+  }
+
+  /** Queued images are admitted against the run's admitted model, exactly as its own work runs. */
+  claimQueuedMessages(sessionId: string, input: ChatQueueClaimInput, forceId?: string) {
+    const modelPreset = this.admittedModel;
     const before = this.latestSequence;
     try {
       return this.database.transaction(() => {
@@ -383,6 +405,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
 
   private observeCommitted(event: ChatJournalEvent): void {
     if (event.kind === 'run_started') this.historyRevisionValue = event.retainedHistoryRevision;
+    if (event.kind === 'model_admitted') this.admittedModelPreset = event.modelPreset;
     if (event.kind === 'context_initialized') {
       this.dispatched = true;
       this.answerMessageId = event.messages.slice(event.turnBoundary).reverse()
@@ -430,12 +453,13 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
 }
 
 /**
- * What a run executes under, captured once at admission. `session` is the preset-selected session,
- * so the recorded mode and preset are the ones the engine is handed, not the ones the client sent.
+ * What a run is submitted under. `session` is the preset-selected session, so the recorded mode and
+ * preset are the ones the engine is handed. `target` is the model the operation resolves to at
+ * submission; the run's `model_admitted` event records the model it actually ran on.
  */
 export function buildChatRunSettings(input: {
   session: ChatSession;
-  config: SiftConfig;
+  target: ModelRequestContext;
   operationKind: ChatSessionOperationKind;
   presetId: string;
   repoRoot: string;
@@ -447,14 +471,14 @@ export function buildChatRunSettings(input: {
     operationKind: input.operationKind,
     mode: input.session.mode ?? 'chat',
     presetId: input.presetId,
-    modelPresetId: input.session.modelPresetId,
-    model: input.session.modelPreset.Model ?? null,
+    modelPresetId: input.target.modelPreset.id,
+    model: input.target.modelPreset.Model ?? null,
     repoRoot: input.repoRoot,
     approval: input.approval,
     maxTurns: input.maxTurns,
     thinkingEnabled: input.session.thinkingEnabled !== false,
     webSearchEnabled: input.webSearchEnabled,
-    contextWindowTokens: resolveChatSessionContextWindow(input.config, input.session),
+    contextWindowTokens: getConfiguredEngineNumCtx(input.target.config),
   });
 }
 

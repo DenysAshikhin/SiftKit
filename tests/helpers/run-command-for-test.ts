@@ -13,7 +13,6 @@ export interface RunCommandRequest {
   Format?: CommandOutputAnalyzeRequest['format'];
   PolicyProfile?: CommandOutputAnalyzeRequest['policyProfile'];
   Provider?: CommandOutputAnalyzeRequest['provider'];
-  Model?: CommandOutputAnalyzeRequest['model'];
   NoSummarize?: boolean;
 }
 
@@ -36,7 +35,6 @@ export async function runCommand(request: RunCommandRequest): Promise<CommandOut
     format: request.Format,
     policyProfile: request.PolicyProfile,
     provider: request.Provider,
-    model: request.Model,
     noSummarize: request.NoSummarize,
     shell,
   });

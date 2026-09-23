@@ -69,7 +69,7 @@ function rewindToVersion(dbPath: string, version: number, extraSql = ''): void {
     for (const table of THROUGHPUT_TABLES) {
       database.exec(`ALTER TABLE ${table} DROP COLUMN throughput_json`);
     }
-    database.exec(`${extraSql} UPDATE runtime_schema SET version = ${String(version)} WHERE id = 1;`);
+    database.exec(`${extraSql} DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = ${String(version)} WHERE id = 1;`);
   });
 }
 

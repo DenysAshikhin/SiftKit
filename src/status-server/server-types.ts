@@ -8,7 +8,8 @@ import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
-import type { ModelRequestContext, ModelRequestIntent } from './model-request-context.js';
+import type { ModelRequestContext } from './model-request-context.js';
+import type { ModelRequestIntent } from '../lib/model-request-intent.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { AssistantRuntime } from '../assistant/assistant-service.js';
 import type { AssistantService } from '../assistant/assistant-service.js';
@@ -19,6 +20,8 @@ import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
+import type { OrchestratorRunStore } from '../orchestrator/run-store.js';
+import type { OrchestratorRunRegistry } from './orchestrator-runs.js';
 import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
 import type { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
 import type { ChatOwnerHeartbeatOutcome } from './chat-run-recovery.js';
@@ -59,8 +62,6 @@ export type ModelRequestWaitOptions = {
 export type ModelRequestSelection = {
   context: ModelRequestContext;
   residencyKey: string | null;
-  /** Shares the applied profile's loading identity, so admission needs no model transition. */
-  resident: boolean;
 };
 export type ModelRequestWaiter = {
   queueToken: string;
@@ -68,8 +69,8 @@ export type ModelRequestWaiter = {
   ownerRunId: string | null;
   enqueuedAtUtc: string;
   intent: ModelRequestIntent;
-  /** Frozen once the drain selects this waiter for readiness. */
-  selection: ModelRequestSelection | null;
+  /** The latest scheduling pass's resolution; null until a pass has examined this waiter. */
+  resolution: ModelRequestSelection | null;
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
   timeoutHandle: NodeJS.Timeout | null;
@@ -173,6 +174,8 @@ export type ServerContext = {
   readonly gpuMemoryProbe: GpuMemoryProbe;
   readonly repoAgentRunStore: RepoAgentRunStore;
   readonly repoAgentSessions: RepoAgentSessionManager;
+  readonly orchestratorRunStore: OrchestratorRunStore;
+  readonly orchestratorRuns: OrchestratorRunRegistry;
   /** This process's stable runtime connection; chat dependencies never re-resolve it by cwd. */
   readonly runtimeDatabasePath: string;
   readonly runtimeDatabase: RuntimeDatabase;

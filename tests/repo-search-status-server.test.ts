@@ -6,12 +6,17 @@ import { createRequire, Module } from 'node:module';
 
 import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { getConfigPath } from '../src/config/index.js';
+import { getDefaultServerConfig } from './helpers/mock-config.js';
 import {
   writeManagedEngineHost,
   acquireChildPortLease,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { readStatusModelRequests } from './helpers/model-request-status.js';
+import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.js';
 import { readMetrics } from '../src/status-server/metrics.js';
 import { getMetricsPath } from '../src/status-server/paths.js';
 import { requestSse } from './helpers/sse-http.js';
@@ -51,6 +56,7 @@ test('status server stays responsive while repo-search is running', async () => 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -68,7 +74,6 @@ test('status server stays responsive while repo-search is running', async () => 
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
@@ -82,8 +87,7 @@ test('status server stays responsive while repo-search is running', async () => 
     });
 
     await waitForAsyncExpectation(async () => {
-      const activeStatus = await requestJson(`${baseUrl}/status`);
-      const modelRequests = asObject(activeStatus.body.modelRequests);
+      const modelRequests = await readStatusModelRequests(baseUrl);
       assert.equal(modelRequests.activeCount, 1);
     });
     const healthStart = Date.now();
@@ -159,6 +163,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -181,7 +186,6 @@ test('repo-search abandons stale running status after acquiring the model lock',
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
@@ -237,6 +241,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = '120';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -251,7 +256,6 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         body: {
           prompt: 'hold model queue',
           repoRoot: process.cwd(),
-          model: 'Qwen3.5-35B-A3B-EXL3',
           maxTurns: 2,
           availableModels: ['Qwen3.5-35B-A3B-EXL3'],
           mockResponses: [
@@ -270,7 +274,6 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         body: {
           prompt: 'queued behind active',
           repoRoot: process.cwd(),
-          model: 'Qwen3.5-35B-A3B-EXL3',
           maxTurns: 1,
           availableModels: ['Qwen3.5-35B-A3B-EXL3'],
           mockResponses: [{ content: "queued" }],
@@ -279,12 +282,10 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       });
 
       await waitForAsyncExpectation(async () => {
-        const statusResponse = await requestJson(`${baseUrl}/status`);
-        const modelRequests = asObject(statusResponse.body.modelRequests);
+        const modelRequests = await readStatusModelRequests(baseUrl);
         assert.equal(modelRequests.activeCount, 1);
         assert.equal(modelRequests.queueLength, 1);
-        const queuedRequests = asObjectArray(modelRequests.queuedRequests);
-        assert.equal(queuedRequests[0]?.kind, 'repo_search');
+        assert.equal(modelRequests.queuedRequests[0]?.kind, 'repo_search');
 
         const database = openStoredRuntimeDatabase(dbPath);
         try {
@@ -305,7 +306,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       assert.equal(queuedResponse.error?.errorName, 'Error');
       assert.equal(typeof queuedResponse.error?.diagnosticId, 'string');
       assert.match(String(asObject(queuedResponse.error?.diagnostic).message), /Timed out waiting/u);
-      assert.equal(typeof asObject(queuedResponse.error?.modelRequests).queueLength, 'number');
+      assert.equal(typeof ModelRequestQueueDiagnosticsSchema.parse(queuedResponse.error?.modelRequests).queueLength, 'number');
 
       const activeResponse = await activeRequest;
       assert.ok(activeResponse.result);
@@ -466,6 +467,7 @@ test('completion metadata is acknowledged before persistence and shutdown persis
     }
   };
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 60_000 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -541,6 +543,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -554,7 +557,6 @@ test('repo-search endpoint logs one model-requested command line per tool call',
         body: {
           prompt: 'find planner',
           repoRoot: process.cwd(),
-          model: 'mock-model',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
@@ -807,6 +809,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -818,7 +821,6 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
       body: {
         prompt: 'find needle',
         repoRoot: process.cwd(),
-        model: 'mock-model',
         maxTurns: 2,
         availableModels: ['mock-model'],
         mockResponses: [
@@ -906,6 +908,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -917,7 +920,6 @@ test('repo-search transcript artifact replays the fitted read range using per-to
       body: {
         prompt: 'read bounded evidence',
         repoRoot: process.cwd(),
-        model: 'mock-model',
         maxTurns: 4,
         availableModels: ['mock-model'],
         mockResponses: [
@@ -1006,6 +1008,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
 
   const repoSearchModulePath = requireFromHere.resolve(path.join(SIFTKIT_REPO_ROOT, 'dist', 'repo-search', 'index.js'));
   const priorCacheEntry = requireFromHere.cache[repoSearchModulePath];
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
 
   try {
@@ -1057,7 +1060,6 @@ test('repo-search endpoint reloads executor module per request', async () => {
       body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
         mockResponses: [
@@ -1139,6 +1141,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
     { exitCode: 0, stdout: `src/${index}.ts:1:${pattern}`, stderr: '' },
   ]));
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -1150,7 +1153,6 @@ test('repo-search endpoint rejects duplicated final output before sending succes
       body: {
         prompt: 'find duplicated response',
         repoRoot: process.cwd(),
-        model: 'mock-model',
         maxTurns: 8,
         availableModels: ['mock-model'],
         mockResponses: [

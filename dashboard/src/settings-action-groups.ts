@@ -55,6 +55,8 @@ export type PresetSettingsActions = {
   addAutoloadFile(presetId: string): void;
   removeAutoloadFile(presetId: string, index: number): void;
   setSummaryDefault(presetId: string): void;
+  setModelPreset(presetId: string, value: string | null): void;
+  setMaxSubagents(presetId: string, value: number): void;
   addPreset(): void;
   deletePreset(presetId: string): void;
 };

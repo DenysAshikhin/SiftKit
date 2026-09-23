@@ -6,10 +6,14 @@ import { toError } from '../../lib/errors.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
+  ModelRequestTargetError,
   acquireModelRequestWithWait,
   getModelRequestQueueDiagnostics,
+  previewModelRequestTarget,
   releaseModelRequest,
 } from '../server-ops.js';
+import type { ModelRequestContext } from '../model-request-context.js';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
 import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
@@ -31,6 +35,8 @@ export class StreamedOperationContext {
   constructor(
     private readonly writer: SseResponseWriter,
     public readonly abortSignal: AbortSignal,
+    /** The admitted snapshot: execution runs on exactly this operation preset, model, and config. */
+    public readonly model: ModelRequestContext,
   ) {}
 
   writeProgress(event: JsonSerializable): void {
@@ -53,6 +59,9 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     parsed: TParsed,
     stream: StreamedOperationContext,
   ): Promise<JsonSerializable>;
+
+  /** The operation preset and CLI model this request asks for, resolved to a model at admission. */
+  protected abstract modelIntent(parsed: TParsed, ctx: ServerContext): ModelRequestIntent;
 
   protected onOperationFailed(_parsed: TParsed, _errorMessage: string): void {}
   protected lockOwnerRunId(_parsed: TParsed): string | null {
@@ -80,6 +89,15 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       sendJson(res, 400, { error: parsed.error });
       return;
     }
+    const intent = this.modelIntent(parsed.value, ctx);
+    try {
+      previewModelRequestTarget(ctx, intent);
+    } catch (error) {
+      if (!(error instanceof ModelRequestTargetError)) throw error;
+      this.onOperationFailed(parsed.value, error.message);
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
 
     const writer = new SseResponseWriter(req, res);
     writer.open();
@@ -95,7 +113,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     const lockWaitTimer = setInterval(() => {
       writer.writeEvent(OPERATION_STREAM_EVENTS.progress, {
         kind: 'lock_wait',
-        queueLength: getModelRequestQueueDiagnostics(ctx).queueLength,
+        queueLength: ctx.modelRequestQueue.length,
         elapsedMs: Date.now() - lockWaitStartedAt,
       });
     }, readLockWaitEmitIntervalMs());
@@ -104,11 +122,13 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     try {
       modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res, {
         ownerRunId: this.lockOwnerRunId(parsed.value),
+        intent,
       });
     } catch (error) {
       // Admission readies the model before granting; an unusable target or failed load lands here.
       clearInterval(lockWaitTimer);
-      const payload = recordServerError(req, 503, error, { taskKind: this.taskKind });
+      const status = error instanceof ModelRequestTargetError ? 400 : 503;
+      const payload = recordServerError(req, status, error, { taskKind: this.taskKind });
       this.onOperationFailed(parsed.value, payload.error);
       terminalFrameSent = true;
       writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
@@ -133,7 +153,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       const result = await this.execute(
         ctx,
         parsed.value,
-        new StreamedOperationContext(writer, abortController.signal),
+        new StreamedOperationContext(writer, abortController.signal, modelRequestLock.context),
       );
       terminalFrameSent = true;
       writer.writeEvent(OPERATION_STREAM_EVENTS.result, result);

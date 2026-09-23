@@ -90,6 +90,12 @@ export type ApprovalGateObserver = {
   onTimeout(): void;
 };
 
+/** Model ownership a parked run gives up while waiting and takes back before it continues. */
+export type ApprovalParkLease = {
+  park(): void;
+  resume(): Promise<void>;
+};
+
 /** Wording for an abort a human entered, wherever they entered it. */
 export const CLIENT_ABORT_MESSAGE = 'Aborted by user.';
 
@@ -107,11 +113,10 @@ export function toApprovalDecision(request: RepoSearchApprovalRequest): Approval
  * How long a pending approval waits for a decision before the run is stopped.
  *
  * Shared with the repo-agent `decide` flow so both ways of answering an approval expire together.
- * The wait must be bounded: a run parked here holds the model lock, so a caller that never answers
- * — a CLI run, or a client that ignores approval frames — would wedge the server for every later
- * request. It must also stay well under the server's model-lock hold ceiling, or the lock would be
- * force-released out from under a run that still believes it holds it. Expiry aborts the run rather
- * than denying the command, so an unanswered approval cannot be silently absorbed by the planner.
+ * The wait must be bounded: a run parked here without a park lease holds the model lock, so a caller
+ * that never answers would wedge the server for every later request. It must also stay well under
+ * the server's model-lock hold ceiling. Expiry aborts the run rather than denying the command, so an
+ * unanswered approval cannot be silently absorbed by the planner.
  */
 export const DEFAULT_DECISION_TIMEOUT_MS = 600_000;
 
@@ -150,6 +155,7 @@ export class ApprovalGate {
   private readonly observer: ApprovalGateObserver | undefined;
   private currentMode: ApprovalMode;
   private readonly evidenceRecorder: ChatRunEvidenceRecorder | null;
+  private readonly lease: ApprovalParkLease | null;
 
   constructor(options: {
     requestId: string;
@@ -161,6 +167,7 @@ export class ApprovalGate {
     logger?: ServerLogger;
     observer?: ApprovalGateObserver;
     evidenceRecorder?: ChatRunEvidenceRecorder;
+    lease?: ApprovalParkLease;
   }) {
     this.logger = options.logger ?? serverLogger;
     this.requestId = options.requestId;
@@ -171,6 +178,7 @@ export class ApprovalGate {
     this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
     this.observer = options.observer;
     this.evidenceRecorder = options.evidenceRecorder ?? null;
+    this.lease = options.lease ?? null;
     if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
       throw new Error('Approval decision timeout must be a positive number of milliseconds.');
     }
@@ -189,10 +197,17 @@ export class ApprovalGate {
     return this.requestId;
   }
 
-  request(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
+  async request(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
     if (this.bypassReadOnlyTools && isApprovalExemptReadOnlyTool(input.toolName)) {
-      return Promise.resolve({ kind: 'approve' });
+      return { kind: 'approve' };
     }
+    const decision = await this.park(input);
+    // A lease released at the park must be back before the approved or denied run continues.
+    if (this.lease && decision.kind !== 'abort') await this.lease.resume();
+    return decision;
+  }
+
+  private park(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
     const approvalId = randomUUID();
     const startedAtMs = Date.now();
     if (this.evidenceRecorder) {
@@ -255,6 +270,7 @@ export class ApprovalGate {
           fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
             + `timeout_ms=${this.decisionTimeoutMs} command=${truncateForLog(input.command)}`,
         });
+        this.lease?.park();
       } catch (error) {
         this.clearPending(approvalId);
         throw error;

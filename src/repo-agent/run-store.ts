@@ -14,14 +14,13 @@ import {
   NodeProcessInspector,
   type ProcessInspector,
 } from '../lib/process-inspector.js';
+import { RepoAgentApprovalSchema, type RepoAgentApproval } from '@siftkit/contracts';
 import {
-  RepoAgentApprovalSchema,
   RepoAgentRunIdSchema,
   RepoAgentRunStateSchema,
   RepoAgentRunRequestSchema,
   isActiveStatus,
   isTerminalStatus,
-  type RepoAgentApproval,
   type RepoAgentRunRequest,
   type RepoAgentRunState,
 } from './run-schemas.js';

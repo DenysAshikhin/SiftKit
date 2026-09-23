@@ -40,6 +40,7 @@ import { acquireChildPortLease } from './helpers/test-endpoints.js';
 import { waitForAsyncExpectation } from './_runtime-helpers.js';
 import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
+import { readStatusModelRequests } from './helpers/model-request-status.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import { buildTabbyUsage } from './helpers/streaming-client.js';
 import { operationOnlyRunIdentity, UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
@@ -285,7 +286,7 @@ test('chat session creation uses pass-through host context window', async () => 
   activePreset.ExternalServerEnabled = true;
   activePreset.BaseUrl = host.baseUrl;
   activePreset.NumCtx = 150_000;
-  activePreset.Model = 'local-stale-model';
+  activePreset.Model = null;
   activePreset.Reasoning = 'on';
   writeConfig(configPath, config);
 
@@ -434,16 +435,17 @@ test('active model preset sessions expose current model and context', async () =
   }
 });
 
-test('inactive model preset sessions preserve inference snapshots', async () => {
+test('a session last run on another model previews the model its next run resolves to', async () => {
   const fixture = new ChatInferenceMetadataFixture();
   try {
     fixture.seedHistoricalSession();
     await fixture.start();
     const response = await fixture.request('/dashboard/chat/sessions/historical');
     const session = d(response.body.session);
-    assert.equal(session.model, 'historical-model');
-    assert.equal(session.contextWindowTokens, 30_000);
-    assert.equal(d(response.body.contextUsage).contextWindowTokens, 30_000);
+    assert.equal(session.modelPresetId, 'historical-preset', 'the stored run history stays as recorded');
+    assert.equal(session.model, 'active-model');
+    assert.equal(session.contextWindowTokens, 150_000);
+    assert.equal(d(response.body.contextUsage).contextWindowTokens, 150_000);
   } finally {
     await fixture.close();
   }
@@ -1314,7 +1316,7 @@ test('plan and repo-search endpoints forward and persist attached images', async
   }
 });
 
-test('chat message JSON and SSE endpoints admit images using the selected session preset', async () => {
+test('chat message JSON and SSE endpoints admit images using the admitted model, not the session snapshot', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-message-image-admission-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1350,7 +1352,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   const inferenceAddress = getAddressInfo(inferenceServer);
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
   const secondOversizedImage = toDataUrl('image/png', rasterBuffer('png', 1800, 1000));
-  const sessionCap = 500_000;
+  const admittedCap = 500_000;
   const baseConfig = getDefaultServerConfig();
   const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
   if (!snapshotPreset) {
@@ -1362,7 +1364,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   snapshotPreset.Model = 'image-chat-model';
   snapshotPreset.VisionEnabled = true;
   snapshotPreset.VisionImageRetention = -1;
-  snapshotPreset.VisionMaxImagePixels = sessionCap;
+  snapshotPreset.VisionMaxImagePixels = 4_000_000;
   baseConfig.Server.Engines.Exl3.Managed = false;
   writeConfig(getConfigPath(), baseConfig);
 
@@ -1396,7 +1398,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
       Buffer.from(admittedUrl.slice(separator + ';base64,'.length), 'base64'),
       mime,
     );
-    assert.ok(dimensions.width * dimensions.height <= sessionCap);
+    assert.ok(dimensions.width * dimensions.height <= admittedCap);
     assert.ok(dimensions.width * dimensions.height > 100_000);
   }
 
@@ -1407,8 +1409,8 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
     });
     const sessionId = String(d(created.body.session).id);
 
-    // Move the active model slot to a stricter cap after creation. The session snapshot remains
-    // authoritative, proving these routes do not admit against the base active preset.
+    // Move the active model slot to a stricter cap after creation. The admitted model is
+    // authoritative, proving these routes do not admit against the session's stored snapshot.
     const currentConfigResponse = await requestJson(`${baseUrl}/config?skip_ready=1`);
     const updatedConfig = d(structuredClone(currentConfigResponse.body));
     const modelPresets = d(d(updatedConfig.Server).ModelPresets);
@@ -1420,8 +1422,8 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
         ...basePreset,
         id: 'live',
         label: 'Live',
-        VisionMaxImagePixels: 100_000,
-        VisionImageRetention: 0,
+        VisionMaxImagePixels: admittedCap,
+        VisionImageRetention: -1,
       },
     ];
     modelPresets.ActivePresetId = 'live';
@@ -1490,7 +1492,7 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
   }
 });
 
-test('plan JSON and repo-search SSE admit images using session-snapshotted caps', async () => {
+test('plan JSON and repo-search SSE admit images using the admitted model caps', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-operation-image-admission-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1525,8 +1527,8 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   });
   const inferenceAddress = getAddressInfo(inferenceServer);
   const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
-  const sessionCap = 500_000;
-  const laterActiveCap = 100_000;
+  const admittedCap = 500_000;
+  const minimumAdmittedPixels = 100_000;
   const baseConfig = getDefaultServerConfig();
   const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
   if (!snapshotPreset) {
@@ -1538,7 +1540,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
   snapshotPreset.Model = 'operation-image-model';
   snapshotPreset.VisionEnabled = true;
   snapshotPreset.VisionImageRetention = -1;
-  snapshotPreset.VisionMaxImagePixels = sessionCap;
+  snapshotPreset.VisionMaxImagePixels = 4_000_000;
   baseConfig.Server.Engines.Exl3.Managed = false;
   writeConfig(getConfigPath(), baseConfig);
 
@@ -1571,8 +1573,8 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
       Buffer.from(admittedUrl.slice(separator + ';base64,'.length), 'base64'),
       mime,
     );
-    assert.ok(dimensions.width * dimensions.height <= sessionCap);
-    assert.ok(dimensions.width * dimensions.height > laterActiveCap);
+    assert.ok(dimensions.width * dimensions.height <= admittedCap);
+    assert.ok(dimensions.width * dimensions.height > minimumAdmittedPixels);
   }
 
   function assertPersistedImage(session: Dict, expectedImage: string): void {
@@ -1605,7 +1607,7 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
         ...activeSnapshotPreset,
         id: 'live-strict',
         label: 'Live Strict',
-        VisionMaxImagePixels: laterActiveCap,
+        VisionMaxImagePixels: admittedCap,
       },
     ];
     modelPresets.ActivePresetId = 'live-strict';
@@ -2412,6 +2414,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -2434,7 +2437,6 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
       body: JSON.stringify({
         prompt: 'find x',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
@@ -2455,7 +2457,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'should wait while repo-search is running',
-        assistantContent: 'stored assistant response',
+        mockResponses: [{ content: 'stored assistant response' }],
       }),
     });
     const blockedChatElapsedMs = Date.now() - blockedChatStart;
@@ -2486,6 +2488,7 @@ test('same session rejects a second request instead of entering the model FIFO',
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -2506,7 +2509,6 @@ test('same session rejects a second request instead of entering the model FIFO',
       body: JSON.stringify({
         prompt: 'hold lock',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
@@ -2526,13 +2528,12 @@ test('same session rejects a second request instead of entering the model FIFO',
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'fifo-b',
-        assistantContent: 'assistant-b',
+        mockResponses: [{ content: 'assistant-b' }],
       }),
     });
     let firstSessionRequestQueued = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      const status = await requestJson(`${baseUrl}/status`);
-      const queuedRequests = asObjectArray(d(status.body.modelRequests).queuedRequests);
+      const { queuedRequests } = await readStatusModelRequests(baseUrl);
       for (const queuedRequest of queuedRequests) {
         if (queuedRequest.kind === 'dashboard_chat') {
           firstSessionRequestQueued = true;
@@ -2548,7 +2549,7 @@ test('same session rejects a second request instead of entering the model FIFO',
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'fifo-c',
-        assistantContent: 'assistant-c',
+        mockResponses: [{ content: 'assistant-c' }],
       }),
     });
 
@@ -2598,7 +2599,7 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
 
     const activeMessage = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${messageSessionId}/messages`,
-      JSON.stringify({ content: 'active message', assistantContent: 'done' }),
+      JSON.stringify({ content: 'active message', mockResponses: [{ content: 'done' }] }),
       activeRequestsAbort.signal,
     );
     const activePlan = fireAndAbortJsonRequest(
@@ -2660,6 +2661,7 @@ test('queued model request is dropped when client disconnects before lock grant'
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -2681,7 +2683,6 @@ test('queued model request is dropped when client disconnects before lock grant'
       body: JSON.stringify({
         prompt: 'hold lock for disconnect test',
         repoRoot: process.cwd(),
-        model: 'Qwen3.5-35B-A3B-EXL3',
         maxTurns: 1,
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-EXL3'],
@@ -2700,7 +2701,7 @@ test('queued model request is dropped when client disconnects before lock grant'
       `${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`,
       JSON.stringify({
         content: 'dropped-request',
-        assistantContent: 'should-not-be-saved',
+        mockResponses: [{ content: 'should-not-be-saved' }],
       }),
       AbortSignal.timeout(25),
     );
@@ -2710,7 +2711,7 @@ test('queued model request is dropped when client disconnects before lock grant'
       timeoutMs: 3000,
       body: JSON.stringify({
         content: 'survivor-request',
-        assistantContent: 'saved',
+        mockResponses: [{ content: 'saved' }],
       }),
     });
     assert.equal(survivorResponse.statusCode, 200);
@@ -3189,7 +3190,7 @@ test('chat completion replays prior tool evidence without hidden system context'
   }
 });
 
-test('non-streaming chat message runs against the session model preset snapshot', async () => {
+test('non-streaming chat message runs on the model admitted for it, not the session snapshot', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-snapshot-cfg-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -3248,8 +3249,8 @@ test('non-streaming chat message runs against the session model preset snapshot'
     assert.equal(createSession.statusCode, 200);
     const sessionId = String(d(createSession.body.session).id);
 
-    // Swap the live active preset after the session snapshotted preset 'default':
-    // the turn below must still run with the snapshot's model and samplers.
+    // Swap the live active preset after the session recorded preset 'default':
+    // the turn below runs on the model admission grants, with that model's samplers.
     const currentConfig = await requestJson(`${baseUrl}/config?skip_ready=1`);
     assert.equal(currentConfig.statusCode, 200);
     const updated = d(structuredClone(currentConfig.body));
@@ -3274,8 +3275,9 @@ test('non-streaming chat message runs against the session model preset snapshot'
     assert.equal(chatReply.statusCode, 200);
     assert.notEqual(capturedChatRawBody, '');
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
-    assert.equal(captured.model, 'snapshot-model-exl3');
-    assert.equal(captured.temperature, 0.31);
+    assert.equal(captured.model, 'live-model-exl3');
+    assert.equal(captured.temperature, 0.94);
+    assert.equal(d(chatReply.body.session).modelPresetId, 'live', 'the session records the model its run was admitted on');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

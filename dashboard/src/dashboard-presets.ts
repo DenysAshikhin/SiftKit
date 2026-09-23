@@ -46,7 +46,8 @@ export function hasSamePresetExecutionContext(current: DashboardPreset, next: Da
     && current.includeAgentsMd === next.includeAgentsMd
     && current.includeRepoFileListing === next.includeRepoFileListing
     && current.assistantMemory === next.assistantMemory
-    && equalOrderedValues(current.autoloadFiles, next.autoloadFiles);
+    && equalOrderedValues(current.autoloadFiles, next.autoloadFiles)
+    && current.modelPresetId === next.modelPresetId;
 }
 
 export function createPresetIdFromLabel(label: string): string {

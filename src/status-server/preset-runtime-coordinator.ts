@@ -61,7 +61,7 @@ export class PresetRuntimeCoordinator {
     if (this.residencyActionInProgress) throw new Error(MODEL_RESIDENCY_TRANSITION_BUSY_ERROR);
     const target = this.getPreset(presetId);
     if (
-      this.presetsEqual(target, this.appliedModelPresetState.getPreset())
+      this.appliedModelPresetState.isApplied(target)
       && this.pendingTarget === null
       && this.runtime.getModelState() === 'ready'
     ) {
@@ -84,7 +84,7 @@ export class PresetRuntimeCoordinator {
     }
     const currentConfig = readConfig(this.configPath);
     this.findPreset(currentConfig, requested.id);
-    if (this.presetsEqual(requested, this.appliedModelPresetState.getPreset())) {
+    if (this.appliedModelPresetState.isApplied(requested)) {
       if (this.runtime.getModelState() !== 'ready') await this.restoreAppliedPreset(requested);
       this.publishReadyPreset(requested);
       persistAppliedModelSelection(this.configPath, currentConfig, requested);
@@ -125,7 +125,7 @@ export class PresetRuntimeCoordinator {
     for (;;) {
       while (this.switchPromise) await this.switchPromise;
       const configuredPreset = this.getConfiguredPreset();
-      if (this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) break;
+      if (this.appliedModelPresetState.isApplied(configuredPreset)) break;
       if (await this.applyPreset(configuredPreset.id) === 'queued') break;
     }
     if (this.runtime.getModelState() === 'ready') {
@@ -398,10 +398,6 @@ export class PresetRuntimeCoordinator {
   private getConfiguredPreset(): ModelRuntimePreset {
     const config = readConfig(this.configPath);
     return this.findPreset(config, config.Server.ModelPresets.ActivePresetId);
-  }
-
-  private presetsEqual(left: ModelRuntimePreset, right: ModelRuntimePreset): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
   }
 
   private hasReadyResidency(target: ModelRuntimePreset): boolean {

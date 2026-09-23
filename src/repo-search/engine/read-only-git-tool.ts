@@ -7,7 +7,7 @@ import {
 } from './repo-paths.js';
 import type { RepoToolExecution } from './repo-tools.js';
 
-const BASE_ARGS = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '--no-optional-locks'];
+export const SAFE_GIT_BASE_ARGS = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '--no-optional-locks'];
 const DIFF_SAFETY_ARGS = ['--no-ext-diff', '--no-textconv'];
 const DEFAULT_LOG_LIMIT = 20;
 
@@ -62,7 +62,7 @@ export function buildReadOnlyGitCommand(args: GitToolArgs): string {
     .join(' ');
 }
 
-function scrubGitEnvironment(): Record<string, string> {
+export function scrubGitEnvironment(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !key.toUpperCase().startsWith('GIT_')) {
@@ -150,7 +150,7 @@ export function buildReadOnlyGitInvocation(
 
   return {
     ok: true,
-    args: [...BASE_ARGS, ...operationArgs],
+    args: [...SAFE_GIT_BASE_ARGS, ...operationArgs],
     env: scrubGitEnvironment(),
     command,
     ...(outputLimit === undefined ? {} : { outputLimit }),

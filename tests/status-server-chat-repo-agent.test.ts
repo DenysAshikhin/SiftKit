@@ -522,15 +522,10 @@ test('a repo-agent follow-up receives the preceding repo-agent turn as replayabl
   const nativeCall = followUp.history.flatMap(message => message.tool_calls ?? [])[0];
   assert.equal(nativeCall?.function.arguments, JSON.stringify({ path: 'history-tool.txt', content: 'approved' }));
   assert.ok(firstDone.session.messages.some(message => message.kind === 'repo_agent_approval' && message.approvalDecision === 'approve'));
-  assert.equal(followUp.modelPresetId, firstDone.session.modelPresetId);
-  assert.deepEqual(followUp.modelPreset, originalModelPreset);
+  // A saved config edit that bypasses the runtime does not move the applied model, so the follow-up
+  // is admitted on the model that is actually resident rather than on the unapplied replacement.
   assert.ok(followUp.config);
-  const requestModelPreset = getActiveModelPreset(followUp.config);
-  const { id: requestPresetId, ...requestModelFields } = requestModelPreset;
-  const { id: sessionPresetId, ...sessionModelFields } = originalModelPreset;
-  assert.equal(requestPresetId, replacementModelPreset.id);
-  assert.equal(sessionPresetId, firstDone.session.modelPresetId);
-  assert.deepEqual(requestModelFields, sessionModelFields);
+  assert.deepEqual(getActiveModelPreset(followUp.config), originalModelPreset);
 });
 
 // A user still typing into the queue is activity, so a silently generating run must not lose

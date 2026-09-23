@@ -5,21 +5,23 @@
  * Every function takes a `ServerContext` as its first argument so the mutable
  * state lives in one place (created by `startStatusServer` in index.ts).
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MIXED_MODEL_PRESET_LABEL } from '@siftkit/contracts';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { readConfig, persistAppliedModelSelection } from './config-store.js';
+import { MissingModelPathError } from '../inference-presets/exl3-preset-adapter.js';
 import {
   resolveModelRequestContext,
   type ModelRequestContext,
-  type ModelRequestIntent,
 } from './model-request-context.js';
+import type { ModelRequestIntent } from '../lib/model-request-intent.js';
+import type { ModelRequestWaitingReason, ModelResidencyDiagnostics } from '../lib/operation-stream.js';
 import {
   selectNextModelRequest,
   type ModelRequestCandidate,
 } from './model-request-selection.js';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
+import type { SiftConfig } from '../config/types.js';
 import { getActiveModelPreset } from '../config/getters.js';
 import {
   STATUS_TRUE,
@@ -273,7 +275,8 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
 // Model request serialisation
 // ---------------------------------------------------------------------------
 
-function getIncomingModelRequestQueuePosition(ctx: ServerContext): number {
+/** Arrival order only: a request for the resident model may be served before earlier arrivals. */
+function getIncomingModelRequestArrivalPosition(ctx: ServerContext): number {
   return ctx.activeModelRequests.size + ctx.modelRequestQueue.length + 1;
 }
 
@@ -283,7 +286,7 @@ function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
     scope: 'st',
     id: '',
     event: 'incoming',
-    fields: `task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`,
+    fields: `task=${taskKind} arrival_position=${getIncomingModelRequestArrivalPosition(ctx)}`,
   });
 }
 
@@ -292,14 +295,35 @@ function getElapsedMsSinceIso(isoTimestamp: string): number {
   return Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : 0;
 }
 
-export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelRequestQueueDiagnostics {
+/** Publishes only a SHA-256 fingerprint: the internal key carries engine environment values. */
+function describeResidency(modelPresetId: string, residencyKey: string | null): ModelResidencyDiagnostics {
   return {
+    modelPresetId,
+    residencyFingerprint: residencyKey === null ? null : createHash('sha256').update(residencyKey).digest('hex'),
+  };
+}
+
+function readModelRequestWaitingReason(
+  ctx: ServerContext,
+  waiter: ModelRequestWaiter,
+  appliedKey: string | null,
+): ModelRequestWaitingReason {
+  if (ctx.presetRuntimeCoordinator?.canGrantModelRequest() === false) return 'transition';
+  if (waiter.resolution !== null && !isResidentSelection(ctx, waiter.resolution, appliedKey)) return 'different_model';
+  return 'capacity';
+}
+
+export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelRequestQueueDiagnostics {
+  const appliedKey = readAppliedResidencyKey(ctx);
+  return {
+    resident: describeResidency(ctx.appliedModelPresetState.getPreset().id, appliedKey),
     activeCount: ctx.activeModelRequests.size,
     activeRequests: [...ctx.activeModelRequests.values()].map((lock) => ({
       kind: lock.kind,
       startedAtUtc: lock.startedAtUtc,
       heldMs: getElapsedMsSinceIso(lock.startedAtUtc),
       ownerRunId: lock.ownerRunId,
+      model: describeResidency(lock.context.modelPreset.id, lock.residencyKey),
     })),
     queueLength: ctx.modelRequestQueue.length,
     queuedRequests: ctx.modelRequestQueue.map((entry) => ({
@@ -307,6 +331,11 @@ export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelReques
       enqueuedAtUtc: entry.enqueuedAtUtc,
       waitMs: getElapsedMsSinceIso(entry.enqueuedAtUtc),
       hasDeadline: entry.queueTimeout !== 'none',
+      requested: entry.intent,
+      resolved: entry.resolution === null
+        ? null
+        : describeResidency(entry.resolution.context.modelPreset.id, entry.resolution.residencyKey),
+      waitingReason: readModelRequestWaitingReason(ctx, entry, appliedKey),
     })),
   };
 }
@@ -586,38 +615,64 @@ async function runModelRequestDrain(ctx: ServerContext): Promise<void> {
 }
 
 /** Null when the applied profile has no derivable loading identity, e.g. no ModelPath behind an external server. */
-function readAppliedResidencyKey(ctx: ServerContext, applied: ModelRuntimePreset): string | null {
+function readAppliedResidencyKey(ctx: ServerContext): string | null {
   try {
-    return ctx.modelRuntime.getPresetResidencyKey(applied);
-  } catch {
-    return null;
+    return ctx.modelRuntime.getPresetResidencyKey(ctx.appliedModelPresetState.getPreset());
+  } catch (error) {
+    if (error instanceof MissingModelPathError) return null;
+    throw error;
   }
+}
+
+/** Evaluated against the current applied profile, never cached, so a finished switch is seen at once. */
+function isResidentSelection(ctx: ServerContext, selection: ModelRequestSelection, appliedKey: string | null): boolean {
+  // The applied profile is resident by definition, whether or not its identity can be derived.
+  return ctx.appliedModelPresetState.isApplied(selection.context.modelPreset)
+    || (selection.residencyKey !== null && selection.residencyKey === appliedKey);
+}
+
+/** An intent naming a missing operation preset, model preset, or CLI model; a request error, not a lifecycle failure. */
+export class ModelRequestTargetError extends Error {
+  constructor(cause: Error) {
+    super(cause.message, { cause });
+    this.name = 'ModelRequestTargetError';
+  }
+}
+
+function resolveModelRequestTarget(ctx: ServerContext, config: SiftConfig, intent: ModelRequestIntent): ModelRequestContext {
+  // A coordinator applies a newer saved selection at the next admission; without one, the
+  // config route already moved the applied state, which is all an inherited request can use.
+  const inherited = ctx.presetRuntimeCoordinator ? getActiveModelPreset(config) : ctx.appliedModelPresetState.getPreset();
+  try {
+    return resolveModelRequestContext(config, inherited, intent);
+  } catch (error) {
+    throw new ModelRequestTargetError(toError(error));
+  }
+}
+
+/**
+ * The target an intent would be admitted with right now. Routes call it before queueing so an
+ * invalid target is a 400; admission re-resolves at grant time and freezes that result instead.
+ */
+export function previewModelRequestTarget(ctx: ServerContext, intent: ModelRequestIntent): ModelRequestContext {
+  return resolveModelRequestTarget(ctx, readConfig(ctx.configPath), intent);
 }
 
 function resolveModelRequestSelection(
   ctx: ServerContext,
   config: SiftConfig,
-  applied: ModelRuntimePreset,
   appliedKey: string | null,
   intent: ModelRequestIntent,
 ): ModelRequestSelection {
-  // A coordinator applies a newer saved selection at the next admission; without one, the
-  // config route already moved the applied state, which is all an inherited request can use.
-  const inherited = ctx.presetRuntimeCoordinator ? getActiveModelPreset(config) : applied;
-  const context = resolveModelRequestContext(config, inherited, intent);
-  // The applied profile is resident by definition, whether or not its identity can be derived.
-  if (JSON.stringify(context.modelPreset) === JSON.stringify(applied)) {
-    return { context, residencyKey: appliedKey, resident: true };
-  }
-  const residencyKey = ctx.modelRuntime.getPresetResidencyKey(context.modelPreset);
-  return { context, residencyKey, resident: residencyKey === appliedKey };
+  const context = resolveModelRequestTarget(ctx, config, intent);
+  const residencyKey = ctx.appliedModelPresetState.isApplied(context.modelPreset)
+    ? appliedKey
+    : ctx.modelRuntime.getPresetResidencyKey(context.modelPreset);
+  return { context, residencyKey };
 }
 
 async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
   if (ctx.modelRequestQueue.length === 0) {
-    return false;
-  }
-  if (ctx.activeModelRequests.size >= getModelRequestCapacity(ctx)) {
     return false;
   }
   const coordinator = ctx.presetRuntimeCoordinator;
@@ -626,30 +681,31 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
     await coordinator.waitForCurrentAdmissionBlocker();
     return true;
   }
+  // Resolve even at full capacity so diagnostics can report a waiter that needs another model.
   const config = readConfig(ctx.configPath);
-  const applied = ctx.appliedModelPresetState.getPreset();
-  const appliedKey = readAppliedResidencyKey(ctx, applied);
-  const selections = new Map<string, ModelRequestSelection>();
   const candidates: ModelRequestCandidate[] = [];
   for (const waiter of [...ctx.modelRequestQueue]) {
     if (waiter.cancelled) {
       continue;
     }
     try {
-      const selection = resolveModelRequestSelection(ctx, config, applied, appliedKey, waiter.intent);
-      selections.set(waiter.queueToken, selection);
-      candidates.push({ queueToken: waiter.queueToken, resident: selection.resident });
+      // Per waiter: an applied profile with an invalid identity rejects each request loudly.
+      const appliedKey = readAppliedResidencyKey(ctx);
+      waiter.resolution = resolveModelRequestSelection(ctx, config, appliedKey, waiter.intent);
+      candidates.push({ queueToken: waiter.queueToken, resident: isResidentSelection(ctx, waiter.resolution, appliedKey) });
     } catch (error) {
       rejectModelRequestWaiter(ctx, waiter, 'model_target_invalid', toError(error));
     }
   }
-  const token = selectNextModelRequest(candidates, ctx.activeModelRequests.size);
-  const selection = token === null ? undefined : selections.get(token);
-  const waiter = token === null ? undefined : ctx.modelRequestQueue.find((entry) => entry.queueToken === token);
-  if (!selection || !waiter) {
+  if (ctx.activeModelRequests.size >= getModelRequestCapacity(ctx)) {
     return false;
   }
-  waiter.selection = selection;
+  const token = selectNextModelRequest(candidates, ctx.activeModelRequests.size);
+  const waiter = ctx.modelRequestQueue.find((entry) => entry.queueToken === token);
+  const selection = waiter?.resolution;
+  if (!waiter || !selection) {
+    return false;
+  }
   try {
     if (coordinator) {
       await coordinator.ensureRequestPresetReady(selection.context.modelPreset);
@@ -684,12 +740,12 @@ function admitCompatibleProfileWithoutCoordinator(
   config: SiftConfig,
   selection: ModelRequestSelection,
 ): void {
-  if (!selection.resident) {
+  if (!isResidentSelection(ctx, selection, readAppliedResidencyKey(ctx))) {
     throw new Error(
       `Model preset '${selection.context.modelPreset.id}' needs a different resident model; this server has no managed runtime and cannot switch it.`,
     );
   }
-  if (JSON.stringify(selection.context.modelPreset) === JSON.stringify(ctx.appliedModelPresetState.getPreset())) {
+  if (ctx.appliedModelPresetState.isApplied(selection.context.modelPreset)) {
     return;
   }
   ctx.appliedModelPresetState.applyPreset(selection.context.modelPreset);
@@ -718,13 +774,15 @@ export const WEB_UI_MODEL_QUEUE_TIMEOUT = 'none' satisfies ModelQueueTimeout;
 export function acquireWebUiModelRequest(
   ctx: ServerContext,
   kind: string,
+  intent: ModelRequestIntent,
+  abortSignal: AbortSignal | undefined,
   request?: IncomingMessage,
   response?: ServerResponse,
-  abortSignal?: AbortSignal,
 ): Promise<ModelRequestLock | null> {
   return acquireModelRequestWithWait(ctx, kind, request, response, {
     queueTimeout: WEB_UI_MODEL_QUEUE_TIMEOUT,
     abortSignal,
+    intent,
   });
 }
 
@@ -754,7 +812,7 @@ export async function acquireModelRequestWithWait(
     ownerRunId: options.ownerRunId ?? null,
     enqueuedAtUtc: new Date().toISOString(),
     intent: options.intent ?? { presetId: null, model: null },
-    selection: null,
+    resolution: null,
     cancelled: false,
     grantedLock: null,
     timeoutHandle: null,

@@ -12,12 +12,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
+import { RepoAgentApprovalSchema, type RepoAgentApproval } from '@siftkit/contracts';
 import {
-  RepoAgentApprovalSchema,
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
   RepoAgentRunRequestSchema,
-  type RepoAgentApproval,
   type RepoAgentRunRequest,
   type RepoAgentRunState,
 } from '../src/repo-agent/run-schemas.js';

@@ -11,6 +11,7 @@ export * from './chat-projection.js';
 export * from './benchmark.js';
 export * from './system.js';
 export * from './config.js';
+export * from './orchestrator.js';
 export * from './image.js';
 export * from './assistant.js';
 export * from './assistant-desktop.js';

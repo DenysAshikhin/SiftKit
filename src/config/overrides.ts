@@ -21,9 +21,3 @@ export function overlayActivePreset(config: SiftConfig, fields: Partial<ModelRun
     },
   };
 }
-
-/** Explicit caller override (CLI --model, session snapshot) wins over host sync and preset. */
-export function applyModelOverrideToConfig(config: SiftConfig, model: string | null | undefined): SiftConfig {
-  const trimmed = typeof model === 'string' ? model.trim() : '';
-  return trimmed ? overlayActivePreset(config, { Model: trimmed }) : config;
-}

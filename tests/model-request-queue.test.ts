@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test, { mock, type TestContext } from 'node:test';
@@ -552,7 +553,7 @@ test('preset switch arms idle for the preset that becomes active', async () => {
   }
 });
 
-test('model request admission logs queue position without waking the engine', async () => {
+test('model request admission logs arrival position without waking the engine', async () => {
   const ctx = createQueueContext();
   try {
     const capture = OutputCapture.start(process.stdout);
@@ -565,7 +566,7 @@ test('model request admission logs queue position without waking the engine', as
     }
     const lines = capture.lines;
 
-    assert.ok(lines.some((line) => /st -{8}  incoming  task=summary queue_position=1/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st -{8}  incoming  task=summary arrival_position=1/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=summary held_ms=/u.test(line)), lines.join('\n'));
   } finally {
@@ -573,7 +574,7 @@ test('model request admission logs queue position without waking the engine', as
   }
 });
 
-test('queued model request logs its FIFO position while waiting', async () => {
+test('queued model request logs its arrival position while waiting', async () => {
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -582,11 +583,11 @@ test('queued model request logs its FIFO position while waiting', async () => {
 
     const capture = OutputCapture.start(process.stdout);
     try {
-      // Enqueueing is synchronous: the FIFO position is logged the moment the queued
+      // Enqueueing is synchronous: the arrival position is logged the moment the queued
       // acquire is called, before it awaits — no wall-clock wait is needed to observe it.
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
-        assert.ok(capture.lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), capture.lines.join('\n'));
+        assert.ok(capture.lines.some((line) => /st -{8}  incoming  task=dashboard_chat arrival_position=2/u.test(line)), capture.lines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);
         const queuedLock = await queuedLockPromise;
@@ -598,7 +599,7 @@ test('queued model request logs its FIFO position while waiting', async () => {
     }
     const lines = capture.lines;
 
-    assert.ok(lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st -{8}  incoming  task=dashboard_chat arrival_position=2/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
   } finally {
@@ -818,7 +819,7 @@ test('queue diagnostics report whether each queued request has a deadline', asyn
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
     const boundedPromise = acquireModelRequestWithWait(ctx, 'summary');
-    const unboundedPromise = acquireWebUiModelRequest(ctx, 'dashboard_chat_stream');
+    const unboundedPromise = acquireWebUiModelRequest(ctx, 'dashboard_chat_stream', { presetId: null, model: null }, undefined);
 
     assert.deepEqual(
       getModelRequestQueueDiagnostics(ctx).queuedRequests.map(({ kind, hasDeadline }) => ({ kind, hasDeadline })),
@@ -844,7 +845,7 @@ test('repo-agent lock adapter forwards a no-deadline queue timeout and stays abo
     assert.ok(activeLock);
 
     const controller = new AbortController();
-    const acquisition = new ServerModelLockAdapter(ctx, 'none').acquire('webui-run', controller.signal);
+    const acquisition = new ServerModelLockAdapter(ctx, 'none', { presetId: null, model: null }).acquire('webui-run', controller.signal);
     assert.equal(ctx.modelRequestQueue[0]?.ownerRunId, 'webui-run');
     assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, 'none');
     assert.equal(ctx.modelRequestQueue[0]?.timeoutHandle, null);
@@ -865,7 +866,7 @@ test('repo-agent lock adapter without a queue timeout uses the default window', 
     assert.ok(activeLock);
 
     const controller = new AbortController();
-    const acquisition = new ServerModelLockAdapter(ctx, undefined).acquire('cli-run', controller.signal);
+    const acquisition = new ServerModelLockAdapter(ctx, undefined, { presetId: null, model: null }).acquire('cli-run', controller.signal);
     assert.equal(ctx.modelRequestQueue[0]?.queueTimeout, DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS);
 
     controller.abort();
@@ -1261,6 +1262,148 @@ test('resident A requests overtake an older B request in the observed grant orde
   }
 });
 
+function fingerprintResidency(ctx: ServerContext, preset: ModelRuntimePreset): string {
+  return createHash('sha256').update(ctx.modelRuntime.getPresetResidencyKey(preset)).digest('hex');
+}
+
+function requireRoutingPreset(ctx: ServerContext, presetId: string): ModelRuntimePreset {
+  const preset = readConfig(ctx.configPath).Server.ModelPresets.Presets.find((entry) => entry.id === presetId);
+  if (!preset) throw new Error(`Model preset '${presetId}' is missing`);
+  return preset;
+}
+
+test('queue diagnostics publish requested and resolved models and why each request waits', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-diagnostics-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx, exl3Runtime } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    const a1Promise = acquireModelRequestWithWait(ctx, 'a1');
+    const residentA = {
+      modelPresetId: PRESET_ROUTING_MODEL_A,
+      residencyFingerprint: fingerprintResidency(ctx, requireRoutingPreset(ctx, PRESET_ROUTING_MODEL_A)),
+    };
+    const residentB = {
+      modelPresetId: PRESET_ROUTING_MODEL_B,
+      residencyFingerprint: fingerprintResidency(ctx, requireRoutingPreset(ctx, PRESET_ROUTING_MODEL_B)),
+    };
+    const summarizeQueued = () => getModelRequestQueueDiagnostics(ctx).queuedRequests
+      .map(({ kind, requested, resolved, waitingReason }) => ({ kind, requested, resolved, waitingReason }));
+
+    // A full-capacity pass still resolves intents, so a different model is visible before a slot frees.
+    await ctx.modelRequestDrainPromise;
+    const initial = getModelRequestQueueDiagnostics(ctx);
+    assert.deepEqual(initial.resident, residentA);
+    assert.deepEqual(initial.activeRequests.map((entry) => entry.model), [residentA]);
+    assert.deepEqual(summarizeQueued(), [
+      { kind: 'b1', requested: { presetId: 'repo-search', model: null }, resolved: residentB, waitingReason: 'different_model' },
+      { kind: 'a1', requested: { presetId: null, model: null }, resolved: residentA, waitingReason: 'capacity' },
+    ]);
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const a1 = await a1Promise;
+    assert.ok(a1);
+    assert.deepEqual(summarizeQueued(), [{
+      kind: 'b1',
+      requested: { presetId: 'repo-search', model: null },
+      resolved: residentB,
+      waitingReason: 'different_model',
+    }]);
+
+    exl3Runtime.blockNextEnsure();
+    assert.equal(releaseModelRequest(ctx, a1.token), true);
+    await exl3Runtime.transitionStarted.promise;
+    assert.equal(summarizeQueued()[0]?.waitingReason, 'transition');
+
+    exl3Runtime.releaseEnsure();
+    const b1 = await bPromise;
+    assert.ok(b1);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).resident.modelPresetId, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+  } finally {
+    exl3Runtime.releaseEnsure();
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('a waiter behind a request that switched to its model reports capacity, not a different model', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-stale-reason-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
+  const { ctx } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const b1Promise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    const b2Promise = acquireModelRequestWithWait(ctx, 'b2', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const b1 = await b1Promise;
+    assert.ok(b1);
+    await ctx.modelRequestDrainPromise;
+
+    const [b2] = getModelRequestQueueDiagnostics(ctx).queuedRequests;
+    assert.equal(b2?.kind, 'b2');
+    assert.equal(b2?.waitingReason, 'capacity');
+
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+    const b2Lock = await b2Promise;
+    assert.ok(b2Lock);
+    assert.equal(releaseModelRequest(ctx, b2Lock.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+const RESIDENCY_ENVIRONMENT_SECRET = 'residency-env-secret-7f3a';
+
+/** Embeds an engine environment value in the internal key, as the managed runtime does. */
+class EnvironmentKeyedQueueRuntime extends BlockingQueueRuntime {
+  override getPresetResidencyKey(preset: ModelRuntimePreset): string {
+    return JSON.stringify({ load: super.getPresetResidencyKey(preset), environment: { HF_TOKEN: RESIDENCY_ENVIRONMENT_SECRET } });
+  }
+}
+
+test('queue diagnostics and logs never expose internal residency keys', async () => {
+  const runtime = new EnvironmentKeyedQueueRuntime([]);
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-opaque-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE, runtime);
+  const { ctx } = harness;
+  const stdout = OutputCapture.start(process.stdout);
+  const stderr = OutputCapture.start(process.stderr);
+  const published: string[] = [];
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    const a1Promise = acquireModelRequestWithWait(ctx, 'a1');
+    published.push(JSON.stringify(getModelRequestQueueDiagnostics(ctx)));
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const a1 = await a1Promise;
+    assert.ok(a1);
+    const diagnostics = getModelRequestQueueDiagnostics(ctx);
+    published.push(JSON.stringify(diagnostics));
+    assert.match(diagnostics.resident.residencyFingerprint ?? '', /^[0-9a-f]{64}$/u);
+    assert.match(diagnostics.queuedRequests[0]?.resolved?.residencyFingerprint ?? '', /^[0-9a-f]{64}$/u);
+    assert.equal(releaseModelRequest(ctx, a1.token), true);
+    const b1 = await bPromise;
+    assert.ok(b1);
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+  } finally {
+    stdout.restore();
+    stderr.restore();
+    await closePresetQueueHarness(harness);
+  }
+  for (const text of [...published, ...stdout.lines, ...stderr.lines]) {
+    assert.equal(text.includes(RESIDENCY_ENVIRONMENT_SECRET), false, text);
+  }
+});
+
 test('two active A requests are admitted before the older B request', async () => {
   const harness = await createRoutingQueueHarness('siftkit-model-queue-two-a-', PRESET_ROUTING_MODEL_A, {
     [PRESET_ROUTING_MODEL_A]: 2,
@@ -1490,6 +1633,27 @@ test('a coordinator-free server admits current-model requests whose profile has 
     assert.equal(lock.context.modelPreset.id, ctx.appliedModelPresetState.getPreset().id);
     assert.equal(lock.residencyKey, null);
     assert.equal(releaseModelRequest(ctx, lock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('a coordinator-free server rejects a request when the applied profile has an invalid load identity', async () => {
+  const ctx = createQueueContext();
+  ctx.modelRuntime = new ManagedTabbyRuntime(
+    readConfig(ctx.configPath).Server.Engines.Exl3,
+    ctx.inferenceRunFlushQueue,
+    NEVER_LAUNCHING_ENGINE_HOST,
+  );
+  // Only a missing ModelPath means "no identity"; a path outside ModelRoot is a real misconfiguration.
+  ctx.appliedModelPresetState = new AppliedModelPresetState({
+    ...ctx.appliedModelPresetState.getPreset(),
+    ModelPath: 'Z:\\outside-model-root\\model',
+  });
+  try {
+    await assert.rejects(acquireModelRequestWithWait(ctx, 'current'), /ModelPath must be inside ModelRoot/u);
+    assert.equal(ctx.activeModelRequests.size, 0);
+    assert.equal(ctx.modelRequestQueue.length, 0);
   } finally {
     await ctx.inferenceRunFlushQueue.close();
   }

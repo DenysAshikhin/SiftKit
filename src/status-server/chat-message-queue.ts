@@ -4,15 +4,12 @@ import type { ChatMessageQueueState, ChatQueueOperationKind } from '@siftkit/con
 import type { TranscriptManager } from '../repo-search/engine/transcript-manager.js';
 import type { ChatMessageQueueDelivery } from '../repo-search/engine/queue-delivery.js';
 import type { ChatRunRecorder } from './chat-run-recorder.js';
-import type { ModelRuntimePreset } from '../config/types.js';
 
 type QueueDeliveryOptions = {
   recorder: ChatRunRecorder;
   sessionId: string;
   requestId: string;
   operationKind: ChatQueueOperationKind;
-  /** The run's model preset; queued images are admitted against it at claim time. */
-  modelPreset: ModelRuntimePreset;
   forceId?: string;
 };
 
@@ -78,7 +75,7 @@ class SessionChatMessageQueueDelivery implements ChatMessageQueueDelivery {
     const force = this.owner.store.state(this.options.sessionId).force;
     if (!force || force.id !== this.options.forceId || force.phase === 'failed') throw new Error('Queued continuation was cancelled.');
     const messages = this.options.recorder.claimQueuedMessages(this.options.sessionId,
-      { requestId: this.options.requestId, turn: 0, ids: force.messageIds }, this.options.modelPreset, force.id);
+      { requestId: this.options.requestId, turn: 0, ids: force.messageIds }, force.id);
     this.owner.publish(this.options.sessionId);
     return messages;
   }
@@ -98,7 +95,7 @@ class SessionChatMessageQueueDelivery implements ChatMessageQueueDelivery {
       requestId: this.options.requestId,
       turn,
       ids: pending.map((message) => message.id),
-    }, this.options.modelPreset);
+    });
     for (const message of claimed) {
       transcript.pushQueuedUser(message.id, message.content, message.images);
     }

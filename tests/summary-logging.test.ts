@@ -21,7 +21,6 @@ test('summary emits preflight tokenization progress', async () => {
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         progressWriter: writer,
       });
 

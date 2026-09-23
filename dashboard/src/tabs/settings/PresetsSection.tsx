@@ -1,4 +1,5 @@
 import React from 'react';
+import { OrchestratorPresetOptionsSchema } from '@siftkit/contracts';
 
 import {
   getEffectivePresetTools,
@@ -15,6 +16,28 @@ import type {
   DashboardConfig,
   DashboardPreset,
 } from '../../types';
+
+/** An orchestrator preset without its options is malformed stored config, never a silent default. */
+function OrchestratorCapField({ preset, presetActions }: { preset: DashboardPreset; presetActions: PresetSettingsActions }) {
+  const options = preset.orchestrator;
+  if (options === null) throw new Error(`Orchestrator preset '${preset.id}' is missing its options.`);
+  return (
+    <SettingsField label="Maximum concurrent subagents" layout="half">
+      <input
+        type="number"
+        min="1"
+        step="1"
+        aria-label="Maximum concurrent subagents"
+        value={options.maxSubagents}
+        onChange={(event) => {
+          const parsed = OrchestratorPresetOptionsSchema.shape.maxSubagents.safeParse(Number(event.target.value));
+          if (parsed.success) presetActions.setMaxSubagents(preset.id, parsed.data);
+        }}
+      />
+      <span className="fhint">A cap, not a promise: read-only tasks may overlap; a task that changes files always runs alone.</span>
+    </SettingsField>
+  );
+}
 
 type PresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
@@ -97,8 +120,23 @@ export function PresetsSection({
                 <option value="chat">chat</option>
                 <option value="plan">plan</option>
                 <option value="repo-search">repo-search</option>
+                <option value="orchestrator">orchestrator</option>
               </select>
             </SettingsField>
+            <SettingsField label="Model preset" layout="half">
+              <select
+                aria-label="Operation model preset"
+                value={preset.modelPresetId ?? ''}
+                onChange={(event) => presetActions.setModelPreset(preset.id, event.target.value === '' ? null : event.target.value)}
+              >
+                <option value="">Current model</option>
+                {dashboardConfig.Server.ModelPresets.Presets.map((model) => (
+                  <option key={model.id} value={model.id}>{model.label}</option>
+                ))}
+              </select>
+              <span className="fhint">Runs this operation on the chosen model, which stays loaded afterward.</span>
+            </SettingsField>
+            {preset.presetKind === 'orchestrator' ? <OrchestratorCapField preset={preset} presetActions={presetActions} /> : null}
             <SettingsField label="Operation mode" layout="quarter">
               <select
                 value={preset.operationMode}

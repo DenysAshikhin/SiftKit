@@ -31,6 +31,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
+    orchestrator: null,
     ...overrides,
   };
 }
@@ -151,6 +152,7 @@ test('preset execution context ignores metadata but detects request-shaping chan
   assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, includeRepoFileListing: false }), false);
   assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, autoloadFiles: ['AGENTS.md'] }), false);
   assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, assistantMemory: true }), false);
+  assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, modelPresetId: 'model-b' }), false);
   assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, repoRootRequired: true }), true);
   assert.equal(hasSamePresetExecutionContext(current, { ...equivalent, maxTurns: 3 }), true);
 });

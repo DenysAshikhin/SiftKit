@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -45,7 +46,7 @@ function beginNextRun(root: string, session: ChatSession, operationKind: 'repo-s
     content: 'next', images: [], imageMeta: [], userMessageId: randomUUID(), retainedHistoryRevision: 0,
     startedAtUtc: new Date().toISOString(),
     settings: buildChatRunSettings({
-      session, config, operationKind, repoRoot: session.planRepoRoot,
+      session, target: currentModelTarget(config), operationKind, repoRoot: session.planRepoRoot,
       presetId: session.presetId ?? operationKind, approval: null, maxTurns: null, webSearchEnabled: false,
     }),
   });

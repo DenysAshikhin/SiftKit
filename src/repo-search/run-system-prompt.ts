@@ -5,7 +5,12 @@ import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
 import { applyWebToolPolicy, resolveWebToolPolicy } from '../web-search/tool-policy.js';
 import type { WebSearchConfig } from '../web-search/types.js';
 import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
-import { buildAgentSystemPrompt, buildTaskSystemPrompt, buildWebChatToolInstructions } from './prompts.js';
+import {
+  buildAgentSystemPrompt,
+  buildOrchestratorSystemPrompt,
+  buildTaskSystemPrompt,
+  buildWebChatToolInstructions,
+} from './prompts.js';
 
 type RunSystemPromptBase = {
   promptPrefix: string;
@@ -21,7 +26,7 @@ type RunSystemPromptBase = {
 
 /** `chat` supplies its own base prompt; the other kinds derive one from the resolved tool surface. */
 export type RunSystemPromptSurface =
-  | { promptKind: 'repo-agent' | 'planner'; allowedTools: readonly string[] }
+  | { promptKind: 'repo-agent' | 'planner' | 'orchestrator'; allowedTools: readonly string[] }
   | { promptKind: 'chat'; chatSystemPrompt: string; allowedTools: readonly string[] };
 
 export type RunSystemPromptRequest = RunSystemPromptBase & RunSystemPromptSurface;
@@ -49,7 +54,9 @@ export function resolveRunSystemPrompt(request: RunSystemPromptRequest): Resolve
     ? request.chatSystemPrompt
     : request.promptKind === 'repo-agent'
       ? buildAgentSystemPrompt(request.systemContext, toolDefinitions)
-      : buildTaskSystemPrompt(request.systemContext, toolDefinitions);
+      : request.promptKind === 'orchestrator'
+        ? buildOrchestratorSystemPrompt(toolDefinitions)
+        : buildTaskSystemPrompt(request.systemContext, toolDefinitions);
   // One shared guidance block for the web chat tools, whatever base prompt the run kind uses.
   const webChatToolInstructions = buildWebChatToolInstructions(toolDefinitions.map(({ function: definition }) => definition.name));
   const systemPrompt = [baseSystemPrompt, webChatToolInstructions].filter((section) => section.length > 0).join('\n\n');

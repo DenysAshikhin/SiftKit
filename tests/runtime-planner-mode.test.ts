@@ -128,7 +128,6 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -179,7 +178,6 @@ test('planner iteration running=false notification is fire-and-forget', async ()
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         statusBackendUrl: server.statusUrl,
       });
 
@@ -214,7 +212,6 @@ test('planner retries malformed json_filter schema-placeholder args once and the
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -270,7 +267,6 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -323,7 +319,6 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /planner_invalid_response_limit/u,
       );
@@ -361,7 +356,6 @@ test('planner decision-shaped output without a finish action fails after the inv
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /planner_invalid_response_limit/u,
       );
@@ -398,7 +392,6 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -454,7 +447,6 @@ test('planner returns recoverable json_filter collectionPath guidance without co
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -520,7 +512,6 @@ test('planner json_filter falls back to embedded JSON in command-output text and
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         sourceKind: 'command-output',
       });
 
@@ -578,7 +569,6 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         sourceKind: 'command-output',
       });
 
@@ -630,7 +620,6 @@ test('planner failures write failed artifacts through status posts', async () =>
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
           debugCommand: 'type transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."',
         }),
         /planner/i,
@@ -688,7 +677,6 @@ test('planner debug dumps always write to the repo-local logs directory', async 
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -715,7 +703,6 @@ test('planner read_lines tool results use a compact numbered text block', async 
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -757,7 +744,6 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -804,7 +790,6 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -869,7 +854,6 @@ test('planner find_text and json_filter results use compact text blocks in promp
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -968,7 +952,6 @@ test('planner keeps short read_lines output when reported token count is high', 
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1016,7 +999,6 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1065,7 +1047,6 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1117,7 +1098,6 @@ test('planner fits oversized read_lines output and reports omitted lines', async
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1170,7 +1150,6 @@ test('planner advances repeated read_lines calls to one unread span', async () =
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1218,7 +1197,6 @@ test('planner advances repeated read_lines calls from fitted returned lines only
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
 
@@ -1274,7 +1252,6 @@ test('planner forced finish rejects read_lines before unread expansion', async (
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['find_text', 'read_lines'],
       });
 
@@ -1323,7 +1300,6 @@ test('planner fits oversized find_text output and reports omitted results', asyn
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
         allowedPlannerTools: ['find_text'],
       });
 
@@ -1378,7 +1354,6 @@ test('planner activates once input exceeds 75 percent of context length even bef
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -1414,7 +1389,6 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -1475,7 +1449,6 @@ test('planner requests carry no removed slot or cache fields', async () => {
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
       const second = await summarizeRequest({
       repoRoot: process.cwd(),
@@ -1484,7 +1457,6 @@ test('planner requests carry no removed slot or cache fields', async () => {
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(first.Classification, 'summary');
@@ -1531,7 +1503,6 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /Planner mode failed: planner_headroom_exceeded/u,
       );
@@ -1582,7 +1553,6 @@ test('planner fails fast when the next planner turn would exceed thinking headro
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /Planner mode failed: planner_headroom_exceeded/u,
       );

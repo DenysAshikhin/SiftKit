@@ -19,6 +19,7 @@ import {
   RepoAgentStartRequestSchema,
 } from '../../repo-agent/api-schemas.js';
 import { ServerModelLockAdapter } from '../repo-agent-lock-adapter.js';
+import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.js';
 import {
   createRepoSearchAdmissionRecord,
   upsertRepoSearchAdmission,
@@ -37,7 +38,7 @@ import type { ChatRunRecorder } from '../chat-run-recorder.js';
 import type { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import { requireChatRunRecorder } from './chat-session-operation-endpoint.js';
 import type { ChatMessageQueue } from '../chat-message-queue.js';
-import type { ModelRuntimePreset } from '../../config/types.js';
+import type { RepositoryAccess } from '../orchestrator-runs.js';
 
 export class RepoAgentStartEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
@@ -62,7 +63,16 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
       return;
     }
     const input = parsedRequest.data;
-    const { session } = startRepoAgentRun(ctx, {
+    try {
+      previewModelRequestTarget(ctx, { presetId: 'repo-agent', model: input.model ?? null });
+    } catch (error) {
+      if (!(error instanceof ModelRequestTargetError)) throw error;
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+    const { session } = startRepoWorkerRun(ctx, {
+      taskKind: 'repo-agent',
+      repositoryAccess: 'exclusive',
       presetId: 'repo-agent',
       prompt: input.prompt, repoRoot: input.repoRoot,
       approvalMode: input.approval,
@@ -80,8 +90,14 @@ export class RepoAgentStartEndpoint implements RouteEndpoint {
   }
 }
 
-export type StartRepoAgentRunInput = {
+export type StartRepoWorkerRunInput = {
   requestId?: string;
+  /** A run ID the caller already reserved (orchestrator children); standalone runs get a fresh one. */
+  runId?: string;
+  /** repo-search workers get the read-only loop; everything else runs as a repo-agent. */
+  taskKind: 'repo-agent' | 'repo-search';
+  /** Repository ownership to take before the model; null only when the caller's task already owns it. */
+  repositoryAccess: RepositoryAccess | null;
   /** The operation preset the engine resolves its prompt from; chat runs pass their admitted one. */
   presetId: string;
   prompt: string;
@@ -98,14 +114,11 @@ export type StartRepoAgentRunInput = {
   allowedTools: string[];
   /** Chat-launched runs pass the session's replayed conversation; standalone callers omit it. */
   history?: RepoSearchExecutionRequest['history'];
-  config?: RepoSearchExecutionRequest['config'];
-  modelPresetId?: RepoSearchExecutionRequest['modelPresetId'];
-  modelPreset?: RepoSearchExecutionRequest['modelPreset'];
   availableModels?: string[];
   mockResponses?: MockPlannerResponseInput[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
-  /** Chat-launched runs consume their session's queue; queued images are admitted against the run's preset. */
-  queue?: { owner: ChatMessageQueue; sessionId: string; modelPreset: ModelRuntimePreset; forceId?: string };
+  /** Chat-launched runs consume their session's queue; queued images are admitted against the run's admitted model. */
+  queue?: { owner: ChatMessageQueue; sessionId: string; forceId?: string };
   /** Durable chat evidence writer; supplied by Web operations, absent for standalone runs. */
   evidenceRecorder?: ChatRunRecorder;
   /** The Web run's question channel; supplied with the recorder, absent for standalone runs. */
@@ -114,7 +127,8 @@ export type StartRepoAgentRunInput = {
   modelQueueTimeout?: ModelQueueTimeout;
 };
 
-export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunInput): {
+/** The one server-side worker start: run-store record, session, model routing, and repository ownership. */
+export function startRepoWorkerRun(ctx: ServerContext, input: StartRepoWorkerRunInput): {
   runId: string;
   session: RepoAgentSession;
   admission: RepoSearchAdmissionRecord;
@@ -126,11 +140,10 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
     images: input.images ?? [],
   };
-  const config = input.config ?? readConfig(ctx.configPath);
-  const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
+  const admission = createRepoSearchAdmissionRecord(repoSearchRequest, readConfig(ctx.configPath));
   if (input.requestId) admission.requestId = input.requestId;
   upsertRepoSearchAdmission(admission);
-  const runId = randomUUID();
+  const runId = input.runId ?? randomUUID();
   input.evidenceRecorder?.bindEngine({ requestId: admission.requestId, repoAgentSessionId: runId });
   ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
     runId,
@@ -147,23 +160,21 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
     admission,
     approvalMode: input.approvalMode,
     approvalDelivery: input.approvalDelivery,
-    locks: new ServerModelLockAdapter(ctx, input.modelQueueTimeout),
+    locks: new ServerModelLockAdapter(ctx, input.modelQueueTimeout, { presetId: input.presetId, model: repoSearchRequest.model }),
+    repository: input.repositoryAccess === null ? null
+      : { gate: ctx.orchestratorRuns.repositoryGate, repoRoot: admission.repoRoot, access: input.repositoryAccess },
     approvalGates: ctx.approvalGates,
     engineRequest: {
       presetId: input.presetId,
-      taskKind: 'repo-agent',
+      taskKind: input.taskKind,
       prompt: repoSearchRequest.prompt,
       requestId: admission.requestId,
       startedAtUtc: admission.startedAtUtc,
       additionalPromptPrefix: input.promptPrefix,
       repoRoot: admission.repoRoot,
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-      config,
-      modelPresetId: input.modelPresetId,
-      modelPreset: input.modelPreset,
       allowedTools: input.allowedTools,
       ...(input.webToolsEnabled === undefined ? {} : { webToolsEnabled: input.webToolsEnabled }),
-      model: input.model ?? undefined,
       maxTurns: input.maxTurns,
       logFile: input.logFile,
       availableModels: input.availableModels,
@@ -180,7 +191,6 @@ export function startRepoAgentRun(ctx: ServerContext, input: StartRepoAgentRunIn
             sessionId: input.queue.sessionId,
             requestId: admission.requestId,
             operationKind: 'repo-agent',
-            modelPreset: input.queue.modelPreset,
             forceId: input.queue.forceId,
           }),
         }

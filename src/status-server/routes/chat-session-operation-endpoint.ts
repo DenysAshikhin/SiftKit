@@ -37,10 +37,11 @@ import { QuestionGate } from '../../repo-search/engine/question-gate.js';
 import { importChatSessionBaseline } from '../chat-history-import.js';
 import { readChatHistoryRevisionCount } from '../../state/chat-history-revisions.js';
 import { readConfig } from '../config-store.js';
-import type { SiftConfig } from '../../config/types.js';
 import { admitChatImages } from '../../llm-protocol/preset-image-admission.js';
 import { serverLogger } from '../server-logger.js';
 import type { ServerContext } from '../server-types.js';
+import type { ModelRequestContext } from '../model-request-context.js';
+import { ModelRequestTargetError, previewModelRequestTarget } from '../server-ops.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { buildChatSessionResponse } from '../chat-session-response.js';
@@ -72,6 +73,8 @@ export type ResolvedChatRepoRequest = {
 
 export type ChatRunSubmission = {
   settings: ChatRunEffectiveSettings;
+  /** The model the operation resolves to at submission; images are validated against it. */
+  target: ModelRequestContext;
   content: string;
   images: string[];
 };
@@ -96,6 +99,11 @@ export type ChatSessionOperationRequest<TParsed> = {
 };
 
 type AdmittedChatOperationRequest<TParsed> = Omit<ChatSessionOperationRequest<TParsed>, 'questionGate'>;
+
+/** The model an operation preset resolves to now; the run's admission re-resolves and records the real one. */
+export function previewChatOperationTarget(ctx: ServerContext, presetId: string): ModelRequestContext {
+  return previewModelRequestTarget(ctx, { presetId, model: null });
+}
 
 export function requireChatRunRecorder(request: { recorder: ChatRunRecorder | null }): ChatRunRecorder {
   if (request.recorder === null) throw new Error('Web model operation has no admitted chat recorder.');
@@ -201,9 +209,9 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
    * explicitly: a Web run that silently skipped its recorder would not be recoverable.
    */
   protected abstract describeRun(
+    ctx: ServerContext,
     session: ChatSession,
     value: TParsed,
-    config: SiftConfig,
   ): ChatRunSubmission | null;
 
   /** The session as this run changes it; repo runs make their directory the session's directory. */
@@ -360,10 +368,10 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
   ): ChatRunRecorder | null {
     const config = readConfig(ctx.configPath);
     ctx.chatRuntimeOwner.assertOwned();
-    const submission = this.describeRun(session, value, config);
+    const submission = this.describeRun(ctx, session, value);
     if (submission === null) return null;
     let admitted: ReturnType<typeof admitChatImages>;
-    try { admitted = admitChatImages(session.modelPreset, submission.images); }
+    try { admitted = admitChatImages(submission.target.modelPreset, submission.images); }
     catch (error) { throw new ChatImageAdmissionError(toError(error)); }
     const database = ctx.runtimeDatabase;
     importChatSessionBaseline(database, session, config);
@@ -502,7 +510,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
           ctx.chatMessageQueue.publish(sessionId);
         }
       }
-      if (error instanceof ChatImageAdmissionError) {
+      if (error instanceof ChatImageAdmissionError || error instanceof ModelRequestTargetError) {
         if (this.clientOwnedOperation) {
           const writer = new SseResponseWriter(req, res);
           writer.open();

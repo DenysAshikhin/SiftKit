@@ -10,7 +10,7 @@ const StoredCatalogRowsSchema = z.array(z.object({
 
 // Pin schema-74 fields and enum values so later runtime additions cannot change this upgrade.
 // Canonical field schemas retain the existing validation without admitting future fields.
-const HistoricOperationPresetSchema = z.object({
+export const HistoricOperationPresetSchema = z.object({
   id: SiftPresetSchema.shape.id,
   label: SiftPresetSchema.shape.label,
   description: SiftPresetSchema.shape.description,

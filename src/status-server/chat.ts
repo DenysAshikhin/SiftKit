@@ -4,11 +4,12 @@ import { buildChatMessageId, DEFAULT_REASONING_EFFORT, isReplayableChatMessage, 
 import type { ChatTurnTokenRecord, ContextUsage, ReasoningEffort, ReplayableChatMessage } from '@siftkit/contracts';
 import {
   getActiveModelPreset,
+  getConfiguredModel,
   getConfiguredCompactionReserveTokens,
   getConfiguredEngineBaseUrl,
   getConfiguredEngineNumCtx,
 } from '../config/getters.js';
-import { overlayActivePreset } from '../config/overrides.js';
+import { resolveModelRequestContext } from './model-request-context.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import { resolveContextTokenBudget } from '../lib/context-token-budget.js';
@@ -100,52 +101,23 @@ export function selectReplayableChatMessages(
 
 export type { ContextUsage } from '@siftkit/contracts';
 
-export function sessionUsesActiveModelPreset(config: SiftConfig, session: ChatSession): boolean {
-  const modelPresetId = session.modelPresetId.trim();
-  if (!modelPresetId) {
-    throw new Error(`Chat session ${session.id} has no model preset identity.`);
-  }
-  return modelPresetId === getActiveModelPreset(config).id;
+/**
+ * The config the session's next turn would run on: its preset's model, or the current one. It is a
+ * preview for display and budgets only; an operation executes on the snapshot its admission grants.
+ */
+export function resolveChatPreviewConfig(config: SiftConfig, session: ChatSession): SiftConfig {
+  if (!session.presetId) throw new Error('Chat session presetId is required.');
+  return resolveModelRequestContext(config, getActiveModelPreset(config), { presetId: session.presetId, model: null }).config;
 }
 
 export function resolveChatSessionModel(config: SiftConfig, session: ChatSession): string {
-  const model = sessionUsesActiveModelPreset(config, session)
-    ? getActiveModelPreset(config).Model?.trim() ?? ''
-    : session.modelPreset.Model?.trim() ?? '';
-  if (!model) {
-    throw new Error(`Chat session ${session.id} has an invalid model snapshot.`);
-  }
+  const model = getActiveModelPreset(resolveChatPreviewConfig(config, session)).Model?.trim() ?? '';
+  if (!model) throw new Error(`Chat session ${session.id} resolves to a model preset without a model.`);
   return model;
 }
 
-export function resolveChatSessionContextWindow(
-  config: SiftConfig,
-  session: ChatSession,
-): number {
-  if (sessionUsesActiveModelPreset(config, session)) {
-    return getConfiguredEngineNumCtx(config);
-  }
-
-  const persistedContextWindow = session.modelPreset.NumCtx;
-  if (Number.isInteger(persistedContextWindow) && persistedContextWindow > 0) {
-    return persistedContextWindow;
-  }
-  throw new Error(`Chat session ${session.id} has an invalid context window snapshot.`);
-}
-
-/**
- * Effective config for a session: once the live active preset is a different one, the
- * snapshot's request-shaping fields are overlaid onto the active preset so every request
- * the session drives keeps the model, context size, and samplers it started with. The
- * snapshot `id` stays out of the overlay — it names a preset slot that may no longer
- * exist, and the surrounding preset list has to stay resolvable.
- */
-export function resolveChatSessionConfig(config: SiftConfig, session: ChatSession): SiftConfig {
-  if (sessionUsesActiveModelPreset(config, session)) {
-    return config;
-  }
-  const { id, ...snapshotFields } = session.modelPreset;
-  return overlayActivePreset(config, snapshotFields);
+export function resolveChatSessionContextWindow(config: SiftConfig, session: ChatSession): number {
+  return getConfiguredEngineNumCtx(resolveChatPreviewConfig(config, session));
 }
 
 class ContextUsageBuilder {
@@ -157,7 +129,7 @@ class ContextUsageBuilder {
     private readonly session: ChatSession,
     private readonly measured: ChatTurnTokenRecord | null,
   ) {
-    this.effectiveConfig = resolveChatSessionConfig(config, session);
+    this.effectiveConfig = resolveChatPreviewConfig(config, session);
   }
 
   build(): ContextUsage {
@@ -377,37 +349,38 @@ export async function condenseChatSession(
   mockResponses: MockPlannerResponseInput[] | undefined,
   logger: JsonLogger | null,
 ): Promise<ChatSession> {
-  const effectiveConfig = resolveChatSessionConfig(config, session);
+  const admittedModel = recorder.admittedModel;
+  const model = getConfiguredModel(config);
   const history = recorder.readHistory();
   const compressedMessageIds = (recorder.readSession().messages ?? []).map(message => message.id);
   recorder.recordContextInitialized({ messages: history, contextRevision: 0, turnBoundary: history.length });
   const cacheOrigin = {
     kind: 'new_epoch',
-    flags: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
+    flags: resolvePlannerThinkingFlags(config, session.thinkingEnabled !== false),
     tools: [],
   } as const;
   const contextBudget = resolveContextTokenBudget({
-    totalContextTokens: getConfiguredEngineNumCtx(effectiveConfig),
-    compactionReserveTokens: getConfiguredCompactionReserveTokens(effectiveConfig),
+    totalContextTokens: getConfiguredEngineNumCtx(config),
+    compactionReserveTokens: getConfiguredCompactionReserveTokens(config),
   });
   const compactor = new TranscriptCompactor({
-    config: effectiveConfig,
-    baseUrl: getConfiguredEngineBaseUrl(effectiveConfig),
-    model: resolveChatSessionModel(config, session),
+    config: config,
+    baseUrl: getConfiguredEngineBaseUrl(config),
+    model,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     totalContextTokens: contextBudget.totalContextTokens,
     compactionReserveTokens: contextBudget.compactionReserveTokens,
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
-    tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
+    tokenUsage: new TokenUsageTracker(config, Array.isArray(mockResponses)),
     logger,
     abortSignal: recorder.abortSignal,
     throughputAudit: {
       operationType: 'chat',
       operationId: session.id,
       requestId: randomUUID(),
-      model: resolveChatSessionModel(config, session),
-      presetId: session.modelPresetId,
+      model,
+      presetId: admittedModel.id,
     },
   });
   // No system message: chat's system prompt is composed per request, and the compactor

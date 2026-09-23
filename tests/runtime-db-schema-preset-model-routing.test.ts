@@ -71,14 +71,18 @@ function currentBuiltinCatalog(): JsonObject[] {
   return z.array(JsonObjectSchema).parse(JSON.parse(JSON.stringify(getDefaultServerConfig().Presets)));
 }
 
-/** Drops the new field so the stored catalog matches what a 74 build wrote. */
+/** Drops later fields and built-ins so the stored catalog matches what a 74 build wrote. */
 function historicCatalogFromCurrent(presetsJson: string): JsonObject[] {
   const catalog = z.array(JsonObjectSchema).parse(JSON.parse(presetsJson));
-  return catalog.map((preset) => {
-    const { modelPresetId: _future, ...historic } = preset;
+  return catalog.filter((preset) => preset.id !== 'orchestrator').map((preset) => {
+    const { modelPresetId: _modelPresetId, orchestrator: _orchestrator, ...historic } = preset;
     return historic;
   });
 }
+
+/** Later upgrades in the chain: 76 -> 77 adds orchestrator options and its built-in. */
+const ORCHESTRATOR_BUILTIN = currentBuiltinCatalog().find((preset) => preset.id === 'orchestrator');
+assert.ok(ORCHESTRATOR_BUILTIN);
 
 const HISTORIC_BUILTIN_CATALOG = historicCatalogFromCurrent(JSON.stringify(currentBuiltinCatalog()));
 const HISTORIC_REPO_SEARCH = HISTORIC_BUILTIN_CATALOG.find((preset) => preset.id === 'repo-search');
@@ -105,7 +109,7 @@ function rewindToVersion74(
         model_preset_id, operation_preset_json, terminal_state, title, flushed_at_utc
       ) VALUES (?, ?, 'repo_search', 'repo_search', 'repo-search', 'repo-search', 'default', ?, 'completed', 'Historical run', '2026-09-01T00:00:00.000Z')
     `).run('run-1', 'request-1', JSON.stringify(HISTORIC_REPO_SEARCH));
-    database.exec('UPDATE runtime_schema SET version = 74 WHERE id = 1;');
+    database.exec('DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 74 WHERE id = 1;');
   });
 }
 
@@ -146,8 +150,8 @@ test('a version 74 database upgrades to 75 adding only modelPresetId null to eve
     assert.equal(runRow.operation_preset_json, JSON.stringify(HISTORIC_REPO_SEARCH));
 
     // Every record received exactly modelPresetId: null on top of the historical layout.
-    const expected = [...HISTORIC_BUILTIN_CATALOG, CUSTOM_PRESET_74]
-      .map((preset) => ({ ...preset, modelPresetId: null }));
+    const expected = [...[...HISTORIC_BUILTIN_CATALOG, CUSTOM_PRESET_74]
+      .map((preset) => ({ ...preset, modelPresetId: null, orchestrator: null })), ORCHESTRATOR_BUILTIN];
     assert.deepEqual(JSON.parse(upgradedRow.presets_json), expected);
     assert.doesNotThrow(() => SiftPresetCollectionSchema.parse(JSON.parse(upgradedRow.presets_json)));
   } finally {

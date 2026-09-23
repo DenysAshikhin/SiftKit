@@ -1,4 +1,4 @@
-import type { SummaryRequest, SummaryTimingInput } from '../summary/types.js';
+import type { SummaryApiRequest, SummaryTimingInput } from '../summary/types.js';
 import { parseArguments, type ResolvedCliArgs } from './args.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
@@ -57,7 +57,7 @@ export async function runSummary(options: ResolvedCliArgs & {
   const commandExitCode = process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE?.trim()
     ? Number.parseInt(process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE, 10)
     : undefined;
-  const request: SummaryRequest = {
+  const request: SummaryApiRequest = {
     repoRoot: process.cwd(),
     question,
     inputText: inputText ?? '',

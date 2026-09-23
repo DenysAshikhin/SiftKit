@@ -4,6 +4,14 @@ import {
 } from '../config/index.js';
 import { normalizeConfigObject } from '../config/normalization.js';
 import {
+  OrchestratorEventSchema,
+  OrchestratorRunStateSchema,
+  type OrchestratorDecideRequest,
+  type OrchestratorEvent,
+  type OrchestratorRunState,
+  type OrchestratorStartRequest,
+} from '@siftkit/contracts';
+import {
   httpClient,
   logHttpClientBoundary,
   type HttpClient,
@@ -27,20 +35,20 @@ import {
 } from '../repo-search/types.js';
 import {
   SummaryResultSchema,
-  type SummaryRequest,
+  type SummaryApiRequest,
   type SummaryResult,
 } from '../summary/types.js';
 import {
   CommandOutputAnalyzeResultSchema,
   PresetListResultSchema,
   PresetRunResultSchema,
-  type CommandOutputAnalyzeRequest,
+  type CommandOutputAnalyzeApiRequest,
   type CommandOutputAnalyzeResult,
   type PresetListResult,
   type PresetRunRequest,
   type PresetRunResult,
 } from '../command-output/types.js';
-import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
+import { EvaluationResultSchema, type EvalApiRequest, type EvaluationResult } from '../eval-types.js';
 import { z } from '../lib/zod.js';
 import type { JsonObject } from '../lib/json-types.js';
 import {
@@ -258,7 +266,7 @@ export class StatusServerApiClient {
     );
   }
 
-  requestSummary(request: SummaryRequest, renderer: CliProgressRenderer): Promise<SummaryResult> {
+  requestSummary(request: SummaryApiRequest, renderer: CliProgressRenderer): Promise<SummaryResult> {
     return this.requestStreamedOperation('/summary', JSON.stringify(request), SummaryResultSchema, renderer, 'summary');
   }
 
@@ -315,8 +323,61 @@ export class StatusServerApiClient {
     return this.requestJsonState(target.toString());
   }
 
+  startOrchestrator(request: OrchestratorStartRequest): Promise<OrchestratorRunState> {
+    return this.postOrchestrator('/orchestrator', request);
+  }
+
+  decideOrchestrator(request: OrchestratorDecideRequest): Promise<OrchestratorRunState> {
+    return this.postOrchestrator('/orchestrator/decide', request);
+  }
+
+  abortOrchestrator(runId: string): Promise<OrchestratorRunState> {
+    return this.postOrchestrator('/orchestrator/abort', { runId });
+  }
+
+  async readOrchestratorStatus(runId: string): Promise<OrchestratorRunState> {
+    const target = new URL(this.getServiceUrl('/orchestrator/status'));
+    target.searchParams.set('runId', runId);
+    try {
+      return await this.client.requestJson({ url: target.toString(), method: 'GET', timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS },
+        OrchestratorRunStateSchema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  /** Committed events after the cursor, then the terminal state; detaching never stops the run. */
+  async *followOrchestrator(runId: string, afterSequence: number): AsyncGenerator<OrchestratorEvent, OrchestratorRunState> {
+    try {
+      const stream = streamOperationResult(this.client, {
+        url: this.getServiceUrl('/orchestrator/events'),
+        body: JSON.stringify({ runId, afterSequence }),
+        idleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+      }, OrchestratorRunStateSchema);
+      for (;;) {
+        const next = await stream.next();
+        if (next.done) return next.value;
+        yield OrchestratorEventSchema.parse(next.value);
+      }
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  private async postOrchestrator(pathname: string, body: JsonSerializable): Promise<OrchestratorRunState> {
+    const nestedAgentRunId = readNestedAgentRunId();
+    try {
+      return await this.client.requestJson({
+        url: this.getServiceUrl(pathname), method: 'POST', body: JSON.stringify(body), timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+        ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
+      }, OrchestratorRunStateSchema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
   analyzeCommandOutput(
-    request: CommandOutputAnalyzeRequest,
+    request: CommandOutputAnalyzeApiRequest,
     renderer: CliProgressRenderer,
   ): Promise<CommandOutputAnalyzeResult> {
     return this.requestStreamedOperation(
@@ -342,7 +403,7 @@ export class StatusServerApiClient {
     return this.requestPresetList();
   }
 
-  runEvaluation(request: EvalRequest, renderer: CliProgressRenderer): Promise<EvaluationResult> {
+  runEvaluation(request: EvalApiRequest, renderer: CliProgressRenderer): Promise<EvaluationResult> {
     return this.requestStreamedOperation(
       '/eval/run',
       JSON.stringify(request),

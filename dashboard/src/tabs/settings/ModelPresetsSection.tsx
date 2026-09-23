@@ -6,6 +6,7 @@ import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-pres
 import { SettingsSectionField } from '../../settings/SettingsFields';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
 import { NGRAM_RAM_LABEL } from '../../settings-sections';
+import { getModelPresetAssignments } from '../../model-runtime-presets';
 import { ModelIdleActionSchema, ModelKvCacheQuantizationSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   DashboardConfig,
@@ -75,6 +76,7 @@ export function ModelPresetsSection({
     return null;
   }
   const preset = selectedModelPreset;
+  const assignments = getModelPresetAssignments(dashboardConfig, preset.id);
   const runtimeStatusMatchesPreset = runtimeStatus !== null
     && dashboardConfig.Server.ModelPresets.ActivePresetId === preset.id
     && runtimeStatus.activePresetId === preset.id
@@ -115,10 +117,13 @@ export function ModelPresetsSection({
           type="button"
           className="ghost-btn"
           onClick={() => modelPresetActions.deletePreset(preset.id)}
-          disabled={dashboardConfig.Server.ModelPresets.Presets.length <= 1}
+          disabled={dashboardConfig.Server.ModelPresets.Presets.length <= 1 || assignments.length > 0}
         >
           Delete
         </button>
+        {assignments.length > 0 ? (
+          <span className="fhint">Assigned to {assignments.map((entry) => entry.label).join(', ')}; reassign before deleting.</span>
+        ) : null}
       </div>
 
       {group('identity-launch', (

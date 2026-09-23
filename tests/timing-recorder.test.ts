@@ -192,7 +192,6 @@ test('summary planner dumps temp timing json with planner inference and tool pha
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         });
         assert.equal(result.Classification, 'summary');
         assert.equal(result.Summary, 'timing trace completed');

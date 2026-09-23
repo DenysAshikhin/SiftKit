@@ -27,7 +27,7 @@ import { buildPresetRequestDefaults } from '../../inference-presets/preset-compa
 import { resolveGenerationTokenLimit } from '../../lib/context-token-budget.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { INFERENCE_REQUEST_COMPATIBILITY } from '../../inference-presets/preset-compatibility.js';
-import { getActiveModelPreset, readConfig } from '../config-store.js';
+import { readConfig } from '../config-store.js';
 import { serverLogger } from '../server-logger.js';
 import { toError } from '../../lib/errors.js';
 import { readBody, sendBodyReadError, sendJson } from '../http-utils.js';
@@ -321,8 +321,8 @@ class WorkloadEndpoint implements RouteEndpoint {
     }
     if (!lock) return;
     try {
-      const currentConfig = readConfig(ctx.configPath);
-      const currentPreset = getActiveModelPreset(currentConfig);
+      // Forward to the model admission granted, not whatever the config names now.
+      const { config: currentConfig, modelPreset: currentPreset } = lock.context;
       const baseUrl = currentPreset.BaseUrl;
       if (!baseUrl) {
         sendJson(res, 503, { error: 'The active preset BaseUrl is not configured.' });

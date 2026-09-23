@@ -41,7 +41,6 @@ test('summary aggregation accumulates provider usage and duration in status metr
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -87,7 +86,6 @@ test('summary aggregation records local token counts when provider usage is abse
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -131,7 +129,6 @@ test('summary aggregation records thinking tokens independently from output metr
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -172,7 +169,6 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -248,7 +244,6 @@ test('repo-search reports only processed prompt tokens to the status backend whe
             },
             },
         },
-        model: 'mock-model',
         maxTurns: 1,
       });
 

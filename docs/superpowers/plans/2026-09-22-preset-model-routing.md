@@ -288,7 +288,7 @@ For persistence, open the existing config transaction, reread latest data, compa
 - Queued entries retain intent, arrival time, timeout/cancellation state, and resolve/reject hooks. Failed resolution rejects that waiter; timeout/cancellation retains the existing null result.
 - A single drain promise plus a requested-again flag in `ServerContext` owns asynchronous selection/transition/grant. No parallel scheduler or periodic polling.
 
-- [ ] **Write pure ordering tests first.** Derive candidate types from this small schema, then test the function against real scheduling cases.
+- [x] **Write pure ordering tests first.** Derive candidate types from this small schema, then test the function against real scheduling cases.
 
 ```typescript
 const CandidateSchema = z.object({ queueToken: z.string(), residencyKey: z.string() });
@@ -318,9 +318,9 @@ test('a later resident-model request overtakes an older different-model request'
 });
 ```
 
-- [ ] **Run red**, then implement the selector: `npm run build:test`, `npm test -- model-request-selection`.
-- [ ] **Add queue integration tests before changing the drain.** Use `PresetQueueHarness` and `BlockingQueueRuntime` already in `tests/model-request-queue.test.ts`. Assert A/B/A ordering by observed grants and lifecycle events, not sleep durations. Cover two active A requests draining before B, matching profiles with different samplers, target parallel-slot changes, and cancellation during selection/load.
-- [ ] **Replace the old grant/fast path.** All model acquisitions enter the same admission path; remove synchronous grant paths that bypass target resolution/readiness. Resolve candidates using M2 and compute keys using M3. A current-model candidate uses the currently applied snapshot. Reject invalid candidates individually. Choose with the pure selector, await readiness before installing any active lock, and grant only same-key work up to capacity.
+- [x] **Run red**, then implement the selector: `npm run build:test`, `npm test -- model-request-selection`.
+- [x] **Add queue integration tests before changing the drain.** Use `PresetQueueHarness` and `BlockingQueueRuntime` already in `tests/model-request-queue.test.ts`. Assert A/B/A ordering by observed grants and lifecycle events, not sleep durations. Cover two active A requests draining before B, matching profiles with different samplers, target parallel-slot changes, and cancellation during selection/load.
+- [x] **Replace the old grant/fast path.** All model acquisitions enter the same admission path; remove synchronous grant paths that bypass target resolution/readiness. Resolve candidates using M2 and compute keys using M3. A current-model candidate uses the currently applied snapshot. Reject invalid candidates individually. Choose with the pure selector, await readiness before installing any active lock, and grant only same-key work up to capacity.
 
 Drain state transitions are:
 
@@ -337,9 +337,9 @@ wake -> coalesce with current drain
 
 Cancellation after selection but before grant must remove the waiter and avoid engine execution. Release paths, config save notifications, and transition completion wake this drain. Keep idle unloading disabled while admissions/queued requests exist. Move target-switch errors through each endpoint's normal request error boundary rather than an unhandled rejection.
 
-- [ ] **Make affinity and timeout behavior explicit in tests.** Repeatedly add matching A work while B waits; B must never win merely due to age. A request using null follows A, including one enqueued before a previous switch. Preserve within-key arrival order. Existing timeout progression can reset on actual queue progress, but a model-affinity bypass alone cannot reset a waiter's deadline.
-- [ ] **Update queue diagnostics.** Expose requested operation/model identity, resolved target when known, resident key/profile, and waiting reason (`capacity`, `different_model`, `transition`). Keep `enqueuedAtUtc`/`waitMs`; describe the reported index as arrival order, not guaranteed service order. Add contract/renderer tests for the new fields. Public residency keys must be opaque SHA-256 fingerprints of the internal key: the internal key includes engine environment values and must never appear in responses or logs. Cover this boundary with a diagnostic regression assertion.
-- [ ] **Run green:** `npm run build:test`, then `npm test -- model-request-selection model-request-queue model-request-queue-http model-residency-actions routes-model-residency`.
+- [x] **Make affinity and timeout behavior explicit in tests.** Repeatedly add matching A work while B waits; B must never win merely due to age. A request using null follows A, including one enqueued before a previous switch. Preserve within-key arrival order. Existing timeout progression can reset on actual queue progress, but a model-affinity bypass alone cannot reset a waiter's deadline.
+- [x] **Update queue diagnostics.** Expose requested operation/model identity, resolved target when known, resident key/profile, and waiting reason (`capacity`, `different_model`, `transition`). Keep `enqueuedAtUtc`/`waitMs`; describe the reported index as arrival order, not guaranteed service order. Add contract/renderer tests for the new fields. Public residency keys must be opaque SHA-256 fingerprints of the internal key: the internal key includes engine environment values and must never appear in responses or logs. Cover this boundary with a diagnostic regression assertion.
+- [x] **Run green:** `npm run build:test`, then `npm test -- model-request-selection model-request-queue model-request-queue-http model-residency-actions routes-model-residency`.
 
 **Acceptance:** The spec's ordering traces pass, active work is never unloaded, a transition is started once, and every granted lock has a matching ready runtime and immutable context.
 
@@ -362,7 +362,7 @@ Cancellation after selection but before grant must remove the waiter and avoid e
 - A supplied execution context is authoritative in engine entry points. Internal already-admitted model calls reuse it rather than reacquiring locks.
 - Remove the use of `resolveChatSessionConfig` as a historical-snapshot execution overlay. Replace its callers completely; keep historical session display explicit.
 
-- [ ] **Write cross-surface regression tests.** Use a recording engine/provider and a blocking runtime to inspect the exact `Model`, path/endpoint, token limits, sampling fields, and recorded profile ID handed to execution.
+- [x] **Write cross-surface regression tests.** Use a recording engine/provider and a blocking runtime to inspect the exact `Model`, path/endpoint, token limits, sampling fields, and recorded profile ID handed to execution.
 
 | Surface | Regression | Existing test owner |
 |---|---|---|
@@ -386,8 +386,8 @@ assert.equal(recordedRequest.modelPreset?.NumCtx, admitted.context.modelPreset.N
 
 `recordedRequest` comes from the existing recording test engine; `admitted` is the granted model lock in that fixture. Assertions must check actual engine/provider input, not only config storage.
 
-- [ ] **Run each test red before changing its route.** Build tests, then select its test file from the matrix.
-- [ ] **Thread context through standalone routes first.** Put target parsing and acquisition inside the route's error boundary; make invalid reference/override errors 400 and lifecycle failures 503/SSE errors. Remove post-lock `ensureActivePresetReadyForModelRequest` calls after M4 guarantees readiness. `StatusPresetRunner` receives context/config instead of reading global config independently.
+- [x] **Run each test red before changing its route.** Build tests, then select its test file from the matrix.
+- [x] **Thread context through standalone routes first.** Put target parsing and acquisition inside the route's error boundary; make invalid reference/override errors 400 and lifecycle failures 503/SSE errors. Remove post-lock `ensureActivePresetReadyForModelRequest` calls after M4 guarantees readiness. `StatusPresetRunner` receives context/config instead of reading global config independently.
 
 ```typescript
 const lock = await acquireModelRequestWithWait(ctx, lockKind, req, res, {
@@ -410,13 +410,13 @@ try {
 
 This is the shared ordering; preserve each endpoint's existing transport and terminal handling rather than replacing SSE with JSON. `selectedPreset`, `requestedModel`, `abortSignal`, and `engineRequest` are its parsed request values.
 
-- [ ] **Rebind chat operations at admission.** Select `ChatOperationPresetSelector` before queueing; after grant, set the run/session model metadata from `lock.context.modelPreset`. Start model-specific token/image calculations from that snapshot. Preserve durable submission IDs, stop signals, reload attachment, and the existing dirty chat recovery work.
+- [x] **Rebind chat operations at admission.** Select `ChatOperationPresetSelector` before queueing; after grant, set the run/session model metadata from `lock.context.modelPreset`. Start model-specific token/image calculations from that snapshot. Preserve durable submission IDs, stop signals, reload attachment, and the existing dirty chat recovery work.
 
 Split image submission into schema/byte validation before queueing and model capability/budget checks when the target is resolved. Store original validated image data until target admission so creation-time downsizing cannot destroy information needed by the next model. Journal target-specific admission as run evidence; do not rewrite a submitted message silently. Revalidate queued image deliveries against the active run's snapshot.
 
-- [ ] **Remove late substitution and stale helpers.** An admitted config does not call host sync or reapply a `--model` string afterward. Non-admitted preview/remote-discovery paths remain explicitly separate. Validate a remote host's actual reported model; fail an unsupported explicit remote selection. Keep history/preview model data separate from the config used to execute the next turn.
-- [ ] **Test metadata and error paths.** Run logs capture actual operation/model IDs only after admission. Queued cancellation releases nothing it never acquired; stop during loading yields no engine call; a provided assistant-content path does not trigger an unnecessary model load. Confirm context-length changes cause the existing compaction/error policy rather than silent truncation.
-- [ ] **Run green:** `npm run build:test`, then all files in the regression matrix plus `npm test -- preset-execution run-log-backend-identity chat-session-recovery-cache status-server-chat-stop`.
+- [x] **Remove late substitution and stale helpers.** An admitted config does not call host sync or reapply a `--model` string afterward. Non-admitted preview/remote-discovery paths remain explicitly separate. Validate a remote host's actual reported model; fail an unsupported explicit remote selection. Keep history/preview model data separate from the config used to execute the next turn.
+- [x] **Test metadata and error paths.** Run logs capture actual operation/model IDs only after admission. Queued cancellation releases nothing it never acquired; stop during loading yields no engine call; a provided assistant-content path does not trigger an unnecessary model load. Confirm context-length changes cause the existing compaction/error policy rather than silent truncation.
+- [x] **Run green:** `npm run build:test`, then all files in the regression matrix plus `npm test -- preset-execution run-log-backend-identity chat-session-recovery-cache status-server-chat-stop`.
 
 **Acceptance:** CLI, Web, resumed workers, images, nested model calls, and logs all agree with the admitted target. Search for and remove obsolete session-model overlay/readiness call paths; no route bypasses the shared scheduler.
 
@@ -434,7 +434,7 @@ Split image submission into schema/byte validation before queueing and model cap
 - Action method: `setModelPreset(presetId: string, value: string | null): void`.
 - `hasSamePresetExecutionContext` includes `modelPresetId`, so changing a model is an execution-context change.
 
-- [ ] **Write failing editor/render/controller tests.** Verify default, choosing B, reset to current, save/reload, custom presets, and failed deletion of a referenced model.
+- [x] **Write failing editor/render/controller tests.** Verify default, choosing B, reset to current, save/reload, custom presets, and failed deletion of a referenced model.
 
 ```typescript
 assert.match(markup, /Model preset/u);
@@ -444,8 +444,8 @@ assert.match(markup, /value="model-b"/u);
 
 Use real change events in a component/controller test to prove it dispatches null for the empty selection and the exact profile ID otherwise; static markup alone is insufficient for persistence.
 
-- [ ] **Run red:** `npm run build:test`, then `npm test -- dashboard/tests/presets-section.test.tsx settings-draft-editor dashboard-settings-controller dashboard-presets.test.ts`.
-- [ ] **Add the control and typed action.**
+- [x] **Run red:** `npm run build:test`, then `npm test -- dashboard/tests/presets-section.test.tsx settings-draft-editor dashboard-settings-controller dashboard-presets.test.ts`.
+- [x] **Add the control and typed action.**
 
 ```tsx
 <SettingsField label="Model preset" layout="half">
@@ -466,8 +466,8 @@ Use real change events in a component/controller test to prove it dispatches nul
 
 Validate IDs against the draft model list in the editor. Block deleting referenced model presets and list the operation preset labels requiring reassignment; keep the server's full-config reference check authoritative. Saving an operation assignment alone must not load a model.
 
-- [ ] **Document behavior.** Describe current-at-admission semantics, sticky selection, existing-chat behavior, same-model queue preference with no fairness guarantee, strict CLI override matching, and retained idle unload policy.
-- [ ] **Run green:** focused tests above, then `npm run test:dashboard`.
+- [x] **Document behavior.** Describe current-at-admission semantics, sticky selection, existing-chat behavior, same-model queue preference with no fairness guarantee, strict CLI override matching, and retained idle unload policy.
+- [x] **Run green:** focused tests above, then `npm run test:dashboard`.
 
 **Acceptance:** All operation presets expose the selector; invalid references cannot be silently saved or produced through model deletion; changing the setting is separate from executing an operation.
 
@@ -479,8 +479,8 @@ Validate IDs against the draft model list in the editor. Block deleting referenc
 - Extend `tests/helpers/dashboard-model-queue-harness.ts` only as needed to install recording runtime targets.
 - Update the shared design/README if verification exposes a necessary correction.
 
-- [ ] **Write an integrated failing scenario before its final route wiring.** Start A; enqueue B-search then A-summary while one A request is active; release it; assert A-summary precedes B-search. Finish B, issue a null-model operation from a chat created on A, and assert it executes on B without loading A.
-- [ ] **Assert actual lifecycle order.** Match the recording runtime's `unload`/`load` events and the provider inputs, not just response text. Test `B,A,C,A`, parallel A slots, same weights with distinct samplers, save-during-load, and failed target with a viable successor.
+- [x] **Write an integrated failing scenario before its final route wiring.** Start A; enqueue B-search then A-summary while one A request is active; release it; assert A-summary precedes B-search. Finish B, issue a null-model operation from a chat created on A, and assert it executes on B without loading A.
+- [x] **Assert actual lifecycle order.** Match the recording runtime's `unload`/`load` events and the provider inputs, not just response text. Test `B,A,C,A`, parallel A slots, same weights with distinct samplers, save-during-load, and failed target with a viable successor.
 
 ```typescript
 assert.deepEqual(executedOperationIds, ['active-a', 'summary-a', 'search-b', 'existing-chat']);
@@ -490,7 +490,7 @@ assert.equal(loadEvents.filter(event => event === 'load:model-b').length, 1);
 
 The arrays are captured by the recording test engine/runtime created for this scenario. Register cleanup with the test context before starting the server.
 
-- [ ] **Run focused and broader gates.**
+- [x] **Run focused and broader gates.**
 
 ```powershell
 npm run build:test
@@ -501,7 +501,7 @@ npm run typecheck
 npm run lint
 ```
 
-- [ ] **Review replacements and scope.** Search for old post-lock readiness calls, historical chat overlay execution, FIFO-only assertions, and raw model overlays at admitted boundaries. Remove unused artifacts created by this change. Preserve unrelated edits. Inspect diff whitespace and changed-file scope.
-- [ ] **Record verification evidence.** Report command results and any failures already present in the initial working tree. Live physical GPU switching remains unverified until a separate two-model smoke test is authorized/performed; recording-runtime tests prove ordering and config consistency.
+- [x] **Review replacements and scope.** Search for old post-lock readiness calls, historical chat overlay execution, FIFO-only assertions, and raw model overlays at admitted boundaries. Remove unused artifacts created by this change. Preserve unrelated edits. Inspect diff whitespace and changed-file scope.
+- [x] **Record verification evidence.** Report command results and any failures already present in the initial working tree. Live physical GPU switching remains unverified until a separate two-model smoke test is authorized/performed; recording-runtime tests prove ordering and config consistency.
 
 **Acceptance:** M1–M6 tests and broader gates pass or pre-existing failures are explicitly isolated; the model routing contract is ready for the orchestrator's parent and worker phases.

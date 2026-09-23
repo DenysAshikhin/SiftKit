@@ -39,7 +39,6 @@ test('summary status notification failures do not abort provider work', async ()
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);

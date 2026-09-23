@@ -14,6 +14,7 @@ import { summarizeRequest } from '../summary/core.js';
 import type { SummaryRequest, SummaryResult } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
+import type { SiftConfig } from '../config/types.js';
 
 export class StatusEngineService {
   private readonly commandOutputAnalyzer: CommandOutputAnalyzer;
@@ -39,6 +40,7 @@ export class StatusEngineService {
     options: {
       progressWriter?: ProgressWriter<SummaryProgressEvent>;
       abortSignal?: AbortSignal;
+      config?: SiftConfig;
     } = {},
   ): Promise<EvaluationResult> {
     return runEvaluation(request, options);

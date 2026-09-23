@@ -27,7 +27,6 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -66,7 +65,6 @@ test('planner fails fast when the planner response body is empty', async () => {
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /Planner mode failed: inference did not return a response body\./u,
       );
@@ -99,7 +97,6 @@ test('planner tolerates several malformed replies before succeeding instead of a
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -132,7 +129,6 @@ test('planner accepts a direct finish action for oversized input instead of fall
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -163,7 +159,6 @@ test('summarizeRequest no longer rejects input larger than 4x chunk threshold wh
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');

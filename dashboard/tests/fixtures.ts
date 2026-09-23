@@ -39,6 +39,8 @@ export const PRESET_ACTIONS: PresetSettingsActions = {
   addAutoloadFile() {},
   removeAutoloadFile() {},
   setSummaryDefault() {},
+  setModelPreset() {},
+  setMaxSubagents() {},
   addPreset() {},
   deletePreset() {},
 };
@@ -83,7 +85,7 @@ export const PRESET = {
   promptPrefix: '', allowedTools: ['read_lines'], surfaces: ['cli', 'web'],
   useForSummary: true, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
 } satisfies DashboardPreset;
 
 export const CUSTOM_PRESET = {
@@ -92,7 +94,16 @@ export const CUSTOM_PRESET = {
   promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
   includeRepoFileListing: false, assistantMemory: false,
-  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null, modelPresetId: null, orchestrator: null,
+} satisfies DashboardPreset;
+
+export const ORCHESTRATOR_PRESET = {
+  id: 'orchestrator', label: 'Orchestrator', description: 'Plans and supervises bounded workers',
+  presetKind: 'orchestrator', operationMode: 'read-only',
+  promptPrefix: '', allowedTools: ['read', 'grep'], surfaces: ['cli', 'web'],
+  useForSummary: false, builtin: true, deletable: false, includeAgentsMd: true,
+  includeRepoFileListing: true, assistantMemory: false,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: 45, modelPresetId: null, orchestrator: { maxSubagents: 1 },
 } satisfies DashboardPreset;
 
 export const MANAGED_PRESET = {
@@ -126,6 +137,19 @@ export const DASHBOARD_CONFIG = {
     ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000,
   },
   Assistant: DEFAULT_ASSISTANT_CONFIG,
+} satisfies DashboardConfig;
+
+export const SECOND_MODEL_PRESET = {
+  ...MANAGED_PRESET, id: 'model-b', label: 'Model B', Model: 'model-b',
+} satisfies DashboardModelRuntimePreset;
+
+/** Two model presets, so operation presets can be routed to a model other than the active one. */
+export const TWO_MODEL_DASHBOARD_CONFIG = {
+  ...DASHBOARD_CONFIG,
+  Server: {
+    ...DASHBOARD_CONFIG.Server,
+    ModelPresets: { Presets: [MANAGED_PRESET, SECOND_MODEL_PRESET], ActivePresetId: MANAGED_PRESET.id },
+  },
 } satisfies DashboardConfig;
 
 /** An empty, measured session's usage; tests spread it and override what they exercise. */

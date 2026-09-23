@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { getActiveModelPreset, getConfiguredEngineNumCtx } from '../src/config/getters.js';
 import { createTestChatRunRecorder } from './helpers/chat-run-recorder.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -599,8 +600,11 @@ test('manual condense reports the summarizer retry through the logger it is give
     ]);
     const logged: Array<Record<string, JsonSerializable>> = [];
 
+    const recorder = createTestChatRunRecorder(runtimeRoot, session, mockOfflineSiftConfig(), { operationKind: 'condense', content: '', images: [], imageMeta: [] });
+    // Mirrors route admission, which journals the granted model before condense runs.
+    recorder.recordModelAdmitted(getActiveModelPreset(mockOfflineSiftConfig()), getConfiguredEngineNumCtx(mockOfflineSiftConfig()));
     const updated = await condenseChatSession(
-      createTestChatRunRecorder(runtimeRoot, session, mockOfflineSiftConfig(), { operationKind: 'condense', content: '', images: [], imageMeta: [] }),
+      recorder,
       mockOfflineSiftConfig(),
       session,
       [{ content: '' }, { content: 'RECOVERED SUMMARY' }],

@@ -67,6 +67,11 @@ export class FakeTabbyModelState {
     return this.card !== null;
   }
 
+  residentModelName(): string {
+    if (this.card === null) throw new Error('No model is loaded.');
+    return this.card.id;
+  }
+
   respondCurrentModel(response: http.ServerResponse): void {
     if (this.card === null) {
       response.statusCode = 503;

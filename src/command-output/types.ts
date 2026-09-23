@@ -28,13 +28,15 @@ export type CommandOutputAnalyzeRequest = {
   format?: 'text' | 'json';
   policyProfile?: SummaryPolicyProfile;
   provider?: SummaryProviderId;
-  model?: string;
   noSummarize?: boolean;
   shell?: ShellName;
   config?: SiftConfig;
   progressWriter?: ProgressWriter<SummaryProgressEvent>;
   abortSignal?: AbortSignal;
 };
+
+/** The analyze wire request: the CLI model argument is resolved to a configured profile at admission. */
+export type CommandOutputAnalyzeApiRequest = CommandOutputAnalyzeRequest & { model?: string };
 
 export const CommandOutputAnalyzeResultSchema = z.object({
   ExitCode: z.number(),

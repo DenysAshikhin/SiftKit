@@ -6,6 +6,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { requestSse } from './helpers/sse-http.js';
 import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.js';
+import { readStatusModelRequests } from './helpers/model-request-status.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.js';
 import {
@@ -16,6 +17,7 @@ import {
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { ActivitySummaryProgressEventSchema } from '../src/repo-search/engine/activity-summary-collector.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { ModelRequestQueueDiagnosticsSchema } from '../src/lib/operation-stream.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 import { requestJson } from './helpers/dashboard-http.js';
@@ -531,12 +533,41 @@ test('POST /repo-agent (auto): an escalated approval parks the run and ends the 
 
 test('POST /repo-agent rejects a nested self-call owned by the active run', async (t) => {
   const harness = await startHarness('siftkit-repo-agent-self-call-', t);
+  const agentRun = requestSse(`${harness.baseUrl}/repo-agent`, {
+    body: {
+      prompt: 'hold the lock', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+      approval: 'off', availableModels: ['mock-model'],
+      mockResponses: [
+        { toolCalls: [{ name: 'git', arguments: { operation: 'grep', pattern: 'x', path: 'src' } }] },
+        ...repoAgentFinishResponses('done'),
+      ],
+      mockCommandResults: {
+        'git operation="grep" path="src" pattern="x"': { exitCode: 0, stdout: 'src/a.ts:1:x', stderr: '', delayMs: 500 },
+      },
+    },
+    timeoutMs: 20_000,
+  });
+  const ownerRunId = await waitForActiveModelRequestOwner(harness.baseUrl);
+
+  const rejected = await postJson(
+    `${harness.baseUrl}/repo-agent`,
+    { prompt: 'nested request' },
+    { [AGENT_RUN_ID_HEADER]: ownerRunId },
+  );
+  assert.equal(rejected.statusCode, 409);
+  assert.match(String(rejected.body.error), /would deadlock behind its own run/u);
+  assert.equal(ModelRequestQueueDiagnosticsSchema.parse(rejected.body.modelRequests).activeCount, 1);
+  assert.equal(RepoAgentRunResultSchema.parse((await agentRun).result).status, 'completed');
+});
+
+test('POST /repo-agent: a parked approval holds no model lease and the decision resumes the same run', async (t) => {
+  const harness = await startHarness('siftkit-repo-agent-park-lease-', t);
   const parkedResponse = await requestSse(`${harness.baseUrl}/repo-agent`, {
     body: {
       prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       approval: 'auto', availableModels: ['mock-model'],
       mockResponses: [
-        { toolCalls: [{ name: "write", arguments: {"path":"self-call.txt","content":"approved later"} }] },
+        { toolCalls: [{ name: "write", arguments: {"path":"park-lease.txt","content":"approved later"} }] },
         { content: NON_VERDICT_RESPONSE },
         { content: NON_VERDICT_RESPONSE },
         ...repoAgentFinishResponses('done after approval'),
@@ -548,23 +579,16 @@ test('POST /repo-agent rejects a nested self-call owned by the active run', asyn
   const boundary = RepoAgentRunResultSchema.parse(parkedResponse.result);
   assert.equal(boundary.status, 'approval_required');
   if (boundary.status !== 'approval_required') return;
-  assert.equal(await waitForActiveModelRequestOwner(harness.baseUrl), boundary.runId);
-
-  const rejected = await postJson(
-    `${harness.baseUrl}/repo-agent`,
-    { prompt: 'nested request' },
-    { [AGENT_RUN_ID_HEADER]: boundary.runId },
-  );
-  assert.equal(rejected.statusCode, 409);
-  assert.match(String(rejected.body.error), /would deadlock behind its own run/u);
-  assert.equal(asObject(rejected.body.modelRequests).activeCount, 1);
+  assert.deepEqual((await readStatusModelRequests(harness.baseUrl)).activeRequests, []);
 
   const completed = await requestSse(`${harness.baseUrl}/repo-agent/decide`, {
     body: { runId: boundary.runId, decision: 'approve' },
     timeoutMs: 20_000,
   });
-  assert.equal(RepoAgentRunResultSchema.parse(completed.result).status, 'completed');
-  fs.rmSync(path.join(process.cwd(), 'self-call.txt'), { force: true });
+  const result = RepoAgentRunResultSchema.parse(completed.result);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.runId, boundary.runId);
+  fs.rmSync(path.join(process.cwd(), 'park-lease.txt'), { force: true });
 });
 
 test('POST /repo-agent: a client disconnect does not abort the run; it still parks', async (t) => {

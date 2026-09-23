@@ -1,6 +1,8 @@
+import { OrchestratorPresetOptionsSchema } from '@siftkit/contracts';
 import {
   addModelPreset,
   deleteModelPreset,
+  getModelPresetAssignments,
 } from './model-runtime-presets.js';
 import {
   applyOperationModeDefaults,
@@ -99,6 +101,8 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-preset-surface-enabled'; presetId: string; surface: DashboardPresetSurface; enabled: boolean }
   | { type: 'set-preset-boolean'; presetId: string; field: PresetBooleanField; value: boolean }
   | { type: 'set-preset-max-turns'; presetId: string; value: number | null }
+  | { type: 'set-preset-model'; presetId: string; value: string | null }
+  | { type: 'set-orchestrator-max-subagents'; presetId: string; value: number }
   | { type: 'set-preset-autoload-file'; presetId: string; index: number; value: string }
   | { type: 'add-preset-autoload-file'; presetId: string }
   | { type: 'remove-preset-autoload-file'; presetId: string; index: number }
@@ -197,6 +201,17 @@ export class DashboardSettingsDraftEditor {
       case 'set-preset-max-turns':
         this.requirePreset(action.presetId).maxTurns = action.value;
         return;
+      case 'set-preset-model':
+        this.requirePreset(action.presetId).modelPresetId = action.value === null ? null : this.requireModelPreset(action.value).id;
+        return;
+      case 'set-orchestrator-max-subagents': {
+        const preset = this.requirePreset(action.presetId);
+        if (preset.presetKind !== 'orchestrator' || preset.orchestrator === null) {
+          throw new Error(`Preset '${preset.id}' is not an orchestrator preset.`);
+        }
+        preset.orchestrator = OrchestratorPresetOptionsSchema.parse({ maxSubagents: action.value });
+        return;
+      }
       case 'set-preset-autoload-file': {
         const preset = this.requirePreset(action.presetId);
         this.requireAutoloadIndex(preset, action.index);
@@ -330,6 +345,7 @@ export class DashboardSettingsDraftEditor {
       repoRootRequired: false,
       maxTurns: null,
       modelPresetId: null,
+      orchestrator: null,
     });
   }
 
@@ -367,6 +383,11 @@ export class DashboardSettingsDraftEditor {
     this.requireModelPreset(presetId);
     if (this.config.Server.ModelPresets.Presets.length <= 1) {
       throw new Error('Cannot delete the final model preset.');
+    }
+    const assignments = getModelPresetAssignments(this.config, presetId);
+    if (assignments.length > 0) {
+      const labels = assignments.map((preset) => preset.label).join(', ');
+      throw new Error(`Model preset ${presetId} is assigned to ${labels}; reassign them before deleting it.`);
     }
     deleteModelPreset(this.config, presetId);
   }

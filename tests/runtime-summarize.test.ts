@@ -6,7 +6,7 @@ import path from 'node:path';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 
-import { loadConfig, saveConfig, getChunkThresholdCharacters, initializeRuntime } from '../src/config/index.js';
+import { loadConfig, saveConfig, getChunkThresholdCharacters, getConfiguredModel, initializeRuntime } from '../src/config/index.js';
 import { summarizeRequest, buildSummaryPrompt, getSummaryDecision } from '../src/summary.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
@@ -112,7 +112,6 @@ test('summarizeRequest uses a single oversized mock summary pass when the extern
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       const events = fs.readFileSync(logPath, 'utf8')
@@ -147,7 +146,6 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 0,
         timing: {
@@ -195,7 +193,6 @@ test('summarizeRequest does not wait for terminal metadata notification response
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 0,
         statusBackendUrl: statusServer.statusUrl,
@@ -233,7 +230,6 @@ test('summary command-output pass/fail with Jest failure output is deterministic
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 1,
       });
@@ -257,7 +253,6 @@ test('summary ignores legacy busy running status without retrying', async () => 
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -288,7 +283,6 @@ test('summarizeRequest does not split mock summaries when aggregate status total
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       const events = fs.readFileSync(logPath, 'utf8')
@@ -425,7 +419,6 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Summary, 'mock summary');
@@ -475,7 +468,6 @@ test('summary keeps oversized inference requests on planner mode when direct pro
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -516,7 +508,6 @@ test('summary hands oversized inference requests to planner mode before tokeniza
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -557,7 +548,6 @@ test('summary posts the preflight prompt token count in running status updates',
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -589,7 +579,6 @@ test('summarizeRequest recovers malformed structured inference JSON when the exp
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -622,7 +611,6 @@ test('summarizeRequest enables per-request response_format json_schema for struc
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -707,7 +695,6 @@ test('pass markers with zero failed still use the model summary path', async () 
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       assert.equal(result.WasSummarized, true);
@@ -776,8 +763,10 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
     const requestLogsPath = getRequestLogsPath();
     fs.mkdirSync(requestLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(requestLogsPath));
+    let hostModel = '';
 
     await withStubServer(async (server) => {
+      hostModel = getConfiguredModel(server.state.config);
       const result = await summarizeRequest({
       repoRoot: process.cwd(),
         question: 'Summarize this short input.',
@@ -785,7 +774,6 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
         debugCommand: 'echo short input | siftkit "Summarize this short input."',
       });
 
@@ -839,7 +827,7 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
     assert.equal(requestDump.inputText, 'Line one.\nLine two.');
     assert.equal(requestDump.classification, 'summary');
     assert.equal(requestDump.provider, 'mock');
-    assert.equal(requestDump.model, 'mock-model');
+    assert.equal(requestDump.model, hostModel);
     assert.equal(typeof requestDump.summary, 'string');
     assert.equal(requestDump.error, null);
   });
@@ -855,7 +843,6 @@ test('summary succeeds when deferred artifact persistence is unavailable', async
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       });
 
       assert.equal(result.Classification, 'summary');
@@ -886,7 +873,6 @@ test('command-output never surfaces unsupported_input for non-empty input', asyn
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
         sourceKind: 'command-output',
       });
 
@@ -911,7 +897,6 @@ test('provider failures hard fail instead of falling back to a deterministic raw
           format: 'text',
           policyProfile: 'general',
           provider: 'mock',
-          model: 'mock-model',
         }),
         /mock provider failure/u
       );
@@ -931,7 +916,6 @@ test('empty structured output retries once then fails, and subsequent requests s
           format: 'text',
           policyProfile: 'general',
           provider: 'real',
-          model: 'mock-model',
         }),
         /Provider returned an empty SiftKit decision output\./u
       );
@@ -943,7 +927,6 @@ test('empty structured output retries once then fails, and subsequent requests s
         format: 'text',
         policyProfile: 'general',
         provider: 'real',
-        model: 'mock-model',
       });
 
       assert.equal(secondResult.Classification, 'summary');
@@ -997,8 +980,8 @@ test('summary requests use the host model and only an explicit operation cap', a
             Presets: [{
               id: 'default',
               label: 'Default',
-              // Stale local guess: host sync must replace it before the request is built.
-              Model: 'stale-local-model',
+              // No local model: the pass-through adopts the one the host serves.
+              Model: null,
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
               IdleAction: 'unload',

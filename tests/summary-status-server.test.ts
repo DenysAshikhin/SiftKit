@@ -56,6 +56,7 @@ test('summary endpoint waits behind the model request queue', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -68,7 +69,6 @@ test('summary endpoint waits behind the model request queue', async () => {
         prompt: 'find x',
         repoRoot: process.cwd(),
         simulateWorkMs: 250,
-        model: 'mock-model',
         maxTurns: 1,
         availableModels: ['mock-model'],
         mockResponses: [
@@ -88,7 +88,6 @@ test('summary endpoint waits behind the model request queue', async () => {
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       },
     });
     const summaryElapsedMs = Date.now() - summaryStartedAt;
@@ -139,6 +138,7 @@ test('summary endpoint processes terminal status before granting next queued sum
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -156,7 +156,6 @@ test('summary endpoint processes terminal status before granting next queued sum
           format: 'text',
           policyProfile: 'general',
           provider: 'mock',
-          model: 'mock-model',
         },
       });
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -169,7 +168,6 @@ test('summary endpoint processes terminal status before granting next queued sum
           format: 'text',
           policyProfile: 'general',
           provider: 'mock',
-          model: 'mock-model',
         },
       });
       const [firstResponse, secondResponse] = await Promise.all([first, second]);
@@ -224,6 +222,7 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 80 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -325,6 +324,7 @@ test('terminal metadata waits for inference flush queue to drain first', async (
     }
     return inferenceFlushIdle && originalIsIdle.call(this);
   };
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -419,6 +419,7 @@ test('split terminal routes clear active request before next running post', asyn
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -559,6 +560,7 @@ test('legacy terminal status posts to /status are rejected', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -632,6 +634,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
     return true;
   };
 
+  writeConfig(getConfigPath(), getDefaultServerConfig());
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -647,7 +650,6 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
         format: 'text',
         policyProfile: 'general',
         provider: 'mock',
-        model: 'mock-model',
       },
     });
 
@@ -776,7 +778,6 @@ test('summarizeRequest uses explicit config without requiring config service', a
       format: 'text',
       policyProfile: 'general',
       provider: 'mock',
-      model: 'mock-model',
       statusBackendUrl: 'http://127.0.0.1:1/status',
       config,
     });

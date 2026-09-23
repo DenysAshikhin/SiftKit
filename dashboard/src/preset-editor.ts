@@ -62,7 +62,7 @@ export function getDefaultToolsForOperationMode(
 export function getDefaultOperationModeForPresetKind(
   presetKind: DashboardPresetKind,
 ): DashboardPresetOperationMode {
-  if (presetKind === 'plan' || presetKind === 'repo-search') {
+  if (presetKind === 'plan' || presetKind === 'repo-search' || presetKind === 'orchestrator') {
     return 'read-only';
   }
   if (presetKind === 'repo-agent') {
@@ -82,7 +82,7 @@ export function applyOperationModeDefaults(
     preset.maxTurns = preset.maxTurns || REPO_AGENT_DEFAULT_MAX_TURNS;
     return;
   }
-  if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search') {
+  if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search' || preset.presetKind === 'orchestrator') {
     preset.repoRootRequired = true;
     preset.maxTurns = preset.maxTurns || 45;
     return;
@@ -96,6 +96,7 @@ export function applyPresetKindDefaults(
   presetKind: DashboardPresetKind,
 ): void {
   preset.presetKind = presetKind;
+  preset.orchestrator = presetKind === 'orchestrator' ? preset.orchestrator ?? { maxSubagents: 1 } : null;
   applyOperationModeDefaults(preset, getDefaultOperationModeForPresetKind(presetKind));
 }
 

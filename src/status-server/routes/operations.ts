@@ -10,7 +10,7 @@ import {
 import { readConfig } from '../config-store.js';
 import { sendJson } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
-import { StatusPresetRunner } from '../preset-runner.js';
+import { ORCHESTRATOR_PRESET_RUN_ERROR, StatusPresetRunner } from '../preset-runner.js';
 import {
   RepoSearchSseProgressWriter,
   SummarySseProgressWriter,
@@ -22,6 +22,16 @@ import {
   type StreamedOperationContext,
 } from './streamed-operation-endpoint.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
+import { PresetCatalog } from '../../preset-catalog.js';
+import type { ModelRequestIntent } from '../../lib/model-request-intent.js';
+
+/** A summary-kind operation: its named preset, or the catalog's summary default. */
+function summaryIntent(ctx: ServerContext, presetId: string | undefined, model: string | undefined): ModelRequestIntent {
+  return {
+    presetId: presetId ?? PresetCatalog.fromPresets(readConfig(ctx.configPath).Presets).requireSummaryDefault().id,
+    model: model ?? null,
+  };
+}
 
 function normalizeSummaryPolicyProfile(value: OptionalJsonValue): SummaryPolicyProfile {
   return (
@@ -63,6 +73,10 @@ export class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<Pars
     return { ok: true, value: { parsedBody } };
   }
 
+  protected modelIntent(parsed: ParsedCommandOutputRoute, ctx: ServerContext): ModelRequestIntent {
+    return summaryIntent(ctx, undefined, new JsonRecordReader(parsed.parsedBody).optionalString('model'));
+  }
+
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedCommandOutputRoute,
@@ -82,9 +96,8 @@ export class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<Pars
       format: parsedBody.format === 'json' ? 'json' : 'text',
       policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
       provider: parseOptionalSummaryProvider(reader.optionalString('provider')),
-      model: reader.optionalString('model'),
       noSummarize: parsedBody.noSummarize === true,
-      config: readConfig(ctx.configPath),
+      config: stream.model.config,
       abortSignal: stream.abortSignal,
       progressWriter: new SummarySseProgressWriter(stream),
     });
@@ -114,8 +127,16 @@ export class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRun
   protected readonly lockKind = 'summary';
   protected readonly taskKind = 'summary';
 
-  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedPresetRunRoute> {
+  protected parseRequest(parsedBody: JsonObject, ctx: ServerContext): ParsedStreamedRequest<ParsedPresetRunRoute> {
+    const presetId = new JsonRecordReader(parsedBody).optionalString('presetId');
+    const preset = readConfig(ctx.configPath).Presets.find((entry) => entry.id === presetId);
+    if (preset?.presetKind === 'orchestrator') return { ok: false, error: ORCHESTRATOR_PRESET_RUN_ERROR };
     return { ok: true, value: { parsedBody } };
+  }
+
+  protected modelIntent(parsed: ParsedPresetRunRoute): ModelRequestIntent {
+    const reader = new JsonRecordReader(parsed.parsedBody);
+    return { presetId: reader.optionalString('presetId') ?? null, model: reader.optionalString('model') ?? null };
   }
 
   protected async execute(
@@ -141,6 +162,7 @@ export class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRun
       logFile: reader.optionalString('logFile'),
     }, {
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      model: stream.model,
       abortSignal: stream.abortSignal,
       summaryProgressWriter: new SummarySseProgressWriter(stream),
       repoSearchProgressWriter: new RepoSearchSseProgressWriter(stream),
@@ -158,6 +180,10 @@ export class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> 
     return { ok: true, value: { parsedBody } };
   }
 
+  protected modelIntent(parsed: ParsedEvalRoute, ctx: ServerContext): ModelRequestIntent {
+    return summaryIntent(ctx, undefined, new JsonRecordReader(parsed.parsedBody).optionalString('Model'));
+  }
+
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedEvalRoute,
@@ -169,10 +195,10 @@ export class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> 
       FixtureRoot: reader.optionalString('FixtureRoot'),
       RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
       Provider: parseOptionalSummaryProvider(reader.optionalString('Provider')),
-      Model: reader.optionalString('Model'),
     }, {
       progressWriter: new SummarySseProgressWriter(stream),
       abortSignal: stream.abortSignal,
+      config: stream.model.config,
     });
   }
 }
@@ -191,6 +217,10 @@ export class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRout
     return { ok: true, value: summaryRequest };
   }
 
+  protected modelIntent(summaryRequest: ParsedSummaryRoute, ctx: ServerContext): ModelRequestIntent {
+    return summaryIntent(ctx, summaryRequest.presetId, summaryRequest.model);
+  }
+
   protected async execute(
     ctx: ServerContext,
     summaryRequest: ParsedSummaryRoute,
@@ -205,7 +235,6 @@ export class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRout
       format: summaryRequest.format,
       policyProfile: summaryRequest.policyProfile,
       provider: summaryRequest.provider,
-      model: summaryRequest.model,
       sourceKind: summaryRequest.sourceKind,
       commandExitCode: summaryRequest.commandExitCode,
       requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
@@ -213,7 +242,7 @@ export class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRout
       promptPrefix: summaryRequest.promptPrefix,
       inferenceMaxTokens: summaryRequest.inferenceMaxTokens,
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-      config: readConfig(ctx.configPath),
+      config: stream.model.config,
       abortSignal: stream.abortSignal,
       progressWriter: new SummarySseProgressWriter(stream),
     });

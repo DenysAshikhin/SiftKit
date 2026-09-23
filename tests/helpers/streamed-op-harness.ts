@@ -10,7 +10,8 @@ import { closeAllRuntimeDatabases } from '../../src/state/runtime-db.js';
 import { getConfigPath } from '../../src/config/index.js';
 import { writeConfig } from '../../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './mock-config.js';
-import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboard-http.js';
+import { getAddressInfo } from './dashboard-http.js';
+import { readStatusModelRequests } from './model-request-status.js';
 import { createManagedTempDir } from './temp-dirs.js';
 import { DEAD_BASE_URL } from './dead-endpoints.js';
 import { getActiveModelPreset } from '../../src/config/getters.js';
@@ -34,10 +35,9 @@ const MODEL_REQUEST_OWNER_POLL_INTERVAL_MS = 10;
 export async function waitForActiveModelRequestOwner(baseUrl: string): Promise<string> {
   const deadline = Date.now() + MODEL_REQUEST_OWNER_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const status = await requestJson(`${baseUrl}/status`);
-    const activeRequests = asObjectArray(asObject(status.body.modelRequests).activeRequests);
+    const { activeRequests } = await readStatusModelRequests(baseUrl);
     for (const activeRequest of activeRequests) {
-      const ownerRunId = String(activeRequest.ownerRunId || '').trim();
+      const ownerRunId = activeRequest.ownerRunId?.trim() ?? '';
       if (ownerRunId) {
         return ownerRunId;
       }

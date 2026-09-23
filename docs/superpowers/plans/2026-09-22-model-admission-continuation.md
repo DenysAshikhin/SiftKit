@@ -1,5 +1,7 @@
 # M4 model admission continuation
 
+> **Status (2026-09-23):** M4-C1 verified on `df72a321`: the focused suite passes, typecheck and lint pass, and the full suite is green (its earlier failures were fixed by later commits). M4-C2 is implemented inline (uncommitted): `resident`, per-lock `model`, and queued `requested`/`resolved`/`waitingReason`, with SHA-256 residency fingerprints and an `arrival_position` log label. M5 is next.
+
 This narrows the unfinished M4 work in [the routing plan](2026-09-22-preset-model-routing.md). The pure resident-first selector is already committed in `10820eec`. The original worker stopped on a provider error before changing admission. Do not repeat that selector task or implement M5.
 
 The primary owns these decisions. Workers implement only their dispatched heading, use TDD, and return exact validation results. No commits, worktrees, temporary files, plan edits, nested workers, live-server changes, casts, `any`, non-null assertions, or compatibility paths. Keep comments to one or two lines. The primary reviews, validates independently, and commits each task before another dispatch.

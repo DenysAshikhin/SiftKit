@@ -25,6 +25,7 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import type { RuntimeDatabase } from './database-handle.js';
 import { ChatJournalStore } from './chat-journal.js';
 import { chatMetadataKey } from './chat-metadata-keys.js';
 import { CHAT_MESSAGES_COLUMNS } from './runtime-schema.js';
@@ -666,6 +667,12 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(session.id.trim());
     insertChatMessages(database, session.id.trim(), messages, 0, new Date().toISOString());
   }).immediate();
+}
+
+/** The model the session last ran on; the next operation resolves its own at admission. */
+export function recordChatSessionModel(database: RuntimeDatabase, sessionId: string, modelPreset: ModelRuntimePreset): void {
+  database.prepare('UPDATE chat_sessions SET model_preset_id = ?, model_preset_json = ? WHERE id = ?')
+    .run(modelPreset.id, JSON.stringify(ModelRuntimePresetSchema.parse(modelPreset)), sessionId);
 }
 
 /** Session preferences have no authority over journal-derived message rows. */

@@ -10,6 +10,7 @@ import {
   ChatTranscriptEventSchema,
   ImageDataUrlSchema,
   ImageMetadataSchema,
+  ModelRuntimePresetSchema,
   PersistedChatTranscriptMessageSchema,
   RepoAgentDecisionSchema,
   ToolActivityKindSchema,
@@ -121,6 +122,12 @@ export const ChatJournalEventSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('presentation'), event: ChatRunPresentationEventSchema }),
   z.strictObject({ kind: z.literal('submission_cancelled'), userMessageId: z.string().min(1), reason: z.literal('client_disconnected_before_dispatch') }),
   ChatRunStartedEventSchema,
+  /** The model admission granted this run; it is what the run executed on, whatever it was submitted under. */
+  z.strictObject({
+    kind: z.literal('model_admitted'),
+    modelPreset: ModelRuntimePresetSchema,
+    contextWindowTokens: z.number().int().positive(),
+  }),
   z.strictObject({
     kind: z.literal('engine_bound'),
     requestId: z.string().min(1),

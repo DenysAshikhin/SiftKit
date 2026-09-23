@@ -38,7 +38,6 @@ async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number
       prompt: 'finish immediately',
       repoRoot: dir,
       config: MOCK_CONFIG,
-      model: 'mock',
       ...(requestedMaxTurns === undefined ? {} : { maxTurns: requestedMaxTurns }),
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
@@ -81,7 +80,6 @@ test('repo-agent resumes after compacting recoverable reasoning history', async 
           },
         },
       }),
-      model: 'mock',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
@@ -112,7 +110,6 @@ test('repo-agent attempts compaction and fails when its summarization prompt is 
         prompt: 'Q'.repeat(60_000),
         repoRoot: dir,
         config: mockSiftConfig({ Server: { ModelPresets: { Presets: [{ NumCtx: 9_000 }] } } }),
-        model: 'mock',
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
         mockResponses: [{ content: 'SUMMARY BODY' }],
@@ -139,7 +136,6 @@ test('awaitRepoSearchRunPersistence resolves only once the deferred run log has 
       prompt: 'finish immediately',
       repoRoot: dir,
       config: MOCK_CONFIG,
-      model: 'mock',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: repoAgentFinishResponses('done'),
@@ -166,7 +162,6 @@ test('repo-agent applies write content verbatim without an approval gate', async
       prompt: 'create out.txt',
       repoRoot: dir,
       config: MOCK_CONFIG,
-      model: 'mock',
       maxTurns: 4,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
@@ -197,7 +192,6 @@ test('repo-agent uses ExpandReads=false and still skips already-returned lines',
       prompt: 'Read a file twice.',
       repoRoot: dir,
       config: mockSiftConfig({ ExpandReads: false }),
-      model: 'mock',
       maxTurns: 6,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
@@ -245,7 +239,6 @@ test('completed runs persist canonical operation identity beside the legacy grou
       prompt: 'finish immediately',
       repoRoot: dir,
       config,
-      model: 'mock',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: repoAgentFinishResponses('done'),
@@ -284,7 +277,6 @@ test('failed runs persist canonical operation identity', async () => {
       prompt: 'Q'.repeat(60_000),
       repoRoot: dir,
       config,
-      model: 'mock',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [{ content: 'SUMMARY BODY' }],
@@ -323,7 +315,6 @@ test('every engine operation type persists its own canonical identity', async ()
         prompt: 'finish immediately',
         repoRoot: dir,
         config: MOCK_CONFIG,
-        model: 'mock',
         ...(entry.taskKind === 'chat' ? { systemPrompt: 'assistant', allowedTools: [] } : {}),
         availableModels: ['mock'],
         mockResponses: [{ content: 'done' }],
@@ -344,23 +335,26 @@ test('every engine operation type persists its own canonical identity', async ()
   }
 });
 
-test('chat runs persist the session model-preset snapshot rather than the active global preset', async () => {
+test('runs persist the model preset their admitted config executes on', async () => {
   const dir = createManagedTempDir('siftkit-identity-session-');
   const previousCwd = process.cwd();
   process.chdir(dir);
   try {
-    const sessionPreset = mockModelPreset({ id: 'session-snapshot', Model: 'session-model' });
+    const sessionPreset = mockModelPreset({ id: 'session-snapshot', Model: 'mock' });
     assert.notEqual(sessionPreset.id, getActiveModelPreset(MOCK_CONFIG).id);
+    const admittedConfig = {
+      ...MOCK_CONFIG,
+      Server: { ...MOCK_CONFIG.Server, ModelPresets: {
+        Presets: [...MOCK_CONFIG.Server.ModelPresets.Presets, sessionPreset], ActivePresetId: sessionPreset.id,
+      } },
+    };
     await executeRepoSearchRequest({
       presetId: 'chat',
       taskKind: 'chat',
       requestId: 'identity-session-chat',
       prompt: 'hello',
       repoRoot: dir,
-      config: MOCK_CONFIG,
-      modelPresetId: sessionPreset.id,
-      modelPreset: sessionPreset,
-      model: 'mock',
+      config: admittedConfig,
       systemPrompt: 'assistant',
       allowedTools: [],
       availableModels: ['mock'],

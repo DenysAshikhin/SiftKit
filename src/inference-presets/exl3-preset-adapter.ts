@@ -9,6 +9,14 @@ import {
 } from './preset-compatibility.js';
 import { Exl3ModelCapabilities } from './exl3-model-capabilities.js';
 
+/** A profile with no ModelPath declares no loading identity, e.g. a model already served externally. */
+export class MissingModelPathError extends Error {
+  constructor(presetId: string) {
+    super(`preset=${presetId} backend=exl3 ModelPath is required`);
+    this.name = 'MissingModelPathError';
+  }
+}
+
 export const Exl3LoadRequestSchema = z.object({
   model_name: z.string(),
   max_seq_len: z.number(),
@@ -139,7 +147,7 @@ export class Exl3PresetAdapter {
 
   private getRelativeModelPath(preset: ModelRuntimePreset): string {
     if (preset.ModelPath === null || preset.ModelPath.trim() === '') {
-      throw new Error(`preset=${preset.id} backend=exl3 ModelPath is required`);
+      throw new MissingModelPathError(preset.id);
     }
     const relativePath = win32.relative(win32.resolve(this.modelRoot), win32.resolve(preset.ModelPath));
     if (

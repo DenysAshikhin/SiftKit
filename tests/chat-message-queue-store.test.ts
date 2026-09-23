@@ -16,6 +16,7 @@ import { ChatRuntimeOwner, ChatRuntimeOwnerSchema } from '../src/state/chat-runt
 import { ChatRunRecorder, buildChatRunSettings } from '../src/status-server/chat-run-recorder.js';
 import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { currentModelTarget } from './helpers/chat-run-recorder.js';
 import { randomUUID } from 'node:crypto';
 import type { ChatQueueClaimInput } from '../src/state/chat-message-queue.js';
 import { readChatSessionFromPath, getChatSessionPath } from '../src/state/chat-sessions.js';
@@ -26,16 +27,17 @@ function recordedClaim(runtimeRoot: string, sessionId: string, input: ChatQueueC
   const prior = new ChatJournalStore(database).listSessionRuns(sessionId).find(run => run.requestId === input.requestId);
   const saved = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
   assert.ok(saved);
-  if (prior) return ChatRunRecorder.resume(getRuntimeDatabase(databasePath), prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input, saved.modelPreset);
+  if (prior) return ChatRunRecorder.resume(getRuntimeDatabase(databasePath), prior.operationId, prior.ownerEpoch).claimQueuedMessages(sessionId, input);
   const initial = new ChatMessageQueueStore(database).listPending(sessionId).find(message => input.ids === null || input.ids.includes(message.id));
   assert.ok(initial);
   const recorder = ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
     operationId: randomUUID(), sessionId, ownerEpoch: 'old-process', operationKind: 'message', userMessageId: initial.id,
     content: initial.content, images: initial.images, imageMeta: [], retainedHistoryRevision: 0, startedAtUtc: new Date().toISOString(),
-    settings: buildChatRunSettings({ session: saved, config: getDefaultConfigObject(), operationKind: 'message', presetId: 'chat', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
+    settings: buildChatRunSettings({ session: saved, target: currentModelTarget(getDefaultConfigObject()), operationKind: 'message', presetId: 'chat', repoRoot: saved.planRepoRoot, approval: null, maxTurns: null, webSearchEnabled: false }),
   });
   recorder.bindEngine({ requestId: input.requestId, repoAgentSessionId: null });
-  return recorder.claimQueuedMessages(sessionId, input, saved.modelPreset);
+  recorder.recordModelAdmitted(saved.modelPreset, saved.modelPreset.NumCtx);
+  return recorder.claimQueuedMessages(sessionId, input);
 }
 
 function recoverRecordedQueue(runtimeRoot: string): void {

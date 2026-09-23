@@ -69,7 +69,6 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
     history: [{ role: 'user', content: 'I like green.' }, { role: 'assistant', content: 'Noted.' }],
     allowedTools: [],
     availableModels: ['mock'],
-    model: 'mock',
     mockResponses: [{ content: "You like green." }],
     progressWriter: new CollectingProgressWriter(events),
   });
@@ -90,7 +89,6 @@ test('chat execution persists the provider stop tuple in its JSONL transcript', 
       systemPrompt: 'general, coder friendly assistant',
       allowedTools: [],
       availableModels: ['mock'],
-      model: 'mock',
       statusBackendUrl: stub.statusUrl,
       mockResponses: [
         { content: '', backendEosReason: 'loop_detected' },
@@ -120,7 +118,6 @@ test('lifecycle reporting stays active without sending live text to a disabled t
     systemPrompt: 'general, coder friendly assistant',
     allowedTools: [],
     availableModels: ['mock'],
-    model: 'mock',
     mockResponses: [{ content: "Hello." }],
     progressWriter: new DisabledCollectingProgressWriter(events),
   });
@@ -140,7 +137,6 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     systemPrompt: 'general, coder friendly assistant',
     allowedTools: ['web_search', 'web_fetch'],
     availableModels: ['mock'],
-    model: 'mock',
     config: mockSiftConfig({
       Server: { ModelPresets: { Presets: [{ BaseUrl: DEAD_BASE_URL, NumCtx: 32000 }] } },
       Presets: CONTEXT_FREE_PRESETS,
@@ -183,7 +179,6 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
     allowedTools: ['web_search', 'web_fetch'],
     webToolsEnabled: true,
     availableModels: ['mock'],
-    model: 'mock',
     maxTurns: 4,
     mockResponses: [
       { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS F2P ironman fastest iron ore milestones"} }] },
@@ -225,7 +220,6 @@ test('chat with web tools rejects finish before web_search and requires fetched 
     allowedTools: ['web_search', 'web_fetch'],
     webToolsEnabled: true,
     availableModels: ['mock'],
-    model: 'mock',
     maxTurns: 5,
     mockResponses: [
       { content: "Iron bars make kiteshields and random quest rewards." },
@@ -267,7 +261,6 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
     allowedTools: ['web_search', 'web_fetch'],
     webToolsEnabled: true,
     availableModels: ['mock'],
-    model: 'mock',
     maxTurns: 6,
     mockResponses: [
       { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS F2P ironman fastest iron ore mining methods milestones"} }] },
@@ -310,7 +303,6 @@ test('chat with web tools does not force finish after duplicate web_search', asy
     allowedTools: ['web_search', 'web_fetch'],
     webToolsEnabled: true,
     availableModels: ['mock'],
-    model: 'mock',
     maxTurns: 5,
     mockResponses: [
       { toolCalls: [{ name: "web_search", arguments: {"query":"osrs iron bar"} }] },
@@ -351,7 +343,6 @@ test('chat with web tools rejects repeated search and fetch calls across the ret
     allowedTools: ['web_search', 'web_fetch'],
     webToolsEnabled: true,
     availableModels: ['mock'],
-    model: 'mock',
     maxTurns: 5,
     mockResponses: [
       { toolCalls: [{ name: "web_search", arguments: {"query":"OSRS iron bars"} }] },
@@ -389,7 +380,6 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     thinkingEnabled: false,
     allowedTools: [],
     availableModels: ['mock'],
-    model: 'mock',
     config: mockSiftConfig({
       Presets: CONTEXT_FREE_PRESETS,
       Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', BaseUrl: DEAD_BASE_URL, NumCtx: 32000, Reasoning: 'on', IdleAction: 'unload' }] } },
@@ -447,7 +437,6 @@ test('repo-search task kind honors supplied history in the model call', async ()
       ],
       statusBackendUrl: context.stub.statusUrl,
       availableModels: ['mock'],
-      model: 'mock',
       mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
       mockCommandResults: REPO_SEARCH_MOCK_COMMAND_RESULTS,
     });
@@ -469,7 +458,6 @@ test('repo-search task kind without history leaves the model call historyless', 
       taskKind: 'repo-search',
       statusBackendUrl: context.stub.statusUrl,
       availableModels: ['mock'],
-      model: 'mock',
       mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
       mockCommandResults: REPO_SEARCH_MOCK_COMMAND_RESULTS,
     });

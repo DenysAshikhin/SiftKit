@@ -539,7 +539,6 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
     minToolCallsBeforeFinish: 0,
     taskPrompt: 'Say hi.',
     availableModels: ['mock'],
-    model: 'mock',
     mockResponses: [{ content: "hi" }],
     mockCommandResults: {},
   });
@@ -561,7 +560,6 @@ test('runRepoSearch rejects an undefined task prompt instead of executing self-t
       minToolCallsBeforeFinish: 0,
       taskPrompt: undefined,
       availableModels: ['mock'],
-      model: 'mock',
       mockResponses: [{ content: "unexpected" }],
       mockCommandResults: {},
     }),

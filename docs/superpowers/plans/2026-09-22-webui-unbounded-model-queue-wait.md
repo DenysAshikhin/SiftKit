@@ -1,5 +1,7 @@
 # Webui Unbounded Model Queue Wait Implementation Plan
 
+> **Status (2026-09-23):** Implemented in `e06231f0` with `queueTimeout: 'none'` (`WEB_UI_MODEL_QUEUE_TIMEOUT`, `acquireWebUiModelRequest`) instead of the planned `timeoutMs: null`. All four tasks are done; the full suite passes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Webui (dashboard) requests wait for a model slot until they are admitted or cancelled; every other caller keeps the 15-minute queue timeout.
@@ -46,7 +48,7 @@
 - Modify: `src/status-server/server-ops.ts:459-466`, `src/status-server/server-ops.ts:682-685`
 - Test: `tests/model-request-queue.test.ts`, inserted after the test ending at line 691 (`'queued model request still times out after its reset window expires'`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Insert after line 691 in `tests/model-request-queue.test.ts`:
 
@@ -148,12 +150,12 @@ test('an omitted timeout still resolves to the default queue window', async () =
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue`
 Expected: `npm run build:test` or `npm run typecheck:test` rejects `timeoutMs: null` (`Type 'null' is not assignable to type 'number | undefined'`). If the build strips types, the first two new tests fail instead: `waiter.timeoutMs` is 900000, not `null`, and a timer handle is armed.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/status-server/server-types.ts`, in `ModelRequestWaitOptions` (line 46):
 
@@ -197,12 +199,12 @@ function startModelRequestWaiterTimeout(ctx: ServerContext, waiter: ModelRequest
       : readModelRequestQueueTimeoutMs();
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue`
 Expected: all tests pass. The existing tests are unchanged and still pass, including `'model request queue timeout default is fifteen minutes'`, `'queued model request times out, cancels, and logs the dropped request'`, `'queued model request timeout resets when an earlier queued request drops'` and `'queued model request still times out after its reset window expires'`.
 
-- [ ] **Step 5: Typecheck the change**
+- [x] **Step 5: Typecheck the change**
 
 Run: `npm run typecheck 2>&1 | Select-Object -Last 30`
 Expected: exit 0. If anything reads `waiter.timeoutMs` as `number`, the compiler reports it. Fix each site by handling `null` explicitly; do not assert it away.
@@ -217,7 +219,7 @@ Expected: exit 0. If anything reads `waiter.timeoutMs` as `number`, the compiler
 - Modify: `src/status-server/routes/chat-repo-agent.ts:210-228`
 - Test: `tests/model-request-queue.test.ts`, appended after the Task 1 tests
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add the import at the top of `tests/model-request-queue.test.ts`, next to the other `../src/status-server/` imports:
 
@@ -268,12 +270,12 @@ test('repo-agent lock adapter without a queue timeout uses the default window', 
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue`
 Expected: the build or typecheck fails with `Expected 1 arguments, but got 2` on `new ServerModelLockAdapter(ctx, null)`. If types are stripped, the first new test fails because `timeoutMs` is 900000, not `null`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `src/status-server/repo-agent-lock-adapter.ts` lines 8-20 so that it reads:
 
@@ -330,12 +332,12 @@ Change line 143:
     modelQueueTimeoutMs: null,
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue`
 Expected: all tests pass.
 
-- [ ] **Step 5: Run the repo-agent regression tests**
+- [x] **Step 5: Run the repo-agent regression tests**
 
 Run: `node .\dist\test-runner\run-tests.js repo-agent 2>&1 | Select-Object -Last 40`
 Expected: all repo-agent test files pass. The standalone `/repo-agent` route omits `modelQueueTimeoutMs`, so its behaviour does not change.
@@ -349,7 +351,7 @@ Expected: all repo-agent test files pass. The standalone `/repo-agent` route omi
 - Modify: `src/status-server/routes/chat-image-caption.ts:101`
 - Test: `tests/model-request-queue-http.test.ts`
 
-- [ ] **Step 1: Write the failing E2E tests**
+- [x] **Step 1: Write the failing E2E tests**
 
 Add the import to `tests/model-request-queue-http.test.ts`, after the `DashboardModelQueueHarness` import:
 
@@ -404,12 +406,12 @@ for (const streamCase of WEBUI_STREAM_CASES) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue-http`
 Expected: the three new tests fail. After about 120 ms the queued webui waiter is dropped (`model_queue_timeout`), so either `waitForActiveRequests(<requestKind>)` times out or the stream carries the failure `'The turn was not admitted before the model queue wait ended.'`. If a test fails for another reason, stop and investigate before implementing. For example, the plan or repo-search operation might not finish on a plain content response from the fake engine. Fix the test setup, not the assertion.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/status-server/routes/chat.ts`: delete line 215:
 
@@ -453,17 +455,17 @@ const CHAT_STREAM_NOT_ADMITTED_ERROR = 'The turn was not admitted before the mod
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_image_caption', req, res, { timeoutMs: null });
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run build:test` then `node .\dist\test-runner\run-tests.js model-request-queue-http`
 Expected: all tests pass, including the three new ones.
 
-- [ ] **Step 5: Run the webui regression tests**
+- [x] **Step 5: Run the webui regression tests**
 
 Run: `node .\dist\test-runner\run-tests.js status-server-chat-stop` then `node .\dist\test-runner\run-tests.js dashboard-chat-concurrency` then `node .\dist\test-runner\run-tests.js chat-message-queue`
 Expected: all pass. `Stop cancels a queued <kind> before model admission` in particular proves that unbounded waiters stay cancellable.
 
-- [ ] **Step 6: Confirm the removed constant has no stragglers**
+- [x] **Step 6: Confirm the removed constant has no stragglers**
 
 Run: `git grep -n "CHAT_STREAM_NOT_ADMITTED_ERROR\|not admitted before the model queue" -- src tests dashboard`
 Expected: no output. Historical references under `docs/superpowers/plans/` stay as records.
@@ -472,17 +474,17 @@ Expected: no output. Historical references under `docs/superpowers/plans/` stay 
 
 ### Task 4: Full verification
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `npm run build:test` then `npm run test`
 Expected: pass. Report every failing test name. Do not weaken tests.
 
-- [ ] **Step 2: Typecheck and lint**
+- [x] **Step 2: Typecheck and lint**
 
 Run: `npm run typecheck` (this also runs `npm run lint`)
 Expected: exit 0.
 
-- [ ] **Step 3: Review the diff for scope**
+- [x] **Step 3: Review the diff for scope**
 
 Run: `git diff --stat`
 Expected: only the files in the file map changed. No compatibility shims. `inference-passthrough.ts`, `streamed-operation-endpoint.ts` and the `startRepoAgentRun` call in the standalone route (`routes/repo-agent.ts:64`) are unchanged.

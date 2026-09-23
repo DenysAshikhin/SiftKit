@@ -12,7 +12,7 @@ test('schema 71 upgrades to the canonical chat submission receipt table', (t) =>
   t.after(closeAllRuntimeDatabases);
   const path = join(createManagedTempDir('chat-submission-schema-'), 'runtime.sqlite');
   const current = getRuntimeDatabase(path);
-  current.exec('DROP TABLE chat_submissions; UPDATE runtime_schema SET version = 71 WHERE id = 1;');
+  current.exec('DROP TABLE chat_submissions; DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 71 WHERE id = 1;');
   closeAllRuntimeDatabases();
 
   const upgraded = getRuntimeDatabase(path);
@@ -28,7 +28,7 @@ test('schema 71 rejects an unexpected pre-existing chat_submissions table atomic
   t.after(closeAllRuntimeDatabases);
   const path = join(createManagedTempDir('chat-submission-schema-drift-'), 'runtime.sqlite');
   const current = getRuntimeDatabase(path);
-  current.exec('DROP TABLE chat_submissions; CREATE TABLE chat_submissions (wrong TEXT); UPDATE runtime_schema SET version = 71 WHERE id = 1;');
+  current.exec('DROP TABLE chat_submissions; CREATE TABLE chat_submissions (wrong TEXT); DROP TABLE orchestrator_events; DROP TABLE orchestrator_attempts; DROP TABLE orchestrator_runs; UPDATE runtime_schema SET version = 71 WHERE id = 1;');
   closeAllRuntimeDatabases();
 
   assert.throws(() => getRuntimeDatabase(path), /chat_submissions/u);

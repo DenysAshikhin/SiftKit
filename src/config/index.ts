@@ -62,7 +62,6 @@ export {
 } from './getters.js';
 
 export {
-  applyModelOverrideToConfig,
   overlayActivePreset,
 } from './overrides.js';
 

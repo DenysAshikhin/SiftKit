@@ -28,10 +28,12 @@ import { MessageImages } from '../components/MessageImages';
 import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
 import { RepoAgentApprovalCard, RepoAgentApprovalRow } from '../components/RepoAgentApprovalCard';
 import type { RepoAgentDecision } from '../api';
-import { REPO_AGENT_DEFAULT_MAX_TURNS, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
+import { REPO_AGENT_DEFAULT_MAX_TURNS, isOrchestratorTerminalPhase, type ApprovalMode, type ChatQuestionReply } from '@siftkit/contracts';
 import { ChatQuestionCard } from '../components/ChatQuestionCard';
 import { RepoAgentApprovalModeControl } from '../components/RepoAgentApprovalModeControl';
 import { RepoAgentTurnsControl } from '../components/RepoAgentTurnsControl';
+import { OrchestratorRunPanel } from '../components/OrchestratorRunPanel';
+import { useOrchestratorRun } from '../hooks/useOrchestratorRun';
 import { PlanMaxTurnsOverrideSchema } from '../lib/chat-composer-inputs';
 import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
@@ -135,6 +137,7 @@ function getSendLabel(chatMode: DashboardPresetExecutionFamily | null): string {
   if (chatMode === 'plan') { return 'Generate Plan'; }
   if (chatMode === 'repo-search') { return 'Search'; }
   if (chatMode === 'repo-agent') { return 'Run Agent'; }
+  if (chatMode === 'orchestrator') { return 'Run orchestrator'; }
   if (chatMode === 'summary') { return 'Summarize'; }
   return 'Send';
 }
@@ -262,6 +265,15 @@ export function ChatTab({
   const ownsActiveOperation = selectedRuntime?.activity.kind === 'local';
   const invalidRepoAgentTurns = chatMode === 'repo-agent'
     && !PlanMaxTurnsOverrideSchema.safeParse(planMaxTurnsInput).success;
+  const savedRepoRoot = selectedSession?.planRepoRoot.trim() ?? '';
+  const orchestrator = useOrchestratorRun(chatMode === 'orchestrator' && savedRepoRoot !== '' ? savedRepoRoot : null);
+  const [orchestratorApproval, setOrchestratorApproval] = React.useState<ApprovalMode>('auto');
+  const [orchestratorPlanPath, setOrchestratorPlanPath] = React.useState('');
+  const orchestratorLive = orchestrator.state !== null && !isOrchestratorTerminalPhase(orchestrator.state.phase);
+  // The orchestrator needs a saved repository and accepts a task, a plan path, or both.
+  const sendBlocked = chatMode === 'orchestrator'
+    ? savedRepoRoot === '' || orchestratorLive || selectedChatPreset === null || (!draft.trim() && !orchestratorPlanPath.trim())
+    : recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0);
   const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
   const [compactingSessionId, setCompactingSessionId] = React.useState<string | null>(null);
   const compacting = compactingSessionId === selectedSessionId;
@@ -317,7 +329,16 @@ export function ChatTab({
     enqueuePendingImageRead(files, effectiveImagePixelCeiling);
   }
 
+  function startOrchestratorRun(): void {
+    if (sendBlocked || selectedChatPreset === null) return;
+    const task = draft.trim();
+    const planPath = orchestratorPlanPath.trim();
+    void orchestrator.start({ presetId: selectedChatPreset.id, approval: orchestratorApproval, task: task || null, planPath: planPath || null })
+      .then(() => onChangeDraft(''));
+  }
+
   function dispatchSend(): void {
+    if (chatMode === 'orchestrator') { startOrchestratorRun(); return; }
     if (invalidRepoAgentTurns || recoveryBlocked) {
       return;
     }
@@ -469,6 +490,14 @@ export function ChatTab({
                   onDeleteTurn={onDeleteTurn}
                 />
               ))}
+              {chatMode === 'orchestrator' && orchestrator.state ? (
+                <OrchestratorRunPanel
+                  state={orchestrator.state}
+                  lastMessage={orchestrator.lastMessage}
+                  onDecide={(decision) => { void orchestrator.decide(decision); }}
+                  onAbort={() => { void orchestrator.abort(); }}
+                />
+              ) : null}
               {selectedRuntime?.journalSnapshot?.approval?.actionable ? (
                 <RepoAgentApprovalCard
                   key={selectedRuntime.journalSnapshot.approval.approvalId}
@@ -499,6 +528,10 @@ export function ChatTab({
                 </button>
               ) : null}
             </div>
+
+            {chatMode === 'orchestrator' && orchestrator.error ? (
+              <div className="err-banner"><span>{orchestrator.error}</span></div>
+            ) : null}
 
             {chatError ? (
               <div className="err-banner">
@@ -555,6 +588,18 @@ export function ChatTab({
                       />
                     </>
                   ) : null}
+                  {chatMode === 'orchestrator' ? (
+                    <>
+                      <RepoAgentApprovalModeControl value={orchestratorApproval} disabled={orchestratorLive} onChange={setOrchestratorApproval} />
+                      <input
+                        aria-label="Orchestrator plan path"
+                        placeholder="Optional plan path…"
+                        value={orchestratorPlanPath}
+                        onChange={(event) => setOrchestratorPlanPath(event.target.value)}
+                        disabled={orchestratorLive}
+                      />
+                    </>
+                  ) : null}
                 </div>
               ) : null}
               {liveContextUsage ? (
@@ -579,7 +624,7 @@ export function ChatTab({
                 </button>
                 <textarea
                   className="input"
-                  placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'repo-agent' ? 'Describe the task for the repo agent…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
+                  placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'repo-agent' ? 'Describe the task for the repo agent…' : chatMode === 'orchestrator' ? 'Describe the work to orchestrate, or give a plan path…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
                   value={draft}
                   onChange={(event) => onChangeDraft(event.target.value)}
                   onPaste={handleComposerPaste}
@@ -619,9 +664,9 @@ export function ChatTab({
                     type="button"
                     className="send"
                     onClick={dispatchSend}
-                    disabled={recoveryBlocked || invalidRepoAgentTurns || (!draft.trim() && pendingImages.length === 0)}
+                    disabled={sendBlocked}
                   >
-                    {queueMode ? 'Queue' : getSendLabel(chatMode)}
+                    {queueMode && chatMode !== 'orchestrator' ? 'Queue' : getSendLabel(chatMode)}
                   </button>
               </div>
               <ChatStatsBar

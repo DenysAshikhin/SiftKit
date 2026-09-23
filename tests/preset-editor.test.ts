@@ -39,6 +39,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     repoRootRequired: false,
     maxTurns: null,
     modelPresetId: null,
+    orchestrator: null,
     ...overrides,
   };
 }

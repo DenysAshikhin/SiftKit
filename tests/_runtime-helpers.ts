@@ -677,7 +677,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           format: parsed.format === 'json' ? 'json' : 'text',
           policyProfile: parsed.policyProfile || 'general',
           provider: parseOptionalSummaryProvider(typeof parsed.provider === 'string' ? parsed.provider : undefined),
-          model: typeof parsed.model === 'string' ? parsed.model : undefined,
           promptPrefix: typeof parsed.promptPrefix === 'string' ? parsed.promptPrefix : undefined,
           inferenceMaxTokens: Number.isFinite(Number(parsed.inferenceMaxTokens))
             ? Number(parsed.inferenceMaxTokens)

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ModelJson } from '../src/lib/model-json.js';
+import { z } from '../src/lib/zod.js';
 
 test('ModelJson parses valid summary decisions without repair', () => {
   const decision = ModelJson.parseSummaryDecision(JSON.stringify({
@@ -48,4 +49,14 @@ test('ModelJson rejects invalid summary shape after repair', () => {
     () => ModelJson.parseSummaryDecision("{'classification':'nope','raw_review_required':false,'output':'x'}"),
     /invalid SiftKit decision classification/u,
   );
+});
+
+test('ModelJson parses a fenced typed object and rejects schema mismatches and synthesized values', () => {
+  const schema = z.object({ decision: z.enum(['approve', 'deny']), reason: z.string().min(1) }).strict();
+  assert.deepEqual(ModelJson.parseObject('```json\n{"decision":"approve","reason":"safe"}\n```', schema, 'approval decision'),
+    { decision: 'approve', reason: 'safe' });
+  assert.throws(() => ModelJson.parseObject('{"decision":"maybe","reason":"x"}', schema, 'approval decision'), /"decision"/u);
+  assert.throws(() => ModelJson.parseObject('{"decision":"approve","reason":}', schema, 'approval decision'),
+    /synthesized a missing value/u);
+  assert.throws(() => ModelJson.parseObject('I approve this.', schema, 'approval decision'), /invalid approval decision payload/u);
 });

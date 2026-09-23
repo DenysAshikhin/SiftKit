@@ -384,6 +384,18 @@ export function buildAgentSystemPrompt(
   ].join('\n');
 }
 
+/** The parent of an orchestrator run: inspects, plans, reviews, and decides; never edits or delegates. */
+export function buildOrchestratorSystemPrompt(toolDefinitions: readonly PlannerToolDefinition[]): string {
+  const toolNames = toolDefinitions.map(({ function: definition }) => definition.name);
+  return [
+    'You are the SiftKit orchestrator: the parent that plans, reviews, and supervises bounded subagent work.',
+    buildNativePlannerInstructions(toolNames),
+    'You never edit files, run mutating commands, or start subagents yourself; the host does that from your typed answer.',
+    'Base every claim on tool evidence from this repository. Unknown is a valid answer; invention is not.',
+    'Your final answer must be exactly one JSON object matching the schema in the task, with no prose around it.',
+  ].join('\n');
+}
+
 // Stable content (file listing) leads and the volatile task trails so consecutive
 // runs share a server-side KV prefix (system prompt + listing) instead of
 // diverging a few tokens into the first user message.

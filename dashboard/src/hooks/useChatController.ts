@@ -42,7 +42,7 @@ export function useChatController(deps: {
   const selectedChatPreset = getPresetById(deps.dashboardConfig, selectedSession?.presetId);
   const chatMode = getPresetFamily(deps.dashboardConfig, selectedSession);
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
-  const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search' || chatMode === 'repo-agent';
+  const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search' || chatMode === 'repo-agent' || chatMode === 'orchestrator';
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
   const lastTurnTelemetry = getLastTurnTelemetry(selectedSession);
 

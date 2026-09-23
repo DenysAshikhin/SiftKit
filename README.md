@@ -69,8 +69,68 @@ Machine-readable help:
 siftkit repo-agent --help --json
 ```
 
+### `siftkit orchestrator "task"` — planned, verified multi-step changes
+The orchestrator takes a task, a Markdown plan, or both. It works in this order:
+
+1. It prepares an executable plan. A supplied plan is kept as-is when it is adequate. Otherwise the orchestrator writes a new plan to `.siftkit/orchestrator/<runId>/plan.md`.
+2. It hands each task to a `repo-agent` or `repo-search` worker.
+3. It runs every declared check itself.
+4. It reviews code changes for drift before the next task that depends on them can start.
+
+```powershell
+siftkit orchestrator "add a greeting endpoint with tests"
+siftkit orchestrator --plan docs/plan.md --approval interactive
+siftkit orchestrator attach <runId> --after 12
+siftkit orchestrator status <runId>
+siftkit orchestrator decide <runId> <approvalId> deny --reason "out of scope"
+siftkit orchestrator abort <runId>
+```
+
+**Models and the subagent cap**
+
+- Planning, review, and approval phases run on the orchestrator preset's model. Workers run on their own preset's model. `Current model` means whatever is loaded when that step is admitted.
+- The parent never holds a model while it waits for a worker.
+- **Maximum concurrent subagents** (default 1, in Settings) is an upper limit, not a promise of parallel work. Read-only tasks may overlap. A task that changes files always runs alone and owns the repository until its checks and review finish.
+
+**Attempt budgets**
+
+- Each task gets at most two implementation attempts. The second attempt is given the real failed-check output from the first.
+- Drift correction has its own separate budget of two attempts.
+- A worker reporting "completed" does not complete the task. The task completes only when the orchestrator's own checks, the drift review, and cleanup all pass.
+- When a task fails, scheduling stops and dependent tasks never start.
+
+**Drift review**
+
+- Every step that changes code gets a critical review against the task and the repository's rules. The review must cite real changed lines.
+- A review with zero findings is a valid outcome.
+- Cosmetic, speculative, or pre-existing issues are not findings.
+- Confirmed findings go to a `repo-agent` as direct fix bullets, with no second plan file. The result is reviewed again.
+
+**Approvals**
+
+- `auto` (the default): when a worker needs permission, it pauses and unloads its model. The orchestrator model is loaded and told to decide. After the decision, the worker's model is reloaded and the same attempt continues.
+- `interactive`: requests go to you, either through `decide` or the chat panel. The orchestrator's own verification commands also ask first.
+- `off`: never asks.
+
+**Reconnect, stop, and restart**
+
+- Closing the CLI or the browser tab only detaches; the run keeps going. `attach` replays committed events from a cursor.
+- `abort` stops the run and its workers.
+- A run that was active when the server restarted is marked `interrupted` and is never re-dispatched automatically.
+- Task temp files go in the run's `scratch/` directory and are removed at the end. The plan and the run record are kept.
+
+In the dashboard, pick the **Orchestrator** preset in a chat, save a repo folder, and press **Run orchestrator**. The panel shows:
+
+- the phase and plan path
+- each task's `Implementation attempt n of 2` or `Drift correction n of 2`
+- failed checks
+- pending approvals
+- either "No actionable drift" or the top three findings
+
+`siftkit run --preset <orchestrator>` is rejected; use `siftkit orchestrator` instead.
+
 ### `siftkit run --preset <id>` — preset-driven runs
-Presets are reusable personas that bundle a prompt prefix, an operation mode (`summary`, `read-only`, or `full`), an allowed tool list, and startup-context controls. Each preset independently controls AGENTS.md loading, repository file-list loading, and an ordered list of individual autoload files. Relative autoload files resolve from the run repository root; absolute PC paths are accepted. Loaded content is labelled and added to the system prompt. Invalid configured files are skipped with a visible warning. Built-in presets cover summary, chat, plan, repo-search, and repo-agent flows. Custom presets can be created and edited from the dashboard.
+Presets are reusable personas that bundle a prompt prefix, an operation mode (`summary`, `read-only`, or `full`), an allowed tool list, and startup-context controls. Each preset independently controls AGENTS.md loading, repository file-list loading, and an ordered list of individual autoload files. Relative autoload files resolve from the run repository root; absolute PC paths are accepted. Loaded content is labelled and added to the system prompt. Invalid configured files are skipped with a visible warning. Built-in presets cover summary, chat, plan, repo-search, repo-agent, and orchestrator flows. Custom presets can be created and edited from the dashboard.
 
 ```powershell
 siftkit preset list
@@ -111,6 +171,16 @@ The client preflights `GET /health` on every server-dependent command and fails 
 
 ### Inference supervision
 The status server can manage `llama-server` and TabbyAPI automatically. Each model preset selects its backend and keeps the shared inference options. At runtime SiftKit translates those options to llama.cpp launch/request parameters or Tabby load/request parameters. Active work drains before a preset switch; only the selected preset is resident.
+
+#### Per-operation model routing
+Each operation preset has a **Model preset** setting in Dashboard Settings. `Current model` (the default) runs on whichever model is loaded when the operation is admitted. Choosing a model makes the operation load it, run on it, and leave it loaded afterward; nothing switches back until another operation asks for a different model. Saving an assignment never loads a model by itself.
+
+- The model is resolved when an operation is admitted, not when it is queued. An existing chat therefore runs its next turn on whatever its preset resolves to at that moment. The session records the model each run actually used.
+- Queued requests that fit the loaded model are admitted ahead of ones needing a switch. There is no fairness guarantee between models.
+- A CLI `--model` value must match a configured model preset's `Model`. An unknown name is a request error, and nothing runs.
+- A model preset still assigned to an operation cannot be deleted until those operations are reassigned.
+- A pass-through host must already serve the admitted model; SiftKit cannot switch a host's model.
+- Idle unload works exactly as before, applying to whichever model is resident.
 
 If you want the status server without managed startup (e.g., you launch `llama-server` yourself), run it with `--disable-managed-llama-startup`. In that mode it still serves health, status, and config but skips process lifecycle work, and `GET /health` advertises `disableManagedLlamaStartup: true` so external launchers can verify safely.
 
@@ -166,6 +236,7 @@ Lines are `HH:MM:SS  <scope> <id8>  <event>  <fields>`, where scope is `rs` (rep
 - `siftkit summary` — compress piped output
 - `siftkit repo-search` — constrained repo exploration
 - `siftkit repo-agent` — agent-style code changes with resumable JSON boundaries
+- `siftkit orchestrator` — planned, verified multi-step changes delegated to workers
 - `siftkit preset list` — list available presets
 - `siftkit run` — execute a command or a preset
 - `siftkit install` — bootstrap runtime folders and verify the server

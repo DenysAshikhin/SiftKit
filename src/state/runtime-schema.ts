@@ -260,6 +260,35 @@ export const CHAT_SUBMISSIONS_SCHEMA_SQL = `
   );
 `;
 
+/** Orchestrator parents; attempts are keyed so a purpose can never hold a third attempt. */
+export const ORCHESTRATOR_RUNS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS orchestrator_runs (
+    run_id TEXT PRIMARY KEY,
+    submission_id TEXT NOT NULL UNIQUE,
+    request_digest TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    state_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS orchestrator_attempts (
+    run_id TEXT NOT NULL REFERENCES orchestrator_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('implementation', 'drift_fix')),
+    attempt INTEGER NOT NULL CHECK (attempt IN (1, 2)),
+    child_run_id TEXT NOT NULL UNIQUE,
+    attempt_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, task_id, purpose, attempt)
+  );
+  CREATE TABLE IF NOT EXISTS orchestrator_events (
+    run_id TEXT NOT NULL REFERENCES orchestrator_runs(run_id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL,
+    event_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, sequence)
+  );
+`;
+
 function sqlString(value: string): string {
   return value.replaceAll("'", "''");
 }
@@ -705,6 +734,7 @@ export function initializeRuntimeSchema(database: RuntimeDatabase): void {
   database.exec(CHAT_PENDING_MESSAGES_SCHEMA_SQL);
   database.exec(CHAT_JOURNAL_SCHEMA_SQL);
   database.exec(CHAT_SUBMISSIONS_SCHEMA_SQL);
+  database.exec(ORCHESTRATOR_RUNS_SCHEMA_SQL);
   database.exec(ASSISTANT_CORE_SCHEMA_SQL);
   database.exec(ASSISTANT_FTS_SCHEMA_SQL);
   database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);

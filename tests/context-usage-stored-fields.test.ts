@@ -13,7 +13,7 @@ const MEASURED: ChatTurnTokenRecord = {
 
 function thinkingSession(thinkingTokens: number, thinkingEnabled = true): ChatSession {
   return {
-    id: 'ctx', title: 'ctx', modelPresetId: 'default',
+    id: 'ctx', title: 'ctx', presetId: 'chat', modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default' }),
     thinkingEnabled,
     planRepoRoot: 'C:/repo',
@@ -60,11 +60,12 @@ test('the condense warning follows the measured context', () => {
   assert.equal(usage.shouldCondense, true);
 });
 
-test('measured reasoning replay follows the session preset, not the live active one', () => {
+test('measured reasoning replay follows the model the next run resolves to, not the session snapshot', () => {
   const pinned: ChatSession = {
     ...thinkingSession(0),
     modelPresetId: 'pinned',
     modelPreset: mockModelPreset({ id: 'pinned', Model: 'pinned-model', NumCtx: 64_000, Reasoning: 'on', ReasoningContent: true }),
   };
-  assert.equal(buildContextUsage(NO_REASONING_REPLAY, pinned, MEASURED).totalUsedTokens, 9_520);
+  assert.equal(buildContextUsage(NO_REASONING_REPLAY, pinned, MEASURED).totalUsedTokens, 9_120);
+  assert.equal(buildContextUsage(REASONING_REPLAY, pinned, MEASURED).totalUsedTokens, 9_520);
 });

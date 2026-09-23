@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostEngineRuntimeSettings,
-  applyModelOverrideToConfig,
   loadConfig,
   normalizeLoadedConfig,
   type SiftConfig,
@@ -171,7 +170,7 @@ export class SummaryRequestRunner {
       return null;
     }
 
-    const model = this.request.model || 'unknown';
+    const model = this.request.config ? getConfiguredModel(this.request.config) : 'unknown';
     const result: SummaryResult = {
       RequestId: this.requestId,
       WasSummarized: true,
@@ -224,10 +223,9 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredEngineBaseUrl(this.config);
     getConfiguredEngineNumCtx(this.config);
-    // Host sync first, then the explicit model overlay. Output limits are operation-scoped
-    // and flow to the provider without mutating this configuration.
+    // The supplied config is the admitted snapshot; host sync only confirms it. Output limits
+    // are operation-scoped and flow to the provider without mutating this configuration.
     this.config = await this.applyHostEngineSettings(this.config);
-    this.config = applyModelOverrideToConfig(this.config, this.request.model);
     this.model = getConfiguredModel(this.config);
     this.progress.configDone(this.provider, this.model);
     const activeVisionPreset = getActiveModelPreset(this.config);

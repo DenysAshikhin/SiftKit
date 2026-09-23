@@ -1,4 +1,4 @@
-import { ApprovalModeSchema } from '@siftkit/contracts';
+import { ApprovalModeSchema, RepoAgentApprovalSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 
 export const RepoAgentRunIdSchema = z.string().uuid();
@@ -22,14 +22,6 @@ export const RepoAgentRunRequestSchema = z.strictObject({
   images: z.array(z.string()).default([]),
 });
 export type RepoAgentRunRequest = z.infer<typeof RepoAgentRunRequestSchema>;
-
-export const RepoAgentApprovalSchema = z.strictObject({
-  approvalId: z.string().uuid(),
-  toolName: z.string().min(1),
-  command: z.string().min(1),
-  reviewPayload: z.string().nullable(),
-});
-export type RepoAgentApproval = z.infer<typeof RepoAgentApprovalSchema>;
 
 export const RepoAgentRunStateSchema = z.discriminatedUnion('status', [
   z.strictObject({
