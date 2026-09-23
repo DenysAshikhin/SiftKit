@@ -25,6 +25,8 @@ import {
 } from '../src/status-server/dashboard-runs.js';
 import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 const THROUGHPUT_TABLES = [
   'run_logs',
@@ -63,15 +65,12 @@ function columnNames(database: DatabaseInstance, table: string): string[] {
 function rewindToVersion(dbPath: string, version: number, extraSql = ''): void {
   getRuntimeDatabase(dbPath);
   closeAllRuntimeDatabases();
-  const database = new Database(dbPath);
-  try {
+  withRuntimeDatabaseConnection(dbPath, (database) => {
     for (const table of THROUGHPUT_TABLES) {
       database.exec(`ALTER TABLE ${table} DROP COLUMN throughput_json`);
     }
     database.exec(`${extraSql} UPDATE runtime_schema SET version = ${String(version)} WHERE id = 1;`);
-  } finally {
-    database.close();
-  }
+  });
 }
 
 const FOLD = readTabbyThroughput({ usage: {
@@ -131,7 +130,7 @@ test('a failed 72 to 73 upgrade leaves version 72 and no added column', () => {
   rewindToVersion(dbPath, 72, 'DROP TABLE idle_summary_snapshots;');
   assert.throws(() => getRuntimeDatabase(dbPath), /idle_summary_snapshots/u);
   closeAllRuntimeDatabases();
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     const version = z.object({ version: z.number() }).parse(
       database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),

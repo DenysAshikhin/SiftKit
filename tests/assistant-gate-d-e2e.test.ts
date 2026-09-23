@@ -33,6 +33,7 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 class StubImageCapability implements AssistantImageCapabilityProvider {
   read(): AssistantImageCapability {
@@ -140,6 +141,7 @@ function drainService(
     residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(),
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

@@ -5,13 +5,10 @@ import http from 'node:http';
 import path from 'node:path';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import type { JsonValue } from '../src/lib/json-types.js';
-import Database from 'better-sqlite3';
 
 import { loadConfig, saveConfig, getChunkThresholdCharacters, initializeRuntime } from '../src/config/index.js';
 import { summarizeRequest, buildSummaryPrompt, getSummaryDecision } from '../src/summary.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { runCommand } from './helpers/run-command-for-test.js';
-import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 
 import {
   getDefaultConfig,
@@ -19,13 +16,14 @@ import {
   extractPromptSection,
   getRequestLogsPath,
   readBody,
-  sleep,
+  sleepUnref,
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
   mockConfig,
 } from './_runtime-helpers.js';
 import { resetHostEngineSettingsCacheForTests } from '../src/config/index.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 // Index-signature view of the dynamic JsonObject status posts these tests read:
 // named optional fields stay precisely typed while the index keeps it a
@@ -77,7 +75,7 @@ async function startDelayedTerminalSummaryStatusServer(delayMs: number): Promise
     const parsed = bodyText ? JSON.parse(bodyText) : {};
     if (req.url === '/status/terminal-metadata' && parsed.running === false) {
       terminalPosts += 1;
-      await sleep(delayMs);
+      await sleepUnref(delayMs);
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -407,8 +405,7 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
     await withStubServer(async () => {
       initializeRuntime();
       await loadConfig({ ensure: true });
-      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
-      try {
+      withRuntimeDatabaseConnection(path.join('.siftkit', 'runtime.sqlite'), (database) => {
         database.prepare(`
           INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
           VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
@@ -417,9 +414,7 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
             last_known_chars_per_token = excluded.last_known_chars_per_token,
             updated_at_utc = excluded.updated_at_utc
         `).run();
-      } finally {
-        database.close();
-      }
+      });
     });
 
     await withStubServer(async () => {
@@ -444,31 +439,6 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
         completedRequestCount: 0,
         requestDurationMsTotal: 0,
       },
-    });
-  });
-});
-
-test('runCommand saves a raw log and respects no-summarize mode when the external server is available', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async () => {
-      const result = await runCommand({
-        Command: 'node',
-        ArgumentList: ['-e', "console.log('stdout line'); console.error('stderr line');"],
-        Question: 'what failed?',
-        Provider: 'mock',
-        Model: 'mock-model',
-        NoSummarize: true,
-      });
-
-      assert.equal(result.WasSummarized, false);
-      assert.ok(result.RawLogPath);
-      const artifactId = parseRuntimeArtifactUri(result.RawLogPath);
-      assert.ok(artifactId);
-      const rawLogArtifact = readRuntimeArtifact(artifactId);
-      assert.ok(rawLogArtifact);
-      const rawLog = rawLogArtifact.contentText || '';
-      assert.match(rawLog, /stdout line/u);
-      assert.match(rawLog, /stderr line/u);
     });
   });
 });
@@ -799,28 +769,6 @@ test('getSummaryDecision requires raw review for command-output with dense error
   );
 
   assert.equal(decision.RawReviewRequired, true);
-});
-
-test('runCommand classifies missing executables as command failures with raw review required', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async () => {
-      const result = await runCommand({
-        Command: 'definitely-not-a-real-command-siftkit',
-        ArgumentList: [],
-        Question: 'Summarize the main result and any actionable failures.',
-        Provider: 'mock',
-        Model: 'mock-model',
-      });
-
-      assert.equal(result.WasSummarized, true);
-      assert.equal(result.PolicyDecision, 'model-command-failure');
-      assert.equal(result.Classification, 'command_failure');
-      assert.equal(result.RawReviewRequired, true);
-      assert.equal(result.ModelCallSucceeded, true);
-      assert.ok(result.Summary !== null);
-      assert.match(result.Summary, /command failed before producing a usable result/i);
-    });
-  });
 });
 
 test('summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls', async () => {

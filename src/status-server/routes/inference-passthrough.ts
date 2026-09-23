@@ -34,10 +34,9 @@ import { readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
   acquireModelRequestWithWait,
-  ensureActivePresetReadyForModelRequest,
   releaseModelRequest,
 } from '../server-ops.js';
-import type { ServerContext } from '../server-types.js';
+import type { ModelRequestLock, ServerContext } from '../server-types.js';
 
 const CHAT_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
@@ -312,10 +311,16 @@ class WorkloadEndpoint implements RouteEndpoint {
       sendBodyReadError(res, toError(error), { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    const lock = await acquireModelRequestWithWait(ctx, 'inference_passthrough', req, res);
+    let lock: ModelRequestLock | null;
+    try {
+      lock = await acquireModelRequestWithWait(ctx, 'inference_passthrough', req, res);
+    } catch (error) {
+      // Admission readies the model before granting; a failed load answers like any upstream failure.
+      sendJson(res, 502, { error: toError(error).message });
+      return;
+    }
     if (!lock) return;
     try {
-      await ensureActivePresetReadyForModelRequest(ctx);
       const currentConfig = readConfig(ctx.configPath);
       const currentPreset = getActiveModelPreset(currentConfig);
       const baseUrl = currentPreset.BaseUrl;

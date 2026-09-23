@@ -1,48 +1,29 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import test from 'node:test';
 
 import type { CaptureSubmissionDto } from '@siftkit/contracts';
-import { AssistantService } from '../src/assistant/assistant-service.js';
-import { FixedClock } from '../src/assistant/clock.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
-import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import type {
-  AssistantImageCapability, AssistantImageCapabilityProvider,
-} from '../src/assistant/images/image-capability.js';
 import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
 import type {
   ProjectionSummaryService, SummarizeProjectionResult,
 } from '../src/assistant/projections/projection-summarizer.js';
-import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
-import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import {
-  FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
+  FIXTURE_START_INSTANT,
+  withAssistantContextAsync,
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
-import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { archiveEntries, archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { buildService, PROJECTION_SIGNAL, assertProjectionIntegrity } from './helpers/assistant-gate-e-e2e-fixtures.js';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 );
 
-const PROJECTION_SIGNAL = new AbortController().signal;
-
 class PassthroughSummarizer implements ProjectionSummaryService {
   async summarize(): Promise<SummarizeProjectionResult> {
     return { kind: 'unchanged', reason: 'passthrough' };
-  }
-}
-
-class StubImageCapability implements AssistantImageCapabilityProvider {
-  read(): AssistantImageCapability {
-    return { instanceId: 'exl3:1', visionCapable: true, healthy: true };
   }
 }
 
@@ -83,36 +64,6 @@ function captureDto(): CaptureSubmissionDto {
   };
 }
 
-/** A live service over its own runtime root, plus a context view of the same graph. */
-function buildService(
-  prefix: string,
-  responses: readonly string[],
-): { service: AssistantService; context: AssistantTestContext } {
-  const runtimeRoot = createManagedTempDir(prefix);
-  const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
-  const clock = new FixedClock(FIXTURE_START_INSTANT);
-  const ids = new SequentialIdGenerator();
-  const config = {
-    ...DEFAULT_ASSISTANT_CONFIG,
-    Enabled: true,
-    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, ScreenshotsEnabled: true },
-  };
-  const service = AssistantService.create({
-    database, runtimeRoot, clock, ids,
-    configWriter: new MemoryAssistantConfigWriter(config),
-    inference: new FakeAssistantInference(responses),
-    tokens: new EstimateTokenCounter(4),
-    idleGate: ALWAYS_IDLE,
-    residencyGate: ALWAYS_RESIDENT,
-    imageCapability: new StubImageCapability(),
-    config,
-  });
-  return {
-    service,
-    context: { database, clock, ids, ownerId: service.ownerId, runtimeRoot, graph: service.graph },
-  };
-}
-
 function compilerFor(
   context: AssistantTestContext,
   tierLimits?: { readonly 1: number; readonly 2: number; readonly 3: number },
@@ -124,26 +75,6 @@ function compilerFor(
     { 1: 10_000, 2: 50_000, 3: 10_000 },
     tierLimits,
   );
-}
-
-/**
- * §7: no projection may cite an assertion that is gone or retired. Every scenario ends here,
- * because a stale citation is the one failure that looks like success from the outside.
- */
-function assertProjectionIntegrity(context: AssistantTestContext): void {
-  const live = new Set(
-    context.graph.projections.listAllRows(context.ownerId).flatMap(
-      (row) => context.graph.projections.readIncludedAssertionIds(row),
-    ),
-  );
-  for (const assertionId of live) {
-    const assertion = context.graph.assertions.getAssertion(assertionId);
-    assert.ok(assertion !== null, `projection cites missing assertion ${assertionId}`);
-    assert.ok(
-      LIVE_ASSERTION_STATUSES.includes(assertion.status),
-      `projection cites retired assertion ${assertionId} (${assertion.status})`,
-    );
-  }
 }
 
 function projectionHashes(context: AssistantTestContext): Map<string, string> {
@@ -295,43 +226,4 @@ test('gate E scenario 8: tier 3 overflow merges into archive documents and recom
     assert.deepEqual(projectionHashes(context), hashes);
     assertProjectionIntegrity(context);
   });
-});
-
-test('gate E scenario 12: export survives factory reset and restore byte for byte', async () => {
-  const { service, context } = buildService('siftkit-gate-e-scenario-12-', []);
-  try {
-    seedOwnerAssertion(context, { objectName: 'Upsilon Tool' });
-    seedOwnerAssertion(context, { objectName: 'Phi Tool' });
-    await service.drainJobs();
-    await service.memoryMutations.rebuildProjections(context.ownerId, PROJECTION_SIGNAL);
-
-    const before = await archiveEntries(service.exports.export({ includeDecryptedBlobs: false }));
-    const backupBytes = await archiveBytes(service.backups.createBackup());
-
-    await service.factoryReset(service.previewFactoryReset().previewToken);
-    assert.equal(context.graph.projections.listAllRows(context.ownerId).length, 0);
-    assert.equal(service.ownerPersonNodeId, null);
-
-    const preview = await service.previewRestore(archiveUploadPath(backupBytes));
-    const result = await service.restore(preview.uploadId, preview.confirmToken);
-    assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
-
-    const after = await archiveEntries(service.exports.export({ includeDecryptedBlobs: false }));
-    assert.deepEqual(
-      [...after.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
-      [...before.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
-    );
-
-    // The owner is resolved again, so the desktop surfaces answer from the restored graph.
-    assert.notEqual(service.ownerPersonNodeId, null);
-    const status = service.status();
-    assert.equal(status.enabled, true);
-    assert.equal(status.available, true);
-    const desktop = service.desktopState();
-    assert.equal(desktop.assistantEnabled, true);
-    assert.equal(desktop.custody.custody, 'file');
-    assertProjectionIntegrity(context);
-  } finally {
-    closeAllRuntimeDatabases();
-  }
 });

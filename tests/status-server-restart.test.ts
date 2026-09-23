@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { z } from 'zod';
@@ -14,9 +13,10 @@ import {
   waitForAsyncExpectation,
   withRealStatusServer,
   withTempEnv,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
 } from './_runtime-helpers.js';
 import { testHttpAgent } from './helpers/http-agent.js';
+import { launchEngineVariables } from './helpers/in-process-tabby.js';
 
 interface ModelsResponse {
   data: { id: string }[];
@@ -35,15 +35,6 @@ const RestartFailureResponseSchema = z.object({
   restarted: z.boolean(),
   error: z.string(),
 }).passthrough();
-
-const ManagedInvocationLogSchema = z.object({
-  argv: z.array(z.string()),
-  launchEnvironment: z.record(z.string(), z.string()),
-});
-
-function readInvocationLog(invocationLogPath: string): z.infer<typeof ManagedInvocationLogSchema> {
-  return ManagedInvocationLogSchema.parse(JSON.parse(fs.readFileSync(invocationLogPath, 'utf8')));
-}
 
 function requestJsonAllowError<T>(
   url: string,
@@ -97,7 +88,7 @@ test('real status server backend restart endpoint restarts the managed engine an
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     await using enginePortLease = await acquireChildPortLease('status-server-restart');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed, {
       NumCtx: 32000,
@@ -113,15 +104,14 @@ test('real status server backend restart endpoint restarts the managed engine an
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
-      const initialInvocation = readInvocationLog(managed.invocationLogPath);
-      assert.deepEqual(initialInvocation.argv, []);
-      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
-      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_MAX_SEQ_LEN, '32000');
-      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_CHUNK_SIZE, '512');
-      assert.equal(initialInvocation.launchEnvironment.TABBY_MODEL_CACHE_MODE, '8,8');
-
-      const initialPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
-      assert.match(initialPid, /^\d+$/u);
+      const [initialLaunch] = managed.launcher.launches;
+      assert.equal(managed.launcher.launches.length, 1);
+      assert.deepEqual(initialLaunch?.args, [managed.engine.Entrypoint]);
+      const initialVariables = launchEngineVariables(initialLaunch);
+      assert.equal(initialVariables.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
+      assert.equal(initialVariables.TABBY_MODEL_MAX_SEQ_LEN, '32000');
+      assert.equal(initialVariables.TABBY_MODEL_CHUNK_SIZE, '512');
+      assert.equal(initialVariables.TABBY_MODEL_CACHE_MODE, '8,8');
 
       const restartResponse = await requestJson<RestartResponse>(new URL('/status/restart', statusUrl).toString(), {
         method: 'POST',
@@ -133,16 +123,16 @@ test('real status server backend restart endpoint restarts the managed engine an
       assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].ModelPath, managed.modelPath);
 
       await waitForAsyncExpectation(async () => {
-        const nextPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
-        assert.match(nextPid, /^\d+$/u);
-        assert.notEqual(nextPid, initialPid);
+        // A restart is a second launch, with the first one gone.
+        assert.equal(managed.launcher.launches.length, 2);
+        assert.equal(managed.launcher.liveProcessCount, 1);
         const models = await requestJson<ModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
     }, {
       statusPath: runtimeDbPath,
       configPath: runtimeDbPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -151,7 +141,7 @@ test('real status server backend restart endpoint returns 503 with the exit reas
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     await using enginePortLease = await acquireChildPortLease('status-server-restart');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, 'managed-test-model', {
       engineLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
       exitAfterLog: true,
       exitCode: 7,
@@ -172,7 +162,7 @@ test('real status server backend restart endpoint returns 503 with the exit reas
     }, {
       statusPath: runtimeDbPath,
       configPath: runtimeDbPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });

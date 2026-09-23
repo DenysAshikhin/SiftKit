@@ -24,6 +24,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
@@ -56,6 +57,8 @@ function seedCaptionSession(options: {
   const config = getDefaultServerConfig();
   const configuredPreset = getActiveModelPreset(config);
   configuredPreset.Backend = 'exl3';
+  // Unmocked turns tokenize their input against the preset engine; a dead one keeps that offline.
+  configuredPreset.BaseUrl = DEAD_BASE_URL;
   configuredPreset.VisionEnabled = options.visionEnabled ?? true;
   configuredPreset.VisionImageRetention = options.visionImageRetention ?? 8;
   const snapshotPreset = {

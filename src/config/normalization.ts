@@ -1,4 +1,4 @@
-import { initializeRuntime } from './paths.js';
+import { getRuntimePaths } from './paths.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
 import {
   CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelKvCacheQuantizationSchema,
@@ -39,16 +39,15 @@ import type {
   WebSearchProviderId,
   WebSearchProviderSettings,
 } from './types.js';
-import { JsonValueSchema, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { JsonValueSchema, isJsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
 import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MAX_ENGINE_STARTUP_TIMEOUT_MS = 600_000;
 
+// Inputs are already typed JSON, so a structural guard suffices; re-parsing deep-copied every level.
 function getRecord(value: JsonValue): MutableJsonObject {
-  const record = JsonRecordReader.asObject(value);
-  return record ? { ...record } : {};
+  return isJsonObject(value) ? { ...value } : {};
 }
 
 function rejectUnknownConfigFields(input: JsonValue): void {
@@ -430,13 +429,11 @@ function getModelKvCacheQuantization(value: JsonValue, fallback: ModelKvCacheQua
 
 export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonValue {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
-    return JsonValueSchema.parse(patchValue.slice());
+    return patchValue.slice();
   }
-  const baseRecord = JsonRecordReader.asObject(baseValue);
-  const patchRecord = JsonRecordReader.asObject(patchValue);
-  if (baseRecord && patchRecord) {
-    const merged: MutableJsonObject = { ...baseRecord };
-    for (const [key, value] of Object.entries(patchRecord)) {
+  if (isJsonObject(baseValue) && isJsonObject(patchValue)) {
+    const merged: MutableJsonObject = { ...baseValue };
+    for (const [key, value] of Object.entries(patchValue)) {
       if (key === 'Paths') {
         continue;
       }
@@ -444,7 +441,7 @@ export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonVa
     }
     return merged;
   }
-  return JsonValueSchema.parse(patchValue ?? null);
+  return patchValue;
 }
 
 /**
@@ -653,7 +650,7 @@ export function getRuntimeEngine(config: SiftConfig): RuntimeEngineConfig {
 export function updateRuntimePaths(config: SiftConfig): SiftConfig {
   return {
     ...config,
-    Paths: initializeRuntime(),
+    Paths: getRuntimePaths(),
   };
 }
 

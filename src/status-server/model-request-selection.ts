@@ -2,7 +2,8 @@ import { z } from '../lib/zod.js';
 
 export const ModelRequestCandidateSchema = z.object({
   queueToken: z.string(),
-  residencyKey: z.string(),
+  /** True when the request's target shares the resident model's loading identity. */
+  resident: z.boolean(),
 });
 export type ModelRequestCandidate = z.infer<typeof ModelRequestCandidateSchema>;
 
@@ -14,10 +15,9 @@ export type ModelRequestCandidate = z.infer<typeof ModelRequestCandidateSchema>;
  */
 export function selectNextModelRequest(
   candidates: readonly ModelRequestCandidate[],
-  residentKey: string,
   activeCount: number,
 ): string | null {
-  const matching = candidates.find((candidate) => candidate.residencyKey === residentKey);
+  const matching = candidates.find((candidate) => candidate.resident);
   if (matching) return matching.queueToken;
   return activeCount === 0 ? candidates[0]?.queueToken ?? null : null;
 }

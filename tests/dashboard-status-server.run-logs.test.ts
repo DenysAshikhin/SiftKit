@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
@@ -19,6 +18,8 @@ import {
   buildRepoSearchTranscriptText,
   getOrdinalRequestId,
 } from './helpers/dashboard-run-seed.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 function seedSummaryRuns(seeder: DashboardRunSeeder, count: number, hourUtc: string): void {
   for (let index = 0; index < count; index += 1) {
@@ -56,7 +57,7 @@ function seedRepoSearchRuns(seeder: DashboardRunSeeder, count: number, repoRoot:
 }
 
 function readRunLogRowCount(dbPath: string): number {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     const row = JsonRecordReader.asObject(database.prepare('SELECT COUNT(*) AS count FROM run_logs').get());
     return Number(row?.count || 0);
@@ -66,7 +67,7 @@ function readRunLogRowCount(dbPath: string): number {
 }
 
 function countRows(dbPath: string, sql: string, ...params: (string | number)[]): number {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     const row = JsonRecordReader.asObject(database.prepare(sql).get(...params));
     return Number(row?.count || 0);
@@ -76,8 +77,7 @@ function countRows(dbPath: string, sql: string, ...params: (string | number)[]):
 }
 
 function seedRunHistoryFixtures(dbPath: string): void {
-  const database = new Database(dbPath);
-  try {
+  withRuntimeDatabaseConnection(dbPath, (database) => {
     const insertArtifact = database.prepare(`
       INSERT INTO runtime_artifacts (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
       VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
@@ -118,9 +118,7 @@ function seedRunHistoryFixtures(dbPath: string): void {
     `);
     insertError.run('err-old', '2026-04-08T10:00:00.000Z');
     insertError.run('err-new', '2026-04-23T10:00:00.000Z');
-  } finally {
-    database.close();
-  }
+  });
 }
 
 function configureDashboardTestEnv(
@@ -183,12 +181,8 @@ test('dashboard initial runs load returns top 20 overall', async () => {
 
   try {
     const seeder = new DashboardRunSeeder(idleSummaryDbPath);
-    try {
-      seedSummaryRuns(seeder, 12, '2026-04-01T10');
-      seedRepoSearchRuns(seeder, 12, tempRoot, '2026-04-01T11');
-    } finally {
-      seeder.close();
-    }
+    seedSummaryRuns(seeder, 12, '2026-04-01T10');
+    seedRepoSearchRuns(seeder, 12, tempRoot, '2026-04-01T11');
 
     const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
     assert.equal(cappedRunsResponse.statusCode, 200);
@@ -227,12 +221,8 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
 
   try {
     const seeder = new DashboardRunSeeder(idleSummaryDbPath);
-    try {
-      seedSummaryRuns(seeder, 8, '2026-04-01T10');
-      seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
-    } finally {
-      seeder.close();
-    }
+    seedSummaryRuns(seeder, 8, '2026-04-01T10');
+    seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
 
     const groupedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
     assert.equal(groupedRunsResponse.statusCode, 200);
@@ -303,12 +293,8 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
 
   try {
     const seeder = new DashboardRunSeeder(idleSummaryDbPath);
-    try {
-      seedSummaryRuns(seeder, 6, '2026-04-03T10');
-      seedRepoSearchRuns(seeder, 6, tempRoot, '2026-04-01T11');
-    } finally {
-      seeder.close();
-    }
+    seedSummaryRuns(seeder, 6, '2026-04-03T10');
+    seedRepoSearchRuns(seeder, 6, tempRoot, '2026-04-01T11');
 
     const invalidPreviewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
       method: 'POST',
@@ -376,11 +362,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
 
   try {
     const seeder = new DashboardRunSeeder(idleSummaryDbPath);
-    try {
-      seedSummaryRuns(seeder, 6, '2026-04-01T10');
-    } finally {
-      seeder.close();
-    }
+    seedSummaryRuns(seeder, 6, '2026-04-01T10');
     seedRunHistoryFixtures(idleSummaryDbPath);
 
     const criteria = { mode: 'before_date', type: 'all', beforeDate: '2026-04-15' };
@@ -441,11 +423,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
 
   try {
     const seeder = new DashboardRunSeeder(idleSummaryDbPath);
-    try {
-      seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
-    } finally {
-      seeder.close();
-    }
+    seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
 
     const selectedSourcePath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.json');
     const selectedTranscriptPath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.jsonl');
@@ -455,8 +433,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
     fs.writeFileSync(selectedTranscriptPath, '{"kind":"run_done"}\n', 'utf8');
     fs.writeFileSync(retainedSourcePath, '{"requestId":"retained"}\n', 'utf8');
 
-    const database = new Database(idleSummaryDbPath);
-    try {
+    withRuntimeDatabaseConnection(idleSummaryDbPath, (database) => {
       database.prepare(`
         UPDATE run_logs
         SET source_paths_json = ?
@@ -468,9 +445,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
       `);
       insertArtifact.run('art-linked', 'repo_search_transcript', 'req-repo-01', 'linked', 'line', '2026-04-01T11:01:00.000Z', '2026-04-01T11:01:00.000Z');
       insertArtifact.run('art-unrelated', 'repo_search_transcript', 'req-unrelated', 'unrelated', 'line', '2026-04-01T11:01:00.000Z', '2026-04-01T11:01:00.000Z');
-    } finally {
-      database.close();
-    }
+    });
 
     const criteria = { mode: 'before_date', type: 'repo_search', beforeDate: '2026-04-02' };
 

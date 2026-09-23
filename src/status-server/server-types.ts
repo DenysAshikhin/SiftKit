@@ -23,6 +23,9 @@ import type { ChatRepoAgentRunBinding } from './chat-repo-agent-types.js';
 import type { ChatQueueSuccessorRunner } from './chat-queue-successor.js';
 import type { ChatOwnerHeartbeatOutcome } from './chat-run-recovery.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
+import type { DataProtector } from '../assistant/crypto/dpapi.js';
+import type { GpuMemoryProbe } from './gpu-memory.js';
+import type { ManagedEngineHost } from './engine-process.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -35,8 +38,8 @@ export type ModelRequestLock = {
   ownerRunId: string | null;
   /** Frozen at grant: the resolved preset, model profile, and execution config snapshot. */
   context: ModelRequestContext;
-  /** Canonical loading identity of the granted model, from the server's runtime. */
-  residencyKey: string;
+  /** Canonical loading identity from the server's runtime; null for an applied profile it cannot derive. */
+  residencyKey: string | null;
   /** Last sign of life from the holder. Renewal moves this, never the timer. */
   lastActivityAtMs: number;
   /** Force-releases a holder that has gone silent for a full inactivity window. */
@@ -49,6 +52,13 @@ export type ModelRequestWaitOptions = {
   /** Requested model; omission means the current non-preset model. */
   intent?: ModelRequestIntent;
 };
+/** A waiter's intent resolved against one scheduling pass. */
+export type ModelRequestSelection = {
+  context: ModelRequestContext;
+  residencyKey: string | null;
+  /** Shares the applied profile's loading identity, so admission needs no model transition. */
+  resident: boolean;
+};
 export type ModelRequestWaiter = {
   queueToken: string;
   kind: string;
@@ -56,8 +66,7 @@ export type ModelRequestWaiter = {
   enqueuedAtUtc: string;
   intent: ModelRequestIntent;
   /** Frozen once the drain selects this waiter for readiness. */
-  context: ModelRequestContext | null;
-  residencyKey: string | null;
+  selection: ModelRequestSelection | null;
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
   timeoutHandle: NodeJS.Timeout | null;
@@ -102,7 +111,6 @@ export type IdleSummaryState = {
   };
   timer: NodeJS.Timeout | null;
   pending: boolean;
-  database: DatabaseInstance | null;
 };
 
 /** Server-boot readiness of the managed inference engine; `inProgress` is true only while the listen callback readies the active preset. */
@@ -139,6 +147,12 @@ export type StartStatusServerOptions = {
   inferenceRunFlushIdleDelayMs?: number;
   assistant?: AssistantRuntime | null;
   engineService?: StatusEngineService;
+  /** Seals assistant backup keys; defaults to Windows DPAPI. */
+  dataProtector?: DataProtector;
+  /** Free-VRAM source for the runtime status route; defaults to nvidia-smi. */
+  gpuMemoryProbe?: GpuMemoryProbe;
+  /** Launches and inspects the managed engine; defaults to real child processes. */
+  managedEngineHost?: ManagedEngineHost;
 };
 
 /**
@@ -152,6 +166,7 @@ export type ServerContext = {
   readonly idleSummarySnapshotsPath: string;
   readonly disableManagedEngineStartup: boolean;
   readonly engineService: StatusEngineService;
+  readonly gpuMemoryProbe: GpuMemoryProbe;
   readonly repoAgentRunStore: RepoAgentRunStore;
   readonly repoAgentSessions: RepoAgentSessionManager;
   /** This process's stable runtime connection; chat dependencies never re-resolve it by cwd. */
@@ -169,6 +184,7 @@ export type ServerContext = {
   modelRuntime: ManagedInferenceRuntime;
   /** The single in-flight admission drain pass, or null when none is running. */
   modelRequestDrainPromise: Promise<void> | null;
+  /** A wake arrived since the drain last examined the queue; the owner re-examines before going idle. */
   modelRequestDrainRequested: boolean;
   assistant: AssistantRuntime | null;
   assistantControl: AssistantService | null;

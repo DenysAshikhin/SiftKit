@@ -4,8 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 
 import {
   loadConfig,
@@ -14,7 +12,6 @@ import {
   getChunkThresholdCharacters,
   getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken,
-  initializeRuntime,
   getStatusServerUnavailableMessage,
   getConfiguredModel,
   getConfiguredEngineBaseUrl,
@@ -36,6 +33,7 @@ import {
   MissingObservedBudgetError,
 } from '../src/config/index.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { normalizeConfig, updateRuntimePaths } from '../src/config/normalization.js';
 import type { SiftConfig } from '../src/config/index.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -71,25 +69,6 @@ test('SIFTKIT_VERSION matches package.json version', () => {
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
   assert.equal(SIFTKIT_VERSION, packageJson.version);
-});
-
-// The test runner and the flattened runtime both import this module from dist/config.
-test('the emitted flattened constants module loads and reports the package version', () => {
-  const emittedConstantsPath = path.resolve(process.cwd(), 'dist', 'config', 'constants.js');
-  assert.ok(
-    fs.existsSync(emittedConstantsPath),
-    `${emittedConstantsPath} is missing; run "npm run build:test" before this test.`,
-  );
-
-  const childSource = `const constants = await import(${JSON.stringify(pathToFileURL(emittedConstantsPath).href)});`
-    + 'process.stdout.write(constants.SIFTKIT_VERSION);';
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', childSource], {
-    encoding: 'utf8',
-    timeout: 20_000,
-  });
-
-  assert.equal(result.status, 0, `loading the emitted constants failed: ${result.stderr}`);
-  assert.equal(result.stdout, SIFTKIT_VERSION);
 });
 
 test('getDefaultNumCtx returns the default context window', () => {
@@ -180,23 +159,16 @@ test('MissingObservedBudgetError with custom message', () => {
   assert.equal(error.message, 'custom error message');
 });
 
-test('initializeRuntime returns runtime paths', () => {
-  const prev = process.env.sift_kit_status;
-  process.env.sift_kit_status = path.join(os.tmpdir(), `siftkit-init-${Date.now()}`, 'status', 'inference.txt');
+test('building and normalizing a config creates no runtime directories', () => {
+  const previousCwd = process.cwd();
+  const root = createManagedTempDir('siftkit-config-pure-');
+  process.chdir(root);
   try {
-    const paths = initializeRuntime();
-    assert.equal(typeof paths.RuntimeRoot, 'string');
-    assert.equal(typeof paths.Logs, 'string');
-    assert.equal(typeof paths.EvalFixtures, 'string');
-    assert.equal(typeof paths.EvalResults, 'string');
-    assert.ok(fs.existsSync(paths.RuntimeRoot));
-    assert.ok(fs.existsSync(paths.Logs));
+    const config = updateRuntimePaths(normalizeConfig(getDefaultConfigObject()).config);
+    assert.equal(config.Paths?.Logs, path.join(root, '.siftkit', 'logs'));
+    assert.equal(fs.existsSync(path.join(root, '.siftkit')), false);
   } finally {
-    if (prev !== undefined) {
-      process.env.sift_kit_status = prev;
-    } else {
-      delete process.env.sift_kit_status;
-    }
+    process.chdir(previousCwd);
   }
 });
 

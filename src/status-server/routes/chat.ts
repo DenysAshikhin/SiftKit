@@ -89,7 +89,6 @@ import { RouteTable,type RouteEndpoint,type RouteMatch } from '../route-table.js
 import { createServerJsonLogger,serverLogger } from '../server-logger.js';
 import {
 acquireModelRequestWithWait,
-ensureActivePresetReadyForModelRequest,
 releaseModelRequest,
 } from '../server-ops.js';
 import type { ModelRequestLock,ServerContext } from '../server-types.js';
@@ -232,6 +231,24 @@ type OpenedChatOperationStream = {
   activeSession: ChatSession;
 };
 
+/** Admission readies the model before granting, so a refused target or failed load answers 503 here. */
+async function acquireChatModelRequest(
+  ctx: ServerContext,
+  lockKind: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  request: { recorder: ChatRunRecorder | null },
+): Promise<ModelRequestLock | ChatOperationOutcome> {
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, lockKind, req, res, { abortSignal: requireChatRunRecorder(request).abortSignal });
+    return lock ?? { failure: 'Model request could not be acquired.' };
+  } catch (error) {
+    const message = toError(error).message;
+    sendJson(res, 503, { error: message });
+    return { failure: message };
+  }
+}
+
 /**
  * The shared head of every streaming chat endpoint: buffer the prompt, take the model lock without
  * letting a closed socket cancel a queued turn, reload the session, warm the preset, and open the
@@ -254,7 +271,12 @@ async function openChatOperationStream<TParsed extends { content: string; images
   // The stream outlives its client: a reload reattaches through /operation/stream, so a closed
   // socket must not cancel a turn that is only waiting for the model lock.
   const recorder = requireChatRunRecorder(request);
-  const modelRequestLock = await acquireModelRequestWithWait(ctx, lockKind, undefined, undefined, { abortSignal: recorder.abortSignal });
+  let modelRequestLock: ModelRequestLock | null;
+  try {
+    modelRequestLock = await acquireModelRequestWithWait(ctx, lockKind, undefined, undefined, { abortSignal: recorder.abortSignal });
+  } catch (error) {
+    return fail(503, toError(error).message);
+  }
   if (!modelRequestLock) {
     if (recorder.stopRequested || recorder.sessionDeleted) return { failure: null };
     throwIfAborted(recorder.abortSignal);
@@ -264,12 +286,6 @@ async function openChatOperationStream<TParsed extends { content: string; images
   if (!activeSession) {
     releaseModelRequest(ctx, modelRequestLock.token);
     return fail(404, 'Session not found.');
-  }
-  try {
-    await ensureActivePresetReadyForModelRequest(ctx);
-  } catch (error) {
-    releaseModelRequest(ctx, modelRequestLock.token);
-    return fail(503, error instanceof Error ? error.message : String(error));
   }
   const sseWriter = req && res ? new SseResponseWriter(req, res) : null;
   if (sseWriter) {
@@ -809,24 +825,13 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const runtimeRoot = getRuntimeRoot();
     const messageRequest = request.value;
     const providedAssistantContent = messageRequest.assistantContent || '';
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res, { abortSignal: requireChatRunRecorder(request).abortSignal });
-    if (!modelRequestLock) {
-      return { failure: 'Model request could not be acquired.' };
-    }
+    const modelRequestLock = await acquireChatModelRequest(ctx, 'dashboard_chat', req, res, request);
+    if ('failure' in modelRequestLock) return modelRequestLock;
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return { failure: 'Session not found.' };
-    }
-    if (!providedAssistantContent) {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        releaseModelRequest(ctx, modelRequestLock.token);
-        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-        return { failure: toError(error).message };
-      }
     }
     try {
       const config = readConfig(configPath);
@@ -997,10 +1002,8 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
   ): Promise<ChatOperationOutcome> {
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, CHAT_REPO_OPERATION_SETTINGS[this.operationKind].lockKind, req, res, { abortSignal: requireChatRunRecorder(request).abortSignal });
-    if (!modelRequestLock) {
-      return { failure: 'Model request could not be acquired.' };
-    }
+    const modelRequestLock = await acquireChatModelRequest(ctx, CHAT_REPO_OPERATION_SETTINGS[this.operationKind].lockKind, req, res, request);
+    if ('failure' in modelRequestLock) return modelRequestLock;
     const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -1008,12 +1011,6 @@ class CreateChatRepoOperationEndpoint extends ChatRepoOperationEndpoint {
       return { failure: 'Session not found.' };
     }
     try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-        return { failure: toError(error).message };
-      }
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
@@ -1161,17 +1158,8 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
   ): Promise<ChatOperationOutcome> {
     // Condense now issues a real model request, so it takes the same lock and
     // readiness gate as any other turn.
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_condense', req, res, { abortSignal: requireChatRunRecorder(request).abortSignal });
-    if (!modelRequestLock) {
-      return { failure: 'Model request could not be acquired.' };
-    }
-    try {
-      await ensureActivePresetReadyForModelRequest(ctx);
-    } catch (error) {
-      releaseModelRequest(ctx, modelRequestLock.token);
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return { failure: toError(error).message };
-    }
+    const modelRequestLock = await acquireChatModelRequest(ctx, 'dashboard_chat_condense', req, res, request);
+    if ('failure' in modelRequestLock) return modelRequestLock;
     try {
       const config = readConfig(ctx.configPath);
       const updatedSession = await condenseChatSession(

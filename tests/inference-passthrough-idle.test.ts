@@ -16,6 +16,7 @@ import { readBody } from '../src/status-server/http-utils.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
 import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
 
 async function readInferenceRuntimeStatus(baseUrl: string): Promise<InferenceRuntimeStatus> {
   return InferenceRuntimeStatusSchema.parse(await (await fetch(`${baseUrl}/runtime/inference`)).json());
@@ -118,10 +119,11 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
         Model: 'model-a',
         ModelPath: path.join(tempRoot, 'model-a'),
         SleepIdleSeconds: 1,
+        HealthcheckIntervalMs: 10,
       }];
       config.Server.ModelPresets.ActivePresetId = 'exl3-main';
       writeConfig(getConfigPath(), config);
-      statusServer = startStatusServer();
+      statusServer = startStatusServer({ gpuMemoryProbe: new FixedGpuMemoryProbe(null) });
       await statusServer.startupPromise;
       const siftBaseUrl = `http://127.0.0.1:${getAddressInfo(statusServer).port}`;
       assert.equal(loadCount, 1);
@@ -281,6 +283,7 @@ test('chat queued during a preset switch is translated for the target preset', a
         ModelPath: path.join(tempRoot, 'first-model'),
         RepetitionPenalty: 1.01,
         Reasoning: 'off' as const,
+        HealthcheckIntervalMs: 10,
       };
       const secondPreset = {
         ...basePreset,
@@ -291,6 +294,7 @@ test('chat queued during a preset switch is translated for the target preset', a
         ModelPath: path.join(tempRoot, 'second-model'),
         RepetitionPenalty: 1.23,
         Reasoning: 'on' as const,
+        HealthcheckIntervalMs: 10,
         ReasoningContent: true,
         PreserveThinking: true,
       };
@@ -309,7 +313,7 @@ test('chat queued during a preset switch is translated for the target preset', a
         Presets: [firstPreset, secondPreset],
       };
       writeConfig(getConfigPath(), config);
-      statusServer = startStatusServer();
+      statusServer = startStatusServer({ gpuMemoryProbe: new FixedGpuMemoryProbe(null) });
       await statusServer.startupPromise;
       assert.equal(second.requests, 0);
       const siftBaseUrl = `http://127.0.0.1:${getAddressInfo(statusServer).port}`;

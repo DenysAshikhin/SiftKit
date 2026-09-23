@@ -4,12 +4,13 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test, { after, beforeEach } from 'node:test';
 
 import { PresetSystemContextBuilder } from '../src/preset-system-context.js';
 
-const TEST_ROOT = resolve('tests/.tmp/preset-system-context');
+const TEST_ROOT = join(tmpdir(), `siftkit-preset-system-context-${process.pid}`);
 const REPO_ROOT = join(TEST_ROOT, 'repo');
 
 beforeEach(() => {

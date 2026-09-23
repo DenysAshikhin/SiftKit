@@ -7,24 +7,30 @@ import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
 import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
-import { writeFakeTabby } from './helpers/tabby-fake.js';
+import { writeFakeEngineHost } from './helpers/tabby-fake.js';
+
+const ENTRYPOINT = 'tabby-main.py';
 
 async function createManagedTabbyRun(root: string, leaseName: string) {
   const portLease = await acquireChildPortLease(leaseName);
-  const { scriptPath, pythonPath, capabilities } = writeFakeTabby(root, portLease.port, null);
+  const fakeTabby = writeFakeEngineHost(root, {
+    port: portLease.port,
+    rejectLoads: true,
+    mtpAnnouncement: { stream: 'stdout', delayMs: 0 },
+  });
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
     WorkingDirectory: root,
-    PythonPath: pythonPath,
-    Entrypoint: path.basename(scriptPath),
+    PythonPath: fakeTabby.pythonPath,
+    Entrypoint: ENTRYPOINT,
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
     Environment: {},
-  }, flushQueue, capabilities);
+  }, flushQueue, fakeTabby.host);
 
   return {
     runtime,
@@ -36,10 +42,12 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
       ModelPath: path.join(root, 'model-a'),
       SpeculativeEnabled: true,
       SpeculativeType: 'draft-mtp' as const,
+      HealthcheckIntervalMs: 10,
     },
-    entrypointPath: path.basename(scriptPath),
+    entrypointPath: ENTRYPOINT,
     async [Symbol.asyncDispose]() {
       await runtime.stopProcess();
+      await fakeTabby.launcher.stopAll();
       await flushQueue.close();
       await portLease[Symbol.asyncDispose]();
     },

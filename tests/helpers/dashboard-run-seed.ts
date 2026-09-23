@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.js';
 
 import {
   upsertRepoSearchRun,
@@ -12,7 +12,7 @@ import {
   type RunIdentity,
 } from '../../src/status-server/dashboard-runs/run-identity.js';
 
-type DatabaseInstance = InstanceType<typeof Database>;
+type DatabaseInstance = RuntimeDatabase;
 
 /**
  * Seeds `run_logs` through the same calls the status server uses when a run
@@ -22,7 +22,8 @@ export class DashboardRunSeeder {
   private readonly database: DatabaseInstance;
 
   constructor(databasePath: string) {
-    this.database = new Database(databasePath);
+    // The status server's own registry connection, so seeded rows are visible to it at once.
+    this.database = getRuntimeDatabase(databasePath);
   }
 
   artifact(
@@ -100,9 +101,6 @@ export class DashboardRunSeeder {
     });
   }
 
-  close(): void {
-    this.database.close();
-  }
 }
 
 /** `NN`-suffixed request id used by the bulk seeding loops in the run-log E2Es. */

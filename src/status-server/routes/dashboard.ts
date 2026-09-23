@@ -13,7 +13,7 @@ import type {
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkAttempt,
 } from '@siftkit/contracts';
-import { existsSync } from 'node:fs';
+import { runtimeDatabaseExists } from '../../state/runtime-db.js';
 import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { toError } from '../../lib/errors.js';
@@ -276,7 +276,7 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
   ): Promise<void> {
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const { idleSummarySnapshotsPath } = ctx;
-    if (!existsSync(idleSummarySnapshotsPath)) {
+    if (!runtimeDatabaseExists(idleSummarySnapshotsPath)) {
       sendJson(res, 200, { latest: null, snapshots: [] } satisfies IdleSummaryResponse);
       return;
     }

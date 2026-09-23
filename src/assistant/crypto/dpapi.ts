@@ -39,10 +39,18 @@ async function runProtectedData(
   return Buffer.from(encoded, 'base64');
 }
 
-export async function dpapiProtect(data: Buffer): Promise<Buffer> {
-  return runProtectedData('Protect', data);
+/** Seals key material at rest; unprotect fails with DpapiUnavailableError on foreign or corrupt bytes. */
+export interface DataProtector {
+  protect(data: Buffer): Promise<Buffer>;
+  unprotect(data: Buffer): Promise<Buffer>;
 }
 
-export async function dpapiUnprotect(data: Buffer): Promise<Buffer> {
-  return runProtectedData('Unprotect', data);
+export class DpapiDataProtector implements DataProtector {
+  protect(data: Buffer): Promise<Buffer> {
+    return runProtectedData('Protect', data);
+  }
+
+  unprotect(data: Buffer): Promise<Buffer> {
+    return runProtectedData('Unprotect', data);
+  }
 }

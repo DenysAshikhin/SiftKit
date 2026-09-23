@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 
 import { CURRENT_SCHEMA_VERSION, type RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import { dpapiProtect } from '../crypto/dpapi.js';
+import type { DataProtector } from '../crypto/dpapi.js';
 import type { KeyCustodyService } from '../crypto/key-custody.js';
 import { assistantEvidenceDir } from '../layout.js';
 import {
@@ -17,6 +17,7 @@ export interface BackupServiceOptions {
   readonly graph: AssistantGraph;
   readonly database: RuntimeDatabase;
   readonly keyCustody: KeyCustodyService;
+  readonly dataProtector: DataProtector;
 }
 
 /**
@@ -30,11 +31,13 @@ export class BackupService {
   private readonly graph: AssistantGraph;
   private readonly database: RuntimeDatabase;
   private readonly keyCustody: KeyCustodyService;
+  private readonly dataProtector: DataProtector;
 
   constructor(options: BackupServiceOptions) {
     this.graph = options.graph;
     this.database = options.database;
     this.keyCustody = options.keyCustody;
+    this.dataProtector = options.dataProtector;
   }
 
   /**
@@ -58,7 +61,7 @@ export class BackupService {
         await builder.writer.addFile(name, absolute);
       }
 
-      const keyBytes = await dpapiProtect(
+      const keyBytes = await this.dataProtector.protect(
         Buffer.from(JSON.stringify(this.keyCustody.exportForBackup()), 'utf8'),
       );
       hashes[KEY_ENTRY] = createHash('sha256').update(keyBytes).digest('hex');

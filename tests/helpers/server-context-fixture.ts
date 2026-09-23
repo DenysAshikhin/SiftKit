@@ -16,6 +16,7 @@ import { ChatSessionOperationRegistry } from '../../src/status-server/chat-sessi
 import { ChatSessionRecoveryCache } from '../../src/status-server/chat-session-recovery-cache.js';
 import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.js';
 import { RecordingInferenceRuntime } from './recording-inference-runtime.js';
+import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
 import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
 import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
@@ -36,9 +37,11 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     configPath,
     statusPath: path.join(root, 'status.txt'),
     metricsPath: path.join(root, 'metrics.sqlite'),
-    idleSummarySnapshotsPath: path.join(root, 'idle.sqlite'),
+    // Production keeps idle-summary snapshots in the runtime database itself.
+    idleSummarySnapshotsPath: runtimeDatabasePath,
     disableManagedEngineStartup: false,
     engineService,
+    gpuMemoryProbe: new FixedGpuMemoryProbe(null),
     chatRunOwnerEpoch: randomUUID(),
     runtimeDatabasePath,
     runtimeDatabase,
@@ -87,7 +90,6 @@ export function createTestServerContext(configPath: string, root = path.dirname(
       pendingMetadata: { inputCharactersPerContextToken: null, chunkThresholdCharacters: null },
       timer: null,
       pending: false,
-      database: null,
     },
     engineBootstrap: { inProgress: false, warning: null },
     inferenceRunLogCleanupTimer: null,

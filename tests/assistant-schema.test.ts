@@ -18,6 +18,7 @@ import {
 } from '../src/state/runtime-db.js';
 import { withAssistantContext } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
 const CountRowSchema = z.object({ count: z.number() });
@@ -29,7 +30,7 @@ function tempDbPath(prefix: string): string {
 }
 
 function withReadonlyDb<T>(dbPath: string, read: (database: ReturnType<typeof Database>) => T): T {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     return read(database);
   } finally {

@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 
 import { z } from '../src/lib/zod.js';
@@ -37,6 +36,8 @@ import {
   type SseResponse,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { acquireChildPortLease } from './helpers/test-endpoints.js';
+import { waitForAsyncExpectation } from './_runtime-helpers.js';
 import { buildWebSearchConfig, getDefaultServerConfig, mockModelPreset, usableWebSearchConfig } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
@@ -124,27 +125,7 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   }
 });
 
-const requireFromHere = createRequire(path.join(process.cwd(), '.test-build', 'tests', 'dashboard-status-server.test.js'));
 const SIFTKIT_REPO_ROOT = process.cwd();
-type RuntimeHelpers = {
-  acquireChildPortLease: (name: string) => Promise<{
-    port: number;
-    [Symbol.asyncDispose](): Promise<void>;
-  }>;
-  getDefaultConfig: () => Dict;
-  waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
-  startStatusServerProcess: (options: {
-    statusPath: string;
-    configPath: string;
-    idleSummaryDbPath?: string;
-    idleSummaryDelayMs?: number;
-    disableManagedEngineStartup?: boolean;
-  }) => Promise<{
-    statusUrl: string;
-    close: () => Promise<void>;
-  }>;
-};
-const runtimeHelpers =z.custom<RuntimeHelpers>((value) => typeof value === 'object' && value !== null).parse(requireFromHere('./_runtime-helpers.js'));
 
 type HostConfigServer = {
   baseUrl: string;
@@ -188,7 +169,7 @@ test('config engine test endpoint reports reachable external server', async () =
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  await using remotePortLease = await runtimeHelpers.acquireChildPortLease('dashboard-status-server-remote');
+  await using remotePortLease = await acquireChildPortLease('dashboard-status-server-remote');
   const remotePort = remotePortLease.port;
   const remoteServer = http.createServer((request, response) => {
     if (request.url === '/v1/models') {
@@ -245,7 +226,7 @@ test('config engine test endpoint reports unreachable external server', async ()
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  await using unusedPortLease = await runtimeHelpers.acquireChildPortLease('dashboard-status-server-unreachable');
+  await using unusedPortLease = await acquireChildPortLease('dashboard-status-server-unreachable');
   const unusedPort = unusedPortLease.port;
   const server = startStatusServer({ disableManagedEngineStartup: true });
   await server.startupPromise;
@@ -498,67 +479,63 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
   try {
     const seeder = new DashboardRunSeeder(runtimeDbPath);
-    try {
-      // Same order the runner defers them in: planner_debug then summary_request.
-      seeder.artifact('planner_debug', 'req-summary', {
-        final: {
-          finalOutput: 'Build was successful.',
-          classification: 'summary',
-          rawReviewRequired: false,
-          providerError: null,
-        },
-      }, operationOnlyRunIdentity('summary'));
-      seeder.summaryRun({
-        requestId: 'req-summary',
-        question: 'Summarize build output',
-        createdAtUtc: '2026-04-01T10:00:00.000Z',
-        payload: {
-          summary: 'Build was successful.',
-          inputTokens: 123,
-          outputTokens: 45,
-          thinkingTokens: 9,
-          promptCacheTokens: 80,
-          promptEvalTokens: 40,
-          speculativeAcceptedTokens: 18,
-          speculativeGeneratedTokens: 24,
-          requestDurationMs: 3000,
-        },
-      });
-      seeder.artifact('planner_failed', 'req-failed', {
-        requestId: 'req-failed',
-        question: 'Analyze flaky test failure',
-        error: 'timeout',
-        createdAtUtc: '2026-04-01T10:05:00.000Z',
-        inputTokens: 50,
-        outputTokens: 0,
-        thinkingTokens: 0,
-        promptCacheTokens: 0,
-        promptEvalTokens: 20,
-        requestDurationMs: 1000,
-      }, operationOnlyRunIdentity('summary'));
-      seeder.artifact('request_abandoned', 'req-abandoned', {
-        requestId: 'req-abandoned',
-        terminalState: 'failed',
-        reason: 'Abandoned because a new request started before terminal status.',
-        createdAtUtc: '2026-04-01T10:10:00.000Z',
-        promptCharacterCount: 1200,
-        outputTokensTotal: 12,
-      }, UNRECORDED_RUN_IDENTITY);
-      seeder.repoSearchRun({
-        requestId: 'req-repo',
-        prompt: 'find failing test',
-        repoRoot: tempRoot,
-        createdAtUtc: '2026-04-01T10:15:00.000Z',
-        transcriptText: [
-          JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_new_messages', turn: 1, messages: [{ role: 'user', content: 'find failing test' }], promptTokenCount: 10 }),
-          JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
-          JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
-        ].join('\n') + '\n',
-        requestDurationMs: 2000,
-      });
-    } finally {
-      seeder.close();
-    }
+    // Same order the runner defers them in: planner_debug then summary_request.
+    seeder.artifact('planner_debug', 'req-summary', {
+      final: {
+        finalOutput: 'Build was successful.',
+        classification: 'summary',
+        rawReviewRequired: false,
+        providerError: null,
+      },
+    }, operationOnlyRunIdentity('summary'));
+    seeder.summaryRun({
+      requestId: 'req-summary',
+      question: 'Summarize build output',
+      createdAtUtc: '2026-04-01T10:00:00.000Z',
+      payload: {
+        summary: 'Build was successful.',
+        inputTokens: 123,
+        outputTokens: 45,
+        thinkingTokens: 9,
+        promptCacheTokens: 80,
+        promptEvalTokens: 40,
+        speculativeAcceptedTokens: 18,
+        speculativeGeneratedTokens: 24,
+        requestDurationMs: 3000,
+      },
+    });
+    seeder.artifact('planner_failed', 'req-failed', {
+      requestId: 'req-failed',
+      question: 'Analyze flaky test failure',
+      error: 'timeout',
+      createdAtUtc: '2026-04-01T10:05:00.000Z',
+      inputTokens: 50,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      promptCacheTokens: 0,
+      promptEvalTokens: 20,
+      requestDurationMs: 1000,
+    }, operationOnlyRunIdentity('summary'));
+    seeder.artifact('request_abandoned', 'req-abandoned', {
+      requestId: 'req-abandoned',
+      terminalState: 'failed',
+      reason: 'Abandoned because a new request started before terminal status.',
+      createdAtUtc: '2026-04-01T10:10:00.000Z',
+      promptCharacterCount: 1200,
+      outputTokensTotal: 12,
+    }, UNRECORDED_RUN_IDENTITY);
+    seeder.repoSearchRun({
+      requestId: 'req-repo',
+      prompt: 'find failing test',
+      repoRoot: tempRoot,
+      createdAtUtc: '2026-04-01T10:15:00.000Z',
+      transcriptText: [
+        JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_new_messages', turn: 1, messages: [{ role: 'user', content: 'find failing test' }], promptTokenCount: 10 }),
+        JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
+        JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
+      ].join('\n') + '\n',
+      requestDurationMs: 2000,
+    });
 
     const health = await requestJson(`${baseUrl}/status`);
     assert.equal(health.statusCode, 200);
@@ -967,7 +944,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
     });
 
     let metricsBody: Dict = {};
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
+    await waitForAsyncExpectation(async () => {
       const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
       assert.equal(metricsResponse.statusCode, 200);
       metricsBody = d(metricsResponse.body);
@@ -1033,7 +1010,7 @@ test('web_search tool calls increment web search usage', async () => {
     });
 
     let usage: Dict = {};
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
+    await waitForAsyncExpectation(async () => {
       const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
       assert.equal(metricsResponse.statusCode, 200);
       usage = d(d(metricsResponse.body).webSearchUsage);
@@ -3154,7 +3131,7 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(new Set(sourceRunIds).size, 1);
     // The journal identity and the engine request identity are separate, explicitly linked records.
     const chatRunId = sourceRunIds[0] || '';
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
+    await waitForAsyncExpectation(async () => {
       const chatRunDetail = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(chatRunId)}`);
       assert.equal(chatRunDetail.statusCode, 200, `chat sourceRunId ${chatRunId} resolves to no run`);
     }, 5000);
@@ -3162,7 +3139,7 @@ test('chat completion replays prior tool evidence without hidden system context'
     // pushed the global counters past these thresholds, so waiting on the global pair can return
     // before the chat request's own tokens have been recorded and leave the per-task assertions
     // racing it. A returned poll is the assertion — repeating it afterwards proves nothing.
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
+    await waitForAsyncExpectation(async () => {
       const statusAfterChat = await requestJson(`${baseUrl}/status`);
       const statusMetrics = d(statusAfterChat.body.metrics);
       assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);

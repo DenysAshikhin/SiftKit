@@ -34,21 +34,15 @@ const VALIDATION_MOCK_COMMAND_RESULTS = {
   [VALIDATION_COMMAND]: { exitCode: 1, stdout: NOISY_VALIDATION_OUTPUT, stderr: '' },
   [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
 } satisfies Record<string, RepoSearchMockCommandResult>;
+const FAILING_GIT_MOCK_COMMAND_RESULTS = {
+  [buildRepoToolRequestedCommand('git', { operation: 'log', limit: 1 })]: { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' },
+} satisfies Record<string, RepoSearchMockCommandResult>;
 
-function writeNoisyValidationRepo(root: string): void {
-  fs.writeFileSync(
-    path.join(root, 'validation.cjs'),
-    [
-      `for (let index = 1; index <= ${NOISY_VALIDATION_LINE_COUNT}; index += 1) console.log(\`validation-line-\${index}\`);`,
-      'process.exitCode = 1;',
-    ].join('\n'),
-    'utf8',
-  );
-  fs.writeFileSync(
-    path.join(root, 'package.json'),
-    JSON.stringify({ scripts: { test: 'node validation.cjs' } }),
-    'utf8',
-  );
+function grepMockCommandResults(patterns: readonly string[], output: string): Record<string, RepoSearchMockCommandResult> {
+  return Object.fromEntries(patterns.map((pattern) => [
+    buildRepoToolRequestedCommand('grep', { pattern, path: '.' }),
+    { exitCode: 0, stdout: output, stderr: '' },
+  ]));
 }
 
 const TurnCommandResultSchema = z.object({ perToolCapTokens: z.number() });
@@ -168,7 +162,13 @@ test('TaskCommandSchema rejects a negative or fractional promptTokenCount', () =
 
 test('a typed Git action executes through the native tool path', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
-  const { processor, commands, counters, events } = makeProcessor(root, ['git']);
+  const { processor, commands, counters, events } = makeProcessor(
+    root,
+    ['git'],
+    'repo-search',
+    null,
+    { 'git operation="status"': { exitCode: 0, stdout: '', stderr: '' } },
+  );
 
   await processor.executeBatch(1, [{ kind: 'tool', callId: 'test_call_17', toolName: 'git', args: { operation: 'status' } }], '', 0, false);
 
@@ -311,7 +311,7 @@ test('an invalid action followed by two valid ones leaves the counter at zero', 
 
 test('a valid action whose command exits non-zero still decays the counter', async () => {
   const root = createManagedTempDir('siftkit-decay-red-');
-  const { processor, commands, counters } = makeProcessor(root, ['git']);
+  const { processor, commands, counters } = makeProcessor(root, ['git'], 'repo-search', null, FAILING_GIT_MOCK_COMMAND_RESULTS);
   counters.invalidResponses = 2;
 
   await processor.executeBatch(
@@ -367,7 +367,7 @@ test('a rejected call and a non-zero exit increment separate counters', async ()
   assert.equal(counters.nonZeroExits, 0);
 
   // An executed command that exits non-zero does the reverse.
-  const failing = makeProcessor(root, ['git']);
+  const failing = makeProcessor(root, ['git'], 'repo-search', null, FAILING_GIT_MOCK_COMMAND_RESULTS);
   await failing.processor.executeBatch(
     1,
     [{ kind: 'tool', callId: 'test_call_45', toolName: 'git', args: { operation: 'log', limit: 1 } }],
@@ -415,11 +415,11 @@ test('a parallel batch spends no more tool budget in total than a single call is
   const root = createManagedTempDir('siftkit-batch-budget-');
   const lines: string[] = [];
   for (let index = 0; index < 4000; index += 1) {
-    lines.push(`export const alpha${index} = 'beta${index} gamma${index} delta${index}';`);
+    lines.push(`big.ts:${index + 1}:export const alpha${index} = 'beta${index} gamma${index} delta${index}';`);
   }
-  fs.writeFileSync(path.join(root, 'big.ts'), `${lines.join('\n')}\n`, 'utf8');
+  const grepResults = grepMockCommandResults(['alpha', 'beta', 'gamma'], `${lines.join('\n')}\n`);
 
-  const single = makeProcessor(root, ['grep']);
+  const single = makeProcessor(root, ['grep'], 'repo-search', null, grepResults);
   // Both runs start from an empty command log, so the progress term is at its floor
   // and the only difference between them is how the turn share is split.
   const singleCallCapTokens = single.budget.perToolCapTokens(0, 1);
@@ -437,7 +437,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
     `single grep spent ${singleCallToolTokens} tool tokens, above its own cap ${singleCallCapTokens}`,
   );
 
-  const batch = makeProcessor(root, ['grep']);
+  const batch = makeProcessor(root, ['grep'], 'repo-search', null, grepResults);
   await batch.processor.executeBatch(
     1,
     [
@@ -466,8 +466,13 @@ test('a parallel batch spends no more tool budget in total than a single call is
 // than the one before and breaking the even split.
 test('every member of a batch is capped at the same share regardless of position', async () => {
   const root = createManagedTempDir('siftkit-batch-cap-snapshot-');
-  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha beta gamma\n', 'utf8');
-  const { processor, commands, events, budget } = makeProcessor(root, ['grep']);
+  const { processor, commands, events, budget } = makeProcessor(
+    root,
+    ['grep'],
+    'repo-search',
+    null,
+    grepMockCommandResults(['alpha', 'beta', 'gamma'], 'a.ts:1:alpha beta gamma\n'),
+  );
   // Put the run far enough along that the progress term, not the floor, sets the share.
   for (let index = 0; index < 3; index += 1) {
     commands.push({ toolCallId: `tc_prior_${index}`, command: `ls prior-${index}`, activityKind: 'search', activitySubject: { kind: 'none' }, turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
@@ -496,8 +501,7 @@ test('every member of a batch is capped at the same share regardless of position
 // back-to-back identical `run` through; only the third identical call is a duplicate again.
 test('a downgraded full run may be retried once despite duplicate screening', async () => {
   const root = createManagedTempDir('siftkit-run-full-retry-');
-  writeNoisyValidationRepo(root);
-  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
+  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent', null, VALIDATION_MOCK_COMMAND_RESULTS);
   const runAction: AgentLoopToolAction = { kind: 'tool', callId: 'test_call_36', toolName: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
   await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);

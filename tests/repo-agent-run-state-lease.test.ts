@@ -5,18 +5,14 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
 import type { ProcessInspector } from '../src/lib/process-inspector.js';
 import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 
-const TEMP_ROOT = join(
-  process.cwd(),
-  '.tmp',
-  'repo-agent-safety-refactor',
-  `lease-tests-${process.pid}`,
-);
+const TEMP_ROOT = join(tmpdir(), `siftkit-lease-tests-${process.pid}`);
 
 class FixedProcessInspector implements ProcessInspector {
   private readonly alive: boolean;

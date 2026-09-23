@@ -14,6 +14,7 @@ import { z } from '../src/lib/zod.js';
 import { TurnModelResponseEventSchema } from '../src/repo-search/live-snapshot/schemas.js';
 import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 
 // Execution posts run status; these tests assert on scorecard and progress events only.
 const isolatedRuntime = new IsolatedRuntime();
@@ -428,6 +429,9 @@ const REPO_SEARCH_TOOL_CALLS = [
   { toolCalls: [{ name: 'grep', arguments: { pattern: 'target' } }] },
   { toolCalls: [{ name: 'read', arguments: { path: 'src/main.ts' } }] },
 ];
+const REPO_SEARCH_MOCK_COMMAND_RESULTS = {
+  [buildRepoToolRequestedCommand('grep', { pattern: 'target' })]: { exitCode: 0, stdout: 'src/main.ts:1:target', stderr: '' },
+};
 
 test('repo-search task kind honors supplied history in the model call', async () => {
   await withTestEnvAndServer(async (context) => {
@@ -445,7 +449,7 @@ test('repo-search task kind honors supplied history in the model call', async ()
       availableModels: ['mock'],
       model: 'mock',
       mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
-      mockCommandResults: {},
+      mockCommandResults: REPO_SEARCH_MOCK_COMMAND_RESULTS,
     });
     const messages = readFirstTurnMessages(result);
     assert.deepEqual(messages.map((message) => message.role), ['system', 'user', 'assistant', 'user']);
@@ -467,7 +471,7 @@ test('repo-search task kind without history leaves the model call historyless', 
       availableModels: ['mock'],
       model: 'mock',
       mockResponses: [...REPO_SEARCH_TOOL_CALLS, { content: 'done' }],
-      mockCommandResults: {},
+      mockCommandResults: REPO_SEARCH_MOCK_COMMAND_RESULTS,
     });
     const messages = readFirstTurnMessages(result);
     assert.deepEqual(messages.map((message) => message.role), ['system', 'user']);

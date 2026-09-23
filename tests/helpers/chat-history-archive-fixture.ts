@@ -1,4 +1,32 @@
 import type { JsonObject } from '../../src/lib/json-types.js';
+import type { ChatHistoryRepairInputSchema } from '../../src/status-server/chat-history-repair.js';
+import type { getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import type { z } from '../../src/lib/zod.js';
+
+const SEEDED_AT = '2026-09-10T11:00:00.000Z';
+
+export function chatArchiveSource(text: string, sourceId = 'artifact') {
+  return { sourceKind: 'runtime_artifact' as const, sourceId, text };
+}
+
+export function repairInput(): z.input<typeof ChatHistoryRepairInputSchema> {
+  const fixture = createChatHistoryArchiveFixture();
+  const runId = '074bbeb7-1111-4111-8111-111111111111';
+  return { sessionId: 'session', requestId: 'request', sources: [chatArchiveSource(fixture.text)], savedMessages: [],
+    includeThinking: true, maxTurns: 200,
+    request: { runId, task: 'Inspect fixture safely.', repoRoot: 'C:\\fixture', approval: 'auto', images: [] },
+    state: { runId, revision: 3, updatedAtUtc: '2026-09-10T12:20:00.000Z', status: 'approval_timeout', pid: 123,
+      approval: { approvalId: 'e08682f5-1111-4111-8111-111111111111', toolName: 'run', command: 'Remove-Item fixture.tmp', reviewPayload: null } },
+  };
+}
+
+export function seedRepairArchive(database: ReturnType<typeof getRuntimeDatabase>) {
+  const input = repairInput();
+  for (const archive of input.sources) database.prepare(`INSERT INTO runtime_artifacts
+    (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
+    VALUES (?, 'repo_search_transcript', ?, 'fixture', ?, NULL, ?, ?)`)
+    .run(archive.sourceId, input.requestId, archive.text, SEEDED_AT, SEEDED_AT);
+}
 
 /** Private incident structure only. All prompts, reasoning, paths, and outputs are synthetic. */
 export function createChatHistoryArchiveFixture(options: { repeatedOutcomes?: boolean } = {}) {

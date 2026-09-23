@@ -143,7 +143,7 @@ async function applyAltPreset(fixture: CoordinatorFixture): Promise<void> {
 
 test('preset coordinator drains by preset and swaps the resident model without a process restart', async () => {
   const fixture = createCoordinator();
-  const { coordinator, appliedState, events, configPath, activeModelRequests } = fixture;
+  const { coordinator, appliedState, events, configPath } = fixture;
   try {
     await coordinator.initialize();
     assert.equal(coordinator.getActiveBackend(), 'exl3');
@@ -164,7 +164,7 @@ test('preset coordinator drains by preset and swaps the resident model without a
 
 test('pending switch waits until the active requests drain to zero', async () => {
   const fixture = createCoordinator();
-  const { coordinator, configPath, activeModelRequests } = fixture;
+  const { coordinator, configPath } = fixture;
   try {
     await coordinator.initialize();
     setActiveModelRequests(fixture, 2);
@@ -200,7 +200,7 @@ test('idle unload refuses a preset id that is not applied', async () => {
 
 test('idle unload refuses while a model request is active', async () => {
   const fixture = createCoordinator();
-  const { coordinator, events, activeModelRequests } = fixture;
+  const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     setActiveModelRequests(fixture, 1);
@@ -216,7 +216,7 @@ test('idle unload refuses while a model request is active', async () => {
 
 test('idle unload refuses while a preset switch is pending', async () => {
   const fixture = createCoordinator();
-  const { coordinator, events, activeModelRequests } = fixture;
+  const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     setActiveModelRequests(fixture, 1);
@@ -301,7 +301,7 @@ test('restartConfiguredPreset applies the preset persisted by a plain config sav
 
 test('restartConfiguredPreset refuses to interrupt an active model request', async () => {
   const fixture = createCoordinator();
-  const { coordinator, events, activeModelRequests } = fixture;
+  const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     setActiveModelRequests(fixture, 1);

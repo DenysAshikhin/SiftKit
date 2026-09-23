@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import Database from 'better-sqlite3';
 
 import { SiftPresetCollectionSchema } from '@siftkit/contracts';
 import { z } from '../src/lib/zod.js';
@@ -15,6 +14,8 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
 const ConfigColumnsRowSchema = z.object({
@@ -55,7 +56,7 @@ function tempDbPath(prefix: string): string {
 }
 
 function readVersion(dbPath: string): number {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     return VersionRowSchema.parse(
       database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get(),
@@ -90,8 +91,7 @@ function rewindToVersion74(
 ): void {
   writeConfig(dbPath, getDefaultServerConfig());
   closeAllRuntimeDatabases();
-  const database = new Database(dbPath);
-  try {
+  withRuntimeDatabaseConnection(dbPath, (database) => {
     const row = PresetsJsonRowSchema.parse(
       database.prepare('SELECT presets_json FROM app_config WHERE id = 1').get(),
     );
@@ -106,9 +106,7 @@ function rewindToVersion74(
       ) VALUES (?, ?, 'repo_search', 'repo_search', 'repo-search', 'repo-search', 'default', ?, 'completed', 'Historical run', '2026-09-01T00:00:00.000Z')
     `).run('run-1', 'request-1', JSON.stringify(HISTORIC_REPO_SEARCH));
     database.exec('UPDATE runtime_schema SET version = 74 WHERE id = 1;');
-  } finally {
-    database.close();
-  }
+  });
 }
 
 test('a version 74 database upgrades to 75 adding only modelPresetId null to every operation preset', () => {
@@ -117,7 +115,7 @@ test('a version 74 database upgrades to 75 adding only modelPresetId null to eve
     // Seed and snapshot the untouched config columns before rewinding to 74.
     writeConfig(dbPath, getDefaultServerConfig());
     closeAllRuntimeDatabases();
-    const seeded = new Database(dbPath);
+    const seeded = openStoredRuntimeDatabase(dbPath);
     let preservedModelPresetsJson = '';
     let preservedAssistantJson = '';
     try {
@@ -226,7 +224,7 @@ for (const invalidFields of [
     assert.throws(() => getRuntimeDatabase(dbPath));
     closeAllRuntimeDatabases();
     assert.equal(readVersion(dbPath), 74);
-    const database = new Database(dbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(dbPath);
     try {
       const row = PresetsJsonRowSchema.parse(
         database.prepare('SELECT presets_json FROM app_config WHERE id = 1').get(),

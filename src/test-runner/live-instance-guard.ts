@@ -1,5 +1,8 @@
+import childProcess from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
+import { syncBuiltinESMExports } from 'node:module';
+import path from 'node:path';
 import type { ClientRequestArgs } from 'node:http';
 
 /**
@@ -10,12 +13,13 @@ import type { ClientRequestArgs } from 'node:http';
  * default port therefore fails the test file that made it. Isolation is each file's job:
  * boot a stub, or declare a dead backend with the fixtures in tests/helpers/dead-endpoints.ts.
  *
- * This module must import nothing but node: builtins. It is preloaded through NODE_OPTIONS,
+ * This module must statically import nothing but node: builtins (hermetic test files alone load
+ * the hermetic-fs bundle, whose URL arrives as env). It is preloaded through NODE_OPTIONS,
  * so it runs inside every process the suite touches — including the production CLIs and
  * servers the tests spawn. Anything it imports is injected into those processes' module
  * graphs, which both slows them down and stops them from exercising the artifact they ship.
  * The ports therefore arrive as env from src/test-runner/run-tests.ts, which reads them from
- * src/config/constants.ts, and tests/live-instance-guard.test.ts asserts the hand-off lands
+ * src/config/constants.ts, and tests/process/live-instance-guard.test.ts asserts the hand-off lands
  * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_ENGINE_PORT so the two cannot drift apart.
  *
  * It lives under src/test-runner/ so the main TypeScript build first emits a transient staging
@@ -23,20 +27,20 @@ import type { ClientRequestArgs } from 'node:http';
  * .js is what keeps the tsx loader out of NODE_OPTIONS: tsx
  * would otherwise reach every spawned CLI and transpile the ESM dist/** tree into CommonJS.
  */
-function readGuardedPort(envName: string): string {
-  const port = process.env[envName]?.trim();
-  if (!port) {
+function readGuardEnv(envName: string, purpose: string): string {
+  const value = process.env[envName]?.trim();
+  if (!value) {
     throw new Error(
-      `${envName} is not set, so the live-instance guard cannot tell which port to protect. `
+      `${envName} is not set, so the live-instance guard cannot ${purpose}. `
       + 'Run the suite through src/test-runner/run-tests.ts, which supplies it.',
     );
   }
-  return port;
+  return value;
 }
 
 const GUARDED_PORTS = new Map<string, string>([
-  [readGuardedPort('SIFTKIT_GUARD_STATUS_PORT'), 'status server'],
-  [readGuardedPort('SIFTKIT_GUARD_ENGINE_PORT'), 'inference server'],
+  [readGuardEnv('SIFTKIT_GUARD_STATUS_PORT', 'tell which port to protect'), 'status server'],
+  [readGuardEnv('SIFTKIT_GUARD_ENGINE_PORT', 'tell which port to protect'), 'inference server'],
 ]);
 
 const violations: string[] = [];
@@ -116,3 +120,57 @@ const fetchGuard: ProxyHandler<typeof globalThis.fetch> = {
 http.request = new Proxy(http.request, requestGuard);
 https.request = new Proxy(https.request, requestGuard);
 globalThis.fetch = new Proxy(globalThis.fetch, fetchGuard);
+
+// The default suite is hermetic: node:test files may start no child process. Process-suite
+// files (tests/process/) may, and hand that permission to their descendants through env.
+const SPAWN_ALLOWED_ENV = 'SIFTKIT_GUARD_SPAWN_ALLOWED';
+const spawnViolations: string[] = [];
+
+function isProcessSuiteFile(entrypoint: string | undefined): boolean {
+  return entrypoint !== undefined && entrypoint.split(path.sep).join('/').includes('/tests/process/');
+}
+
+function forbidSpawn<T extends object>(target: T, name: string): T {
+  return new Proxy(target, {
+    apply(_target, _thisArg, argArray) {
+      const violation = `${name}(${String(argArray[0])})`;
+      if (!spawnViolations.includes(violation)) {
+        spawnViolations.push(violation);
+      }
+      throw new Error(
+        `${violation} is forbidden in the default test suite. `
+        + 'Inject an in-process fake, or move a test of real process behaviour to tests/process/.',
+      );
+    },
+  });
+}
+
+if (process.env.NODE_TEST_CONTEXT && process.env[SPAWN_ALLOWED_ENV] !== '1') {
+  if (isProcessSuiteFile(process.argv[1])) {
+    process.env[SPAWN_ALLOWED_ENV] = '1';
+  } else {
+    // Nothing outside this process may read the runtime databases, so they need no file.
+    process.env.SIFTKIT_RUNTIME_DATABASE_STORAGE = 'memory';
+    // Temp files live in memory too; only hermetic test files ever load memfs.
+    await import(readGuardEnv('SIFTKIT_GUARD_HERMETIC_FS', 'keep temp files in memory'));
+    childProcess.spawn = forbidSpawn(childProcess.spawn, 'spawn');
+    childProcess.spawnSync = forbidSpawn(childProcess.spawnSync, 'spawnSync');
+    childProcess.exec = forbidSpawn(childProcess.exec, 'exec');
+    childProcess.execSync = forbidSpawn(childProcess.execSync, 'execSync');
+    childProcess.execFile = forbidSpawn(childProcess.execFile, 'execFile');
+    childProcess.execFileSync = forbidSpawn(childProcess.execFileSync, 'execFileSync');
+    childProcess.fork = forbidSpawn(childProcess.fork, 'fork');
+    // ES modules bind named builtin exports at link time; this republishes the replacements.
+    syncBuiltinESMExports();
+    process.on('exit', () => {
+      if (spawnViolations.length === 0) {
+        return;
+      }
+      process.exitCode = 1;
+      process.stderr.write(
+        `\nCHILD PROCESS STARTED by ${process.argv[1]}:\n`
+        + spawnViolations.map((violation) => `  - ${violation}\n`).join(''),
+      );
+    });
+  }
+}

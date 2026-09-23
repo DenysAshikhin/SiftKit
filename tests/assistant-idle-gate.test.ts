@@ -18,6 +18,7 @@ import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 const idle = (secondsSinceMouseInput: number, secondsSinceKeyboardInput: number) => ({
   secondsSinceMouseInput, secondsSinceKeyboardInput,
@@ -179,6 +180,7 @@ test('the status-server gate wires the heartbeat, config threshold, server start
       idleGate: ALWAYS_IDLE,
       residencyGate: ALWAYS_RESIDENT,
       config,
+      dataProtector: new InMemoryDataProtector(),
     });
     ctx.assistantControl = service;
     ctx.terminalMetadata.serverStartedAtMs = Date.now();

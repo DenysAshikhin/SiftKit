@@ -16,7 +16,7 @@ import { condenseChatSession } from '../src/status-server/chat.js';
 import { buildChatHistoryMessages } from '../src/status-server/chat-history-import.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase, runtimeDatabaseExists } from '../src/state/runtime-db.js';
 import { ChatToolResultsError } from '../src/status-server/chat-tool-results.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
@@ -29,13 +29,13 @@ const TYPED_THROUGHPUT = readTabbyThroughput({ usage: {
   completion_tokens: 5, completion_time: 0.05, completion_tokens_per_sec: 100,
 } });
 import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
-import Database from 'better-sqlite3';
 import {
   LEGACY_FIXTURE_SESSION_ID,
   readChatMessageRows,
   seedLegacyChatDatabase,
 } from './helpers/legacy-chat-schema-fixture.js';
 import type { ChatMessageRow } from './helpers/legacy-chat-schema-fixture.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
@@ -174,7 +174,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     assert.equal(loadedFromPath?.messages?.[0]?.promptEvalDurationMs, null);
     assert.equal(loadedFromPath?.messages?.[0]?.generationDurationMs, null);
     assert.equal(loadedFromPath?.messages?.[0]?.groundingStatus, 'fetched');
-    assert.equal(fs.existsSync(path.join(runtimeRoot, 'runtime.sqlite')), true);
+    assert.equal(runtimeDatabaseExists(path.join(runtimeRoot, 'runtime.sqlite')), true);
     assert.equal(fs.existsSync(sessionPath), false);
   });
 });
@@ -756,7 +756,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
   seedLegacyChatDatabase(databasePath);
   closeAllRuntimeDatabases();
 
-  const reader = new Database(databasePath, { readonly: true });
+  const reader = openStoredRuntimeDatabase(databasePath);
   let rowsBeforeUpgrade: ChatMessageRow[];
   try {
     rowsBeforeUpgrade = readChatMessageRows(reader);
@@ -803,7 +803,7 @@ test('a migrated stale marker-67 database accepts stopped tool rows and keeps it
     closeAllRuntimeDatabases();
   }
 
-  const reopened = new Database(databasePath, { readonly: true });
+  const reopened = openStoredRuntimeDatabase(databasePath);
   try {
     const legacyRows = readChatMessageRows(reopened).filter((row) => row.session_id === LEGACY_FIXTURE_SESSION_ID);
     // The upgrade records the execution state the legacy tool row never had; everything else is untouched.

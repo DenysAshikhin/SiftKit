@@ -6,6 +6,7 @@ import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { createPresetRoutingConfig } from './helpers/preset-routing-config.js';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
 
 class TestRuntime extends ManagedInferenceRuntime {
   constructor() {
@@ -57,7 +58,9 @@ test('Tabby residency identity includes load inputs and excludes request-only se
   const [source] = config.Server.ModelPresets.Presets;
   assert.ok(source);
   const preset = { ...source, VisionEnabled: false, VisionOffload: false, SpeculativeEnabled: false };
-  const runtime = new ManagedTabbyRuntime({ ...config.Server.Engines.Exl3, Managed: true }, new InferenceRunFlushQueue());
+  const runtime = new ManagedTabbyRuntime(
+    { ...config.Server.Engines.Exl3, Managed: true }, new InferenceRunFlushQueue(), NEVER_LAUNCHING_ENGINE_HOST,
+  );
   const key = runtime.getPresetResidencyKey(preset);
   assert.equal(runtime.getPresetResidencyKey({
     ...preset, id: 'alias', label: 'Alias', Temperature: 0.125, SleepIdleSeconds: preset.SleepIdleSeconds + 1,
@@ -80,13 +83,17 @@ test('Tabby residency identity ignores environment key order and external-only l
   const preset = { ...source, VisionEnabled: false, VisionOffload: false, SpeculativeEnabled: false };
   const engine = { ...config.Server.Engines.Exl3, Managed: true, Environment: { FIRST: '1', SECOND: '2' } };
   const queue = new InferenceRunFlushQueue();
-  const first = new ManagedTabbyRuntime(engine, queue);
-  const reordered = new ManagedTabbyRuntime({ ...engine, Environment: { SECOND: '2', FIRST: '1' } }, queue);
-  const different = new ManagedTabbyRuntime({ ...engine, PythonPath: `${engine.PythonPath}.different` }, queue);
+  const first = new ManagedTabbyRuntime(engine, queue, NEVER_LAUNCHING_ENGINE_HOST);
+  const reordered = new ManagedTabbyRuntime(
+    { ...engine, Environment: { SECOND: '2', FIRST: '1' } }, queue, NEVER_LAUNCHING_ENGINE_HOST,
+  );
+  const different = new ManagedTabbyRuntime(
+    { ...engine, PythonPath: `${engine.PythonPath}.different` }, queue, NEVER_LAUNCHING_ENGINE_HOST,
+  );
   assert.equal(first.getPresetResidencyKey(preset), reordered.getPresetResidencyKey(preset));
   const overridden = new ManagedTabbyRuntime({
     ...engine, Environment: { ...engine.Environment, TABBY_MODEL_MAX_SEQ_LEN: 'ignored' },
-  }, queue);
+  }, queue, NEVER_LAUNCHING_ENGINE_HOST);
   assert.equal(first.getPresetResidencyKey(preset), overridden.getPresetResidencyKey(preset));
   assert.notEqual(first.getPresetResidencyKey(preset), different.getPresetResidencyKey(preset));
   const external = { ...preset, ExternalServerEnabled: true };
@@ -99,7 +106,7 @@ test('Tabby residency normalizes the endpoint the HTTP client actually uses', ()
   const [source] = config.Server.ModelPresets.Presets;
   assert.ok(source);
   const preset = { ...source, VisionEnabled: false, VisionOffload: false, SpeculativeEnabled: false };
-  const runtime = new ManagedTabbyRuntime(config.Server.Engines.Exl3, new InferenceRunFlushQueue());
+  const runtime = new ManagedTabbyRuntime(config.Server.Engines.Exl3, new InferenceRunFlushQueue(), NEVER_LAUNCHING_ENGINE_HOST);
   assert.equal(
     runtime.getPresetResidencyKey({ ...preset, BaseUrl: 'HTTP://EXAMPLE.invalid:80/ignored?unused=1#fragment' }),
     runtime.getPresetResidencyKey({ ...preset, BaseUrl: 'http://example.invalid' }),

@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
@@ -28,11 +29,7 @@ import { buildScorecard } from '../src/repo-search/engine.js';
 import type { TaskEndReason } from '../src/repo-search/engine/task-loop-support.js';
 import { buildMockScorecard } from './_test-helpers.js';
 
-const TEMP_ROOT = join(
-  process.cwd(),
-  '.tmp',
-  `repo-agent-run-store-tests-${process.pid}`,
-);
+const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-run-store-tests-${process.pid}`);
 
 before(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });

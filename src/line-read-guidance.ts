@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { getRuntimeDatabase, runtimeDatabaseExists } from './state/runtime-db.js';
 import Database from 'better-sqlite3';
 
 import type { SiftConfig } from './config/index.js';
@@ -208,18 +208,12 @@ function readLatestSnapshotToolStatsFromDatabase(database: DatabaseInstance): Re
 export function readLatestIdleSummaryToolStats(
   snapshotPath: string = getIdleSummarySnapshotsPath(),
 ): Record<string, ToolTypeStats> {
-  if (!snapshotPath || !existsSync(snapshotPath)) {
+  if (!snapshotPath || !runtimeDatabaseExists(snapshotPath)) {
     return {};
   }
-  let database: DatabaseInstance | null = null;
   try {
-    database = new Database(snapshotPath, { readonly: true });
-    return readLatestSnapshotToolStatsFromDatabase(database);
+    return readLatestSnapshotToolStatsFromDatabase(getRuntimeDatabase(snapshotPath));
   } catch {
     return {};
-  } finally {
-    if (database) {
-      database.close();
-    }
   }
 }

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
-import Database from 'better-sqlite3';
 import { z } from '../src/lib/zod.js';
 import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const TableRowSchema = z.object({ sql: z.string() });
 
@@ -32,7 +32,7 @@ test('schema 71 rejects an unexpected pre-existing chat_submissions table atomic
   closeAllRuntimeDatabases();
 
   assert.throws(() => getRuntimeDatabase(path), /chat_submissions/u);
-  const raw = new Database(path, { readonly: true });
+  const raw = openStoredRuntimeDatabase(path);
   try {
     assert.equal(z.object({ version: z.number() }).parse(raw.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, 71);
   } finally {

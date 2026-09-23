@@ -23,7 +23,7 @@ import { resolveFinalGenerationTokenLimit, resolveGenerationTokenLimit } from '.
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -128,48 +128,6 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(toolStart?.kind === 'tool_start' ? toolStart.command : null, 'web_search query="siftkit"');
   assert.match(toolResult?.kind === 'tool_result' ? toolResult.outputSnippet : '', /web result snippet|example\.com/);
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
-});
-
-test('runTaskLoop passes a mixed-quote grep regex through to rg without shell mangling', async () => {
-  const repoRoot = createTempRepoRoot();
-  fs.mkdirSync(path.join(repoRoot, 'src'));
-  fs.writeFileSync(
-    path.join(repoRoot, 'src', 'example.ts'),
-    'import { BridgeClient } from "../bridge/bridge.facade.js";\n',
-    'utf8',
-  );
-
-  const result = await runTaskLoop(
-    {
-      id: 'task-native-grep-mixed-quote',
-      question: 'Find relative imports.',
-    },
-    {
-      throughputAudit: TEST_THROUGHPUT_AUDIT_OPERATION,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
-      runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
-      repoRoot,
-      systemContext: createEmptyPresetSystemContext(),
-      config: mockOfflineSiftConfig(),
-      model: 'mock-model',
-      baseUrl: 'http://127.0.0.1:8097',
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        // The pattern carries both quote flavours; grep builds an rg argv directly,
-        // so nothing re-quotes it on the way to the process.
-        { toolCalls: [{ name: 'grep', arguments: { pattern: 'from [\'"]\\.\\./', path: 'src' } }] },
-        { content: "done" },
-        { content: '{"verdict":"pass","reason":"supported"}' },
-      ],
-    }
-  );
-
-  assert.equal(result.rejectedCalls, 0);
-  assert.equal(result.nonZeroExits, 0);
-  assert.match(result.commands[0]?.output || '', /BridgeClient/u);
-  assert.equal(result.reason, 'finish');
 });
 
 const TOKEN_BEARING_KINDS = ['llm_start', 'llm_end', 'tool_start', 'tool_result'] as const;

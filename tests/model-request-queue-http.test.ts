@@ -129,16 +129,15 @@ test('coordinator-free config update refreshes ParallelSlots admission capacity'
   try {
     const first = harness.holdModelLock('first request before config update', 400);
     await harness.waitForActiveRequests('repo_search');
-    const second = harness.holdModelLock('second queued request', 10);
+    const second = harness.holdModelLock('second queued request', 400);
     await harness.waitForQueuedRequest('repo_search');
 
+    // The saved capacity wakes admission: the queued request runs beside the first one.
     await harness.updateParallelSlots(2);
-    assert.equal((await first).statusCode, 200);
-    await harness.waitForActiveRequests('repo_search');
-
-    const third = harness.holdModelLock('third request after config update', 10);
     await harness.waitForActiveRequests('repo_search', 2);
-    for (const response of await Promise.all([second, third])) {
+    const third = harness.holdModelLock('third request after config update', 10);
+    await harness.waitForQueuedRequest('repo_search');
+    for (const response of await Promise.all([first, second, third])) {
       assert.equal(response.statusCode, 200);
     }
     await harness.waitForModelQueueIdle();

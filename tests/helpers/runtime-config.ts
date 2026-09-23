@@ -78,13 +78,14 @@ export function getTestInferenceConfig(): InferenceConfig {
   };
 }
 
+// Fictitious paths: the default suite must never read a developer's real engine or model tree.
 export function getTestExl3Engine(): Exl3EngineConfig {
   return {
     Managed: true,
-    WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-    PythonPath: 'C:\\AI\\exl3\\prod\\venv\\Scripts\\python.exe',
+    WorkingDirectory: 'Z:\\siftkit-test\\TabbyAPI',
+    PythonPath: 'Z:\\siftkit-test\\venv\\Scripts\\python.exe',
     Entrypoint: 'main.py',
-    ModelRoot: 'D:\\personal\\models\\elx3',
+    ModelRoot: 'Z:\\siftkit-test\\models',
     AdminApiKey: '',
     ShutdownTimeoutMs: 30_000,
     Environment: {},

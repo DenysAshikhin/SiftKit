@@ -84,8 +84,8 @@ export class PresetRuntimeCoordinator {
     }
     const currentConfig = readConfig(this.configPath);
     this.findPreset(currentConfig, requested.id);
-    if (this.runtime.getModelState() === 'ready'
-      && this.presetsEqual(requested, this.appliedModelPresetState.getPreset())) {
+    if (this.presetsEqual(requested, this.appliedModelPresetState.getPreset())) {
+      if (this.runtime.getModelState() !== 'ready') await this.restoreAppliedPreset(requested);
       this.publishReadyPreset(requested);
       persistAppliedModelSelection(this.configPath, currentConfig, requested);
       return;
@@ -128,17 +128,19 @@ export class PresetRuntimeCoordinator {
       if (this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) break;
       if (await this.applyPreset(configuredPreset.id) === 'queued') break;
     }
-    const preset = this.appliedModelPresetState.getPreset();
-    const runtime = this.runtime;
-    const modelState = runtime.getModelState();
-    if (modelState === 'ready') {
+    if (this.runtime.getModelState() === 'ready') {
       this.errorPhase = null;
       this.error = null;
       return;
     }
+    await this.restoreAppliedPreset(this.appliedModelPresetState.getPreset());
+  }
+
+  // Reloads the applied preset in place; nothing else was resident, so a failure has nothing to roll back to.
+  private async restoreAppliedPreset(preset: ModelRuntimePreset): Promise<void> {
     this.beginResidencyAction();
     try {
-      await runtime.ensurePresetReady(preset);
+      await this.runtime.ensurePresetReady(preset);
       this.errorPhase = null;
       this.error = null;
     } catch (error) {

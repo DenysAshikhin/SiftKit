@@ -32,20 +32,22 @@ export function getRuntimeRoot(): string {
   return getRepoRuntimeRoot();
 }
 
-/** Creates (mkdir -p) the standard runtime subdirectories and returns their paths. */
-export function initializeRuntime(): RuntimePaths {
-  const runtimeRoot = ensureDirectory(getRuntimeRoot());
-  const logs = ensureDirectory(join(runtimeRoot, 'logs'));
-  const evalRoot = ensureDirectory(join(runtimeRoot, 'eval'));
-  const evalFixtures = ensureDirectory(join(evalRoot, 'fixtures'));
-  const evalResults = ensureDirectory(join(evalRoot, 'results'));
-
+/** The standard runtime directory layout, resolved without touching the filesystem. */
+export function getRuntimePaths(): RuntimePaths {
+  const runtimeRoot = resolve(getRuntimeRoot());
   return {
     RuntimeRoot: runtimeRoot,
-    Logs: logs,
-    EvalFixtures: evalFixtures,
-    EvalResults: evalResults,
+    Logs: join(runtimeRoot, 'logs'),
+    EvalFixtures: join(runtimeRoot, 'eval', 'fixtures'),
+    EvalResults: join(runtimeRoot, 'eval', 'results'),
   };
+}
+
+/** Creates (mkdir -p) the standard runtime subdirectories and returns their paths. */
+export function initializeRuntime(): RuntimePaths {
+  const paths = getRuntimePaths();
+  for (const directory of [paths.Logs, paths.EvalFixtures, paths.EvalResults]) ensureDirectory(directory);
+  return paths;
 }
 
 // ---------- top-level ---------- //

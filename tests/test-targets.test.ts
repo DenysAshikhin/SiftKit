@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildNodeTestArgs, resolveTestTargets } from '../src/test-runner/test-targets.js';
@@ -13,7 +12,10 @@ test('resolveTestTargets maps bare test basenames into the tests directory', () 
 test('resolveTestTargets prefers one exact basename over partial matches', () => {
   const resolved = resolveTestTargets(process.cwd(), ['config.test.ts']);
 
-  assert.deepEqual(resolved, [path.join('.test-build', 'tests', 'config.test.js')]);
+  assert.deepEqual(resolved, [
+    path.join('.test-build', 'tests', 'config.test.js'),
+    path.join('.test-build', 'tests', 'process', 'config.test.js'),
+  ]);
 });
 
 test('resolveTestTargets maps bundled dashboard source tests into the compiled test directory', () => {
@@ -70,19 +72,6 @@ test('buildNodeTestArgs defaults to tests/*.test.ts when no explicit targets are
   assert.equal(args.some((value) => value.startsWith('--test-reporter')), false);
 });
 
-test('buildNodeTestArgs ignores a compiled wrapper that is absent from the validated manifest', () => {
-  const unlistedTarget = path.join('.test-build', 'tests', 'unlisted-generated.test.js');
-  fs.writeFileSync(unlistedTarget, "throw new Error('must not run');\n", 'utf8');
-  let args: string[] = [];
-  try {
-    args = buildNodeTestArgs(process.cwd(), []);
-  } finally {
-    fs.rmSync(unlistedTarget, { force: true });
-  }
-
-  assert.equal(args.includes(unlistedTarget), false);
-});
-
 test('buildNodeTestArgs adds default top-level targets when only runner options are provided', () => {
   const args = buildNodeTestArgs(process.cwd(), ['--test-concurrency=6']);
 
@@ -131,4 +120,26 @@ test('dashboard targets are deterministic and coexist with test-name-pattern', (
   assert.deepEqual(targets, [...targets].sort());
   assert.equal(args.includes('--test-name-pattern'), true);
   assert.equal(args.includes('two streams complete out of order'), true);
+});
+
+test('process option resolves every tests/process test and is not forwarded to node', () => {
+  const args = buildNodeTestArgs(process.cwd(), ['--process']);
+  const processTarget = path.join('.test-build', 'tests', 'process', 'run-tests-watchdog.test.js');
+  assert.equal(args.includes(processTarget), true);
+  assert.equal(args.includes(path.join('.test-build', 'tests', 'config.test.js')), false);
+  assert.equal(args.includes('--process'), false);
+});
+
+test('default runs exclude the opt-in process suite', () => {
+  const args = buildNodeTestArgs(process.cwd(), []);
+  assert.equal(args.some((value) => value.startsWith(path.join('.test-build', 'tests', 'process') + path.sep)), false);
+  assert.equal(args.includes(path.join('.test-build', 'tests', 'config.test.js')), true);
+});
+
+test('a basename shared by the default and process suites resolves to both files', () => {
+  const resolved = resolveTestTargets(process.cwd(), ['runtime-status-server.test.ts']);
+  assert.deepEqual(resolved, [
+    path.join('.test-build', 'tests', 'process', 'runtime-status-server.test.js'),
+    path.join('.test-build', 'tests', 'runtime-status-server.test.js'),
+  ]);
 });

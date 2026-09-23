@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
@@ -19,14 +18,15 @@ import {
   readIdleSummarySnapshots,
   getIdleSummaryBlock,
   acquireChildPortLease,
-  installProbeShim,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
   waitForAsyncExpectation,
   postCompletedStatus,
   type RuntimeStatusResponse,
   type InferenceModelsResponse,
 } from './_runtime-helpers.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
+import { runtimeDatabaseExists } from '../src/state/runtime-db.js';
 
 test('real status server prints one idle metrics line only after the full idle delay', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -86,7 +86,7 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(finalStatus.running, false);
       assert.equal(finalStatus.status, 'false');
 
-      assert.equal(fs.existsSync(idleSummaryDbPath), true);
+      assert.equal(runtimeDatabaseExists(idleSummaryDbPath), true);
       const rows = readIdleSummarySnapshots(idleSummaryDbPath);
       assert.equal(rows.length, 1);
       assert.match(rows[0].emitted_at_utc, /^\d{4}-\d{2}-\d{2}T/u);
@@ -125,7 +125,7 @@ test('real status server leaves the managed engine running after the idle summar
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
@@ -167,7 +167,7 @@ test('real status server leaves the managed engine running after the idle summar
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
       });
     } finally {
       capture.restore();
@@ -196,11 +196,10 @@ test('real status server close() stops the managed engine', async () => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
-    const restoreProbeShim = installProbeShim(managed.probeShimPath);
 
     process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
     process.env.SIFTKIT_STATUS_PORT = '0';
@@ -208,7 +207,7 @@ test('real status server close() stops the managed engine', async () => {
     process.env.SIFTKIT_STATUS_PATH = statusPath;
     process.env.SIFTKIT_CONFIG_PATH = configPath;
 
-    const server = startStatusServer();
+    const server = startStatusServer({ managedEngineHost: managed.host, gpuMemoryProbe: new FixedGpuMemoryProbe(null) });
     try {
       const address = await new Promise<AddressInfo | string | null>((resolve) => {
         if (server.listening) {
@@ -232,7 +231,6 @@ test('real status server close() stops the managed engine', async () => {
       }, 5000);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      restoreProbeShim();
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {
           delete process.env[key];

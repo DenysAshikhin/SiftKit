@@ -92,6 +92,9 @@ import type { IdleSummarySnapshot } from './idle-summary.js';
 import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.js';
 import { AssistantService } from '../assistant/assistant-service.js';
 import { SystemClock } from '../assistant/clock.js';
+import { DpapiDataProtector } from '../assistant/crypto/dpapi.js';
+import { NvidiaSmiGpuMemoryProbe } from './gpu-memory.js';
+import { createSystemManagedEngineHost } from './engine-process.js';
 import { RandomIdGenerator } from '../assistant/ids.js';
 import { DefaultAssistantInferenceClient } from '../assistant/inference/client.js';
 import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
@@ -258,6 +261,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
     inferenceRunFlushQueue,
+    options.managedEngineHost ?? createSystemManagedEngineHost(),
   );
   const ctx: ServerContext = {
     configPath,
@@ -266,6 +270,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     idleSummarySnapshotsPath,
     disableManagedEngineStartup,
     engineService,
+    gpuMemoryProbe: options.gpuMemoryProbe ?? new NvidiaSmiGpuMemoryProbe(),
     repoAgentRunStore,
     repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     runtimeDatabasePath,
@@ -321,7 +326,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       },
       timer: null,
       pending: false,
-      database: null,
     },
     engineBootstrap: { inProgress: false, warning: null },
     inferenceRunLogCleanupTimer: null,
@@ -396,6 +400,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         ),
         config: initialConfig.Assistant,
         configWriter: new StatusServerAssistantConfigWriter(configPath),
+        dataProtector: options.dataProtector ?? new DpapiDataProtector(),
         imageCapability: new ManagedRuntimeImageCapabilityProvider(
           presetRuntimeCoordinator, ctx.appliedModelPresetState,
         ),
@@ -574,13 +579,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       // the database it closes below through the very path it was closed with, and writes into it.
       clearIdleSummaryTimer(ctx);
       try { await ctx.inferenceRunFlushQueue.close(); }
-      catch (error) { cleanupFailures.push(toError(error)); }
-      try {
-        if (ctx.idleSummary.database) {
-          ctx.idleSummary.database.close();
-          ctx.idleSummary.database = null;
-        }
-      }
       catch (error) { cleanupFailures.push(toError(error)); }
       try { ctx.chatRuntimeOwner.release(); }
       catch (error) { cleanupFailures.push(toError(error)); }

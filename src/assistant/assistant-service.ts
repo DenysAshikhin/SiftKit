@@ -23,6 +23,7 @@ import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
 import type { Clock } from './clock.js';
 import { AssistantConflictError, AssistantNotFoundError } from './errors.js';
+import type { DataProtector } from './crypto/dpapi.js';
 import { ImportedKeyProvider } from './crypto/imported-key-provider.js';
 import {
   CustodyDelegatingKeyProvider, KeyCustodyService, type AssistantCustodyConfigPort,
@@ -134,6 +135,8 @@ export interface AssistantServiceOptions {
   readonly residencyGate: ModelResidencyGate;
   readonly config: AssistantConfig;
   readonly configWriter: AssistantConfigWriter;
+  /** Seals the evidence key inside backups; DPAPI in production. */
+  readonly dataProtector: DataProtector;
   /** Absent in headless composition (CLI, tests): no runtime means no image analysis. */
   readonly imageCapability?: AssistantImageCapabilityProvider;
 }
@@ -292,6 +295,7 @@ export class AssistantService implements AssistantRuntime {
       graph: this.graph,
       database: options.database,
       keyCustody: this.keyCustody,
+      dataProtector: options.dataProtector,
     });
     const deletionPreviews = new DeletionPreviewService(this.graph, options.database);
     this.memoryMutations = new MemoryMutationService({
@@ -311,6 +315,7 @@ export class AssistantService implements AssistantRuntime {
       graph: this.graph,
       database: options.database,
       keyCustody: this.keyCustody,
+      dataProtector: options.dataProtector,
     });
     this.questionFeedback = new QuestionFeedbackService(
       this.graph,

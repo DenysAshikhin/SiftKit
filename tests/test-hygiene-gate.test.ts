@@ -42,7 +42,7 @@ test('hygiene: no test file disables type checking', () => {
 test('hygiene: no test creates a temp directory outside the managed registry', () => {
   const allowed = new Set([
     path.join(TESTS_DIR, 'helpers', 'temp-dirs.ts'),
-    path.join(TESTS_DIR, 'temp-dirs.test.ts'),
+    path.join(TESTS_DIR, 'process', 'temp-dirs.test.ts'),
   ]);
   const offenders = filesMatching(new RegExp('mkdtemp' + 'Sync')).filter(
     (file) => !allowed.has(file),

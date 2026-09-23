@@ -19,8 +19,6 @@ const MIB = 1_048_576;
 /** Long enough that a re-render storm cannot spawn a process per frame, short enough to stay live. */
 const GPU_MEMORY_CACHE_MS = 2_000;
 
-let cached: { at: number; value: GpuMemory | null } | null = null;
-
 export function parseNvidiaSmiMemory(stdout: string): GpuMemory | null {
   const [firstLine] = String(stdout || '').trim().split('\n');
   if (!firstLine) return null;
@@ -39,33 +37,36 @@ export function parseNvidiaSmiMemory(stdout: string): GpuMemory | null {
  * non-CUDA backend. **Null means "skip every headroom check", never "warn".** Guessing wrong in
  * the warning direction trains users to ignore the warnings that matter.
  */
-export async function readGpuMemory(): Promise<GpuMemory | null> {
-  if (cached && Date.now() - cached.at < GPU_MEMORY_CACHE_MS) {
-    return cached.value;
-  }
-  let value: GpuMemory | null = null;
-  try {
-    const result = await spawnDirectCommand('nvidia-smi', [
-      '--query-gpu=memory.total,memory.used,memory.free',
-      '--format=csv,noheader,nounits',
-    ]);
-    value = result.exitCode === 0 ? parseNvidiaSmiMemory(result.stdout) : null;
-  } catch {
-    value = null;
-  }
-  if (value === null) {
-    serverLogger.debug({
-      scope: 'gpu',
-      id: 'memory',
-      event: 'unavailable',
-      fields: 'nvidia-smi_absent_or_unparseable',
-    });
-  }
-  cached = { at: Date.now(), value };
-  return value;
+export interface GpuMemoryProbe {
+  read(): Promise<GpuMemory | null>;
 }
 
-/** Test seam. */
-export function clearGpuMemoryCache(): void {
-  cached = null;
+export class NvidiaSmiGpuMemoryProbe implements GpuMemoryProbe {
+  private cached: { at: number; value: GpuMemory | null } | null = null;
+
+  async read(): Promise<GpuMemory | null> {
+    if (this.cached && Date.now() - this.cached.at < GPU_MEMORY_CACHE_MS) {
+      return this.cached.value;
+    }
+    let value: GpuMemory | null = null;
+    try {
+      const result = await spawnDirectCommand('nvidia-smi', [
+        '--query-gpu=memory.total,memory.used,memory.free',
+        '--format=csv,noheader,nounits',
+      ]);
+      value = result.exitCode === 0 ? parseNvidiaSmiMemory(result.stdout) : null;
+    } catch {
+      value = null;
+    }
+    if (value === null) {
+      serverLogger.debug({
+        scope: 'gpu',
+        id: 'memory',
+        event: 'unavailable',
+        fields: 'nvidia-smi_absent_or_unparseable',
+      });
+    }
+    this.cached = { at: Date.now(), value };
+    return value;
+  }
 }

@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readChatHistoryArchive, reconstructChatArchiveContext } from '../src/status-server/chat-history-archive.js';
 import type { JsonObject } from '../src/lib/json-types.js';
-import { createChatHistoryArchiveFixture } from './helpers/chat-history-archive-fixture.js';
+import { chatArchiveSource, createChatHistoryArchiveFixture, repairInput, seedRepairArchive } from './helpers/chat-history-archive-fixture.js';
 import { linkChatArchiveContext, projectChatHistoryArchive } from '../src/status-server/chat-history-archive-projection.js';
-import { applyChatHistoryRepair, prepareChatHistoryRepair, ChatHistoryRepairReportSchema, type ChatHistoryRepairInputSchema } from '../src/status-server/chat-history-repair.js';
-import { z } from '../src/lib/zod.js';
+import { applyChatHistoryRepair, prepareChatHistoryRepair } from '../src/status-server/chat-history-repair.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { createTestChatSession } from './helpers/chat-sessions.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -15,10 +14,6 @@ import { ChatJournalStore } from '../src/state/chat-journal.js';
 import { buildRecoveredChatHistory } from '../src/status-server/chat-context-replay.js';
 import { join } from 'node:path';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
-import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 
 const at = '2026-09-10T11:00:00.000Z';
 function archive(extra: readonly JsonObject[] = []) {
@@ -29,39 +24,35 @@ function archive(extra: readonly JsonObject[] = []) {
     ...extra,
   ].map(event => JSON.stringify({ at, ...event })).join('\n');
 }
-function source(text: string, sourceId = 'artifact') {
-  return { sourceKind: 'runtime_artifact' as const, sourceId, text };
-}
-
 test('archive import compares every exact source and counts matching copies once', () => {
   const text = archive();
-  const result = readChatHistoryArchive('request', [source(text), { sourceKind: 'run_log', sourceId: 'archive', text }]);
+  const result = readChatHistoryArchive('request', [chatArchiveSource(text), { sourceKind: 'run_log', sourceId: 'archive', text }]);
   assert.equal(result.modelTurns, 1);
   assert.equal(result.sources.length, 2);
   assert.equal(result.completedToolResults, 0);
 });
 
 test('archive import rejects conflicting copies instead of preferring the live artifact', () => {
-  assert.throws(() => readChatHistoryArchive('request', [source(archive()), source(archive().replace('Inspecting.', 'Changed.'), 'other')]), /conflicting/iu);
+  assert.throws(() => readChatHistoryArchive('request', [chatArchiveSource(archive()), chatArchiveSource(archive().replace('Inspecting.', 'Changed.'), 'other')]), /conflicting/iu);
 });
 
 test('archive import rejects malformed and unrecognized events instead of dropping evidence', () => {
   for (const line of ['null', '{}', '{', JSON.stringify({ at, kind: 'new_context_replacement' })]) {
-    assert.throws(() => readChatHistoryArchive('request', [source(`${archive()}\n${line}`)]), /line/iu);
+    assert.throws(() => readChatHistoryArchive('request', [chatArchiveSource(`${archive()}\n${line}`)]), /line/iu);
   }
 });
 
 test('archive import rejects a turn gap and malformed native context', () => {
-  assert.throws(() => readChatHistoryArchive('request', [source(archive([
+  assert.throws(() => readChatHistoryArchive('request', [chatArchiveSource(archive([
     { kind: 'turn_new_messages', turn: 3, messages: [] },
   ]))]), /turn/iu);
-  assert.throws(() => readChatHistoryArchive('request', [source(archive([
+  assert.throws(() => readChatHistoryArchive('request', [chatArchiveSource(archive([
     { kind: 'turn_new_messages', turn: 2, messages: [{ role: 'invalid', content: 'no' }] },
   ]))]), /line/iu);
 });
 
 test('archive import counts a durable rejection as a result without claiming execution', () => {
-  const result = readChatHistoryArchive('request', [source(archive([
+  const result = readChatHistoryArchive('request', [chatArchiveSource(archive([
     { kind: 'turn_command_start', turn: 1, toolCallId: 'tc_0', toolName: 'run', commandToRun: 'echo fixture' },
     { kind: 'turn_command_result', turn: 1, toolCallId: 'tc_0', toolName: 'run', command: 'echo fixture',
       exitCode: null, output: 'Duplicate rejected.', rejectionKind: 'duplicate', rejectionReason: 'already run' },
@@ -70,7 +61,7 @@ test('archive import counts a durable rejection as a result without claiming exe
 });
 
 test('historical native replay preserves parallel tool grouping and full outputs', () => {
-  const parsed = readChatHistoryArchive('request', [source(archive([
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(archive([
     { kind: 'turn_new_messages', turn: 2, messages: [
       { role: 'assistant', content: 'Inspecting.', tool_calls: [
         { id: 'native-a', type: 'function', function: { name: 'read', arguments: '{"path":"a"}' } },
@@ -90,7 +81,7 @@ test('historical native replay preserves parallel tool grouping and full outputs
 });
 
 test('historical compaction replaces context with the logged summary and retained tail', () => {
-  const parsed = readChatHistoryArchive('request', [source(archive([
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(archive([
     { kind: 'turn_preflight_compaction_applied', turn: 2, droppedMessageCount: 1 },
     { kind: 'turn_new_messages', turn: 2, messages: [
       { role: 'system', content: 'fixture policy' },
@@ -106,7 +97,7 @@ test('historical compaction replaces context with the logged summary and retaine
 
 test('sanitized incident reconstructs 103 turns, 116 outcomes, steering, and compaction', () => {
   const fixture = createChatHistoryArchiveFixture();
-  const parsed = readChatHistoryArchive('request', [source(fixture.text)]);
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(fixture.text)]);
   const context = reconstructChatArchiveContext(parsed);
   assert.equal(parsed.modelTurns, 103);
   assert.equal(parsed.completedToolResults, 116);
@@ -120,7 +111,7 @@ test('sanitized incident reconstructs 103 turns, 116 outcomes, steering, and com
 
 test('archive projection preserves full outcomes, turn-41 identity, reasoning policy, and final partial text', () => {
   const fixture = createChatHistoryArchiveFixture();
-  const parsed = readChatHistoryArchive('request', [source(fixture.text)]);
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(fixture.text)]);
   const projected = projectChatHistoryArchive(parsed, { requestId: 'request', maxTurns: 200, includeThinking: false });
   const tools = projected.messages.filter(message => message.kind === 'assistant_tool_call');
   assert.equal(tools.length, 116);
@@ -135,7 +126,7 @@ test('archive projection preserves full outcomes, turn-41 identity, reasoning po
 
 test('retained native messages link to exact display IDs for deletion and enforce reasoning policy', () => {
   const fixture = createChatHistoryArchiveFixture();
-  const parsed = readChatHistoryArchive('request', [source(fixture.text)]);
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(fixture.text)]);
   const linked = linkChatArchiveContext(parsed, { requestId: 'request', includeThinking: false });
   assert.equal(linked.messages.some(message => message.reasoning_content !== undefined), false);
   assert.ok(linked.messages.filter(message => message.role === 'tool').every(message => message.chatMessageId?.startsWith('stopped-request-tool-tc_')));
@@ -144,7 +135,7 @@ test('retained native messages link to exact display IDs for deletion and enforc
 
 test('native-to-display binding rejects an output mismatch instead of pairing by rendered commands', () => {
   const fixture = createChatHistoryArchiveFixture();
-  const parsed = readChatHistoryArchive('request', [source(fixture.text)]);
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(fixture.text)]);
   const context = parsed.events.find(entry => entry.kind === 'turn_new_messages' && entry.event.turn === 103);
   assert.ok(context);
   context.event.messages = [{ role: 'assistant', content: 'Fixture turn 102.', tool_calls: [
@@ -155,31 +146,12 @@ test('native-to-display binding rejects an output mismatch instead of pairing by
 
 test('native batch identity uses its logged turn boundary even when two calls return identical output', () => {
   const fixture = createChatHistoryArchiveFixture({ repeatedOutcomes: true });
-  const parsed = readChatHistoryArchive('request', [source(fixture.text)]);
+  const parsed = readChatHistoryArchive('request', [chatArchiveSource(fixture.text)]);
   const linked = linkChatArchiveContext(parsed, { requestId: 'request', includeThinking: false });
   const repeated = linked.messages.filter(message => message.role === 'tool' && message.content === 'Identical successful result.');
   assert.equal(repeated.length, 2);
   assert.equal(new Set(repeated.map(message => message.chatMessageId)).size, 2);
 });
-
-function repairInput(): z.input<typeof ChatHistoryRepairInputSchema> {
-  const fixture = createChatHistoryArchiveFixture();
-  const runId = '074bbeb7-1111-4111-8111-111111111111';
-  return { sessionId: 'session', requestId: 'request', sources: [source(fixture.text)], savedMessages: [],
-    includeThinking: true, maxTurns: 200,
-    request: { runId, task: 'Inspect fixture safely.', repoRoot: 'C:\\fixture', approval: 'auto', images: [] },
-    state: { runId, revision: 3, updatedAtUtc: '2026-09-10T12:20:00.000Z', status: 'approval_timeout', pid: 123,
-      approval: { approvalId: 'e08682f5-1111-4111-8111-111111111111', toolName: 'run', command: 'Remove-Item fixture.tmp', reviewPayload: null } },
-  };
-}
-
-function seedRepairArchive(database: ReturnType<typeof getRuntimeDatabase>) {
-  const input = repairInput();
-  for (const archive of input.sources) database.prepare(`INSERT INTO runtime_artifacts
-    (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
-    VALUES (?, 'repo_search_transcript', ?, 'fixture', ?, NULL, ?, ?)`)
-    .run(archive.sourceId, input.requestId, archive.text, at, at);
-}
 
 test('repair report keeps a timed-out proposal separate from all 116 recorded outcomes', () => {
   const prepared = prepareChatHistoryRepair(repairInput());
@@ -267,90 +239,4 @@ test('repair refuses source text changed since the reviewed plan even if display
   assert.throws(() => applyChatHistoryRepair(database, prepared, prepared.report.expectedDigest, owner), /source.*digest/iu);
   assert.equal(new ChatJournalStore(database).listSessionRuns('session').length, 0);
   owner.release();
-});
-
-test('recovery command defaults to dry-run and leaves its source database unchanged', () => {
-  const root = createManagedTempDir('chat-recovery-command-');
-  const databasePath = join(root, 'runtime.sqlite');
-  saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const database = getRuntimeDatabase(databasePath);
-  seedRepairArchive(database);
-  const input = repairInput();
-  const statePath = join(root, 'state.json');
-  writeFileSync(statePath, JSON.stringify(input.state));
-  writeFileSync(join(root, 'request.json'), JSON.stringify(input.request));
-  closeAllRuntimeDatabases();
-  const result = spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/recover-web-chat.ts'),
-    '--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', statePath, '--max-turns', '200'],
-  { encoding: 'utf8', timeout: 30_000 });
-  assert.equal(result.status, 0, result.stderr);
-  const report = ChatHistoryRepairReportSchema.extend({ mode: z.literal('dry-run') }).parse(JSON.parse(result.stdout));
-  assert.equal(report.mode, 'dry-run');
-  assert.equal(report.completedToolResults, 116);
-  const reopened = getRuntimeDatabase(databasePath);
-  assert.equal(new ChatJournalStore(reopened).listSessionRuns('session').length, 0);
-  assert.equal(readChatSessionFromDatabase(reopened, 'session')?.messages?.length, 0);
-});
-
-function runRecoveryCommand(args: string[]) {
-  return spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/recover-web-chat.ts'), ...args], { encoding: 'utf8', timeout: 60_000 });
-}
-
-test('recovery command applies once under a verified backup, repeats as a no-op, and refuses stale or incomplete input', () => {
-  const root = createManagedTempDir('chat-recovery-command-apply-');
-  const databasePath = join(root, 'runtime.sqlite');
-  saveChatSession(root, { ...createTestChatSession(root), id: 'session' });
-  const database = getRuntimeDatabase(databasePath);
-  seedRepairArchive(database);
-  const input = repairInput();
-  const statePath = join(root, 'state.json');
-  writeFileSync(statePath, JSON.stringify(input.state));
-  writeFileSync(join(root, 'request.json'), JSON.stringify(input.request));
-  closeAllRuntimeDatabases();
-  const target = ['--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', statePath, '--max-turns', '200'];
-  const dryRun = runRecoveryCommand(target);
-  assert.equal(dryRun.status, 0, dryRun.stderr);
-  const plan = ChatHistoryRepairReportSchema.extend({ mode: z.literal('dry-run') }).parse(JSON.parse(dryRun.stdout));
-
-  const backupPath = join(root, 'backups', 'before-repair.sqlite');
-  const missingBackup = runRecoveryCommand([...target, '--apply', '--expected-digest', plan.expectedDigest]);
-  assert.equal(missingBackup.status, 1);
-  assert.match(missingBackup.stderr, /backup/iu);
-  const staleDigest = runRecoveryCommand([...target, '--apply', '--expected-digest', '0'.repeat(64), '--backup', backupPath]);
-  assert.equal(staleDigest.status, 1);
-  assert.match(staleDigest.stderr, /digest/iu);
-  assert.equal(existsSync(backupPath), false, 'a refused apply must not leave a backup behind');
-  assert.equal(new ChatJournalStore(getRuntimeDatabase(databasePath)).listSessionRuns('session').length, 0);
-  closeAllRuntimeDatabases();
-
-  const applied = runRecoveryCommand([...target, '--apply', '--expected-digest', plan.expectedDigest, '--backup', backupPath]);
-  assert.equal(applied.status, 0, applied.stderr);
-  const appliedReport = ChatHistoryRepairReportSchema.extend({ mode: z.literal('apply'), changed: z.boolean(), backupPath: z.string() }).parse(JSON.parse(applied.stdout));
-  assert.equal(appliedReport.changed, true);
-  assert.equal(appliedReport.executedToolsDuringImport, 0);
-  assert.equal(existsSync(backupPath), true);
-  const backup = getRuntimeDatabase(backupPath);
-  assert.equal(new ChatJournalStore(backup).listSessionRuns('session').length, 0, 'the backup captures the pre-repair state');
-  closeAllRuntimeDatabases();
-  const repaired = getRuntimeDatabase(databasePath);
-  assert.equal(new ChatJournalStore(repaired).listSessionRuns('session').length, 1);
-  const messageCount = readChatSessionFromDatabase(repaired, 'session')?.messages?.length ?? 0;
-  assert.ok(messageCount > 0);
-  closeAllRuntimeDatabases();
-
-  const repeated = runRecoveryCommand([...target, '--apply', '--expected-digest', plan.expectedDigest, '--backup', join(root, 'backups', 'second.sqlite')]);
-  assert.equal(repeated.status, 0, repeated.stderr);
-  const repeatReport = z.object({ mode: z.literal('apply'), alreadyApplied: z.literal(true), changed: z.literal(false), messages: z.number() }).parse(JSON.parse(repeated.stdout));
-  assert.equal(repeatReport.messages, messageCount);
-  assert.equal(existsSync(join(root, 'backups', 'second.sqlite')), false, 'a no-op repeat takes no backup');
-  const reopened = getRuntimeDatabase(databasePath);
-  assert.equal(new ChatJournalStore(reopened).listSessionRuns('session').length, 1);
-  assert.equal(readChatSessionFromDatabase(reopened, 'session')?.messages?.length, messageCount);
-  closeAllRuntimeDatabases();
-
-  const missingState = runRecoveryCommand(['--database', databasePath, '--session-id', 'session', '--request-id', 'request', '--repo-agent-state', join(root, 'absent.json')]);
-  assert.equal(missingState.status, 1);
-  const wrongSession = runRecoveryCommand([...target.slice(0, 2), '--session-id', 'absent', ...target.slice(4)]);
-  assert.equal(wrongSession.status, 1);
-  assert.match(wrongSession.stderr, /session/iu);
 });

@@ -21,6 +21,7 @@ import {
 } from './helpers/mobile-envelope.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 function verifierFor(context: AssistantTestContext): EnvelopeVerifier {
   return new EnvelopeVerifier(context.graph.devices);
@@ -127,6 +128,7 @@ function buildService(): AssistantService {
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

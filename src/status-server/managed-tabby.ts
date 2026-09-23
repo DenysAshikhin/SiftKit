@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
@@ -9,7 +8,7 @@ import {
 import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
-import { terminateProcessTree } from '../lib/process-tree.js';
+import type { EngineProcess, ManagedEngineHost } from './engine-process.js';
 import { TabbyModelClient } from './tabby-model-client.js';
 import { TabbyRunRecorder } from './tabby-run-recorder.js';
 
@@ -24,7 +23,7 @@ function getBaseUrl(preset: ModelRuntimePreset): string {
 }
 
 export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
-  private child: ChildProcess | null = null;
+  private child: EngineProcess | null = null;
   private stopping = false;
   private startupError: Error | null = null;
   private recorder: TabbyRunRecorder | null = null;
@@ -35,15 +34,17 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private residentResidencyKey: string | null = null;
   private loadPromise: Promise<void> | null = null;
   private readonly adapter: Exl3PresetAdapter;
+  private readonly capabilities: Exl3ModelCapabilities;
 
   constructor(
     private readonly engine: Exl3EngineConfig,
     private readonly flushQueue: InferenceRunFlushQueue,
-    private readonly capabilities = new Exl3ModelCapabilities(),
+    private readonly host: ManagedEngineHost,
     private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
     this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
+    this.capabilities = new Exl3ModelCapabilities(host.packageLocator);
   }
 
   private async startProcess(
@@ -146,7 +147,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
     this.stopping = true;
     this.transitionProcessTo('stopping');
-    if (child.pid) terminateProcessTree(child.pid);
+    this.host.launcher.terminate(child);
     const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
     while (child.exitCode === null && Date.now() < deadline) await delay(25);
     if (child.exitCode === null) {
@@ -167,7 +168,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   stopForProcessExitSync(): void {
     const child = this.child;
     this.stopping = true;
-    if (child?.pid && child.exitCode === null) terminateProcessTree(child.pid);
+    if (child && child.exitCode === null) this.host.launcher.terminate(child);
     this.child = null;
     this.recorder = null;
     this.processBaseUrl = null;
@@ -211,12 +212,11 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     recorder.enableFlushQueue();
     this.recorder = recorder;
     const launch = this.getEngineIdentity(launchEnvironment);
-    const child = spawn(launch.pythonPath, [launch.entrypoint], {
-      cwd: launch.workingDirectory,
-      env: { ...process.env, ...launch.environment },
-      shell: false,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const child = this.host.launcher.launch({
+      command: launch.pythonPath,
+      args: [launch.entrypoint],
+      workingDirectory: launch.workingDirectory,
+      environment: { ...process.env, ...launch.environment },
     });
     this.child = child;
     recorder.attachEngineStdout(child.stdout);

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import test from 'node:test';
 
 import { z } from '../src/lib/zod.js';
@@ -11,6 +10,7 @@ import { CHAT_JOURNAL_EVENT_VERSION } from '../src/state/chat-journal-schema.js'
 import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
 import type { RuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 const AT = '2026-09-17T13:35:02.574Z';
 const OPERATION_ID = '93713285-9e64-4beb-afcb-a24c6a3aedba';
@@ -90,13 +90,10 @@ test('a progress row that fits neither shape rolls the marker-73 upgrade back wi
   const dbPath = seedMarker73('siftkit-runtime-schema-upgrade-73-invalid-', rows);
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /invalid progress payload/u);
-    const raw = new Database(dbPath);
-    try {
+    withRuntimeDatabaseConnection(dbPath, (raw) => {
       assert.equal(z.object({ version: z.number() }).parse(raw.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, 73);
       assert.deepEqual(EventRowsSchema.parse(raw.prepare(SELECT_ROWS).all()), rows);
-    } finally {
-      raw.close();
-    }
+    });
   } finally {
     closeAllRuntimeDatabases();
   }

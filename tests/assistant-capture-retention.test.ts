@@ -20,6 +20,7 @@ import {
 } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 const BYTES_PER_GB = 1024 ** 3;
 
@@ -261,6 +262,7 @@ function buildService(runtimeRoot: string, clock: FixedClock, observation: Assis
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

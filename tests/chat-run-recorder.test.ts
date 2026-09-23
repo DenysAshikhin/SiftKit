@@ -3,18 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { Worker } from 'node:worker_threads';
-import Database from 'better-sqlite3';
 
 import { ChatJournalStore } from '../src/state/chat-journal.js';
-import type { ChatJournalEnvelope } from '../src/state/chat-journal-schema.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { ChatRuntimeOwner } from '../src/state/chat-runtime-owner.js';
 import { reconcileChatRun } from '../src/status-server/chat-run-projection.js';
-import { readChatRunMessages, saveChatSession } from '../src/state/chat-sessions.js';
+import { readChatRunMessages } from '../src/state/chat-sessions.js';
 import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { buildChatAnswerCompletion, ChatRunRecorder } from '../src/status-server/chat-run-recorder.js';
-import type { RuntimeDatabase } from '../src/state/database-handle.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
 import type { AgentLoopToolAction } from '../src/agent-loop/types.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
@@ -29,17 +25,13 @@ import { mockModelPreset } from './helpers/mock-config.js';
 import { ChatMessageQueueStore } from '../src/state/chat-message-queue.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
-import { createInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 import { buildMockScorecard, TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
 import type { InferenceThroughput } from '@siftkit/contracts';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { buildChatSessionThroughput } from '../src/status-server/chat-turn-telemetry.js';
-
-const SESSION_ID = 'recorder-session';
-const OWNER_EPOCH = 'owner-a:1';
-const AT = '2026-09-10T11:04:54.755Z';
+import { openSessionDatabase, beginRecorder, readAll, AT, SESSION_ID, OWNER_EPOCH, SETTINGS } from './helpers/chat-run-recorder-fixtures.js';
 
 function measuredThroughput(tabbyDecodeTokens = 28_036): InferenceThroughput {
   return {
@@ -131,54 +123,6 @@ test('chat session throughput merges only measured assistant answer folds', () =
   assert.equal(session.rates.generationTokensPerSecond, 28_236 / 1_209.48);
 });
 
-const SETTINGS = {
-  operationKind: 'repo-agent',
-  mode: 'repo-search',
-  presetId: 'repo-agent',
-  modelPresetId: 'preset-a',
-  model: 'model-a',
-  repoRoot: 'C:/repo',
-  approval: 'interactive',
-  maxTurns: 120,
-  thinkingEnabled: true,
-  webSearchEnabled: false,
-  contextWindowTokens: 4096,
-} as const;
-
-function openSessionDatabase(prefix: string): { database: RuntimeDatabase; databasePath: string } {
-  const runtimeRoot = createManagedTempDir(prefix);
-  saveChatSession(runtimeRoot, {
-    id: SESSION_ID,
-    title: 'Recorder session',
-    modelPresetId: 'preset-a',
-    modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
-    presetId: 'repo-agent',
-    mode: 'repo-search',
-    planRepoRoot: 'C:/repo',
-    createdAtUtc: AT,
-    updatedAtUtc: AT,
-    messages: [],
-  });
-  const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
-  return { database: getRuntimeDatabase(databasePath), databasePath };
-}
-
-function beginRecorder(databasePath: string, operationId = randomUUID()): ChatRunRecorder {
-  return ChatRunRecorder.begin(getRuntimeDatabase(databasePath), {
-    operationId,
-    sessionId: SESSION_ID,
-    ownerEpoch: OWNER_EPOCH,
-    operationKind: 'repo-agent',
-    userMessageId: 'user-1',
-    content: 'delete the dead physics module',
-    images: [],
-    imageMeta: [],
-    settings: SETTINGS,
-    retainedHistoryRevision: 0,
-    startedAtUtc: AT,
-  });
-}
-
 for (const resumed of [false, true]) test(`late context initialization prevents submission cancellation (resumed=${resumed})`, () => {
   const { databasePath, database } = openSessionDatabase('chat-recorder-dispatched-');
   let recorder = beginRecorder(databasePath);
@@ -223,10 +167,6 @@ function call(indexInBatch: number, toolCallId: string) {
     turn: 1,
     indexInBatch,
   };
-}
-
-function readAll(database: RuntimeDatabase, operationId: string): ChatJournalEnvelope[] {
-  return new ChatJournalStore(database).readAfter(operationId, 0, 500);
 }
 
 test('an asynchronous storage failure blocks later tool evidence while allowing its terminal outcome', () => {
@@ -633,111 +573,6 @@ test('an automatic reviewer verdict is committed as evidence and projects no dis
   const report = reconcileChatRun(database, recorder.operationId);
   assert.equal(report.status, 'ok');
   assert.deepEqual(readChatRunMessages(database, SESSION_ID, recorder.operationId).map(message => message.kind), ['user_text', 'assistant_tool_call']);
-});
-
-/** The flush worker's write as a second connection: its own handle, its own short busy wait. */
-function openLogWriter(databasePath: string): { write(runId: string, text: string): void; close(): void } {
-  const connection = new Database(databasePath);
-  connection.exec('PRAGMA busy_timeout = 1;');
-  const insert = connection.prepare(`
-    INSERT INTO inference_run_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
-    VALUES (?, 'launcher_stdout', (SELECT COALESCE(MAX(sequence), -1) + 1 FROM inference_run_log_chunks WHERE run_id = ?), ?, ?)
-  `);
-  return {
-    write: (runId, text) => { connection.transaction(() => { insert.run(runId, runId, text, AT); }).immediate(); },
-    close: () => connection.close(),
-  };
-}
-
-// Chat first. The journal reads the run row and then inserts; a log batch that lands between the
-// two would invalidate a deferred snapshot (SQLITE_BUSY_SNAPSHOT) after the run state was read.
-// Reserving the writer before the read makes the log writer yield instead, and its retry lands once.
-test('the journal reserves the writer before reading, so a competing log write yields and retries once', (t) => {
-  const { database, databasePath } = openSessionDatabase('chat-journal-writer-race-');
-  const recorder = beginRecorder(databasePath);
-  const run = createInferenceRun({ backend: 'exl3', purpose: 'startup', databasePath });
-  const logWriter = openLogWriter(databasePath);
-  const prepare = database.prepare.bind(database);
-  const competingCodes: string[] = [];
-  t.mock.method(database, 'prepare', (sql: string) => {
-    if (competingCodes.length === 0 && sql.includes('INSERT INTO chat_run_events')) {
-      try { logWriter.write(run.id, 'during\n'); competingCodes.push('committed'); } catch (error) { competingCodes.push(error instanceof Database.SqliteError ? error.code : String(error)); }
-    }
-    return prepare(sql);
-  });
-  try {
-    recorder.recordPresentation({ kind: 'warning', warning: 'status' });
-    assert.deepEqual(competingCodes, ['SQLITE_BUSY']);
-    logWriter.write(run.id, 'during\n');
-  } finally {
-    logWriter.close();
-  }
-  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'presentation').length, 1);
-  assert.equal(readInferenceRunLogTextByStream(run.id, databasePath).launcher_stdout, 'during\n');
-  assert.equal(recorder.terminalCause, null);
-});
-
-// Log writer first. It holds the writer for a while on another thread; the journal waits its
-// bounded SQLite wait for the slot rather than reading under a snapshot it cannot commit.
-test('the journal waits for a log batch that already holds the writer and then commits', async () => {
-  const { database, databasePath } = openSessionDatabase('chat-journal-writer-wait-');
-  const recorder = beginRecorder(databasePath);
-  const run = createInferenceRun({ backend: 'exl3', purpose: 'startup', databasePath });
-  const worker = new Worker(`
-    const { parentPort, workerData } = require('node:worker_threads');
-    const Database = require('better-sqlite3');
-    const connection = new Database(workerData.databasePath);
-    connection.transaction(() => {
-      connection.prepare("INSERT INTO inference_run_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc) VALUES (?, 'launcher_stdout', 0, ?, ?)")
-        .run(workerData.runId, 'held\\n', workerData.at);
-      parentPort.postMessage('holding');
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.holdMs);
-    }).immediate();
-    connection.close();
-    parentPort.postMessage('released');
-  `, { eval: true, workerData: { databasePath, runId: run.id, at: AT, holdMs: 300 } });
-  const messages: string[] = [];
-  const released = new Promise<void>((resolve, reject) => {
-    worker.on('message', (message: string) => { messages.push(message); if (message === 'released') resolve(); });
-    worker.on('error', reject);
-  });
-  await new Promise<void>((resolve) => worker.once('message', () => resolve()));
-  const startedAt = Date.now();
-  recorder.recordPresentation({ kind: 'warning', warning: 'status' });
-  const waitedMs = Date.now() - startedAt;
-  await released;
-  assert.deepEqual(messages, ['holding', 'released']);
-  assert.ok(waitedMs >= 200, `journal waited ${waitedMs}ms for the held writer`);
-  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'presentation').length, 1);
-  assert.equal(readInferenceRunLogTextByStream(run.id, databasePath).launcher_stdout, 'held\n');
-});
-
-// Owner heartbeat and nested recorder transactions go through the same reservation: an inner
-// immediate transaction is a savepoint, so the outer boundary is the one that reserves.
-test('owner renewal and nested recorder writes commit against a competing log writer', (t) => {
-  const { database, databasePath } = openSessionDatabase('chat-journal-nested-race-');
-  const owner = ChatRuntimeOwner.acquire(database, 'owner-a');
-  const recorder = beginRecorder(databasePath);
-  const run = createInferenceRun({ backend: 'exl3', purpose: 'startup', databasePath });
-  const logWriter = openLogWriter(databasePath);
-  const prepare = database.prepare.bind(database);
-  const competingCodes: string[] = [];
-  t.mock.method(database, 'prepare', (sql: string) => {
-    if (sql.includes('INSERT INTO chat_run_events') || sql.includes('UPDATE chat_runtime_owner')) {
-      try { logWriter.write(run.id, 'x'); } catch (error) { competingCodes.push(error instanceof Database.SqliteError ? error.code : String(error)); }
-    }
-    return prepare(sql);
-  });
-  try {
-    owner.renew();
-    recorder.finish({ terminalCause: 'completed', detail: null, usage: null, recoveryStatus: 'ok' });
-  } finally {
-    logWriter.close();
-  }
-  assert.deepEqual(competingCodes, ['SQLITE_BUSY', 'SQLITE_BUSY']);
-  assert.equal(readAll(database, recorder.operationId).filter(envelope => envelope.event.kind === 'run_finished').length, 1);
-  assert.equal(recorder.terminalCause, 'completed');
-  assert.equal(readInferenceRunLogTextByStream(run.id, databasePath).launcher_stdout, '');
 });
 
 test.after(() => closeAllRuntimeDatabases());

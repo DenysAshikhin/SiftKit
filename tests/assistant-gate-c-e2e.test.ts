@@ -12,6 +12,7 @@ import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 const ANSWER_EXTRACTION = JSON.stringify({ statements: [{
   statementKind: 'direct_fact',
@@ -49,6 +50,7 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 
   try {
@@ -136,6 +138,7 @@ test('Gate C: disabled service remains inert and unavailable desktop state never
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
   try {
     service.ingestChatTurn({

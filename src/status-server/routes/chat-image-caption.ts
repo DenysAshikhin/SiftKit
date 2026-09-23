@@ -23,7 +23,7 @@ import {
   type ChatSessionOperationRequest,
   type ChatOperationOutcome,
 } from './chat-session-operation-endpoint.js';
-import type { ServerContext } from '../server-types.js';
+import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -98,7 +98,15 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
       return { failure: null };
     }
 
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_image_caption', req, res);
+    let modelRequestLock: ModelRequestLock | null;
+    try {
+      modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_image_caption', req, res);
+    } catch (error) {
+      // Admission readies the model before granting; a refused target or failed load lands here.
+      const message = toError(error).message;
+      sendJson(res, 503, { error: message });
+      return { failure: message };
+    }
     if (!modelRequestLock) return { failure: 'Model request could not be acquired.' };
     try {
       const authoritativeSession = readChatSessionFromPath(request.sessionPath);

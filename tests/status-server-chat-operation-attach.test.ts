@@ -116,7 +116,8 @@ test('the real subscriber and dashboard assembler reject an image-bearing transf
     if (delivery?.kind === 'view' && delivery.snapshot.messages.some(message => message.images?.includes(image) === true)) {
       imageBearingViewPublished = true;
     }
-    await new Promise<void>(resolve => setTimeout(resolve, 2));
+    // A macrotask per frame keeps the reader slower than the server's drain.
+    await new Promise<void>(resolve => setImmediate(resolve));
   }
 
   const snapshot = projection.snapshot;

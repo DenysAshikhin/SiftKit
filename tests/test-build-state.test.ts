@@ -38,6 +38,7 @@ const REQUIRED_OUTPUT_FILES = [
   'dist/test-runner/live-instance-guard.js',
   '.test-build/package.json',
   '.test-build/npm-pack-dry-run.json',
+  '.test-build/hermetic-fs.bundle.js',
   '.test-build/src/input.js',
   '.test-build/bench/input.js',
   '.test-build/tests/input.test.js',

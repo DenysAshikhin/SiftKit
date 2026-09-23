@@ -3,16 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire, Module } from 'node:module';
-import Database from 'better-sqlite3';
-import { z } from 'zod';
 
 import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
 import { closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
-import { getConfigPath } from '../src/config/index.js';
-import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import {
-  installProbeShim,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
   acquireChildPortLease,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
@@ -24,54 +19,12 @@ import { OutputCapture } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-import { isProcessAlive } from './helpers/process-tree-fixture.js';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
+import { runManagedEngineReadinessScenario, writeManagedEngineReadinessTestConfig } from './helpers/managed-engine-readiness-scenario.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const SIFTKIT_REPO_ROOT = process.cwd();
 const requireFromHere = createRequire(path.join(SIFTKIT_REPO_ROOT, '.test-build', 'tests', 'repo-search-status-server.test.js'));
-const ProcessIdSchema = z.coerce.number().int().positive();
-
-function writeManagedEngineReadinessTestConfig(
-  managed: ReturnType<typeof writeManagedEngineLauncher>,
-  startupTimeoutMs: number,
-): void {
-  const config = getDefaultConfig();
-  const server = config.Server;
-  server.ModelPresets.Presets = [{
-    ...server.ModelPresets.Presets[0],
-    id: 'default',
-    label: 'Managed Test',
-    Backend: 'exl3',
-    Model: managed.modelId,
-    ExternalServerEnabled: false,
-    BaseUrl: managed.baseUrl,
-    ModelPath: managed.modelPath,
-    StartupTimeoutMs: startupTimeoutMs,
-    HealthcheckTimeoutMs: 20,
-    HealthcheckIntervalMs: 20,
-  }];
-  server.ModelPresets.ActivePresetId = 'default';
-  // A short shutdown budget keeps the failed-launch cleanup path fast when taskkill is denied.
-  server.Engines.Exl3 = { ...managed.engine, ShutdownTimeoutMs: 1_000 };
-  writeConfig(getConfigPath(), config);
-}
-
-async function stopManagedTestProcess(pidFilePath: string): Promise<void> {
-  if (!fs.existsSync(pidFilePath)) {
-    return;
-  }
-  const pid = ProcessIdSchema.parse(fs.readFileSync(pidFilePath, 'utf8').trim());
-  if (isProcessAlive(pid)) {
-    process.kill(pid);
-  }
-  const deadline = Date.now() + 2000;
-  while (isProcessAlive(pid) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  if (isProcessAlive(pid)) {
-    throw new Error(`Managed test process ${pid} did not exit.`);
-  }
-  fs.rmSync(pidFilePath, { force: true });
-}
 
 
 test('status server stays responsive while repo-search is running', async () => {
@@ -333,7 +286,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         const queuedRequests = asObjectArray(modelRequests.queuedRequests);
         assert.equal(queuedRequests[0]?.kind, 'repo_search');
 
-        const database = new Database(dbPath, { readonly: true });
+        const database = openStoredRuntimeDatabase(dbPath);
         try {
           const row = JsonRecordReader.asObject(database.prepare(`
             SELECT terminal_state, title
@@ -363,7 +316,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
     assert.ok(lines.some((line) => /st [\w-]{8} {2}dropped {2}reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
 
-    const database = new Database(dbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(dbPath);
     try {
       const failedRow = JsonRecordReader.asObject(database.prepare(`
         SELECT terminal_state, failed_request_json
@@ -394,96 +347,17 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
 test('managed engine readiness wait is serialized by the model request queue', async () => {
   const tempRoot = createManagedTempDir('siftkit-readiness-outside-queue-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const envBackup: Record<string, string | undefined> = {
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-  };
-  process.env.sift_kit_status = statusPath;
-  process.env.SIFTKIT_STATUS_PATH = statusPath;
-  process.env.SIFTKIT_CONFIG_PATH = configPath;
-  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-  process.env.SIFTKIT_STATUS_PORT = '0';
-
   await using enginePortLease = await acquireChildPortLease('repo-search-status-server');
-  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
+  const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  const restoreProbeShim = installProbeShim(managed.probeShimPath);
-  writeManagedEngineReadinessTestConfig(managed, 500);
-
-  const server = startStatusServer();
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
   try {
-    const backendStatus = await requestJson(`${baseUrl}/runtime/inference`, { timeoutMs: 1000 });
-    assert.equal(backendStatus.body.processState, 'failed');
-    const firstRequest = requestSse(`${baseUrl}/repo-search`, {
-      timeoutMs: 15000,
-      body: {
-        prompt: 'hold readiness',
-        repoRoot: process.cwd(),
-        model: 'managed-test-model',
-        maxTurns: 1,
-      },
-    });
-
-    await waitForAsyncExpectation(async () => {
-      const status = await requestJson(`${baseUrl}/status`);
-      const modelRequests = asObject(status.body.modelRequests);
-      assert.equal(modelRequests.activeCount, 1);
-    });
-    const secondRequest = requestSse(`${baseUrl}/summary`, {
-      timeoutMs: 15000,
-      body: {
-        repoRoot: process.cwd(),
-        question: 'summarize',
-        inputText: 'short text',
-        backend: 'exl3',
-        model: 'managed-test-model',
-      },
-    });
-    await waitForAsyncExpectation(async () => {
-      const status = await requestJson(`${baseUrl}/status`);
-      const modelRequests = asObject(status.body.modelRequests);
-      assert.equal(modelRequests.activeCount, 1);
-      assert.equal(modelRequests.queueLength, 1);
-    });
-    const secondResponse = await secondRequest;
-    const firstResponse = await firstRequest;
-
-    assert.match(firstResponse.errorMessage || '', /failed|unavailable|timed out/iu);
-    assert.match(secondResponse.errorMessage || '', /failed|unavailable|timed out/iu);
+    await runManagedEngineReadinessScenario(tempRoot, managed, managed.host);
+    // Startup and each queued request's readiness attempt launched once; none survives.
+    assert.equal(managed.launcher.launches.length, 3);
+    assert.equal(managed.launcher.liveProcessCount, 0);
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(previousCwd);
-    closeAllRuntimeDatabases();
-    restoreProbeShim();
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await stopManagedTestProcess(managed.pidFilePath);
-    // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
-    // so removal has to be retried rather than attempted once.
+    await managed.launcher.stopAll();
     await removeDirectoryWithRetries(tempRoot);
   }
 });
@@ -513,13 +387,12 @@ test('health reports unavailable while managed engine bootstrap is still startin
   process.env.SIFTKIT_STATUS_PORT = '0';
 
   await using enginePortLease = await acquireChildPortLease('repo-search-status-server');
-  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
+  const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  const restoreProbeShim = installProbeShim(managed.probeShimPath);
   writeManagedEngineReadinessTestConfig(managed, 250);
 
-  const server = startStatusServer();
+  const server = startStatusServer({ gpuMemoryProbe: new FixedGpuMemoryProbe(null), managedEngineHost: managed.host });
   await waitForAsyncExpectation(async () => {
     assert.notEqual(server.address(), null);
   }, 1000);
@@ -543,7 +416,6 @@ test('health reports unavailable while managed engine bootstrap is still startin
     });
     process.chdir(previousCwd);
     closeAllRuntimeDatabases();
-    restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -551,9 +423,7 @@ test('health reports unavailable while managed engine bootstrap is still startin
         process.env[key] = value;
       }
     }
-    await stopManagedTestProcess(managed.pidFilePath);
-    // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
-    // so removal has to be retried rather than attempted once.
+    await managed.launcher.stopAll();
     await removeDirectoryWithRetries(tempRoot);
   }
 });
@@ -588,7 +458,7 @@ test('completion metadata is acknowledged before persistence and shutdown persis
   const requestId = 'deferred-completion-test';
   const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
   const countRunLogs = (): number => {
-    const database = new Database(runtimeDbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(runtimeDbPath);
     try {
       return Number(JsonRecordReader.asObject(database.prepare('SELECT COUNT(*) AS count FROM run_logs WHERE request_id = ?').get(requestId))?.count);
     } finally {
@@ -962,7 +832,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
     });
 
     assert.ok(response.result);
-    const database = new Database(runtimeDbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(runtimeDbPath);
     try {
       const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
         "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"
@@ -1062,7 +932,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
     });
 
     assert.ok(response.result);
-    const database = new Database(runtimeDbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(runtimeDbPath);
     try {
       const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
         "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"

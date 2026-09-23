@@ -24,6 +24,8 @@ declare module 'better-sqlite3' {
     transaction<T extends (...args: unknown[]) => unknown>(fn: T): Transaction<T>;
     /** Native online backup: a consistent copy without blocking writers. */
     backup(destinationFile: string): Promise<{ totalPages: number; remainingPages: number }>;
+    /** The whole database as an image that `new Database(image)` reopens in memory. */
+    serialize(): Buffer;
   }
 
   /** Every native failure; `code` is the SQLite result code name such as `SQLITE_BUSY`. */
@@ -33,8 +35,8 @@ declare module 'better-sqlite3' {
   }
 
   export interface DatabaseConstructor {
-    new(filename: string, options?: Record<string, unknown>): Database;
-    (filename: string, options?: Record<string, unknown>): Database;
+    new(filename: string | Buffer, options?: Record<string, unknown>): Database;
+    (filename: string | Buffer, options?: Record<string, unknown>): Database;
     readonly SqliteError: typeof SqliteError;
   }
 

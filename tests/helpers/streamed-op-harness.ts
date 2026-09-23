@@ -12,6 +12,8 @@ import { writeConfig } from '../../src/status-server/config-store.js';
 import { getDefaultServerConfig } from './mock-config.js';
 import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboard-http.js';
 import { createManagedTempDir } from './temp-dirs.js';
+import { DEAD_BASE_URL } from './dead-endpoints.js';
+import { getActiveModelPreset } from '../../src/config/getters.js';
 
 export type StreamedOperationHarness = {
   baseUrl: string;
@@ -77,7 +79,10 @@ export async function startHarness(
   process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
-  writeConfig(getConfigPath(), getDefaultServerConfig());
+  const config = getDefaultServerConfig();
+  // Unmocked chat turns tokenize their input against the preset engine; a dead one keeps that offline.
+  getActiveModelPreset(config).BaseUrl = DEAD_BASE_URL;
+  writeConfig(getConfigPath(), config);
   const startServer = async (): Promise<ReturnType<typeof startStatusServer>> => {
     const started = startStatusServer({
       disableManagedEngineStartup: true,

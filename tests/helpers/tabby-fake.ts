@@ -8,6 +8,8 @@ import {
   type Exl3PackageInspection,
   type Exl3PackageLocator,
 } from '../../src/inference-presets/exl3-model-capabilities.js';
+import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
+import { FakeTabbyLauncher, type FakeTabbyOptions } from './in-process-tabby.js';
 
 class FixedExl3PackageLocator implements Exl3PackageLocator {
   constructor(private readonly packageDirectory: string) {}
@@ -19,11 +21,16 @@ class FixedExl3PackageLocator implements Exl3PackageLocator {
   }
 }
 
-export function createFakeExl3Capabilities(
+/** Resolves the venv's own site-packages exllamav3 without running the interpreter. */
+export function createFakeExl3PackageLocator(
   pythonPath: string,
   packageDirectory = path.join(path.dirname(path.dirname(pythonPath)), 'Lib', 'site-packages', 'exllamav3'),
-): Exl3ModelCapabilities {
-  return new Exl3ModelCapabilities(new FixedExl3PackageLocator(packageDirectory));
+): Exl3PackageLocator {
+  return new FixedExl3PackageLocator(packageDirectory);
+}
+
+export function createFakeExl3Capabilities(pythonPath: string, packageDirectory?: string): Exl3ModelCapabilities {
+  return new Exl3ModelCapabilities(createFakeExl3PackageLocator(pythonPath, packageDirectory));
 }
 
 /**
@@ -71,16 +78,6 @@ export class FakeTabbyModelState {
   }
 }
 
-export interface FakeTabbyFiles {
-  scriptPath: string;
-  pythonPath: string;
-  argsPath: string;
-  environmentPath: string;
-  loadRequestsPath: string;
-  startsPath: string;
-  capabilities: Exl3ModelCapabilities;
-}
-
 export interface FakeExl3Venv {
   pythonPath: string;
   jobSourcePath: string;
@@ -105,11 +102,16 @@ const LEGACY_JOB_SOURCE = `
 
 /**
  * Windows venv layout the EXL3 preflight reads: `<venv>\\Scripts\\<interpreter>` alongside
- * `<venv>\\Lib\\site-packages\\exllamav3\\generator\\job.py`. The interpreter is a hard link to
- * the running Node binary so the fake TabbyAPI script is actually launchable from the venv path;
- * `deviceResidentPastIds` selects an exllamav3 with or without turboderp-org/exllamav3@8e08af9.
+ * `<venv>\\Lib\\site-packages\\exllamav3\\generator\\job.py`. A `launchable` interpreter is a hard
+ * link to the running Node binary, for process tests that really start it; in-process hosts only
+ * need the file to exist. `deviceResidentPastIds` selects an exllamav3 with or without
+ * turboderp-org/exllamav3@8e08af9.
  */
-export function writeFakeExl3Venv(root: string, deviceResidentPastIds: boolean): FakeExl3Venv {
+export function writeFakeExl3Venv(
+  root: string,
+  deviceResidentPastIds: boolean,
+  interpreter: 'placeholder' | 'launchable' = 'placeholder',
+): FakeExl3Venv {
   const venvRoot = path.join(root, 'venv');
   const scriptsDirectory = path.join(venvRoot, 'Scripts');
   const packageDirectory = path.join(venvRoot, 'Lib', 'site-packages', 'exllamav3');
@@ -117,7 +119,9 @@ export function writeFakeExl3Venv(root: string, deviceResidentPastIds: boolean):
   fs.mkdirSync(scriptsDirectory, { recursive: true });
   fs.mkdirSync(generatorDirectory, { recursive: true });
   const pythonPath = path.join(scriptsDirectory, path.basename(process.execPath));
-  if (!fs.existsSync(pythonPath)) {
+  if (interpreter === 'placeholder') {
+    fs.writeFileSync(pythonPath, '', 'utf8');
+  } else if (!fs.existsSync(pythonPath)) {
     try {
       fs.linkSync(process.execPath, pythonPath);
     } catch {
@@ -141,75 +145,18 @@ export function writeFakeUnifiedExl3Venv(root: string): FakeUnifiedExl3Venv {
   return { ...stale, editablePackageDirectory };
 }
 
-/**
- * Fake TabbyAPI that reports the model card its launch environment produced, so the runtime's
- * resident-parameter verification is exercised end to end. `appliedMaxSeqLen` simulates a server
- * that silently clamps the requested context. `draftingStream` selects where the MTP line lands:
- * real TabbyAPI logs through loguru, which writes to stderr by default.
- */
-export function writeFakeTabby(
-  root: string,
-  port: number,
-  appliedMaxSeqLen: number | null,
-  options: { announceDrafting?: boolean; draftingStream?: 'stdout' | 'stderr'; draftingDelayMs?: number } = {},
-): FakeTabbyFiles {
-  const announceDrafting = options.announceDrafting ?? true;
-  const draftingStream = options.draftingStream ?? 'stdout';
-  const draftingDelayMs = options.draftingDelayMs ?? 0;
-  const fakeVenv = writeFakeExl3Venv(root, true);
-  const files: FakeTabbyFiles = {
-    scriptPath: path.join(root, 'fake-tabby.cjs'),
-    pythonPath: fakeVenv.pythonPath,
-    argsPath: path.join(root, 'args.json'),
-    environmentPath: path.join(root, 'environment.json'),
-    loadRequestsPath: path.join(root, 'load-requests.txt'),
-    startsPath: path.join(root, 'starts.txt'),
-    capabilities: createFakeExl3Capabilities(fakeVenv.pythonPath),
-  };
-  fs.writeFileSync(files.scriptPath, `
-const fs = require('node:fs');
-const http = require('node:http');
-fs.writeFileSync(${JSON.stringify(files.argsPath)}, JSON.stringify(process.argv.slice(2)));
-fs.appendFileSync(${JSON.stringify(files.startsPath)}, process.pid + '\\n');
-const environment = Object.fromEntries(Object.entries(process.env).filter(
-  ([key]) => key.startsWith('TABBY_') || key.startsWith('EXL3_') || key.startsWith('PYTORCH_'),
-));
-fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
-if (${JSON.stringify(announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
-  setTimeout(() => {
-    process.${draftingStream}.write('INFO: Using main model MTP component for drafting\\n');
-  }, ${draftingDelayMs});
+export interface FakeEngineHost {
+  launcher: FakeTabbyLauncher;
+  host: ManagedEngineHost;
+  pythonPath: string;
 }
-const card = environment.TABBY_MODEL_MODEL_NAME ? {
-  id: environment.TABBY_MODEL_MODEL_NAME,
-  parameters: {
-    max_seq_len: ${appliedMaxSeqLen === null ? 'Number(environment.TABBY_MODEL_MAX_SEQ_LEN)' : String(appliedMaxSeqLen)},
-    cache_size: Number(environment.TABBY_MODEL_CACHE_SIZE),
-    chunk_size: Number(environment.TABBY_MODEL_CHUNK_SIZE),
-  },
-} : null;
-const server = http.createServer((request, response) => {
-  if (request.url === '/v1/model/load' && request.method === 'POST') {
-    fs.appendFileSync(${JSON.stringify(files.loadRequestsPath)}, 'load\\n');
-    response.statusCode = 500;
-    response.end();
-    return;
-  }
-  if (request.url === '/v1/model' && request.method === 'GET') {
-    if (!card) {
-      response.statusCode = 503;
-      response.end('No models are currently loaded');
-      return;
-    }
-    response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify(card));
-    return;
-  }
-  response.setHeader('content-type', 'application/json');
-  response.end('{"object":"list","data":[]}');
-});
-server.listen(${port}, '127.0.0.1');
-process.on('SIGTERM', () => server.close(() => process.exit(0)));
-`, 'utf8');
-  return files;
+
+/**
+ * A managed-engine host that never leaves the test process: the venv interpreter resolves an
+ * exllamav3 carrying the 8e08af9 watermark, and every launch is an in-process fake TabbyAPI.
+ */
+export function writeFakeEngineHost(root: string, options: FakeTabbyOptions): FakeEngineHost {
+  const { pythonPath } = writeFakeExl3Venv(root, true);
+  const launcher = new FakeTabbyLauncher(options);
+  return { launcher, host: { launcher, packageLocator: createFakeExl3PackageLocator(pythonPath) }, pythonPath };
 }

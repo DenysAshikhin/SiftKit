@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
 /**
- * Fixture for tests/run-tests-watchdog.test.ts: a run that outlives any budget those tests set.
+ * Fixture for tests/process/run-tests-watchdog.test.ts: a run that outlives any budget those tests set.
  *
  * The test never settles, and it leaves behind a grandchild that inherits the isolation child's
  * stdio — the shape that froze a session for 17 minutes, where terminating only the direct child

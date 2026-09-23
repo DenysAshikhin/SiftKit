@@ -18,6 +18,7 @@ import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 function statement(kind: 'direct_fact' | 'correction', objectName: string): string {
   return JSON.stringify({
@@ -48,6 +49,7 @@ function buildService(responses: readonly string[], clock: FixedClock): Assistan
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

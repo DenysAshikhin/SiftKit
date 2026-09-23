@@ -1,11 +1,14 @@
-import { JSDOM } from 'jsdom';
-import { Readability } from '@mozilla/readability';
-import TurndownService from 'turndown';
 import { httpClient, type HttpClient } from '../lib/http-client.js';
 import type { WebFetchResult, WebFetchToolArgs, WebSearchConfig } from './types.js';
 import { assertPublicHttpUrl } from './url-safety.js';
 
-function htmlToMarkdown(html: string, finalUrl: string): { title: string; markdown: string } {
+// Loaded on first conversion: the toolchain costs ~0.5s, and most processes never fetch a page.
+async function htmlToMarkdown(html: string, finalUrl: string): Promise<{ title: string; markdown: string }> {
+  const [{ JSDOM }, { Readability }, { default: TurndownService }] = await Promise.all([
+    import('jsdom'),
+    import('@mozilla/readability'),
+    import('turndown'),
+  ]);
   const dom = new JSDOM(html, { url: finalUrl });
   const article = new Readability(dom.window.document).parse();
   const title = (article?.title || dom.window.document.title || finalUrl).trim();
@@ -14,13 +17,13 @@ function htmlToMarkdown(html: string, finalUrl: string): { title: string; markdo
   return { title, markdown };
 }
 
-function extractContent(rawText: string, contentType: string, finalUrl: string): { title: string; text: string } {
+async function extractContent(rawText: string, contentType: string, finalUrl: string): Promise<{ title: string; text: string }> {
   const type = contentType.toLowerCase();
   if (type.includes('text/plain') || type.includes('text/markdown')) {
     return { title: finalUrl, text: rawText.trim() };
   }
   if (type.includes('text/html') || type.includes('application/xhtml+xml')) {
-    const { title, markdown } = htmlToMarkdown(rawText, finalUrl);
+    const { title, markdown } = await htmlToMarkdown(rawText, finalUrl);
     return { title, text: markdown };
   }
   throw new Error(`web_fetch unsupported content type: ${contentType || 'unknown'}.`);
@@ -52,7 +55,7 @@ export class WebFetchService {
         throw new Error(`web_fetch failed with HTTP ${response.status}.`);
       }
       const rawText = await response.text();
-      const extracted = extractContent(rawText, response.headers.get('content-type') || '', currentUrl.toString());
+      const extracted = await extractContent(rawText, response.headers.get('content-type') || '', currentUrl.toString());
       const truncated = extracted.text.length > this.config.FetchMaxCharacters;
       return {
         url: originalUrl.toString(),

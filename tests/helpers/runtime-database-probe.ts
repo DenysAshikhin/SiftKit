@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 import { JsonRecordReader } from '../../src/lib/json-record-reader.js';
 import type { RuntimeDatabase } from '../../src/state/database-handle.js';
+import { getRuntimeDatabase, getRuntimeDatabaseStorage, isRuntimeDatabaseOpen } from '../../src/state/runtime-db.js';
+import { rewriteStoredRuntimeDatabase } from './stored-runtime-database.js';
 
 /**
  * Helpers for inspecting and sabotaging a runtime database from *outside* the process that owns it,
@@ -14,6 +16,10 @@ export type WriteEvent = (typeof WRITE_EVENTS)[number];
 
 /** Opens a second connection to `databasePath`; the owner's own handle is never disturbed. */
 export function withRuntimeDatabaseConnection<T>(databasePath: string, run: (database: RuntimeDatabase) => T): T {
+  if (getRuntimeDatabaseStorage() === 'memory') {
+    // Memory storage has one connection per path: borrow the owner's, or edit what a closed path stores.
+    return isRuntimeDatabaseOpen(databasePath) ? run(getRuntimeDatabase(databasePath)) : rewriteStoredRuntimeDatabase(databasePath, run);
+  }
   const database = new Database(databasePath);
   try {
     database.pragma('busy_timeout = 5000');

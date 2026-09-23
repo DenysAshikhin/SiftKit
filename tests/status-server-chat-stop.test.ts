@@ -94,7 +94,7 @@ test('deleting an active session cancels its engine and cannot recreate the jour
   try {
     const deleted = await requestJson(`${harness.baseUrl}/dashboard/chat/sessions/${sessionId}`, { method: 'DELETE' });
     assert.equal(deleted.statusCode, 200);
-    const aborted = await Promise.race([engineService.waitUntilAborted().then(() => true), delay(500).then(() => false)]);
+    const aborted = await Promise.race([engineService.waitUntilAborted().then(() => true), delay(500, undefined, { ref: false }).then(() => false)]);
     assert.equal(aborted, true, 'session deletion must cancel active execution');
     await stream;
     assert.deepEqual(new ChatJournalStore(getRuntimeDatabase(getRuntimeDatabasePath())).listSessionRuns(sessionId), []);
@@ -692,7 +692,7 @@ async function readLiveViews(url: string, sessionId: string, until: (views: Chat
   const deadline = Date.now() + timeoutMs;
   try {
     while (Date.now() < deadline) {
-      const chunk = await Promise.race([reader.read(), delay(Math.max(1, deadline - Date.now())).then(() => null)]);
+      const chunk = await Promise.race([reader.read(), delay(Math.max(1, deadline - Date.now()), undefined, { ref: false }).then(() => null)]);
       if (chunk === null || chunk.done) break;
       for (const frame of parser.push(Buffer.from(chunk.value).toString('utf8'))) {
         if (frame.event !== 'chat_projection') continue;

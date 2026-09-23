@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { HERMETIC_FS_BUNDLE_PATH } from './test-build-state.js';
 import { buildNodeTestArgs } from './test-targets.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
 import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
@@ -52,6 +53,7 @@ const child = spawn(process.execPath, ['--test', ...testArgs], {
     SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
     SIFTKIT_GUARD_ENGINE_PORT: String(SIFT_DEFAULT_ENGINE_PORT),
     SIFTKIT_GUARD_RUNTIME_DATABASE: path.resolve(repoRoot, '.siftkit', 'runtime.sqlite'),
+    SIFTKIT_GUARD_HERMETIC_FS: pathToFileURL(path.resolve(repoRoot, HERMETIC_FS_BUNDLE_PATH)).href,
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

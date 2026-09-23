@@ -37,6 +37,7 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 import { TEST_THROUGHPUT_AUDIT_OPERATION } from './_test-helpers.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 
 const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
@@ -159,7 +160,10 @@ function makeAutoLoopOptions(
     maxTurns: 4,
     minToolCallsBeforeFinish: 0,
     mockResponses,
-    mockCommandResults: {},
+    // grep runs through ripgrep, so the fast-path grep case answers from a mocked result.
+    mockCommandResults: {
+      [buildRepoToolRequestedCommand('grep', FAST_PATH_GREP_ARGS)]: { exitCode: 0, stdout: 'a.txt:1:content-a', stderr: '' },
+    },
     progressWriter: writer,
     approvalGate: gate,
     logger: logger ?? null,
@@ -250,9 +254,10 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   }
 });
 
+const FAST_PATH_GREP_ARGS = { pattern: 'content-a', path: 'a.txt', literal: true };
 const AUTO_FAST_PATH_CASES: Array<{ toolName: string; args: JsonObject }> = [
   { toolName: 'read', args: { path: 'a.txt' } },
-  { toolName: 'grep', args: { pattern: 'content-a', path: 'a.txt', literal: true } },
+  { toolName: 'grep', args: FAST_PATH_GREP_ARGS },
   { toolName: 'find', args: { pattern: 'a.txt', path: '.' } },
   { toolName: 'ls', args: { path: '.' } },
 ];

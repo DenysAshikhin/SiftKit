@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import test, { type TestContext } from 'node:test';
+import test, { mock, type TestContext } from 'node:test';
 
 import { getActiveModelPreset } from '../src/config/getters.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
@@ -10,7 +10,6 @@ import {
   DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS,
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
-  ensureActivePresetReadyForModelRequest,
   getModelRequestQueueDiagnostics,
   isIdle,
   renewModelRequestActivity,
@@ -19,6 +18,7 @@ import {
 } from '../src/status-server/server-ops.js';
 import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
+import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
 import type { ModelLifecycleActionResult } from '@siftkit/contracts';
 import { writeConfig } from '../src/status-server/config-store.js';
@@ -39,8 +39,10 @@ import {
   PRESET_ROUTING_MODEL_B,
   PRESET_ROUTING_MODEL_C,
 } from './helpers/preset-routing-config.js';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
+const REAL_CLEAR_TIMEOUT = globalThis.clearTimeout;
 let queueContextIndex = 0;
 
 test.after(async () => {
@@ -250,6 +252,14 @@ async function closePresetQueueHarness(harness: PresetQueueHarness): Promise<voi
   fs.rmSync(harness.root, { recursive: true, force: true });
 }
 
+// Production applies only a saved selection; save it first so inherited admissions agree with it.
+async function saveAndApplyPreset(harness: PresetQueueHarness, presetId: string): Promise<'ready' | 'queued'> {
+  const config = readConfig(harness.ctx.configPath);
+  config.Server.ModelPresets.ActivePresetId = presetId;
+  writeConfig(harness.ctx.configPath, config);
+  return harness.coordinator.applyPreset(presetId);
+}
+
 async function waitForActivePreset(coordinator: PresetRuntimeCoordinator, presetId: string): Promise<void> {
   while (coordinator.getStatus().activePresetId !== presetId) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -339,8 +349,6 @@ test('managed idle unload blocks queued admission once and cold-restores the app
       'start:exl3', 'load:exl3-alt', 'unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-alt',
     ]);
 
-    await ensureActivePresetReadyForModelRequest(harness.ctx);
-    assert.deepEqual(harness.events.slice(-2), ['start:exl3', 'load:exl3-alt']);
     assert.equal(releaseModelRequest(harness.ctx, queuedLock.token), true);
   } finally {
     harness.exl3Runtime.releaseTransition();
@@ -354,7 +362,7 @@ test('preset switch pauses queued admission until the target preset is ready', a
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(activeLock);
-    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    assert.equal(await saveAndApplyPreset(harness, 'exl3-main'), 'queued');
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'repo_search');
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
@@ -504,7 +512,7 @@ test('switching to a single-slot preset drains all concurrent requests first', a
     const second = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(first);
     assert.ok(second);
-    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
+    assert.equal(await saveAndApplyPreset(harness, 'exl3-alt'), 'queued');
     assert.equal(releaseModelRequest(ctx, first.token), true);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(releaseModelRequest(ctx, second.token), true);
@@ -526,14 +534,14 @@ test('preset switch arms idle for the preset that becomes active', async () => {
   try {
     const altLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(altLock);
-    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    assert.equal(await saveAndApplyPreset(harness, 'exl3-main'), 'queued');
     assert.equal(releaseModelRequest(ctx, altLock.token), true);
     await waitForActivePreset(coordinator, 'exl3-main');
     assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
 
     const mainLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(mainLock);
-    assert.equal(await coordinator.applyPreset('exl3-alt'), 'queued');
+    assert.equal(await saveAndApplyPreset(harness, 'exl3-alt'), 'queued');
     assert.equal(releaseModelRequest(ctx, mainLock.token), true);
     await waitForActivePreset(coordinator, 'exl3-alt');
     assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
@@ -862,7 +870,8 @@ test('model request renewal is token-scoped and cannot renew another holder', as
 test('renewing a model request does not churn timers', async (t) => {
   useLockClock(t, 100);
   const ctx = createQueueContext();
-  const clearTimeoutCalls = t.mock.method(globalThis, 'clearTimeout');
+  // The module tracker, not t.mock: t.mock's end-of-test restore would reinstate the mocked clearTimeout.
+  const clearTimeoutCalls = mock.method(globalThis, 'clearTimeout');
   try {
     const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(lock);
@@ -875,9 +884,14 @@ test('renewing a model request does not churn timers', async (t) => {
     assert.equal(clearTimeoutCalls.mock.callCount(), clearsAfterAcquire, '50 renewals cleared a timer');
     assert.equal(releaseModelRequest(ctx, lock.token), true);
   } finally {
+    // The spy wraps the mocked clearTimeout, so it must unwind before the timers do.
+    clearTimeoutCalls.mock.restore();
     t.mock.timers.reset();
     await ctx.inferenceRunFlushQueue.close();
   }
+  // restoreAll is what the runner does at test end; it must not reinstate the mocked clearTimeout.
+  t.mock.restoreAll();
+  assert.equal(globalThis.clearTimeout, REAL_CLEAR_TIMEOUT, 'teardown left clearTimeout mocked for later tests');
 });
 
 test('model request diagnostics expose the active lock and queued requests', async () => {
@@ -1280,6 +1294,56 @@ test('a coordinator-free server fails an incompatible target and admits a compat
   }
 });
 
+test('a coordinator-free server admits current-model requests whose profile has no derivable load identity', async () => {
+  const ctx = createQueueContext();
+  // The default profile has no ModelPath, so the real runtime cannot derive its load identity.
+  ctx.modelRuntime = new ManagedTabbyRuntime(
+    readConfig(ctx.configPath).Server.Engines.Exl3,
+    ctx.inferenceRunFlushQueue,
+    NEVER_LAUNCHING_ENGINE_HOST,
+  );
+  assert.throws(
+    () => ctx.modelRuntime.getPresetResidencyKey(ctx.appliedModelPresetState.getPreset()),
+    /ModelPath is required/u,
+  );
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'current');
+    assert.ok(lock);
+    assert.equal(lock.context.modelPreset.id, ctx.appliedModelPresetState.getPreset().id);
+    assert.equal(lock.residencyKey, null);
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+  } finally {
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('the admission drain goes idle while a different-model waiter waits behind active work', async () => {
+  const harness = await createRoutingQueueHarness('siftkit-model-queue-settle-', PRESET_ROUTING_MODEL_A, {
+    ...ROUTING_SLOTS_ONE,
+    [PRESET_ROUTING_MODEL_A]: 2,
+  });
+  const { ctx } = harness;
+  try {
+    const seed = await acquireModelRequestWithWait(ctx, 'seed');
+    assert.ok(seed);
+    const bPromise = acquireModelRequestWithWait(ctx, 'b1', undefined, undefined, {
+      intent: { presetId: 'repo-search', model: null },
+    });
+    await ctx.modelRequestDrainPromise;
+    // A free slot cannot serve B while A is active, so no further pass may be scheduled.
+    assert.equal(ctx.modelRequestDrainPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+
+    assert.equal(releaseModelRequest(ctx, seed.token), true);
+    const b1 = await bPromise;
+    assert.ok(b1);
+    assert.equal(b1.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
+    assert.equal(releaseModelRequest(ctx, b1.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
 test('cancelling a selected waiter lets its irreversible load complete without granting the lock', async () => {
   const harness = await createRoutingQueueHarness('siftkit-model-queue-cancel-ready-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
   const { ctx, coordinator, exl3Runtime, events } = harness;
@@ -1372,20 +1436,24 @@ test('repeated affinity bypass does not extend an older waiter\u0027s timeout', 
   }
 });
 
-test('an inherited-current waiter resolves to the model applied after a switch', async () => {
+test('an inherited-current waiter follows a selection saved while it waited and keeps it saved', async () => {
   const harness = await createRoutingQueueHarness('siftkit-model-queue-inherited-', PRESET_ROUTING_MODEL_A, ROUTING_SLOTS_ONE);
   const { ctx, coordinator, events } = harness;
   try {
     const seed = await acquireModelRequestWithWait(ctx, 'seed');
     assert.ok(seed);
     const pending = acquireModelRequestWithWait(ctx, 'inherited');
-    assert.equal(await coordinator.applyPreset(PRESET_ROUTING_MODEL_B), 'queued');
+    // A settings save switches nothing by itself; the next admission applies the saved selection.
+    const saved = readConfig(ctx.configPath);
+    saved.Server.ModelPresets.ActivePresetId = PRESET_ROUTING_MODEL_B;
+    writeConfig(ctx.configPath, saved);
 
     assert.equal(releaseModelRequest(ctx, seed.token), true);
     const lock = await pending;
     assert.ok(lock);
     assert.equal(lock.context.modelPreset.id, PRESET_ROUTING_MODEL_B);
     assert.equal(coordinator.getStatus().activePresetId, PRESET_ROUTING_MODEL_B);
+    assert.equal(readConfig(ctx.configPath).Server.ModelPresets.ActivePresetId, PRESET_ROUTING_MODEL_B);
     assert.deepEqual(events, [
       'start:exl3',
       `load:${PRESET_ROUTING_MODEL_A}`,

@@ -1,7 +1,7 @@
-import Database from 'better-sqlite3';
 
 import { z } from '../../src/lib/zod.js';
-import { closeAllRuntimeDatabases, getRuntimeDatabase } from '../../src/state/runtime-db.js';
+import { closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase } from '../../src/state/runtime-db.js';
+import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './stored-runtime-database.js';
 import {
   CHAT_MESSAGES_COLUMNS,
   CHAT_MESSAGES_COLUMNS_ADDED_BY_CHAT_RECOVERY,
@@ -32,7 +32,7 @@ const NameRowsSchema = z.array(z.object({ name: z.string() }));
 const SqlRowSchema = z.object({ sql: z.string() });
 const VersionRowSchema = z.object({ version: z.number().int() });
 
-type DatabaseInstance = InstanceType<typeof Database>;
+type DatabaseInstance = RuntimeDatabase;
 
 export type LegacyChatFixtureOptions = {
   /** The `tool_call_status` values the fixture's CHECK accepts. Defaults to the shipped stale pair. */
@@ -175,8 +175,7 @@ export function seedLegacyChatDatabase(
   closeAllRuntimeDatabases();
 
   const modelPresetJson = JSON.stringify(mockModelPreset()).replaceAll("'", "''");
-  const database = new Database(databasePath);
-  try {
+  rewriteStoredRuntimeDatabase(databasePath, (database) => {
     database.exec('PRAGMA foreign_keys = ON;');
     database.exec(`
       DROP TABLE chat_submissions;
@@ -198,9 +197,7 @@ export function seedLegacyChatDatabase(
     `);
     insertFixtureRows(database, options);
     database.prepare('UPDATE runtime_schema SET version = ? WHERE id = 1').run(LEGACY_FIXTURE_MARKER_VERSION);
-  } finally {
-    database.close();
-  }
+  });
 }
 
 /**
@@ -230,7 +227,7 @@ export function readTableColumns(database: DatabaseInstance, table: string): str
 }
 
 export function readMarkerVersion(databasePath: string): number {
-  const database = new Database(databasePath, { readonly: true });
+  const database = openStoredRuntimeDatabase(databasePath);
   try {
     return VersionRowSchema.parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version;
   } finally {

@@ -24,6 +24,7 @@ import { StructuredOutputRunner } from '../src/assistant/inference/structured-ru
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { withAssistantContextAsync, type AssistantTestContext } from './helpers/assistant-fixture.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -165,6 +166,7 @@ test('a drain with a capable runtime extracts every unprocessed capture oldest-f
     residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(true),
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
   try {
     const queue = new CaptureQueueStore(
@@ -217,6 +219,7 @@ test('a drain with an unlimited session budget promotes every pending capture', 
     residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(true),
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
   try {
     const queue = new CaptureQueueStore(

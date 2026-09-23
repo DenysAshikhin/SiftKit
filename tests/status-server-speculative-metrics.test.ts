@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { getRuntimeDatabase, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
 
 import {
@@ -13,6 +12,7 @@ import {
 } from '../src/status-server/dashboard-runs.js';
 import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import { withTempEnv } from './_runtime-helpers.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 test('dashboard runs keep persisted speculative totals when artifact payloads disagree', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -72,8 +72,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
       closeAllRuntimeDatabases();
     }
 
-    const verifyDb = new Database(runtimeDbPath);
-    try {
+    withRuntimeDatabaseConnection(runtimeDbPath, (verifyDb) => {
       const runs = queryDashboardRunsFromDb(verifyDb);
       const run = runs.find((entry) => entry.id === requestId);
       assert.equal(run?.speculativeAcceptedTokens, 58);
@@ -82,9 +81,7 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
       const detail = queryDashboardRunDetailFromDb(verifyDb, requestId);
       assert.equal(detail?.run.speculativeAcceptedTokens, 58);
       assert.equal(detail?.run.speculativeGeneratedTokens, 258);
-    } finally {
-      verifyDb.close();
-    }
+    });
   });
 });
 
@@ -146,8 +143,7 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
       closeAllRuntimeDatabases();
     }
 
-    const verifyDb = new Database(runtimeDbPath);
-    try {
+    withRuntimeDatabaseConnection(runtimeDbPath, (verifyDb) => {
       const runs = queryDashboardRunsFromDb(verifyDb);
       const run = runs.find((entry) => entry.id === requestId);
       assert.equal(run?.speculativeAcceptedTokens, null);
@@ -156,8 +152,6 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
       const detail = queryDashboardRunDetailFromDb(verifyDb, requestId);
       assert.equal(detail?.run.speculativeAcceptedTokens, null);
       assert.equal(detail?.run.speculativeGeneratedTokens, null);
-    } finally {
-      verifyDb.close();
-    }
+    });
   });
 });

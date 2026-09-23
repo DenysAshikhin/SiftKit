@@ -7,7 +7,6 @@ import type { SiftConfig } from '../src/config/index.js';
 import {
   fs,
   path,
-  Database,
   loadConfig,
   saveConfig,
   getConfigPath,
@@ -20,14 +19,11 @@ import {
   withStubServer,
   withRealStatusServer,
   acquireChildPortLease,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
-
-const LaunchInvocationSchema = z.object({
-  argv: z.array(z.string()),
-  launchEnvironment: z.record(z.string(), z.string()),
-});
+import { launchEngineVariables } from './helpers/in-process-tabby.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -110,8 +106,7 @@ test('loadConfig uses weighted observed-budget totals instead of status snapshot
       initializeRuntime();
       await loadConfig({ ensure: true });
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-      const database = new Database(runtimeDbPath);
-      try {
+      withRuntimeDatabaseConnection(runtimeDbPath, (database) => {
         database.prepare(`
           INSERT INTO observed_budget_state (
             id,
@@ -128,9 +123,7 @@ test('loadConfig uses weighted observed-budget totals instead of status snapshot
             observed_tokens_total = excluded.observed_tokens_total,
             updated_at_utc = excluded.updated_at_utc
         `).run(2.75, 2750, 1000, '2026-04-25T16:00:00.000Z');
-      } finally {
-        database.close();
-      }
+      });
 
       const config = await loadConfig({ ensure: true });
       assert.ok(config.Effective);
@@ -157,8 +150,7 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
       initializeRuntime();
       await loadConfig({ ensure: true });
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-      const database = new Database(runtimeDbPath);
-      try {
+      withRuntimeDatabaseConnection(runtimeDbPath, (database) => {
         database.prepare(`
           INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
           VALUES (1, 1, 0.07915126409690375, '2026-04-25T16:00:00.000Z')
@@ -167,9 +159,7 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
             last_known_chars_per_token = excluded.last_known_chars_per_token,
             updated_at_utc = excluded.updated_at_utc
         `).run();
-      } finally {
-        database.close();
-      }
+      });
 
       const config = await loadConfig({ ensure: true });
       assert.ok(config.Effective);
@@ -210,8 +200,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
     await withStubServer(async () => {
       initializeRuntime();
       await loadConfig({ ensure: true });
-      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
-      try {
+      withRuntimeDatabaseConnection(path.join('.siftkit', 'runtime.sqlite'), (database) => {
         database.prepare(`
           INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
           VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
@@ -220,9 +209,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
             last_known_chars_per_token = excluded.last_known_chars_per_token,
             updated_at_utc = excluded.updated_at_utc
         `).run();
-      } finally {
-        database.close();
-      }
+      });
 
       const config = await loadConfig({ ensure: true });
       assert.ok(config.Effective);
@@ -247,8 +234,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
     await withStubServer(async () => {
       initializeRuntime();
       await loadConfig({ ensure: true });
-      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
-      try {
+      withRuntimeDatabaseConnection(path.join('.siftkit', 'runtime.sqlite'), (database) => {
         database.prepare(`
           INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
           VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
@@ -257,9 +243,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
             last_known_chars_per_token = excluded.last_known_chars_per_token,
             updated_at_utc = excluded.updated_at_utc
         `).run();
-      } finally {
-        database.close();
-      }
+      });
     });
 
     await withStubServer(async (server) => {
@@ -324,25 +308,26 @@ test('real status server launches the managed engine with the active preset laun
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-loadconfig');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed, { NumCtx: 32_768, UBatchSize: 1024, KvCacheQuantization: 'q8_0' });
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       await waitForAsyncExpectation(() => {
-        const invocation = LaunchInvocationSchema.parse(JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8')));
-        assert.deepEqual(invocation.argv, []);
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_DIR, managed.modelRoot);
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MAX_SEQ_LEN, '32768');
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_CHUNK_SIZE, '1024');
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_CACHE_MODE, '8,8');
+        const [launch] = managed.launcher.launches;
+        assert.deepEqual(launch?.args, [managed.engine.Entrypoint]);
+        const variables = launchEngineVariables(launch);
+        assert.equal(variables.TABBY_MODEL_MODEL_DIR, managed.modelRoot);
+        assert.equal(variables.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
+        assert.equal(variables.TABBY_MODEL_MAX_SEQ_LEN, '32768');
+        assert.equal(variables.TABBY_MODEL_CHUNK_SIZE, '1024');
+        assert.equal(variables.TABBY_MODEL_CACHE_MODE, '8,8');
       });
     }, {
       statusPath,
       configPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -387,16 +372,13 @@ test('real status server PUT /config persists the preset ModelPath as the dashbo
       assert.equal(reloaded.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
 
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-      const database = new Database(runtimeDbPath);
-      try {
+      withRuntimeDatabaseConnection(runtimeDbPath, (database) => {
         const row = z.object({ server_model_presets_json: z.string().nullish() })
           .parse(database.prepare('SELECT server_model_presets_json FROM app_config WHERE id = 1').get());
         const presets = JSON.parse(row.server_model_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
         assert.equal(presets[0].ModelPath, dashboardModelPath);
-      } finally {
-        database.close();
-      }
+      });
     }, {
       statusPath,
       configPath,

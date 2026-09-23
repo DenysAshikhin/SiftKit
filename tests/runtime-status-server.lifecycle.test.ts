@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 
 import { summarizeRequest } from '../src/summary.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
@@ -17,18 +16,18 @@ import {
   acquireChildPortLease,
   requestJson,
   sleep,
-  startStatusServerProcess,
   waitForAsyncExpectation,
   withRealStatusServer,
   withStubServer,
   withTempEnv,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
   type RuntimeStatusResponse,
   type HealthCheckResponse,
   type InferenceModelsResponse,
 } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
+import { NEVER_LAUNCHING_ENGINE_HOST } from './helpers/in-process-tabby.js';
 
 test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {
@@ -119,14 +118,14 @@ test('real status server with disableManagedEngineStartup skips managed engine b
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await sleep(50);
-      assert.equal(fs.existsSync(managed.readyFilePath), false);
+      assert.equal(managed.launcher.serving, false);
       const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
@@ -144,7 +143,7 @@ test('real status server with disableManagedEngineStartup does not trigger manag
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -153,7 +152,7 @@ test('real status server with disableManagedEngineStartup does not trigger manag
       const loadedConfig = await requestJson<SiftConfig>(configUrl);
       assert.equal(loadedConfig.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
       await sleep(50);
-      assert.equal(fs.existsSync(managed.readyFilePath), false);
+      assert.equal(managed.launcher.serving, false);
     }, {
       statusPath,
       configPath,
@@ -296,8 +295,7 @@ test('failed preset switch returns 503 and keeps the status server alive', async
     writeConfig(configPath, config);
 
     try {
-      const statusServer = await startStatusServerProcess({ statusPath, configPath, workingDirectory: tempRoot });
-      try {
+      await withRealStatusServer(async (statusServer) => {
         await new Promise<void>((resolve) => tabby.close(() => resolve()));
         config.Server.ModelPresets.ActivePresetId = unreachablePreset.id;
         const update = await fetch(statusServer.configUrl, {
@@ -313,10 +311,8 @@ test('failed preset switch returns 503 and keeps the status server alive', async
         const applied = await fetch(statusServer.configUrl);
         assert.equal(applied.status, 503);
         assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, exl3Preset.id);
-        assert.equal((await fetch(`http://127.0.0.1:${statusServer.port}/health`)).status, 200);
-      } finally {
-        await statusServer.close();
-      }
+        assert.equal((await fetch(statusServer.healthUrl)).status, 200);
+      }, { statusPath, configPath, managedEngineHost: NEVER_LAUNCHING_ENGINE_HOST });
     } finally {
       if (tabby.listening) await new Promise<void>((resolve) => tabby.close(() => resolve()));
     }
@@ -328,14 +324,16 @@ test('real status server with disableManagedEngineStartup leaves an externally s
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
-    const externalEngine = spawn(process.execPath, [managed.fakeServerPath], {
-      stdio: 'ignore',
-      windowsHide: true,
+    managed.launcher.launch({
+      command: managed.engine.PythonPath,
+      args: [managed.engine.Entrypoint],
+      workingDirectory: tempRoot,
+      environment: {},
     });
 
     try {
@@ -353,6 +351,7 @@ test('real status server with disableManagedEngineStartup leaves an externally s
         statusPath,
         configPath,
         disableManagedEngineStartup: true,
+        managedEngineHost: NEVER_LAUNCHING_ENGINE_HOST,
       });
 
       await waitForAsyncExpectation(async () => {
@@ -360,8 +359,7 @@ test('real status server with disableManagedEngineStartup leaves an externally s
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 1000);
     } finally {
-      externalEngine.kill('SIGTERM');
-      await new Promise<void>((resolve) => externalEngine.once('close', () => resolve()));
+      await managed.launcher.stopAll();
     }
   });
 });

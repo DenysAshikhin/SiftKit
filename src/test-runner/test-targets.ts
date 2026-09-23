@@ -11,7 +11,7 @@ const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
 const DEFAULT_TEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TEST_CONCURRENCY = 12;
 const TEST_BUILD_DIRECTORY = '.test-build';
-const DASHBOARD_TESTS_OPTION = '--dashboard';
+const SUITE_OPTIONS = new Map<string, TestBuildManifest['tests'][number]['suite']>([['--dashboard', 'dashboard'], ['--process', 'process']]);
 const TIMEOUT_OPTION = '--test-timeout';
 const CONCURRENCY_OPTION = '--test-concurrency';
 
@@ -28,9 +28,10 @@ function getMatchingTestTargets(tests: TestBuildManifest['tests'], rawValue: str
     return [];
   }
   const compiledValue = rawValue.replace(/\.tsx?$/u, '.js');
-  const exactTarget = tests.find((entry) => path.basename(entry.entrypoint) === compiledValue);
-  if (exactTarget) {
-    return [toPlatformPath(exactTarget.entrypoint)];
+  // A basename can exist in more than one suite; an exact name selects every such file.
+  const exactTargets = tests.filter((entry) => path.basename(entry.entrypoint) === compiledValue);
+  if (exactTargets.length > 0) {
+    return exactTargets.map((entry) => toPlatformPath(entry.entrypoint)).sort((left, right) => left.localeCompare(right));
   }
   return tests
     .filter((entry) => path.basename(entry.entrypoint).includes(compiledValue))
@@ -86,13 +87,14 @@ function resolveTestArguments(repoRoot: string, rawArgs: string[]) {
       nextArgumentIsOptionValue = true;
       continue;
     }
-    if (rawArg === DASHBOARD_TESTS_OPTION) {
-      const dashboardTargets = manifest.tests
-        .filter((entry) => entry.suite === 'dashboard')
+    const suite = SUITE_OPTIONS.get(rawArg);
+    if (suite) {
+      const suiteTargets = manifest.tests
+        .filter((entry) => entry.suite === suite)
         .map((entry) => toPlatformPath(entry.entrypoint))
         .sort((left, right) => left.localeCompare(right));
-      resolvedArgs.push(...dashboardTargets);
-      targetCount += dashboardTargets.length;
+      resolvedArgs.push(...suiteTargets);
+      targetCount += suiteTargets.length;
       continue;
     }
     if (rawArg.startsWith('-')) {

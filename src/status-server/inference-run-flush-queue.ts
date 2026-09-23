@@ -10,7 +10,7 @@ import {
   restoreInferenceRunPendingLogChunks,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
-import { getRuntimeDatabasePath } from '../state/runtime-db.js';
+import { getRuntimeDatabasePath, getRuntimeDatabaseStorage } from '../state/runtime-db.js';
 import {
   clearUnrefTimer,
   deferredDrainWaitMs,
@@ -22,6 +22,7 @@ import {
   scheduleUnrefTimer,
 } from './idle-drain.js';
 import { FlushWorkerResponseSchema, type FlushWorkerResponse } from './inference-run-flush-messages.js';
+import { InProcessFlushWriter, type FlushWorkerPort } from './inference-run-flush-writer.js';
 import { SHUTDOWN_CLOSE_FLUSH_WAIT_MS } from './shutdown-budget.js';
 import { serverLogger } from './server-logger.js';
 
@@ -126,7 +127,7 @@ export class InferenceRunFlushQueue {
    * to keep meaning that.
    */
   private drainFailure: Error | null = null;
-  private worker: Worker | null = null;
+  private worker: FlushWorkerPort | null = null;
   private nextWorkerMessageId = 1;
   private closed = false;
 
@@ -573,17 +574,26 @@ export class InferenceRunFlushQueue {
     }
   }
 
-  private getWorker(): Worker {
+  private getWorker(): FlushWorkerPort {
     if (this.worker) {
       return this.worker;
     }
-    const launch = this.flushWorkerLaunch ?? { modulePath: getShippedFlushWorkerPath() };
-    this.worker = new Worker(launch.modulePath, { workerData: launch.data });
+    this.worker = this.startWorker();
     this.worker.unref();
     this.worker.on('exit', () => {
       this.worker = null;
     });
     return this.worker;
+  }
+
+  private startWorker(): FlushWorkerPort {
+    if (getRuntimeDatabaseStorage() === 'memory') {
+      // A named worker module would write another thread's in-memory databases, never this one's.
+      if (this.flushWorkerLaunch) throw new Error('In-memory runtime databases cannot be flushed by a worker thread.');
+      return new InProcessFlushWriter();
+    }
+    const launch = this.flushWorkerLaunch ?? { modulePath: getShippedFlushWorkerPath() };
+    return new Worker(launch.modulePath, { workerData: launch.data });
   }
 
   private clearDrainTimer(): void {

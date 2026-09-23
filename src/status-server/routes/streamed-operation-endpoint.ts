@@ -7,11 +7,10 @@ import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-ut
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
   acquireModelRequestWithWait,
-  ensureActivePresetReadyForModelRequest,
   getModelRequestQueueDiagnostics,
   releaseModelRequest,
 } from '../server-ops.js';
-import type { ServerContext } from '../server-types.js';
+import type { ModelRequestLock, ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 
@@ -101,9 +100,21 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       });
     }, readLockWaitEmitIntervalMs());
     lockWaitTimer.unref();
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res, {
-      ownerRunId: this.lockOwnerRunId(parsed.value),
-    });
+    let modelRequestLock: ModelRequestLock | null;
+    try {
+      modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res, {
+        ownerRunId: this.lockOwnerRunId(parsed.value),
+      });
+    } catch (error) {
+      // Admission readies the model before granting; an unusable target or failed load lands here.
+      clearInterval(lockWaitTimer);
+      const payload = recordServerError(req, 503, error, { taskKind: this.taskKind });
+      this.onOperationFailed(parsed.value, payload.error);
+      terminalFrameSent = true;
+      writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
+      writer.end();
+      return;
+    }
     clearInterval(lockWaitTimer);
     if (!modelRequestLock) {
       const message = 'Timed out waiting for model request queue.';
@@ -119,15 +130,6 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     }
 
     try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        const payload = recordServerError(req, 503, error, { taskKind: this.taskKind });
-        this.onOperationFailed(parsed.value, payload.error);
-        terminalFrameSent = true;
-        writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
-        return;
-      }
       const result = await this.execute(
         ctx,
         parsed.value,

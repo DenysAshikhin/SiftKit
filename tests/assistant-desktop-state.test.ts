@@ -26,6 +26,7 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { ALWAYS_IDLE, ALWAYS_RESIDENT } from './helpers/assistant-gates.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
   + 'FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -100,6 +101,7 @@ function buildService(runtimeRoot: string, clock: FixedClock): AssistantService 
     residencyGate: ALWAYS_RESIDENT,
     imageCapability: new StubImageCapability(false),
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

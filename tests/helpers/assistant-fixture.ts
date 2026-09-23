@@ -21,6 +21,7 @@ import {
   closeAllRuntimeDatabases, getRuntimeDatabase, type RuntimeDatabase,
 } from '../../src/state/runtime-db.js';
 import { createManagedTempDir } from './temp-dirs.js';
+import { InMemoryDataProtector } from './in-memory-data-protector.js';
 
 /** Durable-enough config store for unit tests: the service only needs its own flip to stick. */
 export class MemoryAssistantConfigWriter implements AssistantConfigWriter {
@@ -120,6 +121,7 @@ export function buildAssistantService(
     idleGate: ALWAYS_IDLE,
     residencyGate: ALWAYS_RESIDENT,
     config,
+    dataProtector: new InMemoryDataProtector(),
   });
 }
 

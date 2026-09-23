@@ -6,7 +6,6 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
-import Database from 'better-sqlite3';
 import { z } from '../src/lib/zod.js';
 import { toError } from '../src/lib/errors.js';
 import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
@@ -53,9 +52,12 @@ import {
 import { writeSseResult } from './helpers/sse-http.js';
 import {
   buildProbeShimNodeOptions,
-  installProbeShim,
+  writeManagedEngineHost,
   writeManagedEngineLauncher,
+  type ManagedEngineHostFixture,
 } from './helpers/managed-engine-fixtures.js';
+import type { ManagedEngineHost } from '../src/status-server/engine-process.js';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
 
 import {
   loadConfig,
@@ -105,6 +107,7 @@ import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const TEST_REPO_ROOT = process.cwd();
 
@@ -135,7 +138,7 @@ interface StatusPostAck {
 // the EXL3 engine at the fixture and applies any per-test overrides.
 function applyManagedScriptConfig(
   config: SiftConfig,
-  managed: ReturnType<typeof writeManagedEngineLauncher>,
+  managed: Pick<ManagedEngineHostFixture, 'baseUrl' | 'engine' | 'modelId' | 'modelPath'>,
   overrides: Partial<ModelRuntimePreset> = {},
 ): void {
   const defaultPreset = config.Server.ModelPresets.Presets[0];
@@ -284,8 +287,8 @@ interface RealStatusServerOptions {
   inferenceRunFlushIdleDelayMs?: number;
   disableManagedEngineStartup?: boolean;
   awaitStartup?: boolean;
-  /** Preloads the EXL3 package-probe shim so the fake venv interpreter passes the launch preflight. */
-  probeShimPath?: string;
+  /** The in-process engine host the managed runtime launches through. */
+  managedEngineHost?: ManagedEngineHost;
 }
 
 interface RealStatusServerContext {
@@ -963,7 +966,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
         && !parsed.deferredMetadata
         && !hasArtifactPayload
       ) {
-        await sleep(Number(options.delayNonTerminalStatusFalseMs));
+        await sleepUnref(Number(options.delayNonTerminalStatusFalseMs));
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, running: Boolean(parsed.running) }));
@@ -1167,8 +1170,6 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS,
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
-  const restoreProbeShim = options.probeShimPath ? installProbeShim(options.probeShimPath) : () => undefined;
-
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
@@ -1205,6 +1206,8 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     idleSummaryDelayMs: idleSummaryDelayMs ?? undefined,
     terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
     inferenceRunFlushIdleDelayMs: inferenceRunFlushIdleDelayMs ?? undefined,
+    gpuMemoryProbe: new FixedGpuMemoryProbe(null),
+    ...(options.managedEngineHost ? { managedEngineHost: options.managedEngineHost } : {}),
   });
   try {
     const address = await new Promise<AddressInfo | string | null>((resolve) => {
@@ -1241,7 +1244,6 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
         process.env[key] = value;
       }
     }
-    restoreProbeShim();
   }
 }
 
@@ -1431,7 +1433,7 @@ function stripAnsi(text: string): string {
 }
 
 function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     const rows = database.prepare(`
       SELECT
@@ -1541,7 +1543,7 @@ function runPowerShellScript(scriptPath: string): void {
 
 export {
   // Re-exports from dist modules (used by test files)
-  assert, fs, http, path, spawn, spawnSync, Database,
+  assert, fs, http, path, spawn, spawnSync,
   loadConfig, saveConfig, getConfigPath,
   getChunkThresholdCharacters, getConfiguredEngineNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
@@ -1565,13 +1567,13 @@ export {
   buildOversizedRunnerStateHistoryInput, getRuntimeRootFromStatusPath,
   getPlannerLogsPath, getFailedLogsPath, getRequestLogsPath,
   buildStructuredStubDecision, resolveAssistantContent, readBody,
-  resolveArtifactLogPathFromStatusPost, requestJson, sleep,
+  resolveArtifactLogPathFromStatusPost, requestJson, sleep, sleepUnref,
   spawnProcess, waitForTextMatch,
   startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockSiftConfig as mockConfig,
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi,
   readIdleSummarySnapshots, getIdleSummaryBlock, acquireChildPortLease,
-  writeManagedEngineLauncher, installProbeShim,
+  writeManagedEngineHost, writeManagedEngineLauncher,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
   listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };

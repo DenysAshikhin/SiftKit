@@ -2,9 +2,10 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { build } from 'esbuild';
+import { build, type Plugin } from 'esbuild';
 
 import {
+  HERMETIC_FS_BUNDLE_PATH,
   TEST_BUILD_ROOT,
   TEST_BUILD_STAMP_PATH,
   createTestBuildStampContent,
@@ -72,6 +73,27 @@ function listTestEntries(directory: string): string[] {
   return entries.sort((left, right) => left.localeCompare(right));
 }
 
+// Pure-JS packages every test process loads; bundling them spares each process resolving their module trees.
+const BUNDLED_PACKAGES = new Set(['zod', 'undici', '@siftkit/contracts', 'jsonrepair', 'turndown', 'memfs']);
+
+function packageName(specifier: string): string {
+  const [scopeOrName = '', name = ''] = specifier.split('/');
+  return scopeOrName.startsWith('@') ? `${scopeOrName}/${name}` : scopeOrName;
+}
+
+const externalizeUnbundledPackages: Plugin = {
+  name: 'externalize-unbundled-packages',
+  setup(pluginBuild) {
+    // A bundled package's own dependencies are bundled along with it.
+    pluginBuild.onResolve({ filter: /^[^./]/ }, ({ path: specifier, importer }) => (
+      path.isAbsolute(specifier) || specifier.startsWith('node:') || /[\\/]node_modules[\\/]/u.test(importer)
+        || BUNDLED_PACKAGES.has(packageName(specifier))
+        ? undefined
+        : { path: specifier, external: true }
+    ));
+  },
+};
+
 function toCompiledTestPath(sourcePath: string): string {
   const relativePath = path.relative(repoRoot, sourcePath);
   return path.resolve(testBuildRoot, relativePath.replace(/\.tsx?$/u, '.js'));
@@ -85,6 +107,7 @@ async function emitBundledTests(sourcePaths: string[]): Promise<void> {
     const entryName = path.relative(testBuildRoot, bundlePath).replace(/\.js$/u, '');
     entryPoints[entryName] = sourcePath;
   }
+  entryPoints[path.relative(TEST_BUILD_ROOT, HERMETIC_FS_BUNDLE_PATH).replace(/\.js$/u, '')] = path.join(repoRoot, 'tests', 'helpers', 'hermetic-fs.ts');
 
   await build({
     entryPoints,
@@ -93,7 +116,9 @@ async function emitBundledTests(sourcePaths: string[]): Promise<void> {
     format: 'esm',
     platform: 'node',
     target: 'node24',
-    packages: 'external',
+    plugins: [externalizeUnbundledPackages],
+    // Bundled CommonJS packages (undici, memfs) call require() for node builtins.
+    banner: { js: "import { createRequire as __testBundleCreateRequire } from 'node:module'; const require = __testBundleCreateRequire(import.meta.url);" },
     sourcemap: false,
     logLevel: 'warning',
   });

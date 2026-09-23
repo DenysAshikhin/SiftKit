@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { getRuntimeDatabase, runtimeDatabaseExists } from '../../state/runtime-db.js';
 import Database from 'better-sqlite3';
 import { z } from '../../lib/zod.js';
 import { getRuntimeDatabasePath } from '../../config/paths.js';
@@ -106,28 +106,18 @@ function isRunLogGroup(value: string): value is RunLogGroup {
 export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
   void runtimeRoot;
   const databasePath = getRuntimeDatabasePath();
-  if (!existsSync(databasePath)) {
+  if (!runtimeDatabaseExists(databasePath)) {
     return [];
   }
-  const database = new Database(databasePath);
-  try {
-    return queryDashboardRunsFromDb(database);
-  } finally {
-    database.close();
-  }
+  return queryDashboardRunsFromDb(getRuntimeDatabase(databasePath));
 }
 
 export function buildDashboardRunDetail(runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
   const databasePath = getRuntimeDatabasePath();
-  if (!existsSync(databasePath)) {
+  if (!runtimeDatabaseExists(databasePath)) {
     return null;
   }
-  const database = new Database(databasePath);
-  try {
-    return queryDashboardRunDetailFromDb(database, runId);
-  } finally {
-    database.close();
-  }
+  return queryDashboardRunDetailFromDb(getRuntimeDatabase(databasePath), runId);
 }
 
 export function queryDashboardRunsFromDb(

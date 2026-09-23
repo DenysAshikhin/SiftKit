@@ -125,48 +125,6 @@ test('repo-agent attempts compaction and fails when its summarization prompt is 
   }
 });
 
-test('repo-agent automatically trims noisy validation run output', async () => {
-  const dir = createManagedTempDir('siftkit-agent-validation-');
-  fs.writeFileSync(
-    path.join(dir, 'validation.cjs'),
-    'for (let index = 1; index <= 60; index += 1) console.log(`validation-line-${index}`);\n',
-    'utf8',
-  );
-  fs.writeFileSync(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ scripts: { test: 'node validation.cjs' } }),
-    'utf8',
-  );
-  try {
-    const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
-      taskKind: 'repo-agent',
-      prompt: 'run the validation test',
-      repoRoot: dir,
-      config: MOCK_CONFIG,
-      model: 'mock',
-      maxTurns: 4,
-      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
-      availableModels: ['mock'],
-      mockResponses: [
-        { toolCalls: [{ name: "run", arguments: {"command":"npm test"} }] },
-        ...repoAgentFinishResponses('validation passed'),
-      ],
-      mockCommandResults: {},
-    });
-    const command = result.scorecard.tasks[0]?.commands[0];
-    if (!command) {
-      throw new Error('Expected repo-agent to record the validation command.');
-    }
-    assert.equal(command.exitCode, 0);
-    assert.match(command.output, /lines omitted from validation command output\./u);
-    assert.doesNotMatch(command.output, /validation-line-1\b/u);
-    assert.match(command.output, /validation-line-60\b/u);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 // Run-log persistence is deferred off the request path, so the write lands after the request
 // promise resolves. Callers that tear the runtime down — every test harness — need a handle on
 // it; without one the late write reopens runtime.sqlite behind whoever just closed it.

@@ -17,7 +17,7 @@ import {
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
 import { DEFAULT_REASONING_EFFORT } from '@siftkit/contracts';
-import { initializeRuntime } from './paths.js';
+import { getRuntimePaths } from './paths.js';
 import { PROMPT_COMPACTION_RESERVE_TOKENS } from '../lib/context-token-budget.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { getDefaultOperationModeAllowedTools } from '../presets.js';
@@ -94,7 +94,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
 };
 
 export function getDefaultConfigObject(): SiftConfig {
-  const runtimePaths = initializeRuntime();
+  const runtimePaths = getRuntimePaths();
   // The default preset names no model: the user must pick a model directory under the EXL3
   // ModelRoot before the first launch, and the server reports that as a configuration error.
   const defaultModelPreset: ModelRuntimePreset = {

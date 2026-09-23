@@ -18,8 +18,8 @@ import { buildTabbyUsage } from './helpers/streaming-client.js';
 import { emptyInferenceThroughput, readTabbyThroughput } from '../src/lib/inference-throughput.js';
 
 // The summary prompt and the stub's answer are fixed fixtures, so their local
-// (characters-per-token) counts are constants for these end-to-end assertions.
-const LOCAL_PROMPT_TOKENS = 2267;
+// (characters-per-token) counts are constants; the prompt's repo listing holds no database files.
+const LOCAL_PROMPT_TOKENS = 2224;
 const LOCAL_ANSWER_TOKENS = 40;
 const STUB_REASONING_TEXT = 'weighing the options before answering';
 const LOCAL_REASONING_TOKENS = 15;

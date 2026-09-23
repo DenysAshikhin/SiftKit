@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync } from 'node:fs';
 import http from 'node:http';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
@@ -24,7 +25,7 @@ import { makeCaptureStream, type CaptureStream } from './_test-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 
 const RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
-const TEMP_ROOT = join(process.cwd(), '.tmp', `repo-agent-command-tests-${process.pid}`);
+const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-command-tests-${process.pid}`);
 
 class HealthServer {
   private readonly server = http.createServer((_request, response) => {

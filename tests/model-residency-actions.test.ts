@@ -25,6 +25,7 @@ import { ALWAYS_IDLE } from './helpers/assistant-gates.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { InMemoryDataProtector } from './helpers/in-memory-data-protector.js';
 
 type FixtureOptions = {
   externalServerEnabled?: boolean;
@@ -470,6 +471,7 @@ test('idle unload preempts a blocked assistant drain and waits for it before unl
       idleGate: ALWAYS_IDLE,
       residencyGate: new StatusServerResidencyGate(fixture.coordinator),
       config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
+      dataProtector: new InMemoryDataProtector(),
     });
     fixture.ctx.assistant = service;
     fixture.ctx.assistantControl = service;

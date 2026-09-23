@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import Database from 'better-sqlite3';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -15,40 +14,7 @@ import { enqueueDeferredArtifacts, flushDeferredArtifacts } from '../src/status-
 import { UNRECORDED_RUN_IDENTITY } from '../src/status-server/dashboard-runs/run-identity.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
-
-const ValueRowsSchema = z.array(z.object({ value: z.string() }));
-const JournalModeRowSchema = z.object({ journal_mode: z.string() });
-
-function readValues(database: ReturnType<typeof getRuntimeDatabase>): string[] {
-  return ValueRowsSchema.parse(database.prepare('SELECT value FROM audit_value ORDER BY value').all())
-    .map((row) => row.value);
-}
-
-function twoPaths(prefix: string): { firstPath: string; secondPath: string } {
-  const root = createManagedTempDir(prefix);
-  return { firstPath: path.join(root, 'a', 'runtime.sqlite'), secondPath: path.join(root, 'b', 'runtime.sqlite') };
-}
-
-test('opening a second database leaves the first handle open and usable', () => {
-  const { firstPath, secondPath } = twoPaths('runtime-db-lifecycle-scoped-');
-  try {
-    const first = getRuntimeDatabase(firstPath);
-    first.exec("CREATE TABLE audit_value(value TEXT); INSERT INTO audit_value VALUES ('A')");
-    const second = getRuntimeDatabase(secondPath);
-    assert.notEqual(first, second);
-    assert.equal(first.open, true);
-    first.exec("INSERT INTO audit_value VALUES ('A2')");
-    assert.deepEqual(readValues(first), ['A', 'A2']);
-
-    closeRuntimeDatabase(secondPath);
-    assert.equal(second.open, false);
-    assert.equal(first.open, true);
-    assert.deepEqual(first.prepare('SELECT value FROM audit_value ORDER BY value').all(), [{ value: 'A' }, { value: 'A2' }]);
-    assert.equal(JournalModeRowSchema.parse(first.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
-  } finally {
-    closeAllRuntimeDatabases();
-  }
-});
+import { twoPaths, readValues } from './helpers/runtime-db-lifecycle-fixtures.js';
 
 test('the same path and its case/separator aliases share one handle', () => {
   const { firstPath } = twoPaths('runtime-db-lifecycle-alias-');
@@ -79,27 +45,6 @@ test('an explicitly closed database reopens as a new handle', () => {
   } finally {
     closeAllRuntimeDatabases();
   }
-});
-
-// The flush worker and the server share one file. An ordinary close must not switch the
-// journal back to rollback mode under the other connection, and cleanup must still succeed.
-test('closing one connection leaves a concurrent connection in WAL mode and usable', () => {
-  const { firstPath } = twoPaths('runtime-db-lifecycle-wal-');
-  const first = getRuntimeDatabase(firstPath);
-  first.exec("CREATE TABLE audit_value(value TEXT); INSERT INTO audit_value VALUES ('A')");
-  const second = new Database(firstPath);
-  try {
-    assert.equal(JournalModeRowSchema.parse(second.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
-    closeRuntimeDatabase(firstPath);
-    assert.equal(first.open, false);
-    assert.equal(JournalModeRowSchema.parse(second.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
-    second.exec("INSERT INTO audit_value VALUES ('B')");
-    assert.deepEqual(readValues(second), ['A', 'B']);
-  } finally {
-    second.close();
-    closeAllRuntimeDatabases();
-  }
-  assert.doesNotThrow(() => rmSync(path.dirname(firstPath), { recursive: true, force: false }));
 });
 
 test('a failed second initialization closes only its own handle', () => {
@@ -189,8 +134,6 @@ test('deferred writers stay pinned to each server database while both queues dra
   const secondRoot = path.join(root, 'second');
   const first = createTestServerContext(path.join(firstRoot, 'config.json'), firstRoot);
   const second = createTestServerContext(path.join(secondRoot, 'config.json'), secondRoot);
-  first.idleSummary.database = first.runtimeDatabase;
-  second.idleSummary.database = second.runtimeDatabase;
   process.env.SIFTKIT_GUARD_RUNTIME_DATABASE = getRuntimeDatabasePath();
   try {
     enqueueDeferredArtifacts(first, [{ artifactType: 'planner_debug', artifactRequestId: 'first-artifact', artifactPayload: { owner: 'first' }, identity: UNRECORDED_RUN_IDENTITY }]);

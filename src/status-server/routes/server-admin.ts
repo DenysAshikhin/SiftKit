@@ -34,7 +34,6 @@ import {
 } from '../server-ops.js';
 import { InferenceRuntimeDashboardStatusSchema, ModelLifecycleRequestSchema, ModelLifecycleResponseSchema } from '@siftkit/contracts';
 import type { ModelLifecycleAction } from '@siftkit/contracts';
-import { readGpuMemory } from '../gpu-memory.js';
 import type { ServerContext } from '../server-types.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
 
@@ -302,7 +301,7 @@ export class InferenceRuntimeReadEndpoint implements RouteEndpoint {
       return;
     }
     const preset = ctx.appliedModelPresetState.getPreset();
-    const gpuMemory = await readGpuMemory();
+    const gpuMemory = await ctx.gpuMemoryProbe.read();
     sendJson(res, 200, InferenceRuntimeDashboardStatusSchema.parse({
       ...coordinator.getStatus(),
       imageTokenBudget: preset.Backend === 'exl3' ? resolveImageTokenBudget(preset) : null,

@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import Database from 'better-sqlite3';
 import path from 'node:path';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
@@ -9,6 +8,7 @@ import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } 
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { REMOVED_BACKEND_PROVIDER_ID } from './helpers/legacy-backend-fixtures.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const ColumnNameRowsSchema = z.array(z.object({ name: z.string() }));
 const VersionRowSchema = z.object({ version: z.number() });
@@ -41,7 +41,7 @@ test('fresh database uses current backend-neutral schema columns', () => {
   const dbPath = tempDbPath('siftkit-config-current-schema-');
   try {
     getRuntimeDatabase(dbPath);
-    const database = new Database(dbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(dbPath);
     try {
       const columns = ColumnNameRowsSchema.parse(database.prepare(
         "SELECT name FROM pragma_table_info('app_config')",

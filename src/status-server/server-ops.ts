@@ -6,27 +6,27 @@
  * state lives in one place (created by `startStatusServer` in index.ts).
  */
 import { randomUUID } from 'node:crypto';
-import { dirname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import Database from 'better-sqlite3';
 import { MIXED_MODEL_PRESET_LABEL } from '@siftkit/contracts';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { readConfig, persistAppliedModelSelection } from './config-store.js';
 import {
   resolveModelRequestContext,
   type ModelRequestContext,
+  type ModelRequestIntent,
 } from './model-request-context.js';
 import {
   selectNextModelRequest,
   type ModelRequestCandidate,
 } from './model-request-selection.js';
-import type { SiftConfig } from '../config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
+import { getActiveModelPreset } from '../config/getters.js';
 import {
   STATUS_TRUE,
   STATUS_FALSE,
   writeStatusText,
 } from './status-file.js';
-import { ensureDirectory } from '../lib/fs.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import {
   buildIdleSummarySnapshot,
@@ -47,6 +47,7 @@ import type {
   DatabaseInstance,
   ModelRequestQueueDiagnostics,
   ModelRequestLock,
+  ModelRequestSelection,
   ModelRequestWaitOptions,
   ModelRequestWaiter,
   ServerContext,
@@ -216,12 +217,7 @@ export function resetPendingIdleSummaryMetadata(ctx: ServerContext): void {
 }
 
 export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
-  if (ctx.idleSummary.database) {
-    return ctx.idleSummary.database;
-  }
-  ensureDirectory(dirname(ctx.idleSummarySnapshotsPath));
-  ctx.idleSummary.database = new Database(ctx.idleSummarySnapshotsPath);
-  return ctx.idleSummary.database;
+  return getRuntimeDatabase(ctx.idleSummarySnapshotsPath);
 }
 
 /** Audits the runtime-wide generation speed of one emitted snapshot against its own backend reference. */
@@ -375,7 +371,7 @@ function createModelRequestLock(
   kind: string,
   ownerRunId: string | null,
   context: ModelRequestContext,
-  residencyKey: string,
+  residencyKey: string | null,
 ): ModelRequestLock {
   return {
     token: randomUUID(),
@@ -516,27 +512,27 @@ function cancelModelRequestWaiter(
   scheduleIdleSummaryIfNeeded(ctx);
 }
 
-function rejectModelRequestWaiter(ctx: ServerContext, waiter: ModelRequestWaiter, error: Error): void {
+function rejectModelRequestWaiter(
+  ctx: ServerContext,
+  waiter: ModelRequestWaiter,
+  reason: 'model_target_invalid' | 'model_readiness_failed',
+  error: Error,
+): void {
   if (waiter.cancelled || waiter.grantedLock) {
     return;
   }
   waiter.cancelled = true;
   clearModelRequestWaiterTimeout(waiter);
   removeModelRequestWaiter(ctx, waiter.queueToken);
-  logModelRequestDropped(waiter, 'model_target_invalid');
+  logModelRequestDropped(waiter, reason);
   waiter.rejectLock(error);
   syncInferenceRunFlushQueueModelState(ctx);
   refreshQueuedModelRequestTimeouts(ctx);
   scheduleIdleSummaryIfNeeded(ctx);
 }
 
-function grantModelRequestWaiter(ctx: ServerContext, waiter: ModelRequestWaiter): void {
-  const context = waiter.context;
-  const residencyKey = waiter.residencyKey;
-  if (!context || residencyKey === null) {
-    throw new Error('Model request waiter was granted without a frozen selection.');
-  }
-  const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId, context, residencyKey);
+function grantModelRequestWaiter(ctx: ServerContext, waiter: ModelRequestWaiter, selection: ModelRequestSelection): void {
+  const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId, selection.context, selection.residencyKey);
   waiter.grantedLock = lock;
   removeModelRequestWaiter(ctx, waiter.queueToken);
   registerActiveModelRequest(ctx, lock);
@@ -552,27 +548,64 @@ function grantModelRequestWaiter(ctx: ServerContext, waiter: ModelRequestWaiter)
  * transition-completion wake joins here, so one pass schedules the whole queue.
  */
 function requestModelRequestDrain(ctx: ServerContext): void {
-  if (ctx.modelRequestDrainRequested) {
+  if (ctx.modelRequestDrainPromise !== null) {
+    ctx.modelRequestDrainRequested = true;
+    return;
+  }
+  if (ctx.modelRequestQueue.length === 0) {
     return;
   }
   ctx.modelRequestDrainRequested = true;
-  const pass = (async () => {
-    try {
-      while (await advanceModelRequestDrain(ctx)) {
-        // A grant, rejection, or settled readiness may enable more progress; re-evaluate until stable.
-      }
-    } catch (error) {
-      process.stderr.write(`[siftKitStatus] Model request drain failed: ${getErrorMessage(error)}\n`);
-    } finally {
+  ctx.modelRequestDrainPromise = runModelRequestDrain(ctx);
+}
+
+async function runModelRequestDrain(ctx: ServerContext): Promise<void> {
+  // Yield first so the caller publishes this pass as the owner before any queue work runs.
+  await Promise.resolve();
+  try {
+    // A wake during a pass means the queue changed after it was examined; stop only once stable.
+    while (ctx.modelRequestDrainRequested) {
       ctx.modelRequestDrainRequested = false;
-      ctx.modelRequestDrainPromise = null;
-      // A wake that arrived while this pass was settling was dropped; re-run if it left schedulable work.
-      if (ctx.modelRequestQueue.length > 0 && ctx.activeModelRequests.size < getModelRequestCapacity(ctx)) {
-        requestModelRequestDrain(ctx);
+      while (await advanceModelRequestDrain(ctx)) {
+        // A grant, rejection, or settled readiness may enable more progress; re-evaluate.
       }
     }
-  })();
-  ctx.modelRequestDrainPromise = pass;
+  } catch (error) {
+    process.stderr.write(`[siftKitStatus] Model request drain failed: ${getErrorMessage(error)}\n`);
+  } finally {
+    ctx.modelRequestDrainPromise = null;
+    // Admission work suppressed idle arming; a pass that leaves nothing running (a cancelled
+    // selection's load, a rejected target) must arm it or the model stays resident indefinitely.
+    if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, Date.now());
+  }
+}
+
+/** Null when the applied profile has no derivable loading identity, e.g. no ModelPath behind an external server. */
+function readAppliedResidencyKey(ctx: ServerContext, applied: ModelRuntimePreset): string | null {
+  try {
+    return ctx.modelRuntime.getPresetResidencyKey(applied);
+  } catch {
+    return null;
+  }
+}
+
+function resolveModelRequestSelection(
+  ctx: ServerContext,
+  config: SiftConfig,
+  applied: ModelRuntimePreset,
+  appliedKey: string | null,
+  intent: ModelRequestIntent,
+): ModelRequestSelection {
+  // A coordinator applies a newer saved selection at the next admission; without one, the
+  // config route already moved the applied state, which is all an inherited request can use.
+  const inherited = ctx.presetRuntimeCoordinator ? getActiveModelPreset(config) : applied;
+  const context = resolveModelRequestContext(config, inherited, intent);
+  // The applied profile is resident by definition, whether or not its identity can be derived.
+  if (JSON.stringify(context.modelPreset) === JSON.stringify(applied)) {
+    return { context, residencyKey: appliedKey, resident: true };
+  }
+  const residencyKey = ctx.modelRuntime.getPresetResidencyKey(context.modelPreset);
+  return { context, residencyKey, resident: residencyKey === appliedKey };
 }
 
 async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
@@ -590,44 +623,36 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
   }
   const config = readConfig(ctx.configPath);
   const applied = ctx.appliedModelPresetState.getPreset();
-  const resolutions = new Map<string, { context: ModelRequestContext; residencyKey: string }>();
+  const appliedKey = readAppliedResidencyKey(ctx, applied);
+  const selections = new Map<string, ModelRequestSelection>();
   const candidates: ModelRequestCandidate[] = [];
   for (const waiter of [...ctx.modelRequestQueue]) {
     if (waiter.cancelled) {
       continue;
     }
     try {
-      const context = resolveModelRequestContext(config, applied, waiter.intent);
-      const residencyKey = ctx.modelRuntime.getPresetResidencyKey(context.modelPreset);
-      resolutions.set(waiter.queueToken, { context, residencyKey });
-      candidates.push({ queueToken: waiter.queueToken, residencyKey });
+      const selection = resolveModelRequestSelection(ctx, config, applied, appliedKey, waiter.intent);
+      selections.set(waiter.queueToken, selection);
+      candidates.push({ queueToken: waiter.queueToken, resident: selection.resident });
     } catch (error) {
-      rejectModelRequestWaiter(ctx, waiter, toError(error));
+      rejectModelRequestWaiter(ctx, waiter, 'model_target_invalid', toError(error));
     }
   }
-  const token = selectNextModelRequest(
-    candidates,
-    ctx.modelRuntime.getPresetResidencyKey(applied),
-    ctx.activeModelRequests.size,
-  );
-  const resolution = token === null ? undefined : resolutions.get(token);
+  const token = selectNextModelRequest(candidates, ctx.activeModelRequests.size);
+  const selection = token === null ? undefined : selections.get(token);
   const waiter = token === null ? undefined : ctx.modelRequestQueue.find((entry) => entry.queueToken === token);
-  if (!resolution || !waiter) {
+  if (!selection || !waiter) {
     return false;
   }
-  waiter.context = resolution.context;
-  waiter.residencyKey = resolution.residencyKey;
-  if (waiter.cancelled) {
-    return true;
-  }
+  waiter.selection = selection;
   try {
     if (coordinator) {
-      await coordinator.ensureRequestPresetReady(resolution.context.modelPreset);
+      await coordinator.ensureRequestPresetReady(selection.context.modelPreset);
     } else {
-      admitCompatibleProfileWithoutCoordinator(ctx, config, resolution);
+      admitCompatibleProfileWithoutCoordinator(ctx, config, selection);
     }
   } catch (error) {
-    rejectModelRequestWaiter(ctx, waiter, toError(error));
+    rejectModelRequestWaiter(ctx, waiter, 'model_readiness_failed', toError(error));
     return true;
   }
   // Re-check after readiness: the waiter may have cancelled, capacity may have moved, and a
@@ -641,7 +666,7 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
   if (coordinator && !coordinator.canGrantModelRequest()) {
     return true;
   }
-  grantModelRequestWaiter(ctx, waiter);
+  grantModelRequestWaiter(ctx, waiter, selection);
   return true;
 }
 
@@ -652,19 +677,18 @@ async function advanceModelRequestDrain(ctx: ServerContext): Promise<boolean> {
 function admitCompatibleProfileWithoutCoordinator(
   ctx: ServerContext,
   config: SiftConfig,
-  resolution: { context: ModelRequestContext; residencyKey: string },
+  selection: ModelRequestSelection,
 ): void {
-  const applied = ctx.appliedModelPresetState.getPreset();
-  if (resolution.residencyKey !== ctx.modelRuntime.getPresetResidencyKey(applied)) {
+  if (!selection.resident) {
     throw new Error(
-      `Model preset '${resolution.context.modelPreset.id}' needs a different resident model; this server has no managed runtime and cannot switch it.`,
+      `Model preset '${selection.context.modelPreset.id}' needs a different resident model; this server has no managed runtime and cannot switch it.`,
     );
   }
-  if (JSON.stringify(resolution.context.modelPreset) === JSON.stringify(applied)) {
+  if (JSON.stringify(selection.context.modelPreset) === JSON.stringify(ctx.appliedModelPresetState.getPreset())) {
     return;
   }
-  ctx.appliedModelPresetState.applyPreset(resolution.context.modelPreset);
-  persistAppliedModelSelection(ctx.configPath, config, resolution.context.modelPreset);
+  ctx.appliedModelPresetState.applyPreset(selection.context.modelPreset);
+  persistAppliedModelSelection(ctx.configPath, config, selection.context.modelPreset);
 }
 
 export async function acquireModelRequestWithWait(
@@ -695,8 +719,7 @@ export async function acquireModelRequestWithWait(
     ownerRunId: options.ownerRunId ?? null,
     enqueuedAtUtc: new Date().toISOString(),
     intent: options.intent ?? { presetId: null, model: null },
-    context: null,
-    residencyKey: null,
+    selection: null,
     cancelled: false,
     grantedLock: null,
     timeoutHandle: null,
@@ -798,16 +821,11 @@ function armActivePresetIdle(ctx: ServerContext, finishedAtMs: number): void {
   // runtime is actually running — looking it back up in config would only reintroduce a
   // second source of truth that silently skips arming whenever the two drift.
   if (!ctx.presetRuntimeCoordinator) return;
-  // Queued work, or a selected admission still settling its load, keeps the model resident.
-  if (ctx.modelRequestQueue.length > 0 || ctx.modelRequestDrainPromise !== null) return;
+  // Queued work keeps the model resident; a drain that settles with nothing running re-arms on exit.
+  if (ctx.modelRequestQueue.length > 0) return;
   ctx.modelIdleController?.armAfterRequest(ctx.appliedModelPresetState.getPreset(), finishedAtMs);
 }
 
 export function resumeModelRequestAdmission(ctx: ServerContext): void {
   requestModelRequestDrain(ctx);
-}
-
-/** No-op when managed engine startup is disabled: the server then has no coordinator and owns no runtime. */
-export async function ensureActivePresetReadyForModelRequest(ctx: ServerContext): Promise<void> {
-  await ctx.presetRuntimeCoordinator?.ensureActivePresetReady();
 }

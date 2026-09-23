@@ -13,7 +13,7 @@ import { z } from '../../lib/zod.js';
 import { ZipFileReader } from '../../lib/zip-file-reader.js';
 import { CURRENT_SCHEMA_VERSION, getSchemaVersion, type RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import { DpapiUnavailableError, dpapiUnprotect } from '../crypto/dpapi.js';
+import { DpapiUnavailableError, type DataProtector } from '../crypto/dpapi.js';
 import type { KeyCustodyService } from '../crypto/key-custody.js';
 import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
 import { assistantEvidenceDir, assistantRestoreUploadsDir } from '../layout.js';
@@ -48,6 +48,7 @@ export interface RestoreServiceOptions {
   readonly graph: AssistantGraph;
   readonly database: RuntimeDatabase;
   readonly keyCustody: KeyCustodyService;
+  readonly dataProtector: DataProtector;
 }
 
 /**
@@ -59,6 +60,7 @@ export class RestoreService {
   private readonly graph: AssistantGraph;
   private readonly database: RuntimeDatabase;
   private readonly keyCustody: KeyCustodyService;
+  private readonly dataProtector: DataProtector;
   private readonly uploadsDir: string;
   private readonly pending = new Map<string, PendingRestore>();
 
@@ -66,6 +68,7 @@ export class RestoreService {
     this.graph = options.graph;
     this.database = options.database;
     this.keyCustody = options.keyCustody;
+    this.dataProtector = options.dataProtector;
     this.uploadsDir = assistantRestoreUploadsDir(this.graph.runtimeRoot);
     // Uploads parked by a previous process are unconfirmable — their tokens died with it.
     fs.rmSync(this.uploadsDir, { recursive: true, force: true });
@@ -285,7 +288,7 @@ export class RestoreService {
     const sealed = await reader.readEntry(KEY_ENTRY);
     try {
       const material = parseJsonText(
-        (await dpapiUnprotect(sealed)).toString('utf8'),
+        (await this.dataProtector.unprotect(sealed)).toString('utf8'),
         KeyMaterialDtoSchema,
       );
       this.keyCustody.adoptRestoredKeyMaterial(material);

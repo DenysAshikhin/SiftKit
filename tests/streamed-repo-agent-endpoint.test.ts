@@ -28,6 +28,7 @@ import {
   type RepoSearchProgressEvent,
 } from '../src/repo-search/types.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 
 const NON_VERDICT_RESPONSE = "{\"action\":\"tool\",\"toolName\":\"git\",\"args\":{\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}}";
 type TurnProgressEvent = Extract<RepoSearchProgressEvent, { maxTurns: number }>;
@@ -359,6 +360,8 @@ test('POST /repo-agent with approval:"auto": reviewer approves; no approval_requ
   assert.equal(autoFrames[0].verdict, 'approve');
 });
 
+const READ_ONLY_GREP_ARGS = { pattern: '"name"', path: 'package.json', literal: true, limit: 2 };
+
 test('POST /repo-agent: read-only tools execute without approval frames', async (t) => {
   const harness = await startHarness('siftkit-repo-agent-ro-bypass-', t);
   const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
@@ -368,12 +371,14 @@ test('POST /repo-agent: read-only tools execute without approval frames', async 
       availableModels: ['mock-model'],
       mockResponses: [
         { toolCalls: [{ name: "read", arguments: {"path":"package.json","offset":1,"limit":2} }] },
-        { toolCalls: [{ name: "grep", arguments: {"pattern":"\"name\"","path":"package.json","literal":true,"limit":2} }] },
+        { toolCalls: [{ name: "grep", arguments: READ_ONLY_GREP_ARGS }] },
         { toolCalls: [{ name: "find", arguments: {"pattern":"package.json","path":".","limit":2} }] },
         { toolCalls: [{ name: "ls", arguments: {"path":".","limit":2} }] },
         ...repoAgentFinishResponses('inspected'),
       ],
-      mockCommandResults: {},
+      mockCommandResults: {
+        [buildRepoToolRequestedCommand('grep', READ_ONLY_GREP_ARGS)]: { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit",', stderr: '' },
+      },
     },
     timeoutMs: 20_000,
     onProgress: async (event) => {

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { z } from 'zod';
-import { acquireChildPortLease, installProbeShim, writeManagedEngineLauncher } from './_runtime-helpers.js';
-import type { ManagedEngineLauncherOptions } from './helpers/managed-engine-fixtures.js';
+import { acquireChildPortLease, writeManagedEngineHost } from './_runtime-helpers.js';
+import type { ManagedEngineHostFixture } from './helpers/managed-engine-fixtures.js';
+import type { FakeTabbyOptions } from './helpers/in-process-tabby.js';
+import { FixedGpuMemoryProbe } from './helpers/fixed-gpu-memory-probe.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
@@ -29,10 +30,8 @@ const PASSTHROUGH_TIMEOUTS = {
   HealthcheckIntervalMs: 100,
 } as const;
 
-const ModelProbeCountSchema = z.coerce.number().int().nonnegative();
-
 function writeManagedConfig(
-  managed: ReturnType<typeof writeManagedEngineLauncher>,
+  managed: ManagedEngineHostFixture,
   presetOverrides: Partial<ModelRuntimePreset>,
 ): void {
   const config = getDefaultConfig();
@@ -128,14 +127,14 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
 interface PassthroughServerOptions {
   tempPrefix: string;
   modelId: string;
-  launcher?: ManagedEngineLauncherOptions;
+  engine?: Omit<FakeTabbyOptions, 'port' | 'modelId'>;
   presetOverrides?: Partial<ModelRuntimePreset>;
   disableManagedEngineStartup?: boolean;
 }
 
 interface PassthroughServer {
   baseUrl: string;
-  managed: ReturnType<typeof writeManagedEngineLauncher>;
+  managed: ManagedEngineHostFixture;
 }
 
 async function withPassthroughServer(
@@ -166,12 +165,15 @@ async function withPassthroughServer(
   process.env.SIFTKIT_STATUS_PORT = '0';
 
   await using enginePortLease = await acquireChildPortLease('inference-passthrough-status-server');
-  const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, options.modelId, options.launcher);
-  const restoreProbeShim = installProbeShim(managed.probeShimPath);
+  const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, options.modelId, options.engine);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig(managed, options.presetOverrides ?? {});
 
-  const server = startStatusServer({ disableManagedEngineStartup: Boolean(options.disableManagedEngineStartup) });
+  const server = startStatusServer({
+    disableManagedEngineStartup: Boolean(options.disableManagedEngineStartup),
+    managedEngineHost: managed.host,
+    gpuMemoryProbe: new FixedGpuMemoryProbe(null),
+  });
   await server.startupPromise;
   const address = getAddressInfo(server);
 
@@ -181,9 +183,9 @@ async function withPassthroughServer(
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    await managed.launcher.stopAll();
     process.chdir(previousCwd);
     closeAllRuntimeDatabases();
-    restoreProbeShim();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -201,13 +203,13 @@ test('models passthrough reports the configured model without waking the managed
     modelId: 'managed-passthrough-model',
     disableManagedEngineStartup: true,
   }, async ({ baseUrl, managed }) => {
-    assert.equal(fs.existsSync(managed.readyFilePath), false);
+    assert.equal(managed.launcher.serving, false);
 
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model', object: 'model' }] });
-    assert.equal(fs.existsSync(managed.readyFilePath), false);
+    assert.equal(managed.launcher.serving, false);
   });
 });
 
@@ -217,13 +219,13 @@ test('managed engine startup waits through unloaded model probes without timing 
   await withPassthroughServer({
     tempPrefix: 'siftkit-inference-passthrough-503-',
     modelId: 'managed-passthrough-503-model',
-    launcher: { initialUnloadedModelProbeCount: 2 },
+    engine: { initialUnloadedModelProbeCount: 2 },
   }, async ({ baseUrl, managed }) => {
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
-    const modelProbeCount = ModelProbeCountSchema.parse(fs.readFileSync(managed.modelProbeCountPath, 'utf8').trim());
+    const modelProbeCount = managed.launcher.modelProbeCount;
     assert.ok(modelProbeCount >= 3, `expected two unloaded probes before success, got ${modelProbeCount}`);
   });
 });
@@ -371,7 +373,7 @@ test('tokenize passthrough exposes only the EXL3 token endpoint', async () => {
   await withPassthroughServer({
     tempPrefix: 'siftkit-inference-passthrough-tokenize-',
     modelId: 'managed-tokenize-model',
-    launcher: { tokenizeCharsPerToken: 4 },
+    engine: { tokenizeCharsPerToken: 4 },
   }, async ({ baseUrl }) => {
     // 16 characters at 4 chars/token => 4 tokens.
     const response = await requestJsonPost(`${baseUrl}/v1/token/encode`, { text: 'abcdefghijklmnop' });

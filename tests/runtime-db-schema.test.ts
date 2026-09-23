@@ -1,11 +1,8 @@
-import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { mock } from 'node:test';
 import path from 'node:path';
 import test from 'node:test';
 
-import { SystemClock } from '../src/assistant/clock.js';
 import { stableStringify } from '../src/lib/json.js';
 import { digestStableJson } from '../src/lib/json-digest.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
@@ -14,10 +11,12 @@ import {
   CURRENT_SCHEMA_VERSION,
   getRuntimeDatabase,
   getSchemaVersion,
+  readRuntimeDatabaseImage,
 } from '../src/state/runtime-db.js';
 import { CHAT_MESSAGES_COLUMNS } from '../src/state/runtime-schema.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { openStoredRuntimeDatabase, rewriteStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 import {
   REMOVED_BACKEND_COLUMN_PREFIX, REMOVED_BACKEND_ID, REMOVED_BACKEND_RUNS_TABLE,
   REMOVED_BACKEND_LOG_CHUNKS_TABLE, REMOVED_BACKEND_STREAM_KIND,
@@ -104,21 +103,18 @@ function tempDbPath(prefix: string): string {
 }
 
 function seedMarker(dbPath: string, version: number): void {
-  const database = new Database(dbPath);
-  try {
+  rewriteStoredRuntimeDatabase(dbPath, (database) => {
     database.exec(`
       CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
       INSERT INTO runtime_schema (id, version) VALUES (1, ${String(version)});
       CREATE TABLE sentinel (value TEXT NOT NULL);
       INSERT INTO sentinel (value) VALUES ('preserve');
     `);
-  } finally {
-    database.close();
-  }
+  }, 'empty');
 }
 
 function readSentinel(dbPath: string): string {
-  const database = new Database(dbPath, { readonly: true });
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     const row = z.object({ value: z.string() }).parse(database.prepare('SELECT value FROM sentinel').get());
     return row.value;
@@ -159,7 +155,7 @@ test('fresh bootstrap creates every current bootstrap-owned table', () => {
   const dbPath = tempDbPath('siftkit-runtime-schema-tables-');
   try {
     getRuntimeDatabase(dbPath);
-    const database = new Database(dbPath, { readonly: true });
+    const database = openStoredRuntimeDatabase(dbPath);
     try {
       const names = new Set(TableNameRowsSchema.parse(database.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -248,7 +244,7 @@ test('historical and future schema markers are rejected without changing their c
   for (const version of [64, 65, CURRENT_SCHEMA_VERSION + 1]) {
     const dbPath = tempDbPath(`siftkit-runtime-schema-version-${String(version)}-`);
     seedMarker(dbPath, version);
-    const before = readFileSync(dbPath);
+    const before = readRuntimeDatabaseImage(dbPath);
     try {
       assert.throws(() => getRuntimeDatabase(dbPath), (error) => {
         assert.ok(error instanceof Error);
@@ -257,7 +253,7 @@ test('historical and future schema markers are rejected without changing their c
         assert.ok(error.message.includes(`expected ${String(CURRENT_SCHEMA_VERSION)}`));
         return true;
       });
-      assert.deepEqual(readFileSync(dbPath), before);
+      assert.deepEqual(readRuntimeDatabaseImage(dbPath), before);
       assert.equal(readSentinel(dbPath), 'preserve');
     } finally {
       closeAllRuntimeDatabases();
@@ -300,52 +296,16 @@ test('a version 66 database upgrades in place, adding the pending-message table 
   }
 });
 
-test('unreadable files are rejected without destructive recovery', () => {
-  const dbPath = tempDbPath('siftkit-runtime-schema-unreadable-');
-  const original = Buffer.from('this is not sqlite', 'utf8');
-  writeFileSync(dbPath, original);
-  try {
-    assert.throws(() => getRuntimeDatabase(dbPath));
-    assert.deepEqual(readFileSync(dbPath), original);
-  } finally {
-    closeAllRuntimeDatabases();
-  }
-});
-
 test('schema version access performs no writes', () => {
-  const dbPath = tempDbPath('siftkit-runtime-schema-readonly-version-');
-  const database = new Database(dbPath);
+  const database = new Database(':memory:');
   try {
     database.exec(`
       CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
       INSERT INTO runtime_schema (id, version) VALUES (1, ${String(CURRENT_SCHEMA_VERSION)});
     `);
-    const before = readFileSync(dbPath);
+    const before = database.serialize();
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.deepEqual(readFileSync(dbPath), before);
-  } finally {
-    database.close();
-  }
-});
-
-test('fresh bootstrap rolls back schema and seed rows when the clock fails', () => {
-  const dbPath = tempDbPath('siftkit-runtime-schema-rollback-');
-  const clockMock = mock.method(SystemClock.prototype, 'nowUtc', () => {
-    throw new Error('clock failed');
-  });
-  try {
-    assert.throws(() => getRuntimeDatabase(dbPath), /clock failed/u);
-  } finally {
-    clockMock.mock.restore();
-    closeAllRuntimeDatabases();
-  }
-
-  const database = new Database(dbPath, { readonly: true });
-  try {
-    const names = TableNameRowsSchema.parse(database.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    ).all()).map((row) => row.name);
-    assert.deepEqual(names, []);
+    assert.deepEqual(database.serialize(), before);
   } finally {
     database.close();
   }
@@ -364,13 +324,12 @@ for (const marker of [
 ] as const) {
   test(`invalid ${marker.label} marker rejects without changing database bytes or caching the handle`, () => {
     const dbPath = tempDbPath('siftkit-invalid-marker-');
-    const raw = new Database(dbPath);
-    try {
+    rewriteStoredRuntimeDatabase(dbPath, (raw) => {
       raw.exec("CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES ('preserve')");
       if (marker.sql !== '') raw.exec(marker.sql);
-    } finally { raw.close(); }
-    const before = readFileSync(dbPath);
-    const reader = new Database(dbPath, { readonly: true, fileMustExist: true });
+    }, 'empty');
+    const before = readRuntimeDatabaseImage(dbPath);
+    const reader = openStoredRuntimeDatabase(dbPath);
     try {
       for (const entryPoint of ['version accessor', 'database opener'] as const) {
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -378,12 +337,12 @@ for (const marker of [
             assert.ok(error instanceof Error);
             assert.equal(error.name, 'Error');
             assert.match(error.message, /Runtime schema marker.*missing or invalid/u);
-            assert.ok(error.message.includes(dbPath));
+            assert.ok(error.message.includes(entryPoint === 'database opener' ? dbPath : reader.name));
             assert.ok(error.message.includes(String(CURRENT_SCHEMA_VERSION)));
             assert.ok(error.cause instanceof Error);
             return true;
           });
-          assert.deepEqual(readFileSync(dbPath), before);
+          assert.deepEqual(readRuntimeDatabaseImage(dbPath), before);
           assert.equal(readSentinel(dbPath), 'preserve');
         }
       }
@@ -432,7 +391,7 @@ test('the seeded marker-67 fixture really rejects a stopped tool row', () => {
   seedLegacyChatDatabase(dbPath);
   closeAllRuntimeDatabases();
 
-  const database = new Database(dbPath);
+  const database = openStoredRuntimeDatabase(dbPath);
   try {
     assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
     assert.equal(readTableDefinition(database, 'chat_messages').includes("'stopped'"), false);
@@ -449,7 +408,7 @@ test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column
   seedLegacyChatDatabase(dbPath);
   closeAllRuntimeDatabases();
 
-  const reader = new Database(dbPath, { readonly: true });
+  const reader = openStoredRuntimeDatabase(dbPath);
   let rowsBeforeUpgrade: ChatMessageRow[];
   let columnsBeforeUpgrade: string[];
   try {
@@ -480,7 +439,7 @@ test('a stale marker-67 chat_messages CHECK is rebuilt without losing any column
     closeAllRuntimeDatabases();
   }
 
-  const reopened = new Database(dbPath, { readonly: true });
+  const reopened = openStoredRuntimeDatabase(dbPath);
   try {
     const stopped = readChatMessageRows(reopened).find((row) => row.id === 'message-populated');
     assert.equal(stopped?.tool_call_status, 'stopped');
@@ -494,7 +453,7 @@ test('a marker-67 database that already accepts stopped converges without rewrit
   seedLegacyChatDatabase(dbPath, { toolCallStatusValues: CANONICAL_TOOL_CALL_STATUS_VALUES });
   closeAllRuntimeDatabases();
 
-  const reader = new Database(dbPath, { readonly: true });
+  const reader = openStoredRuntimeDatabase(dbPath);
   let rowsBeforeUpgrade: ChatMessageRow[];
   try {
     rowsBeforeUpgrade = readChatMessageRows(reader);
@@ -518,7 +477,7 @@ test('a row the canonical definition rejects aborts the rebuild and leaves marke
   seedLegacyChatDatabase(dbPath, { nullableContent: true });
   closeAllRuntimeDatabases();
 
-  const reader = new Database(dbPath, { readonly: true });
+  const reader = openStoredRuntimeDatabase(dbPath);
   let rowsBeforeUpgrade: ChatMessageRow[];
   try {
     rowsBeforeUpgrade = readChatMessageRows(reader);
@@ -533,7 +492,7 @@ test('a row the canonical definition rejects aborts the rebuild and leaves marke
   }
 
   assert.equal(readMarkerVersion(dbPath), LEGACY_FIXTURE_MARKER_VERSION);
-  const reopened = new Database(dbPath, { readonly: true });
+  const reopened = openStoredRuntimeDatabase(dbPath);
   try {
     assert.deepEqual(readChatMessageRows(reopened), rowsBeforeUpgrade);
     assert.equal(readTableDefinition(reopened, 'chat_messages').includes("'stopped'"), false);
@@ -552,10 +511,8 @@ test('marker-67 migrates the historical tool_call_limit rename without losing va
   const dbPath = tempDbPath('siftkit-runtime-schema-historical-limit-');
   seedLegacyChatDatabase(dbPath);
   closeAllRuntimeDatabases();
-  const legacy = new Database(dbPath);
-  legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
-    UPDATE chat_messages SET tool_call_limit = tool_call_max_turns, tool_call_max_turns = NULL;`);
-  legacy.close();
+  rewriteStoredRuntimeDatabase(dbPath, (legacy) => legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
+    UPDATE chat_messages SET tool_call_limit = tool_call_max_turns, tool_call_max_turns = NULL;`));
   try {
     const upgraded = getRuntimeDatabase(dbPath);
     assert.equal(readTableColumns(upgraded, 'chat_messages').includes('tool_call_limit'), false);
@@ -567,10 +524,8 @@ test('marker-67 refuses conflicting historical and current tool limits atomicall
   const dbPath = tempDbPath('siftkit-runtime-schema-conflicting-limit-');
   seedLegacyChatDatabase(dbPath);
   closeAllRuntimeDatabases();
-  const legacy = new Database(dbPath);
-  legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
-    UPDATE chat_messages SET tool_call_limit = 999 WHERE id = 'message-populated';`);
-  legacy.close();
+  rewriteStoredRuntimeDatabase(dbPath, (legacy) => legacy.exec(`ALTER TABLE chat_messages ADD COLUMN tool_call_limit INTEGER;
+    UPDATE chat_messages SET tool_call_limit = 999 WHERE id = 'message-populated';`));
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /conflicting.*tool.*limit/iu);
   } finally { closeAllRuntimeDatabases(); }

@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 
 import {
   requestJson,
@@ -12,6 +11,7 @@ import {
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 
 test('real status server appends one sqlite snapshot for each emitted idle summary', async () => {
@@ -98,8 +98,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
     const stderrCapture = OutputCapture.start(process.stderr);
     try {
       await withRealStatusServer(async (server) => {
-      const database = new Database(idleSummaryDbPath);
-      try {
+      withRuntimeDatabaseConnection(idleSummaryDbPath, (database) => {
         database.exec('DROP TABLE IF EXISTS idle_summary_snapshots;');
         database.exec(`
           CREATE TABLE idle_summary_snapshots (
@@ -107,9 +106,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
             impossible INTEGER NOT NULL
           );
         `);
-      } finally {
-        database.close();
-      }
+      });
 
       await requestJson(server.statusUrl, {
         method: 'POST',

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import {
@@ -23,6 +23,7 @@ import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 import { getActiveModelPreset } from '../src/config/index.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 
 const IMAGES_ONLY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
@@ -67,7 +68,7 @@ async function waitForRepoSearchRunLogRow(
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
     try {
-      const database = new Database(databasePath, { readonly: true });
+      const database = openStoredRuntimeDatabase(databasePath);
       try {
         const row = JsonRecordReader.asObject(database.prepare(`
           SELECT prompt_eval_duration_ms, generation_duration_ms
@@ -136,7 +137,7 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
       }
     } else if (req.url === '/status/terminal-metadata' && parsed.running === false) {
       terminalPosts += 1;
-      await new Promise((resolve) => setTimeout(resolve, terminalDelayMs));
+      await delay(terminalDelayMs, undefined, { ref: false });
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));

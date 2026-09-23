@@ -154,4 +154,6 @@ test('runs controller fetches on mount, re-fetches on refresh, and deletes with 
   assert.match(container.querySelector('[data-testid="toasts"]').textContent, /.+/u);
 
   await React.act(async () => { root.unmount(); });
+  // Closing the window clears jsdom timers such as the 9 s toast dismissal, so the file exits promptly.
+  dom.window.close();
 });

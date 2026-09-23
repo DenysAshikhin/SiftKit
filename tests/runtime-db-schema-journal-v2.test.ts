@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import test from 'node:test';
 
 import { z } from '../src/lib/zod.js';
@@ -11,6 +10,7 @@ import { digestStableJson } from '../src/lib/json-digest.js';
 import { CHAT_JOURNAL_EVENT_VERSION, type ChatJournalEvent } from '../src/state/chat-journal-schema.js';
 import { closeAllRuntimeDatabases, CURRENT_SCHEMA_VERSION, getRuntimeDatabase, getSchemaVersion } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 const AT = '2026-09-10T11:00:00.000Z';
 const OPERATION_ID = '1a4e9b3c-6d2f-4c8a-9e1b-2f3c4d5e6f70';
@@ -151,15 +151,12 @@ test('a corrupt version-1 digest rolls the marker-70 upgrade back without touchi
     ? { ...row, payload_digest: 'corrupt' } : row));
   try {
     assert.throws(() => getRuntimeDatabase(dbPath), /corrupt payload digest/u);
-    const raw = new Database(dbPath);
-    try {
+    withRuntimeDatabaseConnection(dbPath, (raw) => {
       assert.equal(z.object({ version: z.number() }).parse(raw.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version, 70);
       assert.deepEqual(EventRowsSchema.parse(raw.prepare(
         'SELECT operation_id, sequence, event_id, version, recorded_at_utc, kind, body_json, payload_digest FROM chat_run_events ORDER BY operation_id, sequence',
       ).all()), rows);
-    } finally {
-      raw.close();
-    }
+    });
   } finally {
     closeAllRuntimeDatabases();
   }

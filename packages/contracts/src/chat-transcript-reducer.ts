@@ -63,13 +63,16 @@ export const ChatTranscriptMetadataSchema = z.strictObject({
 });
 export type ChatTranscriptMetadata = z.infer<typeof ChatTranscriptMetadataSchema>;
 
+// Built once: identity helpers run per transcript row, and zod schema construction dominates their cost.
+const NonEmptyIdPartSchema = z.string().min(1);
+
 /**
  * Namespaces one engine request's transcript rows. The `stopped-` spelling is the format already
  * on disk; it names the writer, not the outcome, and completed runs share it so a row's identity
  * does not depend on how its run happened to end.
  */
 export function buildChatRunMessageIdPrefix(requestId: string): string {
-  return `stopped-${z.string().min(1).parse(requestId)}`;
+  return `stopped-${NonEmptyIdPartSchema.parse(requestId)}`;
 }
 
 /**
@@ -86,7 +89,7 @@ const ChatMessageIdentitySchema = z.discriminatedUnion('kind', [
 ]);
 
 export function buildChatMessageId(messageIdPrefix: string, input: z.infer<typeof ChatMessageIdentitySchema>): string {
-  const prefix = z.string().min(1).parse(messageIdPrefix);
+  const prefix = NonEmptyIdPartSchema.parse(messageIdPrefix);
   const identity = ChatMessageIdentitySchema.parse(input);
   if ('turn' in identity) return `${prefix}-${identity.kind}-${identity.turn}`;
   if (identity.kind === 'tool') return `${prefix}-tool-${identity.toolCallId}`;

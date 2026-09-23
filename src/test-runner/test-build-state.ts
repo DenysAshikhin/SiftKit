@@ -5,6 +5,8 @@ import { z } from 'zod';
 
 export const TEST_BUILD_ROOT = '.test-build';
 export const TEST_BUILD_STAMP_PATH = path.join(TEST_BUILD_ROOT, '.complete');
+// tests/helpers/hermetic-fs.ts with memfs inlined; the guard loads it into hermetic test files.
+export const HERMETIC_FS_BUNDLE_PATH = path.join(TEST_BUILD_ROOT, 'hermetic-fs.bundle.js');
 
 const ManifestPathSchema = z.string().min(1).refine(
   (value) => !path.isAbsolute(value) && !value.split('/').includes('..'),
@@ -20,7 +22,7 @@ const TestBuildTestSchema = z.object({
   source: ManifestPathSchema,
   entrypoint: ManifestPathSchema,
   bundle: ManifestPathSchema,
-  suite: z.enum(['node', 'dashboard']),
+  suite: z.enum(['node', 'dashboard', 'process']),
 }).strict();
 
 const TestBuildManifestSchema = z.object({
@@ -59,6 +61,7 @@ const STATIC_OUTPUT_PATHS = [
   path.join('dist', 'test-runner', 'live-instance-guard.js'),
   path.join(TEST_BUILD_ROOT, 'package.json'),
   path.join(TEST_BUILD_ROOT, 'npm-pack-dry-run.json'),
+  HERMETIC_FS_BUNDLE_PATH,
 ];
 
 const IGNORED_INPUT_DIRECTORIES = new Set([
@@ -129,6 +132,11 @@ function isTestSourcePath(sourcePath: string): boolean {
   return /(?:^|\/)tests\/.*\.test\.tsx?$/u.test(sourcePath);
 }
 
+function getTestSuite(source: string): TestBuildManifest['tests'][number]['suite'] {
+  if (source.startsWith('dashboard/tests/')) return 'dashboard';
+  return source.startsWith('tests/process/') ? 'process' : 'node';
+}
+
 function createTestEntries(inputPaths: string[]): TestBuildManifest['tests'] {
   return inputPaths
     .filter(isTestSourcePath)
@@ -138,7 +146,7 @@ function createTestEntries(inputPaths: string[]): TestBuildManifest['tests'] {
         source,
         entrypoint,
         bundle: entrypoint.replace(/\.js$/u, '.bundle.js'),
-        suite: source.startsWith('dashboard/tests/') ? 'dashboard' as const : 'node' as const,
+        suite: getTestSuite(source),
       };
     });
 }

@@ -118,7 +118,7 @@ test('shutdown flush propagates a rejected terminal-metadata write', async t => 
   await assert.rejects(() => flushTerminalMetadataForShutdown(ctx, 1000), /reject_run_logs/u);
   assert.equal(countRunLogs(ctx.runtimeDatabase, 'refused-completion'), 0);
   // The rejection still carries the SQLite reason, which is what the log line and the exit path
-  // report; tests/status-server-shutdown-exit.test.ts checks the emitted lines end to end.
+  // report; tests/process/status-server-shutdown-exit.test.ts checks the emitted lines end to end.
 });
 
 test('shutdown flush propagates a rejected write from a deferred direct job', async t => {

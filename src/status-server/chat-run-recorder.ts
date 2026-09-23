@@ -27,6 +27,7 @@ import type { RuntimeDatabase } from '../state/database-handle.js';
 import { isStorageFailure } from '../state/database-handle.js';
 import { ChatMessageQueueStore, type ChatQueueClaimInput } from '../state/chat-message-queue.js';
 import { dirname } from 'node:path';
+import { getRuntimeDatabaseFilePath } from '../state/runtime-db.js';
 import { reconcileChatRun } from './chat-run-projection.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import { foldTurnTokenRecords } from '../repo-search/engine/turn-token-record.js';
@@ -231,7 +232,7 @@ export class ChatRunRecorder implements ChatRunEvidenceRecorder {
   readSession(): ChatSession {
     const report = reconcileChatRun(this.database, this.operationId);
     if (report.status === 'recovery_failed') throw new Error(`Chat projection failed: ${report.issues.map(issue => issue.detail).join('; ')}`);
-    const session = readChatSessionFromPath(getChatSessionPath(dirname(this.database.name), this.sessionId));
+    const session = readChatSessionFromPath(getChatSessionPath(dirname(getRuntimeDatabaseFilePath(this.database)), this.sessionId));
     if (!session) throw new Error(`Chat session ${this.sessionId} is missing.`);
     const requestId = this.store.readRun(this.operationId)?.requestId;
     if (requestId) new ChatMessageQueueStore(this.database).deleteIncorporated(this.sessionId, requestId);

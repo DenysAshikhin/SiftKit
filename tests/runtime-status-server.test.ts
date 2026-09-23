@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { ActiveStatusRun } from '@siftkit/contracts';
 
 import { loadConfig, getConfigPath } from '../src/config/index.js';
-import { getRuntimeDatabase, closeAllRuntimeDatabases } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeAllRuntimeDatabases, runtimeDatabaseExists } from '../src/state/runtime-db.js';
 import { getDefaultMetrics, writeMetrics } from '../src/status-server/metrics.js';
 
 const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
@@ -34,10 +33,9 @@ import {
   sleep,
   withTempEnv,
   withRealStatusServer,
-  startStatusServerProcess,
   readIdleSummarySnapshots,
   acquireChildPortLease,
-  writeManagedEngineLauncher,
+  writeManagedEngineHost,
   waitForAsyncExpectation,
   postStatusTerminalMetadata,
   postStatusComplete,
@@ -53,6 +51,8 @@ import {
   REMOVED_BACKEND_MANAGED_STARTING_FIELD,
   REMOVED_BACKEND_MANAGED_STARTUP_WARNING_FIELD,
 } from './helpers/legacy-backend-fixtures.js';
+import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
+import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
 
 interface StatusPostResponse {
   ok?: boolean;
@@ -214,7 +214,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.taskTotals.summary.speculativeGeneratedTokensTotal, 12);
       assert.equal(status.metrics.taskTotals.plan.inputTokensTotal, 0);
       assert.equal(typeof status.metrics.updatedAtUtc, 'string');
-      assert.equal(fs.existsSync(path.join(tempRoot, '.siftkit', 'runtime.sqlite')), true);
+      assert.equal(runtimeDatabaseExists(path.join(tempRoot, '.siftkit', 'runtime.sqlite')), true);
     }, {
       statusPath,
       configPath,
@@ -251,7 +251,7 @@ test('real status server starts the managed engine during server startup before 
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -268,7 +268,7 @@ test('real status server starts the managed engine during server startup before 
         assert.equal(status.status, 'false');
         assert.equal(readStatusText(getConfigPath()), 'false');
       }, 5000);
-      assert.equal(fs.existsSync(managed.invocationLogPath), true);
+      assert.equal(managed.launcher.launches.length, 1);
 
       const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
       const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -292,11 +292,11 @@ test('real status server starts the managed engine during server startup before 
         }
       }
 
-      assert.equal(fs.existsSync(managed.readyFilePath), true);
+      assert.equal(managed.launcher.serving, true);
     }, {
       statusPath,
       configPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
 
     await waitForAsyncExpectation(
@@ -314,21 +314,21 @@ test('managed engine live stream logs flush after idle without model request rel
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
     const deferredLogLine = 'deferred-live-stderr-log';
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', { deferredLogLine });
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, 'managed-test-model', { deferredLogLine });
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       await waitForAsyncExpectation(
-        async () => assert.equal(fs.existsSync(managed.readyFilePath), true),
+        async () => assert.equal(managed.launcher.serving, true),
         5000
       );
 
-      fs.writeFileSync(managed.deferredLogMarkerPath, '1', 'utf8');
+      managed.launcher.releaseDeferredLog();
 
       await waitForAsyncExpectation(async () => {
-        const database = new Database(runtimeDbPath, { readonly: true });
+        const database = openStoredRuntimeDatabase(runtimeDbPath);
         try {
           const row = TextRowSchema.parse(database.prepare(`
             SELECT GROUP_CONCAT(chunk_text, '') AS text
@@ -344,7 +344,7 @@ test('managed engine live stream logs flush after idle without model request rel
       statusPath,
       configPath,
       inferenceRunFlushIdleDelayMs: 50,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -447,7 +447,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
       assert.equal(immediateStatus.metrics.inputTokensTotal, 0);
       assert.equal(immediateStatus.metrics.outputTokensTotal, 0);
 
-      const immediateDb = new Database(runtimeDbPath, { readonly: true });
+      const immediateDb = openStoredRuntimeDatabase(runtimeDbPath);
       try {
         const immediateRow = RequestJsonRowSchema.parse(immediateDb.prepare(`
           SELECT request_json
@@ -470,7 +470,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
         const eventualStatus = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(eventualStatus.metrics.inputTokensTotal, 100);
         assert.equal(eventualStatus.metrics.outputTokensTotal, 25);
-        const verifyDb = new Database(runtimeDbPath, { readonly: true });
+        const verifyDb = openStoredRuntimeDatabase(runtimeDbPath);
         try {
           const row = RequestJsonRowSchema.parse(verifyDb.prepare(`
             SELECT request_json
@@ -509,27 +509,31 @@ test('managed engine receives only its launch environment, not status-path coord
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model');
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port, 'managed-test-model');
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
 
     await withRealStatusServer(async () => {
       await waitForAsyncExpectation(async () => {
-        assert.equal(fs.existsSync(managed.invocationLogPath), true);
-        const invocation = JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8').replace(/^\uFEFF/u, ''));
-        assert.deepEqual(invocation.argv, []);
-        assert.equal(invocation.launchEnvironment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
-        assert.equal(invocation.ServerConfigPathEnv || '', '');
-        assert.equal(invocation.ServerConfigUrlEnv || '', '');
-        assert.equal(invocation.ServerStatusPathEnv || '', '');
-        assert.equal(invocation.ServerStatusUrlEnv || '', '');
-        assert.equal(invocation.ServerHealthUrlEnv || '', '');
+        const [launch] = managed.launcher.launches;
+        assert.ok(launch);
+        assert.deepEqual(launch.args, [managed.engine.Entrypoint]);
+        assert.equal(launch.environment.TABBY_MODEL_MODEL_NAME, 'managed-test-model');
+        for (const coordinationVariable of [
+          'SIFTKIT_SERVER_CONFIG_PATH',
+          'SIFTKIT_SERVER_CONFIG_URL',
+          'SIFTKIT_SERVER_STATUS_PATH',
+          'SIFTKIT_SERVER_STATUS_URL',
+          'SIFTKIT_SERVER_HEALTH_URL',
+        ]) {
+          assert.equal(launch.environment[coordinationVariable] ?? '', '', coordinationVariable);
+        }
       }, 5000);
     }, {
       statusPath,
       configPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -539,7 +543,7 @@ test('real status server ignores legacy non-boolean status text when starting th
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
@@ -548,7 +552,7 @@ test('real status server ignores legacy non-boolean status text when starting th
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await waitForAsyncExpectation(async () => {
-        assert.equal(fs.existsSync(managed.readyFilePath), true);
+        assert.equal(managed.launcher.serving, true);
         const status = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(status.running, false);
         assert.equal(status.status, 'false');
@@ -557,7 +561,7 @@ test('real status server ignores legacy non-boolean status text when starting th
       statusPath,
       configPath,
       awaitStartup: false,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -567,7 +571,7 @@ test('real status server reports idle false while the managed engine stays ready
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -591,37 +595,8 @@ test('real status server reports idle false while the managed engine stays ready
     }, {
       statusPath,
       configPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
-  });
-});
-
-test('real status server reports a startup warning when the managed engine exits during startup', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port, 'managed-test-model', {
-      engineLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
-      exitAfterLog: true,
-      exitCode: 7,
-    });
-    const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 1_000 });
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    const server = await startStatusServerProcess({
-      statusPath,
-      configPath,
-      probeShimPath: managed.probeShimPath,
-    });
-    try {
-      assert.match(String(server.startupWarning || ''), /TabbyAPI exited unexpectedly \(code=7/u);
-      const health = await requestJson<HealthCheckResponse>(`http://127.0.0.1:${server.port}/health`);
-      assert.equal(health.ok, true);
-    } finally {
-      await server.close();
-    }
   });
 });
 
@@ -630,7 +605,7 @@ test('real status server keeps running in degraded mode when the managed engine 
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await using enginePortLease = await acquireChildPortLease('runtime-status-server');
-    const managed = writeManagedEngineLauncher(tempRoot, enginePortLease.port);
+    const managed = writeManagedEngineHost(tempRoot, enginePortLease.port);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 1_000 });
     config.Server.Engines.Exl3.PythonPath = path.join(tempRoot, 'missing-python.exe');
@@ -642,11 +617,11 @@ test('real status server keeps running in degraded mode when the managed engine 
       assert.equal(REMOVED_BACKEND_MANAGED_READY_FIELD in health, false);
       assert.equal(REMOVED_BACKEND_MANAGED_STARTING_FIELD in health, false);
       assert.equal(REMOVED_BACKEND_MANAGED_STARTUP_WARNING_FIELD in health, false);
-      assert.equal(fs.existsSync(managed.readyFilePath), false);
+      assert.equal(managed.launcher.serving, false);
     }, {
       statusPath,
       configPath,
-      probeShimPath: managed.probeShimPath,
+      managedEngineHost: managed.host,
     });
   });
 });
@@ -874,8 +849,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
     const requestId = 'repo-run-speculative';
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const database = new Database(runtimeDbPath);
-      try {
+      withRuntimeDatabaseConnection(runtimeDbPath, (database) => {
         upsertRepoSearchRun({
           database,
           requestId,
@@ -904,9 +878,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
           speculativeAcceptedTokens: null,
           speculativeGeneratedTokens: null,
         });
-      } finally {
-        database.close();
-      }
+      });
 
       await postCompletedStatus(statusUrl, {
         requestId,
@@ -925,7 +897,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
       });
 
       await waitForAsyncExpectation(() => {
-        const verifyDb = new Database(runtimeDbPath, { readonly: true });
+        const verifyDb = openStoredRuntimeDatabase(runtimeDbPath);
         try {
           const row = SpeculativeRowSchema.parse(verifyDb.prepare(`
             SELECT speculative_accepted_tokens, speculative_generated_tokens

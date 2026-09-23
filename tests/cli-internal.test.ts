@@ -408,28 +408,6 @@ test('internal op summary supports UTF-16 TextFile payload', async () => {
   });
 });
 
-test('internal op command via request file runs command', async () => {
-  await withTestEnvAndServer(async ({ tempRoot }) => {
-    const requestFile = path.join(tempRoot, 'req-cmd.json');
-    fs.writeFileSync(requestFile, JSON.stringify({
-      Command: 'node',
-      ArgumentList: ['-e', 'console.log("hello")'],
-      Question: 'What was printed?',
-      NoSummarize: true,
-    }), 'utf8');
-    const stdout = makeCaptureStream();
-    const stderr = makeCaptureStream();
-    const code = await runCli({
-      argv: ['internal', '--op', 'command', '--request-file', requestFile],
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-    });
-    assert.equal(code, 0);
-    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
-    assert.equal(parsed.ExitCode, 0);
-  });
-});
-
 test('internal op command-analyze via request file analyzes output', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const requestFile = path.join(tempRoot, 'req-cmd-analyze.json');

@@ -8,6 +8,8 @@ import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-laun
 import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
+import { FixedGpuMemoryProbe } from './fixed-gpu-memory-probe.js';
+import type { GpuMemoryProbe } from '../../src/status-server/gpu-memory.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
@@ -28,6 +30,8 @@ export type DashboardTestBackend = {
  */
 export type DashboardTestServerOptions = {
   managedEngineStartup?: boolean;
+  /** Defaults to a host without a queryable GPU, so no test shells out to nvidia-smi. */
+  gpuMemoryProbe?: GpuMemoryProbe | undefined;
 };
 
 const METRICS_SETTLE_TIMEOUT_MS = 10_000;
@@ -78,7 +82,10 @@ export class DashboardTestServer {
       // The coordinator resolves its preset during startup, so config must land first.
       if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
       else writeConfig(getRuntimeDatabasePath(), getDefaultServerConfig());
-      server = startStatusServer({ disableManagedEngineStartup: options.managedEngineStartup !== true });
+      server = startStatusServer({
+        disableManagedEngineStartup: options.managedEngineStartup !== true,
+        gpuMemoryProbe: options.gpuMemoryProbe ?? new FixedGpuMemoryProbe(null),
+      });
       await server.startupPromise;
       const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
       return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);

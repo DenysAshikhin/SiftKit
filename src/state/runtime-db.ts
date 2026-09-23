@@ -1,5 +1,5 @@
 import { basename, dirname, join, resolve } from 'node:path';
-import { realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
@@ -57,6 +57,18 @@ function findUpgradeChain(fromVersion: number): SchemaUpgradeStep[] | null {
 
 /** Open connections keyed by canonical path; opening one path never closes another. */
 const openDatabases = new Map<string, RuntimeDatabase>();
+/** The path each registry connection was opened for; an in-memory connection has no file name. */
+const databasePaths = new WeakMap<RuntimeDatabase, string>();
+/** In memory storage, the image a closed path reopens from. */
+const memoryImages = new Map<string, Buffer>();
+
+const RuntimeDatabaseStorageSchema = z.enum(['file', 'memory']);
+export type RuntimeDatabaseStorage = z.infer<typeof RuntimeDatabaseStorageSchema>;
+
+/** `memory` keeps every runtime database in this process only; hermetic test runs select it. */
+export function getRuntimeDatabaseStorage(): RuntimeDatabaseStorage {
+  return RuntimeDatabaseStorageSchema.parse(process.env.SIFTKIT_RUNTIME_DATABASE_STORAGE ?? 'file');
+}
 
 /** Registry key: real parent directory where it exists, plus case folding on Windows. */
 function canonicalDatabaseKey(databasePath: string): string {
@@ -81,7 +93,7 @@ export function getSchemaVersion(database: RuntimeDatabase): number {
     return row.version;
   } catch (error) {
     throw new Error(
-      `Runtime schema marker is missing or invalid at ${database.name}; expected schema version ${CURRENT_SCHEMA_VERSION}`
+      `Runtime schema marker is missing or invalid at ${databasePaths.get(database) ?? database.name}; expected schema version ${CURRENT_SCHEMA_VERSION}`
       + ' in one runtime_schema row with id 1 and an integer version.',
       { cause: error },
     );
@@ -137,7 +149,8 @@ function configureRuntimeDatabase(database: RuntimeDatabase): void {
 }
 
 /** Ordinary close: the last connection checkpoints on its own, and WAL stays on for any other. */
-function closeRuntimeDatabaseHandle(database: RuntimeDatabase): void {
+function closeRuntimeDatabaseHandle(key: string, database: RuntimeDatabase): void {
+  if (getRuntimeDatabaseStorage() === 'memory') memoryImages.set(key, database.serialize());
   database.close();
 }
 
@@ -147,6 +160,50 @@ function closeFailedDatabaseHandle(database: RuntimeDatabase): void {
   } catch {
     // Best effort after a failed open.
   }
+}
+
+/** In memory storage, a path reopens its last image, else a file seeded on disk, else starts empty. */
+function openDatabaseConnection(resolvedPath: string, key: string): RuntimeDatabase {
+  if (getRuntimeDatabaseStorage() === 'file') return new Database(resolvedPath);
+  const image = memoryImages.get(key) ?? (existsSync(resolvedPath) ? readFileSync(resolvedPath) : null);
+  return new Database(image ?? ':memory:');
+}
+
+export function isRuntimeDatabaseOpen(databasePath: string): boolean {
+  return openDatabases.has(canonicalDatabaseKey(databasePath));
+}
+
+export function runtimeDatabaseExists(databasePath: string): boolean {
+  const key = canonicalDatabaseKey(databasePath);
+  return openDatabases.has(key) || memoryImages.has(key) || existsSync(databasePath);
+}
+
+/** The stored database as a raw image, open or closed, with no bootstrap run over it; null when none exists. */
+export function readRuntimeDatabaseImage(databasePath: string): Buffer | null {
+  const key = canonicalDatabaseKey(databasePath);
+  const open = openDatabases.get(key);
+  if (open) return open.serialize();
+  const image = memoryImages.get(key);
+  if (image) return image;
+  return existsSync(databasePath) ? readFileSync(databasePath) : null;
+}
+
+/** Replaces what a closed path stores; the next open reads it through the ordinary bootstrap. */
+export function writeRuntimeDatabaseImage(databasePath: string, image: Buffer): void {
+  const key = canonicalDatabaseKey(databasePath);
+  if (openDatabases.has(key)) throw new Error(`Runtime database ${databasePath} is open; close it before replacing its image.`);
+  if (getRuntimeDatabaseStorage() === 'memory') {
+    memoryImages.set(key, image);
+    return;
+  }
+  ensureDirectory(dirname(resolve(databasePath)));
+  writeFileSync(databasePath, image);
+}
+
+export function getRuntimeDatabaseFilePath(database: RuntimeDatabase): string {
+  const databasePath = databasePaths.get(database);
+  if (databasePath === undefined) throw new Error('The database was not opened through the runtime database registry.');
+  return databasePath;
 }
 
 export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath()): RuntimeDatabase {
@@ -159,12 +216,14 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
     process.stderr.write(`${error.stack}\n`);
     throw error;
   }
-  ensureDirectory(dirname(resolvedPath));
+  // A memory database has no file, so its directory is never needed.
+  if (getRuntimeDatabaseStorage() === 'file') ensureDirectory(dirname(resolvedPath));
   const key = canonicalDatabaseKey(resolvedPath);
   const existing = openDatabases.get(key);
   if (existing) return existing;
 
-  const database = new Database(resolvedPath);
+  const database = openDatabaseConnection(resolvedPath, key);
+  databasePaths.set(database, resolvedPath);
   try {
     const state = inspectRuntimeDatabase(database, resolvedPath);
     configureRuntimeDatabase(database);
@@ -198,14 +257,14 @@ export function closeRuntimeDatabase(databasePath: string): void {
   const database = openDatabases.get(key);
   if (!database) return;
   openDatabases.delete(key);
-  closeRuntimeDatabaseHandle(database);
+  closeRuntimeDatabaseHandle(key, database);
 }
 
 /** Process-exit and test-file teardown only; scoped owners close their own captured path. */
 export function closeAllRuntimeDatabases(): void {
-  const databases = [...openDatabases.values()];
+  const databases = [...openDatabases.entries()];
   openDatabases.clear();
-  for (const database of databases) closeRuntimeDatabaseHandle(database);
+  for (const [key, database] of databases) closeRuntimeDatabaseHandle(key, database);
 }
 
 export function getRuntimeMetadataValue(

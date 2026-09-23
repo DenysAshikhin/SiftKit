@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import type { Exl3EngineConfig } from '../../src/config/types.js';
 import { buildTabbyUsage } from './streaming-client.js';
-import { writeFakeExl3Venv } from './tabby-fake.js';
+import type { ManagedEngineHost } from '../../src/status-server/engine-process.js';
+import type { FakeTabbyLauncher, FakeTabbyOptions } from './in-process-tabby.js';
+import { writeFakeEngineHost, writeFakeExl3Venv } from './tabby-fake.js';
 
 export interface ManagedEngineLauncherOptions {
   /** `GET /v1/model` answers "no model loaded" this many times before reporting the resident card. */
@@ -45,19 +47,6 @@ export function buildProbeShimNodeOptions(probeShimPath: string, existing = proc
   return existing && existing.trim() ? `${existing} ${requireFlag}` : requireFlag;
 }
 
-/** Installs the probe shim into this process's `NODE_OPTIONS`; returns the restore function. */
-export function installProbeShim(probeShimPath: string): () => void {
-  const previous = process.env.NODE_OPTIONS;
-  process.env.NODE_OPTIONS = buildProbeShimNodeOptions(probeShimPath, previous);
-  return () => {
-    if (previous === undefined) {
-      delete process.env.NODE_OPTIONS;
-    } else {
-      process.env.NODE_OPTIONS = previous;
-    }
-  };
-}
-
 /**
  * Fake managed TabbyAPI for end-to-end status-server tests. The engine's `PythonPath` is a
  * hard-linked Node binary inside a fake exllamav3 venv, so `ManagedTabbyRuntime` spawns
@@ -70,7 +59,7 @@ export function writeManagedEngineLauncher(
   modelId = 'managed-test-model',
   options: ManagedEngineLauncherOptions = {},
 ): ManagedEngineLauncherPaths {
-  const venv = writeFakeExl3Venv(tempRoot, true);
+  const venv = writeFakeExl3Venv(tempRoot, true, 'launchable');
   const packageDirectory = path.join(tempRoot, 'venv', 'Lib', 'site-packages', 'exllamav3');
   const modelRoot = path.join(tempRoot, 'models');
   const modelPath = path.join(modelRoot, modelId);
@@ -303,5 +292,53 @@ process.on('SIGINT', shutdown);
     modelProbeCountPath,
     deferredLogMarkerPath,
     invocationLogPath,
+  };
+}
+
+export interface ManagedEngineHostFixture {
+  baseUrl: string;
+  modelId: string;
+  pythonPath: string;
+  modelRoot: string;
+  modelPath: string;
+  engine: Exl3EngineConfig;
+  launcher: FakeTabbyLauncher;
+  host: ManagedEngineHost;
+}
+
+/**
+ * In-process counterpart of `writeManagedEngineLauncher` for status servers started in the test
+ * process: `ManagedTabbyRuntime` launches `<python> <entrypoint>` through the fake host, which
+ * serves the same Tabby surface without a child process.
+ */
+export function writeManagedEngineHost(
+  tempRoot: string,
+  port: number,
+  modelId = 'managed-test-model',
+  options: Omit<FakeTabbyOptions, 'port' | 'modelId'> = {},
+): ManagedEngineHostFixture {
+  const fake = writeFakeEngineHost(tempRoot, { ...options, port, modelId });
+  const modelRoot = path.join(tempRoot, 'models');
+  const modelPath = path.join(modelRoot, modelId);
+  fs.mkdirSync(modelPath, { recursive: true });
+  fs.writeFileSync(path.join(modelPath, 'config.json'), JSON.stringify({ architectures: ['FakeForCausalLM'] }), 'utf8');
+  return {
+    baseUrl: fake.launcher.baseUrl,
+    modelId,
+    pythonPath: fake.pythonPath,
+    modelRoot,
+    modelPath,
+    engine: {
+      Managed: true,
+      WorkingDirectory: tempRoot,
+      PythonPath: fake.pythonPath,
+      Entrypoint: 'tabby-main.py',
+      ModelRoot: modelRoot,
+      AdminApiKey: '',
+      ShutdownTimeoutMs: 5000,
+      Environment: {},
+    },
+    launcher: fake.launcher,
+    host: fake.host,
   };
 }
