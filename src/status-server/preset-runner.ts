@@ -64,12 +64,18 @@ function getCliPresets(): SiftPreset[] {
   return PresetCatalog.fromPresets(config.Presets).forSurface('cli');
 }
 
-function getCliPresetById(config: SiftConfig, presetId: string): SiftPreset {
+type RunnablePresetKind = Exclude<PresetKind, 'orchestrator'>;
+
+/** A cli preset that runs as one locked request; orchestrators run through their parent lifecycle. */
+export function requireRunnableCliPreset(config: SiftConfig, presetId: string): SiftPreset & { presetKind: RunnablePresetKind } {
   const preset = PresetCatalog.fromPresets(config.Presets).requireById(presetId);
   if (!preset.surfaces.includes('cli')) {
     throw new Error(`Preset '${presetId}' was not found.`);
   }
-  return preset;
+  if (preset.presetKind === 'orchestrator') {
+    throw new Error('Orchestrator presets do not run as a single request; start it with POST /orchestrator or `siftkit orchestrator`.');
+  }
+  return { ...preset, presetKind: preset.presetKind };
 }
 
 function normalizePresetPolicyProfile(value: string | null | undefined): SummaryPolicyProfile {
@@ -92,15 +98,8 @@ function getRepoRoot(request: PresetRunRequest): string {
   return String(request.repoRoot || process.cwd()).trim() || process.cwd();
 }
 
-export const ORCHESTRATOR_PRESET_RUN_ERROR =
-  'Orchestrator presets do not run as a single request; start it with POST /orchestrator or `siftkit orchestrator`.';
-
 /** Which runner branch a preset kind dispatches to; `plan` and `repo-search` share the repo-search runner. */
-export function selectPresetRunKind(presetKind: PresetKind): 'summary' | 'chat' | 'repo-search' {
-  if (presetKind === 'orchestrator') {
-    // An orchestrator holds no model lease of its own; it runs through its parent lifecycle instead.
-    throw new Error(ORCHESTRATOR_PRESET_RUN_ERROR);
-  }
+export function selectPresetRunKind(presetKind: RunnablePresetKind): 'summary' | 'chat' | 'repo-search' {
   if (presetKind === 'summary') {
     return 'summary';
   }
@@ -135,7 +134,7 @@ export class StatusPresetRunner {
 
   async run(request: PresetRunRequest, options: PresetRunOptions): Promise<PresetRunResult> {
     const { config } = options.model;
-    const preset = getCliPresetById(config, request.presetId);
+    const preset = requireRunnableCliPreset(config, request.presetId);
     const effectiveAllowedTools = resolvePresetAllowedTools(
       preset,
       normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),

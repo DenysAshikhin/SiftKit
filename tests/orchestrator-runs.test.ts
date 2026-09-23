@@ -22,7 +22,7 @@ function openStore(t: TestContext): OrchestratorRunStore {
 }
 
 function createRun(store: OrchestratorRunStore): OrchestratorRunState {
-  return store.create({ submissionId: randomUUID(), repoRoot: 'C:/repo', presetId: 'orchestrator',
+  return store.create({ submissionId: randomUUID(), repoRoot: createManagedTempDir('siftkit-orchestrator-runs-repo-'), presetId: 'orchestrator',
     approval: 'auto', task: 'Inspect the README.', planPath: null });
 }
 
@@ -40,6 +40,9 @@ class FakeLiveRun implements OrchestratorLiveRun {
     this.abortReason = reason;
     this.onAbort();
     this.finish();
+  }
+  decide(): boolean {
+    return false;
   }
 }
 

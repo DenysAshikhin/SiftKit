@@ -6,6 +6,7 @@ import { toError } from '../../lib/errors.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
+  MODEL_QUEUE_TIMEOUT_MESSAGE,
   ModelRequestTargetError,
   acquireModelRequestWithWait,
   getModelRequestQueueDiagnostics,
@@ -137,7 +138,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     }
     clearInterval(lockWaitTimer);
     if (!modelRequestLock) {
-      const message = 'Timed out waiting for model request queue.';
+      const message = MODEL_QUEUE_TIMEOUT_MESSAGE;
       const payload = recordServerError(req, 503, new Error(message), { taskKind: this.taskKind });
       this.onOperationFailed(parsed.value, payload.error);
       terminalFrameSent = true;

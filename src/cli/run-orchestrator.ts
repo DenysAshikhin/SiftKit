@@ -10,12 +10,11 @@ function renderResult(state: OrchestratorRunState): string {
   return JSON.stringify({
     runId: state.runId, status: state.phase, planPath: state.planPath, failure: state.failure,
     approval: state.approval === null ? null : {
-      approvalId: state.approval.approval.approvalId, target: state.approval.target, taskId: state.approval.taskId,
-      toolName: state.approval.approval.toolName, command: state.approval.approval.command,
+      ...state.approval,
       decide: {
-        approve: `siftkit orchestrator decide ${state.runId} ${state.approval.approval.approvalId} approve`,
-        deny: `siftkit orchestrator decide ${state.runId} ${state.approval.approval.approvalId} deny --reason "<why>"`,
-        abort: `siftkit orchestrator decide ${state.runId} ${state.approval.approval.approvalId} abort`,
+        approve: `siftkit orchestrator decide ${state.runId} ${state.approval.approvalId} approve`,
+        deny: `siftkit orchestrator decide ${state.runId} ${state.approval.approvalId} deny --reason "<why>"`,
+        abort: `siftkit orchestrator decide ${state.runId} ${state.approval.approvalId} abort`,
       },
     },
     tasks: state.tasks.map((task) => ({ taskId: task.taskId, status: task.status, drift: task.driftReview?.status ?? null })),
@@ -33,12 +32,11 @@ async function follow(api: StatusServerApiClient, runId: string, afterSequence: 
       stdout.write(`${renderResult(next.value)}\n`);
       return next.value.phase === 'completed' ? 0 : 1;
     }
-    const event = next.value;
-    stderr.write(`[orchestrator #${event.sequence}] ${event.phase}${event.taskId === null ? '' : ` ${event.taskId}`}: ${event.message}\n`);
-    if (event.phase === 'approval_required') {
-      const state = await api.readOrchestratorStatus(runId);
-      if (state.approval !== null) stderr.write(`${renderResult(state)}\n`);
+    const { events, state } = next.value;
+    for (const event of events) {
+      stderr.write(`[orchestrator #${event.sequence}] ${event.phase}${event.taskId === null ? '' : ` ${event.taskId}`}: ${event.message}\n`);
     }
+    if (state.phase === 'approval_required' && state.approval !== null) stderr.write(`${renderResult(state)}\n`);
   }
 }
 

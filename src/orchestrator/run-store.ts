@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
+  ORCHESTRATOR_TERMINAL_PHASES,
   OrchestratorAttemptResultSchema,
   OrchestratorAttemptSchema,
   OrchestratorEventSchema,
@@ -21,6 +22,7 @@ import {
 
 import { digestStableJson } from '../lib/json-digest.js';
 import { parseJsonValueText } from '../lib/json.js';
+import { canonicalRepositoryKey } from '../lib/repository-key.js';
 import { z } from '../lib/zod.js';
 import type { RuntimeDatabase } from '../state/database-handle.js';
 
@@ -32,7 +34,8 @@ const RunRowSchema = z.object({ run_id: z.string(), request_digest: z.string(), 
 const AttemptRowsSchema = z.array(z.object({ attempt_json: z.string() }));
 const EventRowsSchema = z.array(z.object({ event_json: z.string() }));
 const MaxSequenceRowSchema = z.object({ sequence: z.number().int().nullable() });
-const ActiveRunRowsSchema = z.array(z.object({ run_id: z.string() }));
+const RunIdRowsSchema = z.array(z.object({ run_id: z.string() }));
+const TERMINAL_PHASES_SQL = ORCHESTRATOR_TERMINAL_PHASES.map((phase) => `'${phase}'`).join(', ');
 
 /** Fields a transition may change; identity, plan, and attempts change only through their methods. */
 export type OrchestratorRunChanges = Partial<Pick<OrchestratorRunState, 'phase' | 'tasks' | 'approval' | 'failure' | 'phaseRunIds'>>;
@@ -72,9 +75,10 @@ export class OrchestratorRunStore {
         tasks: [], phaseRunIds: [], approval: null, failure: null, createdAtUtc: now, updatedAtUtc: now,
       });
       this.database.prepare(`
-        INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(state.runId, request.submissionId, digest, state.revision, state.phase, JSON.stringify(state), now, now);
+        INSERT INTO orchestrator_runs (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc, repo_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(state.runId, request.submissionId, digest, state.revision, state.phase, JSON.stringify(state), now, now,
+        canonicalRepositoryKey(request.repoRoot));
       this.appendEvent(state, { message: 'Orchestrator run created.' });
       return this.read(state.runId);
     })();
@@ -89,14 +93,16 @@ export class OrchestratorRunStore {
 
   /** Nonterminal parents, for startup reconciliation. */
   listActive(): OrchestratorRunState[] {
-    const rows = ActiveRunRowsSchema.parse(this.database.prepare('SELECT run_id FROM orchestrator_runs ORDER BY created_at_utc').all());
-    return rows.map((row) => this.read(row.run_id)).filter((state) => !isOrchestratorTerminalPhase(state.phase));
+    return RunIdRowsSchema.parse(this.database.prepare(
+      `SELECT run_id FROM orchestrator_runs WHERE phase NOT IN (${TERMINAL_PHASES_SQL}) ORDER BY created_at_utc, rowid`,
+    ).all()).map((row) => this.read(row.run_id));
   }
 
-  /** The most recent parents for one repository, newest first, so a surface can reattach. */
+  /** The most recent parents of one repository (by identity, not path spelling), newest first. */
   listRecent(repoRoot: string, limit: number): OrchestratorRunState[] {
-    const rows = ActiveRunRowsSchema.parse(this.database.prepare('SELECT run_id FROM orchestrator_runs ORDER BY created_at_utc DESC').all());
-    return rows.map((row) => this.read(row.run_id)).filter((state) => state.request.repoRoot === repoRoot).slice(0, limit);
+    return RunIdRowsSchema.parse(this.database.prepare(
+      'SELECT run_id FROM orchestrator_runs WHERE repo_key = ? ORDER BY created_at_utc DESC, rowid DESC LIMIT ?',
+    ).all(canonicalRepositoryKey(repoRoot), limit)).map((row) => this.read(row.run_id));
   }
 
   /** Saves a (re)validated plan; a task that already has attempts can never be dropped or renamed. */

@@ -270,8 +270,10 @@ export const ORCHESTRATOR_RUNS_SCHEMA_SQL = `
     phase TEXT NOT NULL,
     state_json TEXT NOT NULL,
     created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL
+    updated_at_utc TEXT NOT NULL,
+    repo_key TEXT
   );
+  CREATE INDEX IF NOT EXISTS idx_orchestrator_runs_repo_key ON orchestrator_runs (repo_key, created_at_utc);
   CREATE TABLE IF NOT EXISTS orchestrator_attempts (
     run_id TEXT NOT NULL REFERENCES orchestrator_runs(run_id) ON DELETE CASCADE,
     task_id TEXT NOT NULL,

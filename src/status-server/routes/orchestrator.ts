@@ -5,6 +5,7 @@ import {
   OrchestratorDecideRequestSchema,
   OrchestratorStartRequestSchema,
   isOrchestratorTerminalPhase,
+  type OrchestratorProgress,
   type OrchestratorRunState,
 } from '@siftkit/contracts';
 
@@ -12,7 +13,7 @@ import { toError } from '../../lib/errors.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
 import { z } from '../../lib/zod.js';
-import { OrchestratorRun, type OrchestratorApprovalAnswer } from '../../orchestrator/run.js';
+import { OrchestratorRun } from '../../orchestrator/run.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
@@ -72,7 +73,11 @@ export class OrchestratorListEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected a repoRoot.' });
       return;
     }
-    sendJson(res, 200, { runs: ctx.orchestratorRunStore.listRecent(repoRoot, RECENT_RUN_LIMIT) });
+    try {
+      sendJson(res, 200, { runs: ctx.orchestratorRunStore.listRecent(repoRoot, RECENT_RUN_LIMIT) });
+    } catch (error) {
+      sendJson(res, 400, { error: `Cannot list orchestrator runs for '${repoRoot}': ${toError(error).message}` });
+    }
   }
 }
 
@@ -116,9 +121,12 @@ export class OrchestratorEventsEndpoint implements RouteEndpoint {
     let detach: () => void = () => {};
     const flush = (state: OrchestratorRunState): void => {
       if (finished) return;
-      for (const event of ctx.orchestratorRunStore.readEvents(runId, cursor)) {
-        writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event);
-        cursor = event.sequence;
+      const events = ctx.orchestratorRunStore.readEvents(runId, cursor);
+      const last = events.at(-1);
+      if (last !== undefined) {
+        const progress: OrchestratorProgress = { events, state };
+        writer.writeEvent(OPERATION_STREAM_EVENTS.progress, progress);
+        cursor = last.sequence;
       }
       // A nonterminal parent with no live owner can never change again; report it as it stands.
       if (isOrchestratorTerminalPhase(state.phase) || ctx.orchestratorRuns.get(runId) === undefined) {
@@ -134,14 +142,6 @@ export class OrchestratorEventsEndpoint implements RouteEndpoint {
   }
 }
 
-function toAnswer(request: z.infer<typeof OrchestratorDecideRequestSchema>): OrchestratorApprovalAnswer {
-  switch (request.decision) {
-    case 'approve': return { decision: 'approve' };
-    case 'deny': return { decision: 'deny', reason: request.reason };
-    case 'abort': return { decision: 'abort' };
-  }
-}
-
 /** Forwards a decision only to the run's current recorded approval, by its exact ID. */
 export class OrchestratorDecideEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
@@ -152,14 +152,15 @@ export class OrchestratorDecideEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected runId, approvalId, decision (approve|deny|abort), and a reason for deny.' });
       return;
     }
-    const state = knownRun(ctx, res, parsed.data.runId);
+    const { runId, approvalId, ...decision } = parsed.data;
+    const state = knownRun(ctx, res, runId);
     if (state === null) return;
     const live = ctx.orchestratorRuns.get(state.runId);
-    const accepted = live instanceof OrchestratorRun
-      && state.approval?.approval.approvalId === parsed.data.approvalId
-      && live.decide(parsed.data.approvalId, toAnswer(parsed.data));
+    const accepted = live !== undefined
+      && state.approval?.approvalId === approvalId
+      && live.decide(approvalId, decision);
     if (!accepted) {
-      sendJson(res, 409, { error: `Approval ${parsed.data.approvalId} is not pending for orchestrator run ${state.runId}.` });
+      sendJson(res, 409, { error: `Approval ${approvalId} is not pending for orchestrator run ${state.runId}.` });
       return;
     }
     sendJson(res, 200, ctx.orchestratorRunStore.read(state.runId));

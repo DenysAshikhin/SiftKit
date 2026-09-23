@@ -18,8 +18,7 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
 }
 
 const EVENT = { runId: RUN_ID, sequence: 1, atUtc: AT, phase: 'executing', message: 'Task started.', taskId: null, purpose: null, attempt: null, childRunId: null };
-const APPROVAL = { target: { kind: 'phase', phaseRunId: RUN_ID }, taskId: null,
-  approval: { approvalId: APPROVAL_ID, toolName: 'run', command: 'npm test', reviewPayload: null } } as const;
+const APPROVAL = { kind: 'check', approvalId: APPROVAL_ID, taskId: null, command: 'npm test', cwd: '.' } as const;
 
 type Call = { url: string; body: string | null };
 
@@ -40,10 +39,10 @@ const json = (value: object) => () => new Response(JSON.stringify(value), { stat
 
 test('a reload reattaches to the latest live run, follows its events, and settles on the result', async () => {
   const completed = runState({ phase: 'completed', revision: 5 });
+  const progress = { events: [EVENT], state: runState({ revision: 2 }) };
   const fetches = mockFetch({
     '/orchestrator/runs': json({ runs: [runState({})] }),
-    '/orchestrator/events': () => new Response(`event: progress\ndata: ${JSON.stringify(EVENT)}\n\nevent: result\ndata: ${JSON.stringify(completed)}\n\n`),
-    '/orchestrator/status': json(runState({ revision: 2 })),
+    '/orchestrator/events': () => new Response(`event: progress\ndata: ${JSON.stringify(progress)}\n\nevent: result\ndata: ${JSON.stringify(completed)}\n\n`),
   });
   try {
     const { result } = renderHook(() => useOrchestratorRun('C:/repo'));
@@ -52,6 +51,7 @@ test('a reload reattaches to the latest live run, follows its events, and settle
     assert.equal(result.current.error, null);
     assert.equal(fetches.calls[0]?.url, '/orchestrator/runs?repoRoot=C%3A%2Frepo');
     assert.deepEqual(JSON.parse(fetches.calls[1]?.body ?? ''), { runId: RUN_ID, afterSequence: 0 });
+    assert.equal(fetches.calls.length, 2, 'each progress frame carries the state; no status refetch');
   } finally { fetches.restore(); }
 });
 

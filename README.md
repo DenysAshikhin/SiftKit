@@ -92,6 +92,11 @@ siftkit orchestrator abort <runId>
 - The parent never holds a model while it waits for a worker.
 - **Maximum concurrent subagents** (default 1, in Settings) is an upper limit, not a promise of parallel work. Read-only tasks may overlap. A task that changes files always runs alone and owns the repository until its checks and review finish.
 
+**Approvals and configuration**
+
+- Every check command in the plan is approved on its own before it runs: `interactive` asks you, `auto` lets the orchestrator's model decide, and `off` runs it directly. A denied check never runs, so it fails the attempt.
+- A run keeps the preset configuration it started with. Editing presets mid-run affects only later runs.
+
 **Attempt budgets**
 
 - Each task gets at most two implementation attempts. The second attempt is given the real failed-check output from the first.

@@ -4,10 +4,10 @@ import {
 } from '../config/index.js';
 import { normalizeConfigObject } from '../config/normalization.js';
 import {
-  OrchestratorEventSchema,
+  OrchestratorProgressSchema,
   OrchestratorRunStateSchema,
   type OrchestratorDecideRequest,
-  type OrchestratorEvent,
+  type OrchestratorProgress,
   type OrchestratorRunState,
   type OrchestratorStartRequest,
 } from '@siftkit/contracts';
@@ -346,8 +346,8 @@ export class StatusServerApiClient {
     }
   }
 
-  /** Committed events after the cursor, then the terminal state; detaching never stops the run. */
-  async *followOrchestrator(runId: string, afterSequence: number): AsyncGenerator<OrchestratorEvent, OrchestratorRunState> {
+  /** Committed progress after the cursor, then the terminal state; detaching never stops the run. */
+  async *followOrchestrator(runId: string, afterSequence: number): AsyncGenerator<OrchestratorProgress, OrchestratorRunState> {
     try {
       const stream = streamOperationResult(this.client, {
         url: this.getServiceUrl('/orchestrator/events'),
@@ -357,7 +357,7 @@ export class StatusServerApiClient {
       for (;;) {
         const next = await stream.next();
         if (next.done) return next.value;
-        yield OrchestratorEventSchema.parse(next.value);
+        yield OrchestratorProgressSchema.parse(next.value);
       }
     } catch (error) {
       throw this.normalizeError(toError(error));

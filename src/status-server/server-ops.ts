@@ -760,6 +760,9 @@ function resolveModelRequestQueueTimeout(requested: ModelQueueTimeout | undefine
   return requested;
 }
 
+/** Why a bounded model wait ended without admission. */
+export const MODEL_QUEUE_TIMEOUT_MESSAGE = 'Timed out waiting for model request queue.';
+
 /** A wait with no deadline ends without a lock only through cancellation; any other ending is a queue defect. */
 export class UncancelledModelWaitError extends Error {
   constructor(kind: string) {

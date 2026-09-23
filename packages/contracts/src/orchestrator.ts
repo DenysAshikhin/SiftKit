@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-import { ApprovalModeSchema, RepoAgentApprovalSchema } from './chat.js';
+import {
+  ApprovalModeSchema,
+  RepoAgentAbortDecisionSchema,
+  RepoAgentApprovalSchema,
+  RepoAgentApproveDecisionSchema,
+  RepoAgentDenyDecisionSchema,
+} from './chat.js';
 
 /** Fixed policy: one initial dispatch plus one retry per purpose; not a configurable setting. */
 export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
@@ -8,11 +14,14 @@ export const ORCHESTRATOR_MAX_ATTEMPTS = 2;
 export const OrchestratorChildPurposeSchema = z.enum(['implementation', 'drift_fix']);
 export type OrchestratorChildPurpose = z.infer<typeof OrchestratorChildPurposeSchema>;
 
+export const OrchestratorCommandCheckSchema = z.object({
+  kind: z.literal('command'), command: z.string().trim().min(1),
+  cwd: z.string().min(1), expectedExitCode: z.literal(0),
+}).strict();
+export type OrchestratorCommandCheck = z.infer<typeof OrchestratorCommandCheckSchema>;
+
 export const OrchestratorVerificationCheckSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('command'), command: z.string().trim().min(1),
-    cwd: z.string().min(1), expectedExitCode: z.literal(0),
-  }).strict(),
+  OrchestratorCommandCheckSchema,
   z.object({
     kind: z.literal('evidence'), instruction: z.string().trim().min(1),
     paths: z.array(z.string().min(1)).min(1),
@@ -43,15 +52,17 @@ export const OrchestratorPlanSchema = z.object({
 }).strict();
 export type OrchestratorPlan = z.infer<typeof OrchestratorPlanSchema>;
 
-const DriftCodeEvidenceSchema = z.object({
+/** A claim anchored to repository code; the host checks the snippet sits at that line. */
+export const OrchestratorCodeEvidenceSchema = z.object({
   path: z.string().min(1), line: z.number().int().positive(),
   snippet: z.string().trim().min(1),
 }).strict();
+export type OrchestratorCodeEvidence = z.infer<typeof OrchestratorCodeEvidenceSchema>;
 
 export const OrchestratorDriftFindingSchema = z.object({
   id: z.string().trim().min(1), title: z.string().trim().min(1),
   purpose: z.string().trim().min(1), directive: z.string().trim().min(1),
-  evidence: z.array(DriftCodeEvidenceSchema).min(1),
+  evidence: z.array(OrchestratorCodeEvidenceSchema).min(1),
   impact: z.string().trim().min(1), fix: z.string().trim().min(1),
   affectedPaths: z.array(z.string().min(1)).min(1),
   verification: z.array(OrchestratorVerificationCheckSchema).min(1),
@@ -128,6 +139,18 @@ export const OrchestratorCheckResultSchema = z.object({
 }).strict();
 export type OrchestratorCheckResult = z.infer<typeof OrchestratorCheckResultSchema>;
 
+/** Why a command check failed, or null; evidence checks are judged by the review, never here. */
+export function orchestratorCheckFailure(result: OrchestratorCheckResult): string | null {
+  if (result.check.kind !== 'command') return null;
+  const command = `Check \`${result.check.command}\``;
+  if (!result.executed) return `${command} never ran.`;
+  if (result.timedOut) return `${command} timed out.`;
+  if (result.exitCode !== result.check.expectedExitCode) {
+    return `${command} exited ${result.exitCode ?? 'unknown'}; expected ${result.check.expectedExitCode}.`;
+  }
+  return null;
+}
+
 /** A worker's terminal status, reusing the repo-agent terminal vocabulary. */
 export const OrchestratorWorkerStatusSchema = z.enum(['completed', 'failed', 'aborted', 'approval_timeout']);
 export type OrchestratorWorkerStatus = z.infer<typeof OrchestratorWorkerStatusSchema>;
@@ -149,15 +172,12 @@ export const OrchestratorAttemptSchema = z.object({
 }).strict();
 export type OrchestratorAttempt = z.infer<typeof OrchestratorAttemptSchema>;
 
-export const OrchestratorApprovalTargetSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('phase'), phaseRunId: z.string().uuid() }).strict(),
-  z.object({ kind: z.literal('child'), childRunId: z.string().uuid() }).strict(),
+/** The run's one pending approval: a parked child's tool call, or one orchestrator check command. */
+export const OrchestratorPendingApprovalSchema = z.discriminatedUnion('kind', [
+  RepoAgentApprovalSchema.extend({ kind: z.literal('child'), childRunId: z.string().uuid(), taskId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('check'), approvalId: z.string().uuid(), taskId: z.string().min(1).nullable(),
+    command: z.string().trim().min(1), cwd: z.string().min(1) }).strict(),
 ]);
-export type OrchestratorApprovalTarget = z.infer<typeof OrchestratorApprovalTargetSchema>;
-
-export const OrchestratorPendingApprovalSchema = z.object({
-  target: OrchestratorApprovalTargetSchema, taskId: z.string().min(1).nullable(), approval: RepoAgentApprovalSchema,
-}).strict();
 export type OrchestratorPendingApproval = z.infer<typeof OrchestratorPendingApprovalSchema>;
 
 export const OrchestratorFailureSchema = z.object({
@@ -192,6 +212,12 @@ export const OrchestratorEventSchema = z.object({
 }).strict();
 export type OrchestratorEvent = z.infer<typeof OrchestratorEventSchema>;
 
+/** One stream frame: the events committed since the previous frame and the state they produced. */
+export const OrchestratorProgressSchema = z.object({
+  events: z.array(OrchestratorEventSchema).min(1), state: OrchestratorRunStateSchema,
+}).strict();
+export type OrchestratorProgress = z.infer<typeof OrchestratorProgressSchema>;
+
 /** Parent plan preparation: keep a supplied plan, write a generated/rewritten one, or stop with a reason. */
 export const OrchestratorPlanPreparationSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ready'), plan: OrchestratorPlanSchema }).strict(),
@@ -208,17 +234,17 @@ export type OrchestratorReviewFinding = z.infer<typeof OrchestratorReviewFinding
 
 /** A parent acceptance review of recorded evidence; a failure must anchor what is wrong. */
 export const OrchestratorTaskReviewSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('pass'), evidence: z.array(z.string().trim().min(1)).min(1) }).strict(),
+  z.object({ status: z.literal('pass'), evidence: z.array(OrchestratorCodeEvidenceSchema).min(1) }).strict(),
   z.object({ status: z.literal('fail'), findings: z.array(OrchestratorReviewFindingSchema).min(1) }).strict(),
 ]);
 export type OrchestratorTaskReview = z.infer<typeof OrchestratorTaskReviewSchema>;
 
-/** The parent's answer to a subagent's permission request. */
-export const OrchestratorChildApprovalDecisionSchema = z.discriminatedUnion('decision', [
+/** The parent's answer to a subagent's permission request or to one of its own check commands. */
+export const OrchestratorApprovalDecisionSchema = z.discriminatedUnion('decision', [
   z.object({ decision: z.literal('approve'), reason: z.string().trim().min(1) }).strict(),
   z.object({ decision: z.literal('deny'), reason: z.string().trim().min(1) }).strict(),
 ]);
-export type OrchestratorChildApprovalDecision = z.infer<typeof OrchestratorChildApprovalDecisionSchema>;
+export type OrchestratorApprovalDecision = z.infer<typeof OrchestratorApprovalDecisionSchema>;
 
 /** One reserved child to start; its purpose is `work.kind`. */
 export const OrchestratorChildRequestSchema = z.object({
@@ -228,12 +254,12 @@ export const OrchestratorChildRequestSchema = z.object({
 }).strict();
 export type OrchestratorChildRequest = z.infer<typeof OrchestratorChildRequestSchema>;
 
-/** A decision for the parent's one recorded pending approval (a parent phase or a child). */
+/** A repo-agent decision addressed to the run's one recorded pending approval. */
+const DecisionAddress = { runId: z.string().uuid(), approvalId: z.string().uuid() };
 export const OrchestratorDecideRequestSchema = z.discriminatedUnion('decision', [
-  z.object({ runId: z.string().uuid(), approvalId: z.string().uuid(), decision: z.literal('approve') }).strict(),
-  z.object({ runId: z.string().uuid(), approvalId: z.string().uuid(), decision: z.literal('deny'),
-    reason: z.string().trim().min(1) }).strict(),
-  z.object({ runId: z.string().uuid(), approvalId: z.string().uuid(), decision: z.literal('abort') }).strict(),
+  RepoAgentApproveDecisionSchema.extend(DecisionAddress).strict(),
+  RepoAgentDenyDecisionSchema.extend(DecisionAddress).strict(),
+  RepoAgentAbortDecisionSchema.extend(DecisionAddress).strict(),
 ]);
 export type OrchestratorDecideRequest = z.infer<typeof OrchestratorDecideRequestSchema>;
 

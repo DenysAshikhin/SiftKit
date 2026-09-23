@@ -1,11 +1,11 @@
 import {
   OrchestratorDecideRequestSchema,
-  OrchestratorEventSchema,
+  OrchestratorProgressSchema,
   OrchestratorRunListSchema,
   OrchestratorRunStateSchema,
   OrchestratorStartRequestSchema,
   type OrchestratorDecideRequest,
-  type OrchestratorEvent,
+  type OrchestratorProgress,
   type OrchestratorRunState,
   type OrchestratorStartRequest,
 } from '@siftkit/contracts';
@@ -26,10 +26,6 @@ export async function listOrchestratorRuns(repoRoot: string): Promise<Orchestrat
   return (await parseJsonResponse(response, OrchestratorRunListSchema)).runs;
 }
 
-export async function getOrchestratorStatus(runId: string): Promise<OrchestratorRunState> {
-  return parseJsonResponse(await fetch(`/orchestrator/status?runId=${encodeURIComponent(runId)}`), OrchestratorRunStateSchema);
-}
-
 export async function decideOrchestrator(request: OrchestratorDecideRequest): Promise<OrchestratorRunState> {
   return parseJsonResponse(await postJson('/orchestrator/decide', JSON.stringify(OrchestratorDecideRequestSchema.parse(request))), OrchestratorRunStateSchema);
 }
@@ -38,12 +34,12 @@ export async function abortOrchestrator(runId: string): Promise<OrchestratorRunS
   return parseJsonResponse(await postJson('/orchestrator/abort', JSON.stringify({ runId })), OrchestratorRunStateSchema);
 }
 
-/** Replays committed events after the cursor, then follows live ones; returns the state that ended the stream. */
+/** Replays committed progress after the cursor, then follows live progress; returns the state that ended the stream. */
 export async function* followOrchestrator(
   runId: string,
   afterSequence: number,
   signal: AbortSignal,
-): AsyncGenerator<OrchestratorEvent, OrchestratorRunState> {
+): AsyncGenerator<OrchestratorProgress, OrchestratorRunState> {
   const response = await postJson('/orchestrator/events', JSON.stringify({ runId, afterSequence }), signal);
   if (!response.ok) throw new Error(`Request failed (${response.status}): ${await response.text()}`);
   if (!response.body) throw new Error('Orchestrator event stream body was empty.');
@@ -56,7 +52,7 @@ export async function* followOrchestrator(
     for (const frame of parser.push(decoder.decode(chunk.value, { stream: true }))) {
       // The events route writes only progress and a closing result; anything else is a protocol break.
       if (frame.event === 'progress') {
-        yield parseJsonText(frame.data, OrchestratorEventSchema);
+        yield parseJsonText(frame.data, OrchestratorProgressSchema);
         continue;
       }
       if (frame.event !== 'result') throw new Error(`Unexpected orchestrator stream frame: ${frame.event}`);

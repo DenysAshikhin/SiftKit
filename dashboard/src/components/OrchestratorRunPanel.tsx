@@ -3,8 +3,8 @@ import React from 'react';
 import {
   ORCHESTRATOR_MAX_ATTEMPTS,
   isOrchestratorTerminalPhase,
+  orchestratorCheckFailure,
   type OrchestratorAttempt,
-  type OrchestratorCheckResult,
   type OrchestratorDriftReview,
   type OrchestratorPendingApproval,
   type OrchestratorRunState,
@@ -16,16 +16,6 @@ const VISIBLE_FINDINGS = 3;
 function attemptLabel(attempt: OrchestratorAttempt): string {
   const kind = attempt.purpose === 'implementation' ? 'Implementation attempt' : 'Drift correction';
   return `${kind} ${attempt.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}`;
-}
-
-function failedCheckLabel(result: OrchestratorCheckResult): string {
-  if (result.check.kind === 'evidence') return `Failed: ${result.check.instruction}`;
-  const outcome = !result.executed ? 'not run' : result.timedOut ? 'timed out' : `exit ${result.exitCode ?? 'unknown'}`;
-  return `Failed: ${result.check.command} (${outcome})`;
-}
-
-function isFailedCheck(result: OrchestratorCheckResult): boolean {
-  return !result.executed || result.timedOut || result.exitCode !== 0;
 }
 
 function DriftSummary({ review }: { review: OrchestratorDriftReview }) {
@@ -41,12 +31,13 @@ function DriftSummary({ review }: { review: OrchestratorDriftReview }) {
 
 function ApprovalRequest({ pending, onDecide }: { pending: OrchestratorPendingApproval; onDecide(decision: RepoAgentDecision): void }) {
   const [reason, setReason] = React.useState('');
-  const source = pending.target.kind === 'child' ? `Subagent for ${pending.taskId ?? 'the run'}` : 'Orchestrator';
   return (
     <section className="approval-card" aria-label="Orchestrator approval required">
-      <div className="approval-card-head">{source} requests <code>{pending.approval.toolName}</code></div>
-      <pre className="approval-command">{pending.approval.command}</pre>
-      {pending.approval.reviewPayload ? <p className="approval-payload">{pending.approval.reviewPayload}</p> : null}
+      {pending.kind === 'child'
+        ? <div className="approval-card-head">Subagent for {pending.taskId} requests <code>{pending.toolName}</code></div>
+        : <div className="approval-card-head">Orchestrator check in {pending.cwd}{pending.taskId === null ? ' (final verification)' : ` for ${pending.taskId}`}</div>}
+      <pre className="approval-command">{pending.command}</pre>
+      {pending.kind === 'child' && pending.reviewPayload ? <p className="approval-payload">{pending.reviewPayload}</p> : null}
       <input aria-label="Deny reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason to deny…" />
       <div className="approval-actions">
         <button type="button" className="send" onClick={() => onDecide({ decision: 'approve' })}>Approve</button>
@@ -76,18 +67,20 @@ export function OrchestratorRunPanel({ state, lastMessage, onDecide, onAbort }: 
       <ol className="orchestrator-tasks">
         {state.tasks.map((task) => {
           const latest = state.attempts.filter((attempt) => attempt.taskId === task.taskId).at(-1);
-          const failed = latest?.result && !latest.result.passed ? latest.result.checks.filter(isFailedCheck) : [];
+          const failed = latest?.result && !latest.result.passed
+            ? latest.result.checks.flatMap((result) => orchestratorCheckFailure(result) ?? [])
+            : [];
           return (
             <li key={task.taskId}>
               <span>{titles.get(task.taskId) ?? task.taskId}</span> <span className="bdg">{task.status}</span>
               {latest ? <div>{attemptLabel(latest)}</div> : null}
-              {failed.map((result, index) => <div key={index} className="bad">{failedCheckLabel(result)}</div>)}
+              {failed.map((failure, index) => <div key={index} className="bad">{failure}</div>)}
               {task.driftReview ? <DriftSummary review={task.driftReview} /> : null}
             </li>
           );
         })}
       </ol>
-      {state.approval ? <ApprovalRequest key={state.approval.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
+      {state.approval ? <ApprovalRequest key={state.approval.approvalId} pending={state.approval} onDecide={onDecide} /> : null}
       {state.failure ? <div className="err-banner"><span>{state.failure.message}</span></div> : null}
     </section>
   );

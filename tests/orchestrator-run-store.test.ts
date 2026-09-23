@@ -15,8 +15,10 @@ function openStore(t: TestContext): { store: OrchestratorRunStore; dbPath: strin
   return { store: new OrchestratorRunStore(getRuntimeDatabase(dbPath)), dbPath };
 }
 
+const REPO = createManagedTempDir('siftkit-orchestrator-store-repo-');
+
 function startRequest(overrides: Partial<OrchestratorStartRequest> = {}): OrchestratorStartRequest {
-  return { submissionId: randomUUID(), repoRoot: 'C:/repo', presetId: 'orchestrator', approval: 'auto',
+  return { submissionId: randomUUID(), repoRoot: REPO, presetId: 'orchestrator', approval: 'auto',
     task: 'Inspect the README.', planPath: null, ...overrides };
 }
 
@@ -138,4 +140,15 @@ test('a malformed stored row fails loudly instead of reading as a default', (t) 
   getRuntimeDatabase(dbPath).prepare('UPDATE orchestrator_runs SET state_json = ? WHERE run_id = ?').run('{"phase":"nope"}', state.runId);
   assert.throws(() => store.read(state.runId));
   assert.throws(() => store.read(randomUUID()), /Unknown orchestrator run/u);
+});
+
+test('recent runs are found by repository identity, not by how its path is spelled', (t) => {
+  const { store } = openStore(t);
+  const first = store.create(startRequest());
+  store.create(startRequest({ repoRoot: createManagedTempDir('siftkit-orchestrator-store-other-') }));
+  const second = store.create(startRequest({ repoRoot: `${REPO}${path.sep}` }));
+  const spelled = `${REPO}${path.sep}.${path.sep}`;
+  assert.deepEqual(store.listRecent(spelled, 10).map((state) => state.runId), [second.runId, first.runId]);
+  assert.deepEqual(store.listRecent(REPO, 1).map((state) => state.runId), [second.runId]);
+  assert.throws(() => store.create(startRequest({ repoRoot: path.join(REPO, 'missing') })), /ENOENT/u);
 });

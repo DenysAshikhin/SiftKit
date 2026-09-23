@@ -1,9 +1,7 @@
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-import { isOrchestratorTerminalPhase, type OrchestratorRunState } from '@siftkit/contracts';
+import { isOrchestratorTerminalPhase, type OrchestratorRunState, type RepoAgentDecision } from '@siftkit/contracts';
 
 import { getAbortError } from '../lib/abort.js';
+import { canonicalRepositoryKey } from '../lib/repository-key.js';
 import type { OrchestratorRunStore } from '../orchestrator/run-store.js';
 
 export type RepositoryAccess = 'shared' | 'exclusive';
@@ -16,12 +14,6 @@ export type RepositoryLease = {
 
 type RepositoryWaiter = { access: RepositoryAccess; grant(): void };
 type RepositoryEntry = { holders: RepositoryAccess[]; waiters: RepositoryWaiter[] };
-
-/** Canonical repository identity: real path, case-folded on Windows. Missing roots fail loudly. */
-function canonicalRepositoryKey(repoRoot: string): string {
-  const real = realpathSync.native(resolve(repoRoot));
-  return process.platform === 'win32' ? real.toLowerCase() : real;
-}
 
 /**
  * Server-owned repository ownership: shared readers overlap, a writer is alone. Waiters are FIFO,
@@ -83,6 +75,8 @@ export type OrchestratorLiveRun = {
   readonly runId: string;
   readonly settled: Promise<void>;
   abort(reason: string): void;
+  /** Answers the pending user approval; false when that approval is not the one waiting. */
+  decide(approvalId: string, decision: RepoAgentDecision): boolean;
 };
 
 type StateListener = (state: OrchestratorRunState) => void;

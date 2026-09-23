@@ -3,18 +3,20 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { spawnDirectCommand, type DirectCommandResult } from '../lib/command-spawn.js';
+import { toError } from '../lib/errors.js';
 import { SAFE_GIT_BASE_ARGS, scrubGitEnvironment } from '../repo-search/engine/read-only-git-tool.js';
+
+const ORCHESTRATOR_ARTIFACT_ROOT = '.siftkit/orchestrator/';
 
 /** Repository-relative POSIX directory holding one run's plan, scratch, and evidence. */
 export function orchestratorArtifactDir(runId: string): string {
-  return `.siftkit/orchestrator/${runId}`;
+  return `${ORCHESTRATOR_ARTIFACT_ROOT}${runId}`;
 }
 
 export function orchestratorScratchDir(runId: string): string {
   return `${orchestratorArtifactDir(runId)}/scratch`;
 }
 
-const ORCHESTRATOR_ARTIFACT_ROOT = '.siftkit/orchestrator/';
 const PROSE_EXTENSIONS = ['.md', '.mdx', '.txt', '.rst', '.log'];
 
 /** Dirty files at one moment: path -> content (null for a deleted file). */
@@ -175,7 +177,7 @@ export function cleanupScratch(repoRoot: string, scratchDir: string): void {
     try {
       removeOwnedTemporaryPath(repoRoot, scratchDir, `${scratchDir}${sep}${entry}`);
     } catch (error) {
-      failures.push(error instanceof Error ? error.message : String(error));
+      failures.push(toError(error).message);
     }
     if (existsSync(join(scratchRoot, entry)) || isSymbolicLink(join(scratchRoot, entry))) {
       failures.push(`Temporary path '${scratchDir}/${entry}' could not be deleted.`);

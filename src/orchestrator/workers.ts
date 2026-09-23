@@ -1,7 +1,7 @@
 import { OrchestratorChildRequestSchema, type OrchestratorChildRequest, type OrchestratorWorkerStatus } from '@siftkit/contracts';
 
+import type { SiftConfig } from '../config/types.js';
 import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
-import { readConfig } from '../status-server/config-store.js';
 import type { RepoAgentSession } from '../status-server/repo-agent-sessions.js';
 import { startRepoWorkerRun } from '../status-server/routes/repo-agent.js';
 import type { ServerContext } from '../status-server/server-types.js';
@@ -11,9 +11,9 @@ import { requireOrchestratorWorkerPreset } from './plan.js';
  * Starts one reserved child through the ordinary worker lifecycle. Its approvals park at the
  * boundary for the parent run, and the parent task already owns the repository.
  */
-export function startOrchestratorChild(ctx: ServerContext, input: OrchestratorChildRequest): RepoAgentSession {
+export function startOrchestratorChild(ctx: ServerContext, config: SiftConfig, input: OrchestratorChildRequest): RepoAgentSession {
   const request = OrchestratorChildRequestSchema.parse(input);
-  const preset = requireOrchestratorWorkerPreset(readConfig(ctx.configPath), { id: request.taskId, workerPresetId: request.workerPresetId });
+  const preset = requireOrchestratorWorkerPreset(config, { id: request.taskId, workerPresetId: request.workerPresetId });
   if (request.work.kind === 'drift_fix' && preset.presetKind !== 'repo-agent') {
     throw new Error(`Drift corrections run on a repo-agent worker, not '${preset.id}'.`);
   }

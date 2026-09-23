@@ -39,6 +39,7 @@ import {
   type RepoSearchAdmissionRecord,
 } from './repo-search-admissions.js';
 import { serverLogger } from './server-logger.js';
+import { MODEL_QUEUE_TIMEOUT_MESSAGE } from './server-ops.js';
 import type { RepositoryAccess, RepositoryGate, RepositoryLease } from './orchestrator-runs.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
@@ -348,7 +349,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
     const lock = await this.locks.acquire(this.runId, this.executionSignal);
     if (!lock) {
       if (this.executionSignal.aborted) throw getAbortError(this.executionSignal);
-      throw new Error('Timed out waiting for model request queue.');
+      throw new Error(MODEL_QUEUE_TIMEOUT_MESSAGE);
     }
     if (lock.context.modelPreset.id !== this.admittedModelPresetId) {
       lock.release();
@@ -412,7 +413,7 @@ export class RepoAgentSession implements ApprovalGateObserver, ApprovalParkLease
       }
       if (!this.lock) {
         if (this.abortController.signal.aborted) this.settleAborted();
-        else this.settleFailure('Timed out waiting for model request queue.');
+        else this.settleFailure(MODEL_QUEUE_TIMEOUT_MESSAGE);
         return;
       }
       this.admittedModelPresetId = this.lock.context.modelPreset.id;

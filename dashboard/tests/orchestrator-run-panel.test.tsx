@@ -27,14 +27,17 @@ function runState(overrides: Partial<OrchestratorRunState>): OrchestratorRunStat
   });
 }
 
-function attempt(purpose: 'implementation' | 'drift_fix', number: 1 | 2, passed: boolean | null) {
+const EVIDENCE = { kind: 'evidence', instruction: 'Confirm the greeting.', paths: ['src/a.ts'] } as const;
+const UNREVIEWED_EVIDENCE = { check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '' };
+
+function attempt(purpose: 'implementation' | 'drift_fix', number: 1 | 2, passed: boolean | null, extraChecks: object[] = []) {
   return OrchestratorAttemptSchema.parse({
     taskId: TASK.id, purpose, attempt: number, childRunId: CHILD_ID, reservedAtUtc: AT,
     work: { kind: 'implementation', planPath: 'plan.md', planHash: 'h', task: TASK },
     status: passed === null ? 'running' : 'settled',
     result: passed === null ? null : {
       taskId: TASK.id, purpose, attempt: number, childRunId: CHILD_ID, workerStatus: 'completed', workerOutput: 'done',
-      passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom' }],
+      passed, checks: [{ check: CHECK, executed: true, exitCode: passed ? 0 : 1, timedOut: false, output: 'boom' }, ...extraChecks],
       findings: [], changedPaths: ['src/a.ts'], scopeViolations: [], changeDigest: 'd',
     },
   });
@@ -65,10 +68,11 @@ test('a running task shows its phase, plan path, and current implementation atte
   assert.equal(view.aborts(), 1);
 });
 
-test('a failed attempt lists its failed checks', () => {
-  renderPanel(runState({ attempts: [attempt('implementation', 1, false)] }));
+test('a failed attempt lists its failed checks and never an unexecuted evidence check', () => {
+  renderPanel(runState({ attempts: [attempt('implementation', 1, false, [UNREVIEWED_EVIDENCE])] }));
   screen.getByText('Implementation attempt 1 of 2');
-  screen.getByText('Failed: npm test (exit 1)');
+  screen.getByText('Check `npm test` exited 1; expected 0.');
+  assert.equal(screen.queryByText(/Confirm the greeting/u), null);
 });
 
 test('drift correction shows its own attempt count and the top three findings with the remainder', () => {
@@ -92,8 +96,8 @@ test('a clean drift review says there is no actionable drift', () => {
 test('a pending approval can be approved, denied only with a reason, or aborted', () => {
   const view = renderPanel(runState({
     phase: 'approval_required',
-    approval: { target: { kind: 'child', childRunId: CHILD_ID }, taskId: TASK.id,
-      approval: { approvalId: APPROVAL_ID, toolName: 'run', command: 'rm -rf build', reviewPayload: null } },
+    approval: { kind: 'child', approvalId: APPROVAL_ID, childRunId: CHILD_ID, taskId: TASK.id, toolName: 'run',
+      command: 'rm -rf build', reviewPayload: null },
   }));
   screen.getByText('rm -rf build');
   const deny = screen.getByRole('button', { name: 'Deny' });
@@ -113,4 +117,13 @@ test('a terminal run shows its failure and no Stop button', () => {
   }));
   screen.getByText('Task add-greeting failed twice.');
   assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
+});
+
+test('an orchestrator check approval names the command and its working directory', () => {
+  renderPanel(runState({
+    phase: 'approval_required',
+    approval: { kind: 'check', approvalId: APPROVAL_ID, taskId: null, command: 'npm run lint', cwd: 'packages/app' },
+  }));
+  screen.getByText('npm run lint');
+  screen.getByText(/Orchestrator check in packages\/app/u);
 });

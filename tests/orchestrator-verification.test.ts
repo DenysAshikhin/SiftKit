@@ -29,7 +29,7 @@ function evaluate(overrides: Partial<Parameters<typeof evaluateAttempt>[0]>) {
 test('a completed worker with independently passing checks and verified evidence passes', () => {
   assert.deepEqual(evaluate({}), { passed: true, findings: [] });
   const withEvidence = evaluate({ checks: [ran(0), { check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '' }],
-    review: { status: 'pass', evidence: ['README.md:2 - the install command'] } });
+    review: { status: 'pass', evidence: [{ path: 'README.md', line: 2, snippet: 'npm install' }] } });
   assert.deepEqual(withEvidence, { passed: true, findings: [] });
 });
 
@@ -41,15 +41,15 @@ test('a worker claim cannot pass a failing, missing, or timed-out check', () => 
   assert.match(evaluate({ scopeViolations: ['docs/x.md'] }).findings.join(' '), /outside the task's write scope/u);
 });
 
-test('evidence checks need a passing review whose anchors resolve to real lines', () => {
+test('evidence checks need a passing review whose anchors resolve to the cited lines', () => {
   const evidenceChecks = [{ check: EVIDENCE, executed: false, exitCode: null, timedOut: false, output: '' }];
+  const reviewed = (path: string, line: number, snippet: string) =>
+    evaluate({ checks: evidenceChecks, review: { status: 'pass', evidence: [{ path, line, snippet }] } }).findings.join(' ');
   assert.match(evaluate({ checks: evidenceChecks }).findings.join(' '), /were not reviewed/u);
-  assert.match(evaluate({ checks: evidenceChecks, review: { status: 'pass', evidence: ['The README documents it.'] } }).findings.join(' '),
-    /not anchored/u);
-  assert.match(evaluate({ checks: evidenceChecks, review: { status: 'pass', evidence: ['README.md:40 install'] } }).findings.join(' '),
-    /past the end/u);
-  assert.match(evaluate({ checks: evidenceChecks, review: { status: 'pass', evidence: ['docs/missing.md:1 x'] } }).findings.join(' '),
-    /missing file/u);
+  assert.match(reviewed('README.md', 40, 'npm install'), /README\.md:40 is past the end of the file/u);
+  assert.match(reviewed('docs/missing.md', 1, 'x'), /docs\/missing\.md does not exist in the repository/u);
+  assert.match(reviewed('README.md', 2, 'yarn add'), /README\.md:2 does not contain the cited snippet/u);
+  assert.match(reviewed('../outside.md', 1, 'x'), /does not exist in the repository/u);
   assert.match(evaluate({ checks: evidenceChecks, review: { status: 'fail', findings: [{ path: 'README.md', line: 2, issue: 'Wrong flag.' }] } })
     .findings.join(' '), /README\.md:2 Wrong flag\./u);
 });

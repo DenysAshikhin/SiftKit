@@ -1,13 +1,15 @@
-import type {
-  OrchestratorAttemptResult,
-  OrchestratorCheckResult,
-  OrchestratorChildPurpose,
-  OrchestratorDriftCorrectionWork,
-  OrchestratorDriftFinding,
-  OrchestratorTask,
-  OrchestratorVerificationCheck,
-  RepoAgentApproval,
-  SiftPreset,
+import {
+  ORCHESTRATOR_MAX_ATTEMPTS,
+  type OrchestratorAttemptResult,
+  type OrchestratorCheckResult,
+  type OrchestratorChildPurpose,
+  type OrchestratorCommandCheck,
+  type OrchestratorDriftCorrectionWork,
+  type OrchestratorDriftFinding,
+  type OrchestratorTask,
+  type OrchestratorVerificationCheck,
+  type RepoAgentApproval,
+  type SiftPreset,
 } from '@siftkit/contracts';
 
 const CHECK_OUTPUT_PROMPT_CHARS = 4_000;
@@ -83,7 +85,7 @@ export function buildAttemptReviewPrompt(input: {
     'Worker report (a claim, not evidence):', input.result.workerOutput,
     'Read the cited files yourself. Pass only when every criterion is supported by repository evidence you checked.',
     'Answer with exactly one JSON object:',
-    '- {"status": "pass", "evidence": ["path:line - what it proves", ...]}',
+    '- {"status": "pass", "evidence": [{"path": string, "line": number, "snippet": "exact code at that line"}, ...]}',
     '- {"status": "fail", "findings": [{"path": string, "line": number, "issue": string}]}',
   ].join('\n');
 }
@@ -148,6 +150,23 @@ export function buildChildApprovalPrompt(input: {
   ].join('\n');
 }
 
+export function buildCheckApprovalPrompt(input: {
+  goal: string;
+  task: OrchestratorTask | null;
+  check: OrchestratorCommandCheck;
+}): string {
+  return [
+    `Phase: decide whether to run one verification command for ${input.task === null
+      ? 'the final verification of the whole run' : `task '${input.task.id}' (${input.task.title})`}. Goal: ${input.goal}`,
+    `Command: ${input.check.command}`,
+    `Working directory: ${input.check.cwd}`,
+    'The plan declared this check, but it runs as a real shell command in the repository.',
+    'Approve only a command that verifies the work without changing tracked files, history, or the machine.',
+    'Deny anything destructive, networked without need, or unrelated to verification, and say why.',
+    'Answer with exactly one JSON object: {"decision": "approve" | "deny", "reason": string}.',
+  ].join('\n');
+}
+
 export function buildFinalVerificationPrompt(input: {
   goal: string;
   checks: readonly OrchestratorCheckResult[];
@@ -157,7 +176,7 @@ export function buildFinalVerificationPrompt(input: {
     'Recorded final command results:', ...input.checks.map(formatCheckResult),
     'Confirm each evidence check yourself with repository tools.',
     'Answer with exactly one JSON object:',
-    '- {"status": "pass", "evidence": ["path:line - what it proves", ...]}',
+    '- {"status": "pass", "evidence": [{"path": string, "line": number, "snippet": "exact code at that line"}, ...]}',
     '- {"status": "fail", "findings": [{"path": string, "line": number, "issue": string}]}',
   ].join('\n');
 }
@@ -182,7 +201,7 @@ export function buildImplementationInstruction(input: {
   const { task } = input;
   return [
     `Implement ONLY task '${task.id}' — ${task.title} — from plan ${input.planPath} (hash ${input.planHash}).`,
-    `This is implementation attempt ${input.attempt} of 2.`,
+    `This is implementation attempt ${input.attempt} of ${ORCHESTRATOR_MAX_ATTEMPTS}.`,
     `Read: ${task.readPaths.join(', ') || '(as needed)'}`,
     `Allowed to modify: ${task.writePaths.join(', ') || '(nothing; this task is read-only)'}`,
     `Scratch directory for temporary files: ${input.scratchPath}`,

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { toError } from '../../lib/errors.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import type { JsonObject, JsonSerializable, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ServerContext } from '../server-types.js';
@@ -10,7 +11,7 @@ import {
 import { readConfig } from '../config-store.js';
 import { sendJson } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
-import { ORCHESTRATOR_PRESET_RUN_ERROR, StatusPresetRunner } from '../preset-runner.js';
+import { requireRunnableCliPreset, StatusPresetRunner } from '../preset-runner.js';
 import {
   RepoSearchSseProgressWriter,
   SummarySseProgressWriter,
@@ -129,8 +130,13 @@ export class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRun
 
   protected parseRequest(parsedBody: JsonObject, ctx: ServerContext): ParsedStreamedRequest<ParsedPresetRunRoute> {
     const presetId = new JsonRecordReader(parsedBody).optionalString('presetId');
-    const preset = readConfig(ctx.configPath).Presets.find((entry) => entry.id === presetId);
-    if (preset?.presetKind === 'orchestrator') return { ok: false, error: ORCHESTRATOR_PRESET_RUN_ERROR };
+    if (presetId === undefined) return { ok: false, error: 'A presetId is required.' };
+    try {
+      // Rejected before admission, so an unrunnable preset never loads a model.
+      requireRunnableCliPreset(readConfig(ctx.configPath), presetId);
+    } catch (error) {
+      return { ok: false, error: toError(error).message };
+    }
     return { ok: true, value: { parsedBody } };
   }
 

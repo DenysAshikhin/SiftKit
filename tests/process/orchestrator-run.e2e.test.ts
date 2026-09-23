@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 
 import {
-  OrchestratorEventSchema,
+  OrchestratorProgressSchema,
   OrchestratorRunStateSchema,
   type ApprovalMode,
   type OrchestratorDriftFinding,
@@ -61,6 +61,8 @@ function planAnswer(plan: OrchestratorPlan) {
   return finalAnswer(JSON.stringify({ status: 'generated', plan, issues: [] }));
 }
 
+const APPROVE_CHECK = finalAnswer('{"decision":"approve","reason":"A read-only check of the planned file."}');
+
 function writeFile(content: string) {
   return { toolCalls: [{ name: 'write', arguments: { path: TARGET, content } }] };
 }
@@ -108,7 +110,8 @@ async function startRun(context: Harness, approval: ApprovalMode, submissionId =
 async function followRun(context: Harness, runId: string) {
   const response = await requestSse(`${context.baseUrl}/orchestrator/events`, { body: { runId, afterSequence: 0 }, timeoutMs: RUN_TIMEOUT_MS });
   assert.equal(response.errorMessage, null, response.rawBody);
-  return { state: OrchestratorRunStateSchema.parse(response.result), events: response.progress.map((event) => OrchestratorEventSchema.parse(event)) };
+  return { state: OrchestratorRunStateSchema.parse(response.result),
+    events: response.progress.flatMap((frame) => OrchestratorProgressSchema.parse(frame).events) };
 }
 
 async function readRun(context: Harness, runId: string): Promise<OrchestratorRunState> {
@@ -116,15 +119,22 @@ async function readRun(context: Harness, runId: string): Promise<OrchestratorRun
   return OrchestratorRunStateSchema.parse(response.body);
 }
 
-async function waitForApproval(context: Harness, runId: string): Promise<OrchestratorRunState> {
+/** The next pending approval, or null once the run is terminal. */
+async function waitForApprovalOrEnd(context: Harness, runId: string): Promise<OrchestratorRunState | null> {
   const deadline = Date.now() + RUN_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const state = await readRun(context, runId);
     if (state.phase === 'approval_required' && state.approval !== null) return state;
-    assert.ok(!['completed', 'failed', 'aborted', 'interrupted'].includes(state.phase), JSON.stringify(state.failure));
+    if (['completed', 'failed', 'aborted', 'interrupted'].includes(state.phase)) return null;
     await delay(25);
   }
   throw new Error('Timed out waiting for an orchestrator approval.');
+}
+
+async function waitForApproval(context: Harness, runId: string): Promise<OrchestratorRunState> {
+  const state = await waitForApprovalOrEnd(context, runId);
+  if (state === null) throw new Error(`Run ${runId} ended before an approval: ${JSON.stringify((await readRun(context, runId)).failure)}`);
+  return state;
 }
 
 test('a child approval unloads the child model for the parent decision and reloads it to continue the same attempt', async (t) => {
@@ -133,7 +143,9 @@ test('a child approval unloads the child model for the parent decision and reloa
   engine.parent.push(planAnswer(writePlan()));
   engine.children.push([writeFile('export const greeting = "hi";\n'), ...ESCALATING_VERDICTS, ...finalAnswer('Created src/greeting.ts.')]);
   engine.parent.push(finalAnswer('{"decision":"approve","reason":"Creates the planned file inside its scope."}'));
+  engine.parent.push(APPROVE_CHECK);
   engine.parent.push(driftReview('clean'));
+  engine.parent.push(APPROVE_CHECK);
 
   const started = await startRun(context, 'auto');
   const { state, events } = await followRun(context, started.runId);
@@ -229,22 +241,25 @@ test('interactive runs forward child and verification approvals to the person, b
   const following = followRun(context, started.runId);
 
   const childApproval = await waitForApproval(context, started.runId);
-  assert.equal(childApproval.approval?.target.kind, 'child');
+  assert.equal(childApproval.approval?.kind, 'child');
   const wrong = await requestJson(`${context.baseUrl}/orchestrator/decide`, { method: 'POST',
     body: JSON.stringify({ runId: started.runId, approvalId: randomUUID(), decision: 'approve' }) });
   assert.equal(wrong.statusCode, 409);
   const kinds: string[] = [];
+  const commands: string[] = [];
   for (let approval: OrchestratorRunState | null = childApproval; approval !== null;) {
-    kinds.push(approval.approval?.target.kind ?? 'none');
+    kinds.push(approval.approval?.kind ?? 'none');
+    if (approval.approval?.kind === 'check') commands.push(approval.approval.command);
     const decided = await requestJson(`${context.baseUrl}/orchestrator/decide`, { method: 'POST',
-      body: JSON.stringify({ runId: started.runId, approvalId: approval.approval?.approval.approvalId, decision: 'approve' }) });
+      body: JSON.stringify({ runId: started.runId, approvalId: approval.approval?.approvalId, decision: 'approve' }) });
     assert.equal(decided.statusCode, 200, JSON.stringify(decided.body));
     approval = kinds.length < 3 ? await waitForApproval(context, started.runId) : null;
   }
 
   const { state } = await following;
   assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
-  assert.deepEqual(kinds, ['child', 'phase', 'phase'], 'the child write, the task checks, then the final checks');
+  assert.deepEqual(kinds, ['child', 'check', 'check'], 'the child write, the task check, then the final check');
+  assert.deepEqual(commands, [TARGET_EXISTS.command, PASSING_CHECK.command], 'each check command is approved on its own');
   assert.equal(engine.prompts('parent').some((prompt) => prompt.includes('permission request')), false,
     'an interactive run never lets the parent decide');
 });
@@ -345,4 +360,50 @@ test('a blocked plan and a missing plan file fail precisely before any child sta
     submissionId: randomUUID(), repoRoot: context.repo, presetId: 'repo-agent', approval: 'off', task: 'x', planPath: null }) });
   assert.equal(rejected.statusCode, 400);
   assert.match(String(rejected.body.error), /not an orchestrator/u);
+});
+
+test('an auto run asks the parent before each check command and never runs a denied one', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-check-denied-');
+  const { engine } = context;
+  const markerCheck: OrchestratorVerificationCheck = { kind: 'command', command: 'Set-Content check-ran.txt ran; exit 0', cwd: '.', expectedExitCode: 0 };
+  const inspect = makeOrchestratorTask({ readPaths: ['src/app.ts'], verification: [markerCheck] });
+  engine.parent.push(planAnswer({ ...makeOrchestratorPlan([inspect]), finalVerification: [PASSING_CHECK] }));
+  for (const attempt of [1, 2]) {
+    engine.children.push(finalAnswer(`Inspected, attempt ${attempt}.`));
+    engine.parent.push(finalAnswer('{"decision":"deny","reason":"Writes a file outside the task scope."}'));
+  }
+
+  const { state } = await followRun(context, (await startRun(context, 'auto')).runId);
+
+  assert.equal(state.phase, 'failed');
+  assert.equal(state.failure?.code, 'implementation_failed');
+  assert.match(state.failure?.message ?? '', /never ran/u);
+  assert.equal(fs.existsSync(path.join(context.repo, 'check-ran.txt')), false, 'a denied check never runs');
+  const checkPrompts = engine.prompts('parent').filter((prompt) => prompt.includes('verification command'));
+  assert.equal(checkPrompts.length, 2);
+  assert.match(checkPrompts[0] ?? '', /Set-Content check-ran\.txt ran; exit 0/u);
+});
+
+test('a run keeps the configuration it started with when presets change mid-run', async (t) => {
+  const context = await startHarness(t, 'siftkit-orchestrator-pinned-config-');
+  const { engine } = context;
+  engine.parent.push(planAnswer(writePlan(true)));
+  engine.children.push([writeFile('export const greeting = "hi";\n'), ...finalAnswer('Created.')]);
+  engine.parent.push(driftReview('clean'));
+  engine.children.push(finalAnswer('The greeting is hi.'));
+  const started = await startRun(context, 'interactive');
+  const following = followRun(context, started.runId);
+
+  let approval = await waitForApprovalOrEnd(context, started.runId);
+  await context.harness.updateOperationPreset('repo-search', { allowedTools: ['read'] });
+  while (approval !== null) {
+    await requestJson(`${context.baseUrl}/orchestrator/decide`, { method: 'POST',
+      body: JSON.stringify({ runId: started.runId, approvalId: approval.approval?.approvalId, decision: 'approve' }) });
+    approval = await waitForApprovalOrEnd(context, started.runId);
+  }
+
+  const { state } = await following;
+  assert.equal(state.phase, 'completed', JSON.stringify(state.failure));
+  const report = engine.requireRepoSearch('Report the greeting.');
+  assert.notDeepEqual(report.allowedTools, ['read'], 'the report child keeps the tools the run started with');
 });

@@ -11,6 +11,8 @@ import { getDefaultServerConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { openStoredRuntimeDatabase } from './helpers/stored-runtime-database.js';
 import { withRuntimeDatabaseConnection } from './helpers/runtime-database-probe.js';
+import { ORCHESTRATOR_RUNS_78_SQL } from '../src/state/schema-upgrades/orchestrator-runs.js';
+import { canonicalRepositoryKey } from '../src/lib/repository-key.js';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
 const ModelPresetsRowSchema = z.object({ server_model_presets_json: z.string() });
@@ -111,21 +113,49 @@ test('a 76 record that already carries orchestrator options aborts the upgrade a
   assert.deepEqual(readStored(dbPath), { version: 76, presetsJson: stored });
 });
 
-const TableSqlRowsSchema = z.array(z.object({ name: z.string(), sql: z.string() }));
+const ColumnRowsSchema = z.array(z.object({ name: z.string(), type: z.string(), notnull: z.number(), pk: z.number() }).loose());
+const IndexRowsSchema = z.array(z.object({ name: z.string(), sql: z.string().nullable() }));
 
-function orchestratorTableSql(dbPath: string): Array<{ name: string; sql: string }> {
-  return TableSqlRowsSchema.parse(getRuntimeDatabase(dbPath).prepare(
-    "SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND name LIKE 'orchestrator_%' ORDER BY name",
-  ).all());
+function orchestratorSchema(dbPath: string) {
+  const database = getRuntimeDatabase(dbPath);
+  const tables = ['orchestrator_attempts', 'orchestrator_events', 'orchestrator_runs'];
+  return {
+    columns: tables.map((table) => ColumnRowsSchema.parse(database.prepare(`PRAGMA table_info(${table})`).all())
+      .map(({ name, type, notnull, pk }) => ({ table, name, type, notnull, pk }))),
+    indexes: IndexRowsSchema.parse(database.prepare(
+      "SELECT name, sql FROM sqlite_schema WHERE type = 'index' AND tbl_name LIKE 'orchestrator_%' ORDER BY name",
+    ).all()),
+  };
 }
 
-test('the 77 to 78 upgrade creates the same orchestrator run tables as a fresh database', () => {
+test('the upgrade chain from 77 creates the same orchestrator run tables as a fresh database', () => {
   const freshPath = path.join(createManagedTempDir('siftkit-orchestrator-runs-fresh-'), 'runtime.sqlite');
   const upgradedPath = rewind(77, JSON.stringify(CURRENT_CATALOG));
   try {
-    const fresh = orchestratorTableSql(freshPath);
-    assert.deepEqual(fresh.map((row) => row.name), ['orchestrator_attempts', 'orchestrator_events', 'orchestrator_runs']);
-    assert.deepEqual(orchestratorTableSql(upgradedPath), fresh);
+    const fresh = orchestratorSchema(freshPath);
+    assert.ok(fresh.columns.flat().some((column) => column.table === 'orchestrator_runs' && column.name === 'repo_key'));
+    assert.deepEqual(orchestratorSchema(upgradedPath), fresh);
+  } finally {
+    closeAllRuntimeDatabases();
+  }
+});
+
+const RepoKeyRowsSchema = z.array(z.object({ run_id: z.string(), repo_key: z.string().nullable() }));
+
+test('the 78 to 79 upgrade keys stored runs by repository identity and leaves vanished repositories unkeyed', () => {
+  const repo = createManagedTempDir('siftkit-orchestrator-key-repo-');
+  const dbPath = rewind(77, JSON.stringify(CURRENT_CATALOG));
+  withRuntimeDatabaseConnection(dbPath, (database) => {
+    database.exec(ORCHESTRATOR_RUNS_78_SQL);
+    const insert = database.prepare(`INSERT INTO orchestrator_runs
+      (run_id, submission_id, request_digest, revision, phase, state_json, created_at_utc, updated_at_utc) VALUES (?, ?, 'd', 0, 'failed', ?, 'a', 'a')`);
+    insert.run('present', 's1', JSON.stringify({ request: { repoRoot: `${repo}${path.sep}` } }));
+    insert.run('vanished', 's2', JSON.stringify({ request: { repoRoot: path.join(repo, 'gone') } }));
+    database.prepare('UPDATE runtime_schema SET version = 78 WHERE id = 1').run();
+  });
+  try {
+    const rows = RepoKeyRowsSchema.parse(getRuntimeDatabase(dbPath).prepare('SELECT run_id, repo_key FROM orchestrator_runs ORDER BY run_id').all());
+    assert.deepEqual(rows, [{ run_id: 'present', repo_key: canonicalRepositoryKey(repo) }, { run_id: 'vanished', repo_key: null }]);
   } finally {
     closeAllRuntimeDatabases();
   }

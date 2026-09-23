@@ -6,7 +6,6 @@ import {
   abortOrchestrator,
   decideOrchestrator,
   followOrchestrator,
-  getOrchestratorStatus,
   listOrchestratorRuns,
   startOrchestrator,
 } from '../orchestrator-api.js';
@@ -37,9 +36,9 @@ export function useOrchestratorRun(repoRoot: string | null) {
             setState(next.value);
             return;
           }
-          setLastMessage(next.value.message);
-          const current = await getOrchestratorStatus(initial.runId);
-          if (!controller.signal.aborted) setState(current);
+          // Each frame carries the state its events produced; no status refetch is needed.
+          setLastMessage(next.value.events.at(-1)?.message ?? null);
+          setState(next.value.state);
         }
       } catch (caught) {
         if (!controller.signal.aborted) setError(toError(caught).message);
@@ -63,16 +62,6 @@ export function useOrchestratorRun(repoRoot: string | null) {
     };
   }, [repoRoot, attach]);
 
-  async function run(action: () => Promise<OrchestratorRunState>, reattach: boolean): Promise<void> {
-    try {
-      const next = await action();
-      if (reattach) attach(next);
-      else setState(next);
-    } catch (caught) {
-      setError(toError(caught).message);
-    }
-  }
-
   return {
     state,
     lastMessage,
@@ -80,16 +69,18 @@ export function useOrchestratorRun(repoRoot: string | null) {
     start(input: OrchestratorStartInput): Promise<void> {
       if (repoRoot === null) throw new Error('An orchestrator run needs a repository folder.');
       setLastMessage(null);
-      return run(() => startOrchestrator({ submissionId: crypto.randomUUID(), repoRoot, ...input }), true);
+      return startOrchestrator({ submissionId: crypto.randomUUID(), repoRoot, ...input })
+        .then(attach, (caught) => setError(toError(caught).message));
     },
     decide(decision: RepoAgentDecision): Promise<void> {
       const pending = state?.approval;
       if (!state || !pending) throw new Error('No orchestrator approval is pending.');
-      return run(() => decideOrchestrator({ runId: state.runId, approvalId: pending.approval.approvalId, ...decision }), false);
+      return decideOrchestrator({ runId: state.runId, approvalId: pending.approvalId, ...decision })
+        .then(setState, (caught) => setError(toError(caught).message));
     },
     abort(): Promise<void> {
       if (!state) throw new Error('No orchestrator run to stop.');
-      return run(() => abortOrchestrator(state.runId), false);
+      return abortOrchestrator(state.runId).then(setState, (caught) => setError(toError(caught).message));
     },
   };
 }

@@ -39,7 +39,7 @@ test('the marker-75 upgrade restores hidden status updates to narration and leav
   try {
     const database = getRuntimeDatabase(dbPath);
     assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 78);
+    assert.equal(CURRENT_SCHEMA_VERSION, 79);
     const rows = KindRowsSchema.parse(database.prepare('SELECT id, kind, content FROM chat_messages ORDER BY position').all());
     assert.deepEqual(rows, [
       { id: HIDDEN_STATUS_ID, kind: 'assistant_narration', content: 'Reading the config.' },

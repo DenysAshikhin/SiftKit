@@ -1,21 +1,21 @@
 import {
-  OrchestratorChildApprovalDecisionSchema,
+  OrchestratorApprovalDecisionSchema,
   OrchestratorDriftReviewSchema,
   OrchestratorPlanPreparationSchema,
   OrchestratorTaskReviewSchema,
-  type OrchestratorChildApprovalDecision,
+  type OrchestratorApprovalDecision,
   type OrchestratorDriftReview,
   type OrchestratorPlanPreparation,
   type OrchestratorTaskReview,
 } from '@siftkit/contracts';
 
+import type { SiftConfig } from '../config/types.js';
 import { ModelJson } from '../lib/model-json.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import type { z } from '../lib/zod.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { taskPassed } from '../repo-search/engine/task-loop-support.js';
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
-import { readConfig } from '../status-server/config-store.js';
 import {
   UncancelledModelWaitError,
   acquireModelRequestWithWait,
@@ -25,7 +25,6 @@ import {
 import type { ServerContext } from '../status-server/server-types.js';
 import {
   buildAttemptReviewPrompt,
-  buildChildApprovalPrompt,
   buildDriftReviewPrompt,
   buildFinalVerificationPrompt,
   buildPlanPreparationPrompt,
@@ -68,7 +67,8 @@ class PhaseLeaseWriter extends ProgressWriter<RepoSearchProgressEvent> {
  * read-only engine request, releases the lease, and only then parses the typed answer.
  */
 export class OrchestratorPhaseRunner {
-  constructor(private readonly ctx: ServerContext) {}
+  /** `config` is the run's pinned snapshot; the model lease supplies the admitted engine config. */
+  constructor(private readonly ctx: ServerContext, private readonly config: SiftConfig) {}
 
   preparePlan(request: OrchestratorPhaseRequest, input: Parameters<typeof buildPlanPreparationPrompt>[0]): Promise<OrchestratorPlanPreparation> {
     return this.run(request, buildPlanPreparationPrompt(input), OrchestratorPlanPreparationSchema, 'plan preparation');
@@ -86,16 +86,13 @@ export class OrchestratorPhaseRunner {
     return this.run(request, buildFinalVerificationPrompt(input), OrchestratorTaskReviewSchema, 'final verification');
   }
 
-  /** The parent decides a parked child's permission request on its own model, then lets go of it. */
-  decideChildApproval(
-    request: OrchestratorPhaseRequest,
-    input: Parameters<typeof buildChildApprovalPrompt>[0],
-  ): Promise<OrchestratorChildApprovalDecision> {
-    return this.run(request, buildChildApprovalPrompt(input), OrchestratorChildApprovalDecisionSchema, 'approval decision');
+  /** The parent decides one permission request (built by the caller) on its own model, then lets go of it. */
+  decideApproval(request: OrchestratorPhaseRequest, prompt: string): Promise<OrchestratorApprovalDecision> {
+    return this.run(request, prompt, OrchestratorApprovalDecisionSchema, 'approval decision');
   }
 
   private async run<T>(request: OrchestratorPhaseRequest, prompt: string, schema: z.ZodType<T>, payloadName: string): Promise<T> {
-    const preset = PresetCatalog.fromPresets(readConfig(this.ctx.configPath).Presets).requireById(request.presetId);
+    const preset = PresetCatalog.fromPresets(this.config.Presets).requireById(request.presetId);
     const lock = await acquireModelRequestWithWait(this.ctx, 'orchestrator', undefined, undefined, {
       intent: { presetId: request.presetId, model: null },
       ownerRunId: request.phaseRunId,

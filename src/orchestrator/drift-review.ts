@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
-
 import type {
   OrchestratorDriftCorrectionWork,
   OrchestratorDriftFinding,
@@ -9,23 +7,7 @@ import type {
 } from '@siftkit/contracts';
 
 import { stableStringify } from '../lib/json.js';
-import { resolveRepoScopedPath } from '../repo-search/engine/repo-paths.js';
-
-const SNIPPET_LINE_TOLERANCE = 2;
-
-function normalizeCode(text: string): string {
-  return text.replace(/\s+/gu, ' ').trim();
-}
-
-function findEvidenceProblem(repoRoot: string, evidence: OrchestratorDriftFinding['evidence'][number]): string | null {
-  const resolved = resolveRepoScopedPath(repoRoot, evidence.path);
-  if (resolved === null || !existsSync(resolved.absolutePath)) return `${evidence.path} does not exist in the repository`;
-  const lines = readFileSync(resolved.absolutePath, 'utf8').split(/\r?\n/u);
-  if (evidence.line > lines.length) return `${evidence.path}:${evidence.line} is past the end of the file`;
-  const window = lines.slice(Math.max(0, evidence.line - 1 - SNIPPET_LINE_TOLERANCE), evidence.line + SNIPPET_LINE_TOLERANCE).join('\n');
-  return normalizeCode(window).includes(normalizeCode(evidence.snippet))
-    ? null : `${evidence.path}:${evidence.line} does not contain the cited snippet`;
-}
+import { findEvidenceProblem } from './verification.js';
 
 /**
  * Problems that make a drift report unusable: wrong step or digest, host-only statuses, unanchored

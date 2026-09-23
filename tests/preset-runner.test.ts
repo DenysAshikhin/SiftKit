@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectPresetRunKind, StatusPresetRunner } from '../src/status-server/preset-runner.js';
+import { requireRunnableCliPreset, selectPresetRunKind, StatusPresetRunner } from '../src/status-server/preset-runner.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { buildScorecard } from '../src/repo-search/engine.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult } from '../src/repo-search/types.js';
@@ -86,6 +86,9 @@ test('cli chat enables thinking when the active preset reasoning is on', async (
   assert.equal(request.thinkingEnabled, true);
 });
 
-test('selectPresetRunKind refuses orchestrator presets, which never run as one locked request', () => {
-  assert.throws(() => selectPresetRunKind('orchestrator'), /start it with POST \/orchestrator/u);
+test('only known cli presets that are not orchestrators run as one locked request', () => {
+  const config = getDefaultConfigObject();
+  assert.equal(requireRunnableCliPreset(config, 'repo-search').presetKind, 'repo-search');
+  assert.throws(() => requireRunnableCliPreset(config, 'orchestrator'), /start it with POST \/orchestrator/u);
+  assert.throws(() => requireRunnableCliPreset(config, 'missing-preset'));
 });

@@ -3,22 +3,26 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { dirname, join } from 'node:path';
 
 import {
+  ORCHESTRATOR_MAX_ATTEMPTS,
   isOrchestratorTerminalPhase,
   type OrchestratorAttempt,
   type OrchestratorAttemptResult,
   type OrchestratorCheckResult,
   type OrchestratorChildWork,
+  type OrchestratorCommandCheck,
   type OrchestratorDriftFinding,
   type OrchestratorDriftReview,
   type OrchestratorFailure,
+  type OrchestratorPendingApproval,
   type OrchestratorPlan,
+  type OrchestratorPresetOptions,
   type OrchestratorRunState,
   type OrchestratorStartRequest,
   type OrchestratorTask,
   type OrchestratorTaskStatus,
   type OrchestratorVerificationCheck,
   type RepoAgentApproval,
-  type SiftPreset,
+  type RepoAgentDecision,
 } from '@siftkit/contracts';
 
 import type { SiftConfig } from '../config/types.js';
@@ -32,9 +36,15 @@ import type { ServerContext } from '../status-server/server-types.js';
 import { buildDriftCorrectionWork, validateDriftReview } from './drift-review.js';
 import { OrchestratorPhaseRunner, type OrchestratorPhaseRequest } from './phase-runner.js';
 import { renderOrchestratorPlan, validateOrchestratorPlan } from './plan.js';
-import { buildDriftCorrectionPrompt, buildImplementationInstruction, type ImplementationRetryEvidence } from './prompts.js';
+import {
+  buildChildApprovalPrompt,
+  buildCheckApprovalPrompt,
+  buildDriftCorrectionPrompt,
+  buildImplementationInstruction,
+  type ImplementationRetryEvidence,
+} from './prompts.js';
 import { isMutatingTask, selectTasksToStart } from './scheduler.js';
-import { evaluateAttempt, runVerificationChecks } from './verification.js';
+import { evaluateAttempt, runVerificationCheck, unexecutedCheck } from './verification.js';
 import { startOrchestratorChild, toChildOutcome, type ChildOutcome } from './workers.js';
 import {
   captureWorkspace,
@@ -52,13 +62,10 @@ import {
 const PLAN_PREPARATION_ATTEMPTS = 2;
 const DRIFT_REVIEW_ATTEMPTS = 2;
 
-/** A decision a person or the parent gives to one pending approval. */
-export type OrchestratorApprovalAnswer =
-  | { decision: 'approve' }
-  | { decision: 'deny'; reason: string }
-  | { decision: 'abort' };
+/** An answered approval the run continues with; an abort never returns. */
+type ContinuingDecision = Exclude<RepoAgentDecision, { decision: 'abort' }>;
 
-type PendingUserDecision = { approvalId: string; resolve(answer: OrchestratorApprovalAnswer): void };
+type PendingUserDecision = { approvalId: string; resolve(decision: RepoAgentDecision): void };
 
 /** A stop with a precise, stored diagnosis. */
 class OrchestratorRunFailure extends Error {
@@ -77,7 +84,8 @@ type AttemptOutcome = { result: OrchestratorAttemptResult; findings: string[] };
 /**
  * One live orchestrator parent: prepares the plan, schedules bounded children under the repository
  * gate, verifies their work independently, gates code changes on drift review, and records every
- * transition. It holds a model lease only inside finite phases, never across a child's wait.
+ * transition. It holds a model lease only inside finite phases, never across a child's wait, and
+ * runs on the configuration it was started with.
  */
 export class OrchestratorRun implements OrchestratorLiveRun {
   readonly runId: string;
@@ -89,10 +97,15 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   private registered = false;
   private state: OrchestratorRunState;
 
-  private constructor(private readonly ctx: ServerContext, state: OrchestratorRunState) {
+  private constructor(
+    private readonly ctx: ServerContext,
+    state: OrchestratorRunState,
+    private readonly config: SiftConfig,
+    private readonly options: OrchestratorPresetOptions,
+  ) {
     this.runId = state.runId;
     this.state = state;
-    this.phases = new OrchestratorPhaseRunner(ctx);
+    this.phases = new OrchestratorPhaseRunner(ctx, config);
     // Work begins on the next tick, and only once the registry owns this run.
     this.settled = Promise.resolve().then(() => (this.registered ? this.execute() : undefined));
     ctx.orchestratorRuns.register(this);
@@ -101,10 +114,11 @@ export class OrchestratorRun implements OrchestratorLiveRun {
 
   /** Creates (or returns the existing parent for) a submission; only a new parent starts work. */
   static start(ctx: ServerContext, request: OrchestratorStartRequest): OrchestratorRunState {
-    requireOrchestratorPreset(readConfig(ctx.configPath), request.presetId);
+    const config = readConfig(ctx.configPath);
+    const options = requireOrchestratorOptions(config, request.presetId);
     const state = ctx.orchestratorRunStore.create(request);
     if (!isOrchestratorTerminalPhase(state.phase) && ctx.orchestratorRuns.get(state.runId) === undefined && state.revision === 0) {
-      new OrchestratorRun(ctx, state);
+      new OrchestratorRun(ctx, state, config, options);
     }
     return state;
   }
@@ -115,12 +129,11 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     for (const child of this.children.values()) child.abort();
   }
 
-  /** Answers the pending user approval; false when that approval is not the one waiting. */
-  decide(approvalId: string, answer: OrchestratorApprovalAnswer): boolean {
+  decide(approvalId: string, decision: RepoAgentDecision): boolean {
     const pending = this.pendingUserDecision;
     if (pending === null || pending.approvalId !== approvalId) return false;
     this.pendingUserDecision = null;
-    pending.resolve(answer);
+    pending.resolve(decision);
     return true;
   }
 
@@ -132,6 +145,11 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     return this.state.request;
   }
 
+  private requirePlan(): OrchestratorPlan {
+    if (this.state.plan === null) throw new Error('The plan must be saved before tasks run.');
+    return this.state.plan;
+  }
+
   // ---- lifecycle ----
 
   private async execute(): Promise<void> {
@@ -140,7 +158,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       await this.executeTasks(plan);
       await this.verifyFinal(plan);
       this.commit({ phase: 'cleaning' }, 'Cleaning run scratch files.');
-      this.cleanup(() => cleanupScratch(this.request.repoRoot, orchestratorScratchDir(this.runId)), null);
+      this.cleanupRunScratch();
       this.commit({ phase: 'completed', failure: null }, 'Run completed.');
     } catch (error) {
       this.settleFailure(toError(error));
@@ -203,9 +221,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   // ---- plan ----
 
   private async preparePlan(): Promise<OrchestratorPlan> {
-    const config = readConfig(this.ctx.configPath);
     const supplied = this.request.planPath === null ? null : readSuppliedPlan(this.request.repoRoot, this.request.planPath);
-    const workers = config.Presets
+    const workers = this.config.Presets
       .filter((preset) => preset.presetKind === 'repo-agent' || preset.presetKind === 'repo-search');
     let previousErrors: string[] = [];
     for (let attempt = 1; attempt <= PLAN_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -226,7 +243,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
       this.commit({ phase: 'validating_plan' }, 'Validating the plan.');
       let plan: OrchestratorPlan;
       try {
-        plan = validateOrchestratorPlan(preparation.plan, config, this.request.repoRoot);
+        plan = validateOrchestratorPlan(preparation.plan, this.config, this.request.repoRoot);
       } catch (error) {
         previousErrors = [toError(error).message];
         this.commit({ phase: 'preparing_plan' }, `Plan rejected: ${previousErrors[0] ?? ''}`);
@@ -260,19 +277,15 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   // ---- scheduling ----
 
   private async executeTasks(plan: OrchestratorPlan): Promise<void> {
-    const config = readConfig(this.ctx.configPath);
-    const options = requireOrchestratorPreset(config, this.request.presetId).orchestrator;
-    if (options === null) throw new Error(`Orchestrator preset '${this.request.presetId}' has no orchestrator options.`);
     const { planPath, planHash } = this.state;
     if (planPath === null || planHash === null) throw new Error('Tasks cannot start before the plan is saved.');
-    const maxSubagents = options.maxSubagents;
     const running = new Map<string, { mutating: boolean; done: Promise<string> }>();
     for (;;) {
       this.signal.throwIfAborted();
-      for (const task of selectTasksToStart({ config, plan, taskStates: this.state.tasks, maxSubagents,
-        active: [...running].map(([taskId, entry]) => ({ taskId, mutating: entry.mutating })) })) {
+      for (const task of selectTasksToStart({ config: this.config, plan, taskStates: this.state.tasks,
+        maxSubagents: this.options.maxSubagents, active: [...running].map(([taskId, entry]) => ({ taskId, mutating: entry.mutating })) })) {
         this.setTaskStatus(task.id, 'running');
-        running.set(task.id, { mutating: isMutatingTask(config, task), done: this.runTask(task, config, planPath, planHash).then(() => task.id) });
+        running.set(task.id, { mutating: isMutatingTask(this.config, task), done: this.runTask(task, planPath, planHash).then(() => task.id) });
       }
       if (running.size === 0) {
         const unfinished = this.state.tasks.filter((task) => task.status !== 'completed').map((task) => task.taskId);
@@ -290,8 +303,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     }
   }
 
-  private async runTask(task: OrchestratorTask, config: SiftConfig, planPath: string, planHash: string): Promise<void> {
-    const lease = await this.acquireRepository(isMutatingTask(config, task) ? 'exclusive' : 'shared');
+  private async runTask(task: OrchestratorTask, planPath: string, planHash: string): Promise<void> {
+    const lease = await this.acquireRepository(isMutatingTask(this.config, task) ? 'exclusive' : 'shared');
     try {
       const baseline = await captureWorkspace(this.request.repoRoot);
       let retry: ImplementationRetryEvidence | null = null;
@@ -303,9 +316,10 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         const outcome = await this.runAttempt(task, task.writePaths, attempt, instruction, baseline);
         if (outcome.result.passed) {
           passing = outcome;
-        } else if (attempt.attempt >= 2) {
+        } else if (attempt.attempt >= ORCHESTRATOR_MAX_ATTEMPTS) {
           this.setTaskStatus(task.id, 'failed');
-          throw fail('implementation_failed', `Task '${task.id}' failed both implementation attempts: ${outcome.findings.join(' ')}`,
+          throw fail('implementation_failed',
+            `Task '${task.id}' failed all ${ORCHESTRATOR_MAX_ATTEMPTS} implementation attempts: ${outcome.findings.join(' ')}`,
             { taskId: task.id, purpose: 'implementation' });
         } else {
           this.setTaskStatus(task.id, 'retry_pending');
@@ -314,22 +328,28 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         }
       }
       await this.driftGate(task, baseline, passing.result.checks);
-      this.cleanup(() => {
-        for (const temporary of task.temporaryPaths) {
-          removeOwnedTemporaryPath(this.request.repoRoot, orchestratorScratchDir(this.runId), temporary);
-        }
-      }, task.id);
+      this.cleanupTaskTemporaries(task);
       this.setTaskStatus(task.id, 'completed');
     } finally {
       lease.release();
     }
   }
 
-  private cleanup(action: () => void, taskId: string | null): void {
+  private cleanupTaskTemporaries(task: OrchestratorTask): void {
     try {
-      action();
+      for (const temporary of task.temporaryPaths) {
+        removeOwnedTemporaryPath(this.request.repoRoot, orchestratorScratchDir(this.runId), temporary);
+      }
     } catch (error) {
-      throw fail('cleanup_failed', toError(error).message, { taskId });
+      throw fail('cleanup_failed', toError(error).message, { taskId: task.id });
+    }
+  }
+
+  private cleanupRunScratch(): void {
+    try {
+      cleanupScratch(this.request.repoRoot, orchestratorScratchDir(this.runId));
+    } catch (error) {
+      throw fail('cleanup_failed', toError(error).message);
     }
   }
 
@@ -350,7 +370,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   ): Promise<AttemptOutcome> {
     const child = await this.superviseChild(task, attempt, instruction);
     this.setTaskStatus(task.id, 'verifying');
-    const checks = await this.runChecks(task.verification);
+    const checks = await this.runChecks(task.verification, task);
     const changes = await diffWorkspace(this.request.repoRoot, baseline);
     const scopeViolations = findScopeViolations(changes.paths, writePaths);
     const review = checks.some((check) => check.check.kind === 'evidence')
@@ -380,7 +400,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
 
   private async superviseChild(task: OrchestratorTask, attempt: OrchestratorAttempt, instruction: string): Promise<ChildOutcome> {
     this.signal.throwIfAborted();
-    const session = startOrchestratorChild(this.ctx, {
+    const session = startOrchestratorChild(this.ctx, this.config, {
       runId: this.runId, taskId: task.id, attempt: attempt.attempt, childRunId: attempt.childRunId,
       workerPresetId: attempt.work.kind === 'drift_fix' ? 'repo-agent' : task.workerPresetId,
       repoRoot: this.request.repoRoot, work: attempt.work, instruction, approval: this.request.approval,
@@ -393,15 +413,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         const boundary = await session.waitForBoundary(seen, this.signal);
         seen = session.currentRevision();
         if (boundary.status !== 'approval_required') return toChildOutcome(boundary);
-        const answer = await this.answerApproval(task, { kind: 'child', childRunId: attempt.childRunId }, boundary.approval,
-          { purpose: attempt.purpose, attempt: attempt.attempt });
-        if (answer.decision === 'abort') {
-          this.abort('Aborted by user.');
-          this.signal.throwIfAborted();
-        }
-        session.submitDecision(answer.decision === 'deny'
-          ? { runId: attempt.childRunId, decision: 'deny', reason: answer.reason }
-          : { runId: attempt.childRunId, decision: 'approve' });
+        const decision = await this.answerChildApproval(task, attempt, boundary.approval);
+        session.submitDecision({ runId: attempt.childRunId, ...decision });
         seen = session.currentRevision();
       }
     } catch (error) {
@@ -413,38 +426,46 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     }
   }
 
+  private answerChildApproval(task: OrchestratorTask, attempt: OrchestratorAttempt, approval: RepoAgentApproval): Promise<ContinuingDecision> {
+    return this.answerApproval({ kind: 'child', childRunId: attempt.childRunId, taskId: task.id, ...approval },
+      buildChildApprovalPrompt({ task, purpose: attempt.purpose, attempt: attempt.attempt, approval }));
+  }
+
   /**
-   * Resolves one approval. Interactive runs ask the person; otherwise the parent decides on its
-   * own model in a finite phase. The child holds no model lease while either happens.
+   * Resolves one approval. Interactive runs ask the person; auto runs let the parent decide on its
+   * own model in a finite phase with `parentPrompt`. No child holds a model lease meanwhile.
    */
-  private async answerApproval(
-    task: OrchestratorTask | null,
-    target: NonNullable<OrchestratorRunState['approval']>['target'],
-    approval: RepoAgentApproval,
-    child: { purpose: OrchestratorAttempt['purpose']; attempt: number } | null,
-  ): Promise<OrchestratorApprovalAnswer> {
+  private async answerApproval(pending: OrchestratorPendingApproval, parentPrompt: string): Promise<ContinuingDecision> {
     const resumePhase = this.state.phase;
-    this.commit({ approval: { target, taskId: task?.id ?? null, approval } },
-      `Approval requested: ${approval.toolName} ${approval.command}`, task === null ? {} : { taskId: task.id });
+    const action = pending.kind === 'child' ? `${pending.toolName} ${pending.command}` : `run ${pending.command}`;
+    this.commit({ approval: pending }, `Approval requested: ${action}`, pending.taskId === null ? {} : { taskId: pending.taskId });
+    let decision: RepoAgentDecision;
     try {
-      if (this.request.approval === 'interactive' || task === null || child === null) {
-        this.commit({ phase: 'approval_required' }, 'Waiting for your approval decision.');
-        return await this.waitForUserDecision(approval.approvalId);
-      }
-      try {
-        const decision = await this.phases.decideChildApproval(this.phaseRequest(), { task, purpose: child.purpose,
-          attempt: child.attempt, approval });
-        return decision.decision === 'approve' ? { decision: 'approve' } : { decision: 'deny', reason: `orchestrator: ${decision.reason}` };
-      } catch (error) {
-        this.signal.throwIfAborted();
-        return { decision: 'deny', reason: `The orchestrator could not decide this request: ${toError(error).message}` };
-      }
+      decision = this.request.approval === 'interactive'
+        ? await this.waitForUserDecision(pending.approvalId)
+        : await this.decideOnParentModel(parentPrompt);
     } finally {
       if (!this.signal.aborted) this.commit({ approval: null, phase: resumePhase }, 'Approval resolved.');
     }
+    if (decision.decision === 'abort') {
+      this.abort('Aborted by user.');
+      throw toError(this.signal.reason);
+    }
+    return decision;
   }
 
-  private waitForUserDecision(approvalId: string): Promise<OrchestratorApprovalAnswer> {
+  private async decideOnParentModel(prompt: string): Promise<ContinuingDecision> {
+    try {
+      const decision = await this.phases.decideApproval(this.phaseRequest(), prompt);
+      return decision.decision === 'approve' ? { decision: 'approve' } : { decision: 'deny', reason: `orchestrator: ${decision.reason}` };
+    } catch (error) {
+      this.signal.throwIfAborted();
+      return { decision: 'deny', reason: `The orchestrator could not decide this request: ${toError(error).message}` };
+    }
+  }
+
+  private waitForUserDecision(approvalId: string): Promise<RepoAgentDecision> {
+    this.commit({ phase: 'approval_required' }, 'Waiting for your approval decision.');
     return new Promise((resolve, reject) => {
       const onAbort = (): void => {
         this.pendingUserDecision = null;
@@ -455,30 +476,37 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         return;
       }
       this.signal.addEventListener('abort', onAbort, { once: true });
-      this.pendingUserDecision = { approvalId, resolve: (answer) => {
+      this.pendingUserDecision = { approvalId, resolve: (decision) => {
         this.signal.removeEventListener('abort', onAbort);
-        resolve(answer);
+        resolve(decision);
       } };
     });
   }
 
-  /** Command checks run for real; an interactive run asks before running them. */
-  private async runChecks(checks: readonly OrchestratorVerificationCheck[]): Promise<OrchestratorCheckResult[]> {
-    const commands = checks.flatMap((check) => (check.kind === 'command' ? [check.command] : []));
-    if (commands.length > 0 && this.request.approval === 'interactive') {
-      const phaseRunId = randomUUID();
-      const answer = await this.answerApproval(null, { kind: 'phase', phaseRunId },
-        { approvalId: randomUUID(), toolName: 'run', command: commands.join(' ; '), reviewPayload: null }, null);
-      if (answer.decision === 'abort') {
-        this.abort('Aborted by user.');
-        this.signal.throwIfAborted();
+  /** Runs checks in order; unless approval is off, each command is approved on its own before it runs. */
+  private async runChecks(checks: readonly OrchestratorVerificationCheck[], task: OrchestratorTask | null): Promise<OrchestratorCheckResult[]> {
+    const results: OrchestratorCheckResult[] = [];
+    for (const check of checks) {
+      if (check.kind === 'evidence') {
+        results.push(unexecutedCheck(check, ''));
+        continue;
       }
-      if (answer.decision === 'deny') {
-        return checks.map((check) => ({ check, executed: false, exitCode: null, timedOut: false,
-          output: check.kind === 'command' ? `Not run: ${answer.reason}` : '' }));
-      }
+      const denial = await this.checkDenial(check, task);
+      results.push(denial === null
+        ? await runVerificationCheck({ repoRoot: this.request.repoRoot, check, runId: this.runId, abortSignal: this.signal })
+        : unexecutedCheck(check, `Not run: ${denial}`));
     }
-    return runVerificationChecks({ repoRoot: this.request.repoRoot, checks, runId: this.runId, abortSignal: this.signal });
+    return results;
+  }
+
+  /** The reason a check command may not run, or null once it is approved (or approval is off). */
+  private async checkDenial(check: OrchestratorCommandCheck, task: OrchestratorTask | null): Promise<string | null> {
+    if (this.request.approval === 'off') return null;
+    const decision = await this.answerApproval(
+      { kind: 'check', approvalId: randomUUID(), taskId: task?.id ?? null, command: check.command, cwd: check.cwd },
+      buildCheckApprovalPrompt({ goal: this.requirePlan().goal, task, check }),
+    );
+    return decision.decision === 'deny' ? decision.reason : null;
   }
 
   private renderDiff(baseline: WorkspaceSnapshot, paths: readonly string[]): Promise<string> {
@@ -511,8 +539,8 @@ export class OrchestratorRun implements OrchestratorLiveRun {
         openFindings = review.findings;
       }
       const used = this.state.attempts.filter((attempt) => attempt.taskId === task.id && attempt.purpose === 'drift_fix').length;
-      if (used >= 2) {
-        throw fail('drift_unresolved', `Task '${task.id}' still has unresolved drift after two corrections.`,
+      if (used >= ORCHESTRATOR_MAX_ATTEMPTS) {
+        throw fail('drift_unresolved', `Task '${task.id}' still has unresolved drift after ${ORCHESTRATOR_MAX_ATTEMPTS} corrections.`,
           { taskId: task.id, purpose: 'drift_fix', findingIds: openFindings.map((finding) => finding.id) });
       }
       this.setTaskStatus(task.id, 'correcting_drift');
@@ -561,7 +589,7 @@ export class OrchestratorRun implements OrchestratorLiveRun {
     // Global validation commands take exclusive ownership of the checkout.
     const lease = await this.acquireRepository('exclusive');
     try {
-      const checks = await this.runChecks(plan.finalVerification);
+      const checks = await this.runChecks(plan.finalVerification, null);
       const review = checks.some((check) => check.check.kind === 'evidence')
         ? await this.phases.verifyFinal(this.phaseRequest(), { goal: plan.goal, checks })
         : null;
@@ -573,10 +601,11 @@ export class OrchestratorRun implements OrchestratorLiveRun {
   }
 }
 
-function requireOrchestratorPreset(config: SiftConfig, presetId: string): SiftPreset {
+function requireOrchestratorOptions(config: SiftConfig, presetId: string): OrchestratorPresetOptions {
   const preset = PresetCatalog.fromPresets(config.Presets).requireById(presetId);
   if (preset.presetKind !== 'orchestrator') throw new Error(`Preset '${presetId}' is a ${preset.presetKind} preset, not an orchestrator.`);
-  return preset;
+  if (preset.orchestrator === null) throw new Error(`Orchestrator preset '${presetId}' has no orchestrator options.`);
+  return preset.orchestrator;
 }
 
 function readSuppliedPlan(repoRoot: string, planPath: string): { path: string; markdown: string } {

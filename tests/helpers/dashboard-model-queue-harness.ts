@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { SiftPreset } from '@siftkit/contracts';
 
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import { getActiveModelPreset } from '../../src/config/getters.js';
@@ -329,17 +330,22 @@ export class DashboardModelQueueHarness {
   }
 
   /** Saves an operation preset's model selection; null inherits the current model. */
-  async assignOperationModel(presetId: string, modelPresetId: string | null): Promise<void> {
+  assignOperationModel(presetId: string, modelPresetId: string | null): Promise<void> {
+    return this.updateOperationPreset(presetId, { modelPresetId });
+  }
+
+  /** Saves changed fields of one operation preset through the config API. */
+  async updateOperationPreset(presetId: string, change: Partial<SiftPreset>): Promise<void> {
     const config = readConfig(getConfigPath());
     const response = await requestJson(`${this.getBaseUrl()}/config?skip_ready=1`, {
       method: 'PUT',
       body: JSON.stringify({
         ...config,
-        Presets: config.Presets.map((preset) => preset.id === presetId ? { ...preset, modelPresetId } : preset),
+        Presets: config.Presets.map((preset) => preset.id === presetId ? { ...preset, ...change } : preset),
       }),
     });
     if (response.statusCode !== 200) {
-      throw new Error(`Expected the model assignment to save, received ${response.statusCode}.`);
+      throw new Error(`Expected the preset '${presetId}' update to save, received ${response.statusCode}.`);
     }
   }
 
